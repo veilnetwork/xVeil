@@ -2277,6 +2277,7 @@
   "callEarpiece": "Auricular del teléfono",
   "callCameras": "Cámaras",
   "callSpeakers": "Dispositivos de salida",
+  "callSystemAudioOutput": "Salida del sistema",
   "callMicrophones": "Micrófonos",
   "callDisplays": "Monitores",
   "callWindows": "Ventanas",

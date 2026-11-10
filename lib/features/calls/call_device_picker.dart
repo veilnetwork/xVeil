@@ -290,7 +290,11 @@ class _DeviceTile extends StatelessWidget {
       CallMediaDeviceKind.screen => Icons.monitor,
       CallMediaDeviceKind.window => Icons.web_asset,
     }),
-    title: Text(device.label),
+    title: Text(
+      device.followsSystem
+          ? AppL10n.of(context).callSystemAudioOutput
+          : device.label,
+    ),
     trailing: device.selected ? const Icon(Icons.check) : null,
     onTap: onTap,
   );

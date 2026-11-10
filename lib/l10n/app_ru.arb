@@ -2269,6 +2269,7 @@
   "callEarpiece": "Динамик телефона",
   "callCameras": "Камеры",
   "callSpeakers": "Устройства вывода",
+  "callSystemAudioOutput": "Системный выход",
   "callMicrophones": "Микрофоны",
   "callDisplays": "Дисплеи",
   "callWindows": "Окна",

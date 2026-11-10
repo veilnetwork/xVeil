@@ -251,6 +251,32 @@ class _RestoreStageEngine extends _Engine {
   }
 }
 
+class _OutputChoiceEngine extends _Engine {
+  _OutputChoiceEngine({this.hasDefault = true})
+    : super(nativeStarted: true, capture: 1);
+  final bool hasDefault;
+  final selected = <String>[];
+  String? rejected;
+
+  @override
+  List<MediaDevice> listAudioOutputs() => [
+    const MediaDevice(id: '0', label: 'digital output', kind: 'output'),
+    const MediaDevice(id: '2', label: 'chosen speaker', kind: 'output'),
+    if (hasDefault)
+      const MediaDevice(
+        id: 'system-default',
+        label: 'System default',
+        kind: 'output',
+      ),
+  ];
+
+  @override
+  bool selectAudioOutput(String id) {
+    selected.add(id);
+    return id != rejected;
+  }
+}
+
 class _PreflightTransport extends _Transport {
   final identityEntered = Completer<void>();
   final identityReady = Completer<void>();
@@ -306,6 +332,97 @@ class _PreflightPreferences extends InMemorySharedPreferencesStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final preference in [null, 'chosen speaker', 'unplugged speaker']) {
+    test('speaker restore uses the actual choice: $preference', () async {
+      final key = 'call.playout.speaker.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({
+        key: ?preference,
+      });
+      final engine = _OutputChoiceEngine();
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call()), isTrue);
+        final expected = preference == 'chosen speaker'
+            ? '2'
+            : 'system-default';
+        expect(engine.selected, [expected]);
+        expect(
+          (await controller.listSpeakers())
+              .where((device) => device.selected)
+              .map((device) => device.id),
+          [expected],
+        );
+      } finally {
+        await controller.stop();
+      }
+    });
+  }
+
+  test(
+    'returning to system output clears the saved device preference',
+    () async {
+      final key = 'call.playout.speaker.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({key: 'chosen speaker'});
+      final engine = _OutputChoiceEngine();
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call()), isTrue);
+        engine.rejected = 'system-default';
+        expect(await controller.selectSpeaker('system-default'), isFalse);
+        expect(
+          (await SharedPreferences.getInstance()).getString(key),
+          'chosen speaker',
+        );
+        expect(
+          (await controller.listSpeakers()).singleWhere((d) => d.selected).id,
+          '2',
+        );
+        engine.rejected = null;
+        expect(await controller.selectSpeaker('system-default'), isTrue);
+        expect(
+          (await SharedPreferences.getInstance()).containsKey(key),
+          isFalse,
+        );
+        expect(
+          (await controller.listSpeakers()).singleWhere((d) => d.selected).id,
+          'system-default',
+        );
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
+
+  test(
+    'an engine without output-role metadata cannot claim device zero',
+    () async {
+      final engine = _OutputChoiceEngine(hasDefault: false);
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call()), isTrue);
+        expect(engine.selected, isEmpty);
+        expect(
+          (await controller.listSpeakers()).where((d) => d.selected),
+          isEmpty,
+        );
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
 
   for (final stage in [
     'preferences',

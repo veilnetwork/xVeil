@@ -5552,6 +5552,9 @@ class AppL10nRu extends AppL10n {
   String get callSpeakers => 'Устройства вывода';
 
   @override
+  String get callSystemAudioOutput => 'Системный выход';
+
+  @override
   String get callMicrophones => 'Микрофоны';
 
   @override

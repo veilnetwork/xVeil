@@ -1,0 +1,18 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "candidate-under-test",
+  "diagnosis": "saved-output-differs-from-system-output",
+  "liveSpeechWithSystemOutputConfirmedBothWays": 2,
+  "savedOutputLiveSpeechAudibleOnWindows": false,
+  "newNativeSelectorPhysicallyQualified": false,
+  "nativeAssertions": 25,
+  "previousNativeTransactionFailedAssertions": 21,
+  "dartTestsPassed": 66,
+  "dartTestsSkipped": 0,
+  "qaCrashAfterOldLibraryOutputSwitch": {
+    "observed": true,
+    "causeEstablished": false,
+    "claimedFixed": false
+  },
+  "applicationReleasePublished": false
+}
