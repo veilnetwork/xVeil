@@ -89,8 +89,20 @@ was released on the caller. Its COM initializer therefore uninitialized the
 caller's apartment. The candidate now retains a lifetime reference until other
 media state and queues are destroyed, then releases it synchronously on the ADM
 thread. Both engine types and construction-error cleanup use this rule. Eight
-portable lifetime checks pass. The real-DLL probe and application call/lock cycle
-must still pass on the rebuilt library before release.
+portable lifetime checks pass, including under ASan/UBSan. The tracked probe was
+compiled with MSVC and rerun against both DLLs: four original cases fail and all
+four repaired cases pass. The repaired DLL is
+`979912337dc536a06c74727c990e3875f96a80d01734f35183a47975c7aa3edb`,
+from [engine CI 42819906067](https://github.com/veilnetwork/xVeil/actions/runs/42819906067).
+The binary hash, source digest, SDK revision and exported ABI were verified.
+
+With that exact library actually loaded, three further application cycles each
+completed a call, two output switches, hangup, lock and password unlock. Both
+capture/playout startup results were checked. A final live call on the system
+output was confirmed audible in both directions by the owner, without synthetic
+speech or recordings. The final notification-cancelling lock also succeeded.
+The stand's other native libraries and frozen Windows frontend did not change
+during this native lifetime qualification.
 
 One old-library QA process exited with `0xc0000409` after an output switch; its
 cause is unknown, and neither the route diagnosis nor this patch is claimed to
