@@ -108,8 +108,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The certificate is on screen without pressing Create: the step opened
-    // holding the earlier mint.
+    // The earlier mint is already held, but its certificate starts folded.
+    // Opening the details must reveal that same certificate without minting.
+    expect(find.text(first.certificate), findsNothing);
+    final details = find.byType(ExpansionTile);
+    await tester.ensureVisible(details);
+    await tester.tap(details);
+    await tester.pumpAndSettle();
     expect(find.text(first.certificate), findsOneWidget);
     expect(
       _mintCount,

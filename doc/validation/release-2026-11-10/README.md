@@ -25,6 +25,14 @@ native source digest, even where Windows-only code is excluded by compilation.
 
 ## Publication gates
 
+The first complete application CI run reported 8,074 passing tests, one failure
+and 501 skips. The failure was an obsolete always-visible certificate expectation
+after the requested expandable-details UI change. The reuse test now first checks
+that the certificate is folded, opens its details and checks the same certificate
+and unchanged mint count. All 11 focused recovery-step tests pass. The failed full
+run is not a passing gate; final-commit CI must run again. No product fallback or
+backup requirement was weakened to satisfy that test.
+
 Source CI must pass for the final release commits. Published binary signatures,
 checksums, native dependency provenance, architecture and privacy scans must pass
 before deployment. Production/testnet seed updates require backups, unchanged
