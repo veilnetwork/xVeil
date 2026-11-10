@@ -265,6 +265,148 @@ void main() {
     },
   );
 
+  for (final corrected in [false, true]) {
+    for (final priorStatus in [MessageStatus.delivered, MessageStatus.sent]) {
+      test(
+        'settled mirror skips redundant ordering lookup, corrected=$corrected status=$priorStatus',
+        () async {
+          final counted = _StatusWrites(FakeHvContainer().passwordOpener);
+          await open(counted);
+          addTearDown(close);
+          final author = _id(3);
+          var authorChecks = 0;
+          service.isOwnDevice = (node) async {
+            if (node == author) authorChecks++;
+            return node == author;
+          };
+          await storage.appendMessage(
+            Message(
+              id: 'settled-position',
+              conversationId: peer.hex,
+              direction: MessageDirection.outgoing,
+              body: 'durable original',
+              timestamp: DateTime.utc(2020),
+              status: priorStatus,
+              author: corrected ? peer.hex : author.hex,
+              seq: corrected ? 99 : 1,
+              positionVerified: !corrected,
+            ),
+          );
+          if (corrected) {
+            expect(
+              await storage.adoptMessageOrdering(
+                peer.hex,
+                'settled-position',
+                provisionalAuthor: peer.hex,
+                provisionalSeq: 99,
+                author: author.hex,
+                seq: 1,
+              ),
+              isTrue,
+            );
+          }
+          counted.pointReads = 0;
+          counted.statusCalls = 0;
+          final changed = await service.applyMirroredMessage(
+            peer: peer,
+            msgId: 'settled-position',
+            direction: MessageDirection.outgoing,
+            body: 'replay must not replace content',
+            tsMs: DateTime.now().millisecondsSinceEpoch,
+            status: MessageStatus.delivered,
+            author: author.hex,
+            seq: 1,
+            positionVerified: true,
+          );
+          expect(changed, priorStatus != MessageStatus.delivered);
+          expect(
+            counted.pointReads,
+            priorStatus == MessageStatus.delivered ? 1 : 2,
+            reason:
+                'keep the status writer fresh without another ordering read',
+          );
+          expect(
+            authorChecks,
+            0,
+            reason: 'read-only ordering does not resolve the author again',
+          );
+          expect(
+            counted.statusCalls,
+            priorStatus == MessageStatus.delivered ? 0 : 1,
+          );
+          final held = (await storage.loadMessageById(
+            peer.hex,
+            'settled-position',
+          ))!;
+          expect(held.body, 'durable original');
+          expect(
+            held.timestamp.millisecondsSinceEpoch,
+            DateTime.utc(2020).millisecondsSinceEpoch,
+          );
+          expect(held.author, corrected ? peer.hex : author.hex);
+          expect(held.seq, corrected ? 99 : 1);
+          expect(held.orderAuthor, author.hex);
+          expect(held.orderSeq, 1);
+          expect(held.status, MessageStatus.delivered);
+          expect(await storage.loadMessages(peer.hex), hasLength(1));
+        },
+      );
+    }
+  }
+
+  test('ordering rechecks a row deleted during author admission', () async {
+    final counted = _StatusWrites(FakeHvContainer().passwordOpener);
+    await open(counted);
+    addTearDown(close);
+    final author = _id(3);
+    final entered = Completer<void>(), release = Completer<void>();
+    service.isOwnDevice = (node) async {
+      if (node == author) {
+        entered.complete();
+        await release.future;
+        return true;
+      }
+      return false;
+    };
+    await storage.appendMessage(
+      Message(
+        id: 'deleted-during-admission',
+        conversationId: peer.hex,
+        direction: MessageDirection.outgoing,
+        body: 'provisional echo',
+        timestamp: DateTime.utc(2020),
+        status: MessageStatus.delivered,
+        author: peer.hex,
+        seq: 99,
+        positionVerified: false,
+      ),
+    );
+    final applying = service.applyMirroredMessage(
+      peer: peer,
+      msgId: 'deleted-during-admission',
+      direction: MessageDirection.outgoing,
+      body: 'must not resurrect',
+      tsMs: DateTime.now().millisecondsSinceEpoch,
+      status: MessageStatus.delivered,
+      author: author.hex,
+      seq: 1,
+      positionVerified: true,
+    );
+    try {
+      await entered.future;
+      await storage.deleteMessage(peer.hex, 'deleted-during-admission');
+      release.complete();
+      expect(await applying, isFalse);
+      expect(await storage.loadMessages(peer.hex), isEmpty);
+      expect(
+        await storage.isMessageDeleted(peer.hex, 'deleted-during-admission'),
+        isTrue,
+      );
+    } finally {
+      if (!release.isCompleted) release.complete();
+    }
+  });
+
   test(
     'a sibling delivery report before its mirror is retained without orphan rows',
     () async {
