@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: checkpoint-overlap кандидат отклонён после A/B/A
+
+[Gate-проверки, native контроль и отрицательный результат](../history-checkpoint-boundary-100000-2026-11-10/README.md):
+раннее освобождение conversation lane позволяло второму источнику идти при
+удержанном cursor-write; shutdown и собственный durable checkpoint сохранялись.
+Но на 100000 **103189→109044→103119 мс**, passive witness
+**101455,349→103753,815→99693,066 мс**. Ускорения нет; кандидат и его тесты
+убраны, текущий product/test код восстановлен. 206 tests относятся к кандидату.
+
+Все 100001 строки exact/cold, callbacks/commits/wire counts сохранены;
+1544 frozen inputs, native provenance/mappings/cleanup проверены. Перекрытие
+apply с самой записью cursor нулевое; admission до/после неё probe не охватывает.
+Следующий участок — последовательные metadata/payload RPC свежего чтения
+журнала устройств, без кеша принятой авторизации. Latency остаётся открытой;
+другие фронты без изменений. Это отчёт об отборе, не новый production fix.
+
 ## 2026-11-10: готовая позиция mirror не требует повторного ordering lookup
 
 [Четыре parent-red и native A/B/A](../mirror-settled-order-100000-2026-11-10/README.md):
