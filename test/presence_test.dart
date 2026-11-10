@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -19,6 +20,7 @@ class _Capture implements VeilTransport {
   final _in = StreamController<InboundMessage>.broadcast();
   final sent = <(NodeId, WireKind, String)>[];
   Future<void> Function(NodeId)? beforeSend;
+  void Function()? afterSend;
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -29,6 +31,7 @@ class _Capture implements VeilTransport {
     await beforeSend?.call(dst);
     final env = WireEnvelope.decode(payload);
     sent.add((dst, env.kind, env.body));
+    afterSend?.call();
   }
 
   @override
@@ -82,6 +85,28 @@ Future<void> _hold(
       status: MessageStatus.delivered,
     ),
   );
+}
+
+class _ProjectionCountingStorage extends HiddenVolumeStorage {
+  _ProjectionCountingStorage() : super.fromStore(FakeKvLogStore());
+  int displayRows = 0, rawRows = 0;
+
+  @override
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async {
+    final rows = await super.loadMessages(conversationId, limit: limit);
+    displayRows += rows.length;
+    return rows;
+  }
+
+  @override
+  Future<List<Message>> loadMessageRows(String conversationId) async {
+    final rows = await super.loadMessageRows(conversationId);
+    rawRows += rows.length;
+    return rows;
+  }
 }
 
 void main() {
@@ -275,6 +300,95 @@ void main() {
     // never on the counterpart's word.
     final peer = _id(0x44);
     final me = _id(0x91);
+
+    test(
+      'a 100000-row comparison does not build unused UI display order',
+      () async {
+        final store = _ProjectionCountingStorage();
+        addTearDown(store.close);
+        await store.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        final base = DateTime.utc(2020);
+        for (
+          var start = 0;
+          start < 100000;
+          start += preparedMessageBatchMaxRows
+        ) {
+          final end = (start + preparedMessageBatchMaxRows).clamp(0, 100000);
+          final rows = [
+            for (var i = start; i < end; i++)
+              Message(
+                id: 'm$i',
+                conversationId: peer.hex,
+                body: 'body-$i',
+                direction: MessageDirection.incoming,
+                timestamp: base.add(Duration(seconds: i)),
+                status: MessageStatus.delivered,
+                author: peer.hex,
+                seq: i + 1,
+                positionVerified: true,
+              ),
+          ];
+          expect(
+            await store.appendMissingMessageBatch(
+              rows,
+              beforeCommit: () async {},
+            ),
+            List.filled(rows.length, PreparedMessageWrite.appended),
+          );
+        }
+        final t = _Capture(me);
+        final service = await _service(t, store);
+        addTearDown(service.dispose);
+        service.selfIdentityHex = () async => identity.hex;
+        service.isOwnDevice = (p) async => p == identity || p == sibling;
+        service.myOtherDevices = () async => [sibling];
+        final sent = Completer<void>();
+        t.afterSend = () {
+          if (!sent.isCompleted &&
+              t.sent.where((e) => e.$2 == WireKind.deviceGone).length == 2) {
+            sent.complete();
+          }
+        };
+        await service.deliverInbound(
+          InboundMessage(
+            src: identity,
+            srcDevice: sibling,
+            payload: WireEnvelope.presence(sibling.hex, reply: true).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        await sent.future;
+        final requests = [
+          for (final frame in t.sent)
+            if (frame.$2 == WireKind.deviceGone) jsonDecode(frame.$3) as Map,
+        ];
+        expect(requests, hasLength(2));
+        expect(
+          requests.every(
+            (request) =>
+                request['q'] == peer.hex &&
+                (request['k'] as List).length == 200,
+          ),
+          isTrue,
+        );
+        expect(
+          {
+            for (final request in requests)
+              ...(request['k'] as List).cast<String>(),
+          },
+          {for (var i = 99600; i < 100000; i++) ownEchoKey('m$i')},
+        );
+        expect(
+          store.displayRows,
+          0,
+          reason:
+              'erasure pages use raw timestamp order, not UI causal-time projection',
+        );
+        expect(store.rawRows, 100000);
+      },
+    );
 
     test('each pass checks the newest page and advances through old pages', () {
       expect(erasureComparisonPages(round: 1, pages: 1), [0]);

@@ -95,7 +95,9 @@ class _MessagingDeviceMirror {
         final c = conversations[index];
         final peer = c.peer.nodeId;
         if (await _owner._isSiblingDevice(peer)) continue;
-        final messages = await _owner._storage.loadMessages(peer.hex)
+        // Erasure pages use raw timestamp order, not the UI's causal-time
+        // projection. Keep the same fresh folded rows and their overlays.
+        final messages = await readMessageRows(_owner._storage, peer.hex)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         if (messages.isEmpty) continue;
         final pages = (messages.length + _erasureWindow - 1) ~/ _erasureWindow;
