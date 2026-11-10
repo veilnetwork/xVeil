@@ -13,6 +13,27 @@ stand directory. Never install this fixture DLL next to `xveil.exe`.
 
 ## Inputs and build
 
+### COM lifetime control without playing audio
+
+`test/native/windows_audio_com_lifetime_probe.cpp` reuses this transport fixture
+to check construction/destruction of the real media engine. Copy that source to
+the isolated stand directory, build the fixture DLL as below, then compile:
+
+```powershell
+cl /nologo /std:c++17 /EHsc /W4 /WX /wd4191 windows_audio_com_lifetime_probe.cpp /Fe:com-lifetime.exe /link ole32.lib
+if ($LASTEXITCODE) { throw 'COM lifetime probe compile failed' }
+```
+
+Run `com-lifetime.exe ABSOLUTE_FIXTURE_DLL ABSOLUTE_MEDIA_DLL unicast sta` in the
+interactive session; repeat in fresh processes for `unicast mta`, `group sta`
+and `group mta`. All four must exit 0 and report both creation/destruction COM
+preservation. Exit 1 is a product failure; other nonzero exits indicate fixture
+failure or timeout. This control never starts capture/playout or the network;
+it does not establish audible sound. The same binary-provenance and isolated
+directory requirements apply. Never put the fixture in an application bundle.
+
+### Receive-only audio control
+
 Use the x64 Visual Studio Developer PowerShell, Python 3, and FFmpeg with
 libopus. Supply a media DLL whose SHA has already been verified against the
 release provenance, or against a qualified source build. Record/check its
