@@ -281,8 +281,15 @@ class E2eDevice {
   PrivateHistoryWireProbe? _historyWireProbe;
   PrivateHistoryWorkProbe? _historyWorkProbe;
   PrivateHistoryGate? _historyGate;
-  Map<String, int> privateHistoryGateSnapshot() =>
-      _historyGate?.snapshot ?? const {};
+  PrivateHistoryGate? _partialHistoryGate;
+  Map<String, int> privateHistoryGateSnapshot() => {
+    ...?_historyGate?.snapshot,
+    if (_partialHistoryGate case final partial?) ...{
+      'partialApplyRowCalls': partial.snapshot['applySelectedRowCalls']!,
+      'partialApplyReleased': partial.snapshot['applyReleased']!,
+      'partialApplyFailures': partial.snapshot['applyFailures']!,
+    },
+  };
   List<Map<String, dynamic>> privateHistoryWireSnapshot() =>
       _historyWireProbe?.snapshot ?? const [];
   HiddenVolumeStorage? _storage;
@@ -387,6 +394,13 @@ class E2eDevice {
           final ids = <String>{};
           final retainedRows = <CrashRetentionRow>[];
           var rows = 0, delivered = 0;
+          final expectation = File(
+            '${dir.path}/${overlapInspection ? 'history-overlap-witness' : 'crash-witness'}.json',
+          );
+          final expectedWitness = await expectation.exists()
+              ? jsonDecode(await expectation.readAsString()) as Map
+              : null;
+          Map<String, Object>? cursorRetention;
           if (await File('${dir.path}/store.hv').exists()) {
             // Close this inspector before constructing the application's
             // owner: observing disk state must not warm its message folds.
@@ -420,17 +434,42 @@ class E2eDevice {
                   );
                 }
               }
+              if (expectedWitness?['expectedCursors'] case final Map cursors) {
+                if (cursors.isEmpty || cursors.length > 32 ||
+                    cursors.entries.any((entry) =>
+                        entry.key is! String ||
+                        !RegExp(r'^[0-9a-f]{64}$').hasMatch(entry.key as String) ||
+                        entry.value is! String || (entry.value as String).isEmpty)) {
+                  _fail('invalid synthetic cursor witness');
+                }
+                final actualCursors = <CrashRetentionRow>[];
+                for (final entry in cursors.entries) {
+                  final raw = await inspector.getSetting(
+                    'device.history.cursor.v2:${entry.key}',
+                  );
+                  if (raw != null) {
+                    actualCursors.add(CrashRetentionRow(
+                      id: entry.key as String, delivered: true, bodyTag: raw,
+                    ));
+                  }
+                }
+                // Reuse the count-only exact-content oracle; raw cursor
+                // strings stay in memory/private witness, never in its result.
+                cursorRetention = crashRetentionOf(
+                  expected: [for (final entry in cursors.entries)
+                    CrashRetentionRow(id: entry.key as String,
+                        delivered: true, bodyTag: entry.value as String)],
+                  actual: actualCursors,
+                  allowedIds: cursors.keys.cast<String>().toSet(),
+                );
+              }
             } finally {
               await inspector.close();
             }
           }
           int? witness;
           Map<String, Object>? retention;
-          final expectation = File(
-            '${dir.path}/${overlapInspection ? 'history-overlap-witness' : 'crash-witness'}.json',
-          );
-          if (await expectation.exists()) {
-            final value = jsonDecode(await expectation.readAsString()) as Map;
+          if (expectedWitness case final value?) {
             witness = value['witness'] as int;
             retention = crashRetentionOf(
               expected: [
@@ -444,7 +483,7 @@ class E2eDevice {
           await File(
             '$evidence/${overlapInspection ? 'overlap' : 'backlog'}-B-before-network-private.jsonl',
           ).writeAsString(
-            '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch, 'witness': ?witness, 'retention': ?retention})}\n',
+            '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch, 'witness': ?witness, 'retention': ?retention, 'cursorRetention': ?cursorRetention})}\n',
             mode: FileMode.append,
             flush: true,
           );
@@ -598,6 +637,21 @@ class E2eDevice {
             ? PrivateHistoryGate(dir, 'native-overlap-')
             : null;
         _historyGate = historyGate;
+        final crashRow = overlap && label == 'B'
+            ? historyCrashRow(
+                Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_CRASH_AT_ROW'],
+                historyArchiveRows(
+                  Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_ROWS'],
+                ),
+              )
+            : null;
+        final partialHistoryGate = crashRow == null
+            ? null
+            : PrivateHistoryGate(
+                dir, 'native-overlap-',
+                rowIndex: crashRow, filePrefix: 'history-midpoint',
+              );
+        _partialHistoryGate = partialHistoryGate;
         if (census != null) {
           Future<List<NodeId>> Function()? wrapped;
           Future<void> Function(DeviceSyncEvent)? wrappedApply;
@@ -628,6 +682,13 @@ class E2eDevice {
                           body: event.payload['body'] as String? ?? '',
                           isActive: () =>
                               boot.alive &&
+                              identical(binding, messaging.groupBindingsOwner),
+                        );
+                        await partialHistoryGate?.wait(
+                          kind: HistoryGateKind.apply,
+                          id: event.key,
+                          body: event.payload['body'] as String? ?? '',
+                          isActive: () => boot.alive &&
                               identical(binding, messaging.groupBindingsOwner),
                         );
                         await prepared(event, append);
@@ -715,6 +776,7 @@ class E2eDevice {
       _historyWireProbe = null;
       _historyWorkProbe = null;
       _historyGate = null;
+      _partialHistoryGate = null;
       _stack = null;
       _storage = null;
       await teardownLegs('device-$label-stop', [

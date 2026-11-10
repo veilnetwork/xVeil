@@ -10,28 +10,37 @@ class PrivateHistoryGate {
   PrivateHistoryGate(
     this.dir,
     this.prefix, {
+    this.rowIndex = 0,
+    this.filePrefix = 'history-overlap',
     this.lease = const Duration(minutes: 1),
     this.poll = const Duration(milliseconds: 20),
     Future<bool> Function(File file)? signalExists,
-  }) : _signalExists = signalExists ?? _fileExists;
+  }) : _signalExists = signalExists ?? _fileExists {
+    if (rowIndex < 0 || !RegExp(r'^[a-z][a-z0-9-]{0,63}$').hasMatch(filePrefix)) {
+      throw ArgumentError('invalid synthetic history gate selector');
+    }
+  }
   static Future<bool> _fileExists(File file) => file.exists();
   final Future<bool> Function(File file) _signalExists;
   final Directory dir;
   final String prefix;
+  final int rowIndex;
+  final String filePrefix;
   final Duration lease, poll;
   final _claimed = <HistoryGateKind>{};
   final _seen = <HistoryGateKind, int>{};
   final _released = <HistoryGateKind>{}, _failed = <HistoryGateKind>{};
   Map<String, int> get snapshot => {
     for (final kind in HistoryGateKind.values)
-      '${kind.name}FirstRowCalls': _seen[kind] ?? 0,
+      '${kind.name}${rowIndex == 0 ? 'First' : 'Selected'}RowCalls':
+          _seen[kind] ?? 0,
     for (final kind in HistoryGateKind.values) ...{
       '${kind.name}Released': _released.contains(kind) ? 1 : 0,
       '${kind.name}Failures': _failed.contains(kind) ? 1 : 0,
     },
   };
   File file(HistoryGateKind kind, String suffix) =>
-      File('${dir.path}/history-overlap-${kind.name}-$suffix');
+      File('${dir.path}/$filePrefix-${kind.name}-$suffix');
 
   Future<bool> wait({
     required HistoryGateKind kind,
@@ -39,7 +48,10 @@ class PrivateHistoryGate {
     required String body,
     required bool Function() isActive,
   }) async {
-    if (id != '${prefix}0000' || !body.startsWith(prefix)) return false;
+    if (id != '$prefix${rowIndex.toString().padLeft(4, '0')}' ||
+        !body.startsWith(prefix)) {
+      return false;
+    }
     _seen.update(kind, (n) => n + 1, ifAbsent: () => 1);
     if (_claimed.contains(kind)) return false;
     final arm = file(kind, 'arm');
@@ -51,7 +63,8 @@ class PrivateHistoryGate {
     await staged.writeAsString(
       jsonEncode({
         'kind': kind.name,
-        'matchedFirstRow': true,
+        'matchedFirstRow': rowIndex == 0,
+        'matchedRowIndex': rowIndex,
         'atUs': DateTime.now().microsecondsSinceEpoch,
       }),
       flush: true,
