@@ -51,6 +51,110 @@ Message row(String id, int micros, {bool utc = true}) => Message(
 );
 
 void main() {
+  test('history windows match full fresh sort across layouts and cursors', () {
+    final random = Random(739);
+    for (final count in [0, 1, 2, 3, 16, 129, 256, 1000]) {
+      final ordered = [
+        for (var i = 0; i < count; i++)
+          row('m${i.toString().padLeft(4, '0')}', (i ~/ 3) * 1000 + i % 3),
+      ];
+      final shuffled = List<Message>.of(ordered)..shuffle(random);
+      for (final input in [
+        ordered,
+        ordered.reversed.toList(),
+        shuffled,
+        [...ordered.skip(count ~/ 2), ...ordered.take(count ~/ 2)],
+        [
+          for (var i = 0; i < count; i += 2) ordered[i],
+          for (var i = 1; i < count; i += 2) ordered[i],
+        ],
+      ]) {
+        final expected = List<Message>.of(input)
+          ..sort(compareMessageHistoryOrder);
+        for (final cursor in <(int, String)?>[
+          null,
+          (-1, ''),
+          (0, ''),
+          (0, 'm0001'),
+          (0, 'm0001x'),
+          if (count > 0)
+            (
+              expected[count ~/ 2].timestamp.millisecondsSinceEpoch,
+              expected[count ~/ 2].id,
+            ),
+          (1 << 60, 'after-tail'),
+        ]) {
+          final suffix = expected
+              .where(
+                (m) =>
+                    cursor == null ||
+                    compareMessageHistoryCursor(m, cursor.$1, cursor.$2) > 0,
+              )
+              .toList();
+          for (final limit in [0, 1, 2, 8, 64, 128, 257, 1 << 62]) {
+            final source = List<Message>.unmodifiable(input);
+            final actual = messageHistoryWindow(
+              source,
+              limit: limit,
+              afterTimestampMs: cursor?.$1,
+              afterId: cursor?.$2,
+            );
+            expect(actual, suffix.take(limit));
+            actual.clear();
+            expect(source, input);
+          }
+        }
+      }
+    }
+  });
+
+  test('100000-row windows do not materialize a whole two-run merge', () {
+    final ordered = [for (var i = 0; i < 100000; i++) row('m$i', i * 1000)];
+    for (final input in [
+      ordered,
+      [ordered.last, ...ordered.take(ordered.length - 1)],
+      [...ordered.skip(50000), ...ordered.take(50000)],
+      [
+        for (var i = 0; i < 100000; i += 2) ordered[i],
+        for (var i = 1; i < 100000; i += 2) ordered[i],
+      ],
+    ]) {
+      final rows = _CountedRows(input);
+      final selected = messageHistoryWindow(
+        rows,
+        limit: 257,
+        afterTimestampMs: 99,
+        afterId: 'm99',
+      );
+      expect(selected, ordered.skip(100).take(257));
+      expect(rows.reads, lessThanOrEqualTo(101024));
+      expect(rows.writes, 0);
+      expect(rows.buffers, isEmpty);
+    }
+  });
+
+  test('window rejects partial cursors and observes a later changed view', () {
+    final rows = [row('late', 3000), row('first', 1000), row('next', 2000)];
+    expect(messageHistoryWindow(rows, limit: 2).map((m) => m.id), [
+      'first',
+      'next',
+    ]);
+    rows[1] = row('replacement', 4000);
+    expect(messageHistoryWindow(rows, limit: 2).map((m) => m.id), [
+      'next',
+      'late',
+    ]);
+    expect(() => messageHistoryWindow(rows, limit: -1), throwsArgumentError);
+    expect(
+      () => messageHistoryWindow(rows, limit: 1, afterTimestampMs: 0),
+      throwsArgumentError,
+    );
+    expect(
+      () => messageHistoryWindow(rows, limit: 0, afterId: ''),
+      throwsArgumentError,
+    );
+  });
+
   test('100000 already ordered rows are read once without sort writes', () {
     final source = [for (var i = 0; i < 100000; i++) row('m$i', i * 1000)];
     final rows = _CountedRows(List.of(source), readOnly: false);

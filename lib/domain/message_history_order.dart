@@ -11,12 +11,10 @@ int compareMessageHistoryCursor(Message message, int timestampMs, String id) {
   return time != 0 ? time : message.id.compareTo(id);
 }
 
-/// Keep a fresh snapshot which is already in wire order without re-sorting it.
-/// Two sorted runs can use a buffer of at most 128 references to merge a small
-/// displaced block. Other inversions take the ordinary in-place sort path.
-/// No rows survive the call, and all paths use the wire's millisecond/ID order.
-void sortMessageHistory(List<Message> rows) {
-  if (rows.length < 2) return;
+// Zero for an ordered view, the split of two ordered runs, or -1 for more.
+// This is a fresh observation, not a remembered assertion about a store.
+int _historyRunSplit(List<Message> rows) {
+  if (rows.length < 2) return 0;
   var split = 0;
   var previous = rows.first;
   var previousMs = previous.timestamp.millisecondsSinceEpoch;
@@ -25,16 +23,26 @@ void sortMessageHistory(List<Message> rows) {
     final currentMs = current.timestamp.millisecondsSinceEpoch;
     if (currentMs < previousMs ||
         (currentMs == previousMs && current.id.compareTo(previous.id) < 0)) {
-      if (split != 0) {
-        rows.sort(compareMessageHistoryOrder);
-        return;
-      }
+      if (split != 0) return -1;
       split = i;
     }
     previous = current;
     previousMs = currentMs;
   }
+  return split;
+}
+
+/// Keep a fresh snapshot which is already in wire order without re-sorting it.
+/// Two sorted runs can use a buffer of at most 128 references to merge a small
+/// displaced block. Other inversions take the ordinary in-place sort path.
+/// No rows survive the call, and all paths use the wire's millisecond/ID order.
+void sortMessageHistory(List<Message> rows) {
+  final split = _historyRunSplit(rows);
   if (split == 0) return;
+  if (split < 0) {
+    rows.sort(compareMessageHistoryOrder);
+    return;
+  }
   const maxBufferedRows = 128;
   if (split <= maxBufferedRows && split <= rows.length - split) {
     final held = rows.sublist(0, split);
@@ -71,8 +79,16 @@ void sortMessageHistory(List<Message> rows) {
 /// sorted by [compareMessageHistoryOrder]. This reads O(log n) rows, including
 /// when the cursor has disappeared after deletion or lies beyond the tail.
 /// It does not filter/authorize rows or remember a previous snapshot.
-int messageHistoryStartAfter(List<Message> rows, int timestampMs, String id) {
-  var low = 0, high = rows.length;
+int messageHistoryStartAfter(List<Message> rows, int timestampMs, String id) =>
+    _historyStartAfterRange(rows, timestampMs, id, 0, rows.length);
+
+int _historyStartAfterRange(
+  List<Message> rows,
+  int timestampMs,
+  String id,
+  int low,
+  int high,
+) {
   while (low < high) {
     final middle = low + ((high - low) >> 1);
     if (compareMessageHistoryCursor(rows[middle], timestampMs, id) <= 0) {
@@ -82,4 +98,52 @@ int messageHistoryStartAfter(List<Message> rows, int timestampMs, String id) {
     }
   }
   return low;
+}
+
+/// Select at most [limit] rows from one fresh view, strictly beyond the cursor.
+/// One/two sorted runs need only a fresh order scan, bounded binary lookups
+/// and the requested merge window. Other layouts retain the ordinary sort on
+/// a detached copy. Never mutates input or retains rows for the next request.
+/// This neither filters visibility nor establishes authorization; callers keep
+/// those checks and independent wire row/byte limits.
+List<Message> messageHistoryWindow(
+  List<Message> rows, {
+  required int limit,
+  int? afterTimestampMs,
+  String? afterId,
+}) {
+  if (limit < 0) throw ArgumentError.value(limit, 'limit');
+  if ((afterTimestampMs == null) != (afterId == null)) {
+    throw ArgumentError('history cursor requires both timestamp and id');
+  }
+  if (limit == 0 || rows.isEmpty) return [];
+  int startIn(List<Message> source, int low, int high) =>
+      afterTimestampMs == null
+      ? low
+      : _historyStartAfterRange(source, afterTimestampMs, afterId!, low, high);
+  List<Message> bounded(List<Message> source, int start) {
+    final count = (source.length - start).clamp(0, limit);
+    return source.getRange(start, start + count).toList();
+  }
+
+  final split = _historyRunSplit(rows);
+  if (split == 0) return bounded(rows, startIn(rows, 0, rows.length));
+  if (split < 0) {
+    final sorted = List<Message>.of(rows)..sort(compareMessageHistoryOrder);
+    return bounded(sorted, startIn(sorted, 0, sorted.length));
+  }
+  var left = startIn(rows, 0, split);
+  var right = startIn(rows, split, rows.length);
+  final out = <Message>[];
+  while (out.length < limit && (left < split || right < rows.length)) {
+    if (left == split) {
+      out.add(rows[right++]);
+    } else if (right == rows.length ||
+        compareMessageHistoryOrder(rows[left], rows[right]) <= 0) {
+      out.add(rows[left++]);
+    } else {
+      out.add(rows[right++]);
+    }
+  }
+  return out;
 }
