@@ -9680,6 +9680,12 @@ abstract class AppL10n {
   /// **'Output devices'**
   String get callSpeakers;
 
+  /// No description provided for @callSystemAudioOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'System output'**
+  String get callSystemAudioOutput;
+
   /// No description provided for @callMicrophones.
   ///
   /// In en, this message translates to:

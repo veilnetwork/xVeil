@@ -5505,6 +5505,9 @@ class AppL10nEn extends AppL10n {
   String get callSpeakers => 'Output devices';
 
   @override
+  String get callSystemAudioOutput => 'System output';
+
+  @override
   String get callMicrophones => 'Microphones';
 
   @override
