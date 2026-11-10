@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/ids.dart';
@@ -59,6 +60,29 @@ class _Capture implements VeilTransport {
   Future<void> dispose() => _incoming.close();
 }
 
+class _ReadCountingStorage extends HiddenVolumeStorage {
+  _ReadCountingStorage.fake() : super.fromStore(FakeKvLogStore());
+  _ReadCountingStorage.native(super.opener) : super.async();
+  int displayRows = 0, rawRows = 0;
+
+  @override
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async {
+    final rows = await super.loadMessages(conversationId, limit: limit);
+    displayRows += rows.length;
+    return rows;
+  }
+
+  @override
+  Future<List<Message>> loadMessageRows(String conversationId) async {
+    final rows = await super.loadMessageRows(conversationId);
+    rawRows += rows.length;
+    return rows;
+  }
+}
+
 void main() {
   test(
     'older conversations visit every older page across restarts at 100000 rows',
@@ -83,8 +107,8 @@ void main() {
         }
         addTearDown(() => runtime!.delete(recursive: true));
       }
-      Future<HiddenVolumeStorage> open(String label) async {
-        if (!native) return HiddenVolumeStorage.fromStore(FakeKvLogStore());
+      Future<_ReadCountingStorage> open(String label) async {
+        if (!native) return _ReadCountingStorage.fake();
         final path = '${runtime!.path}/$label.hv';
         HvKvLogStore(
           hv.HvSpace.create(
@@ -93,7 +117,7 @@ void main() {
             argon: hv.ArgonPreset.light,
           ),
         ).close();
-        final store = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        final store = _ReadCountingStorage.native(workerSpaceOpener(path));
         expect(await store.open(password: label), isTrue);
         return store;
       }
@@ -157,6 +181,7 @@ void main() {
       var now = DateTime.utc(2021);
       final transport = _Capture(me);
       final pages = <Set<String>>[];
+      final queryObservations = <Map<String, Object>>[];
       for (var round = 1; round <= 8; round++) {
         // Recreate the messaging layer every pass: progress is durable, not RAM.
         final service = MessagingService(transport, store, now: () => now)
@@ -168,6 +193,8 @@ void main() {
           transport.requests.clear();
           transport.expectedRequests = round.isOdd ? 32 : 33;
           transport.completed = Completer<void>();
+          final beforeDisplay = store.displayRows, beforeRaw = store.rawRows;
+          final queryTimer = Stopwatch()..start();
           await service.deliverInbound(
             InboundMessage(
               src: identity,
@@ -178,6 +205,22 @@ void main() {
           );
           await transport.completed!.future;
           await Future<void>.delayed(Duration.zero);
+          queryTimer.stop();
+          queryObservations.add({
+            'round': round,
+            'elapsedMicros': queryTimer.elapsedMicroseconds,
+            'displayRows': store.displayRows - beforeDisplay,
+            'rawRows': store.rawRows - beforeRaw,
+            'requests': transport.requests.length,
+            'requestJsonBytes': transport.requests.fold<int>(
+              0,
+              (total, request) =>
+                  total + utf8.encode(jsonEncode(request)).length,
+            ),
+            'requestDigest': crypto.sha256
+                .convert(utf8.encode(jsonEncode(transport.requests)))
+                .toString(),
+          });
           final asked = <String>{};
           for (final request in transport.requests) {
             expect((request['k'] as List).length, lessThanOrEqualTo(200));
@@ -256,6 +299,7 @@ void main() {
             'exactRows': exact,
             'retainedDeleted': retainedTargets.length,
             'targetPasses': pages.length,
+            'queryObservations': queryObservations,
           }),
         );
       }
