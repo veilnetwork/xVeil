@@ -3,7 +3,7 @@ import '../../domain/chat.dart';
 /// Short rows may share a larger prepared cohort. The adapter retains its
 /// independent 1800-byte row and 115200-byte aggregate payload limits; a full
 /// row-count cohort need not fit. Ordinary live coalescing is unchanged.
-const preparedMessageBatchMaxRows = 128;
+const preparedMessageBatchMaxRows = 256;
 const preparedMessageBatchMaxBytes = 64 * 1800;
 
 /// Outcome of an insert-if-missing publication, not an authorization verdict.

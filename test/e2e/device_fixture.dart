@@ -684,6 +684,11 @@ class E2eDevice {
                               boot.alive &&
                               identical(binding, messaging.groupBindingsOwner),
                         );
+                        await prepared(event, append);
+                        // Hold a durable page before its protocol checkpoint.
+                        // A 256-row atomic cohort has no partly written body
+                        // prefix; pausing before preparation would now test an
+                        // older, already checkpointed page instead.
                         await partialHistoryGate?.wait(
                           kind: HistoryGateKind.apply,
                           id: event.key,
@@ -691,7 +696,6 @@ class E2eDevice {
                           isActive: () => boot.alive &&
                               identical(binding, messaging.groupBindingsOwner),
                         );
-                        await prepared(event, append);
                       });
               }
             }

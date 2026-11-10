@@ -506,7 +506,7 @@ void main() {
     );
   }
 
-  for (final count in [64, 128]) {
+  for (final count in [64, 128, 256]) {
   test(
     'native prepared cohort ($count) publishes one durable transaction and deduplicates retry',
     () async {

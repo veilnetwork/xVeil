@@ -4841,3 +4841,25 @@ latency остаётся открытой. Все 100001 строки exact/cold
 1540 frozen inputs, один production variant; cache 92 entries без прироста,
 около 146 ГиБ свободно. Стенд остановлен, PID/listeners и runtime проверены,
 снимки сжаты без потерь. Push/релиза и sibling mailbox нет.
+
+
+## 2026-11-10: одна durable publication короткой 256-row страницы
+
+[Механизм, A/B/A и SIGKILL](../history-cohort256-100000-2026-11-10/README.md).
+Prepared row ceiling 128→256 при прежних 1800/115200 byte budgets;
+отказ делится на упорядоченные половины до 64. Admission/durable completion,
+revoke/TTL/erase, CAS и page cursor barriers сохранены. 1276 passed / 0 skipped,
+два assertion-red, native HVS 256/failure/lost-reply/cold checks; analyzer чистый.
+
+Native 100000: message commits **782→391→782**, общее время
+**128507→124859→129054 мс**. Независимый post-page witness сокращён
+на 1,700–2,831 с; точный универсальный процент не заявляется. Все 100001
+строки exact/cold, оба cursor источников завершены, дублей/потерь нет.
+
+SIGKILL перенесён после атомарной записи выбранной страницы, до её cursor:
+выбранная row 50080 оставила durable prefix 50176 и прежние два cursor.
+Cold B без источников сохранил их; один источник восстановил все 100001
+строки без дублей, повторный cold reopen подтвердил результат. Это один
+crash window, не вся матрица. Код/пины совпадают с B сравнения; стенды закрыты.
+Latency около 125 с и NETCALL открыты. Cache 92 entries без прироста,
+свободно около 145,6 ГиБ. Нет push/релиза и sibling mailbox.
