@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: повторный mirror не читает ту же строку дважды
+
+[Cost regression, свежий профиль и native A/B/A](../mirror-point-read-100000-2026-11-10/README.md):
+три parent-red, 208 related и отдельно 32 focused passed (серии пересекаются),
+analyzer чист. Первое свежее point read используется и для наличия, и для
+немедленного delivery-status; ordering после author-admission читает заново.
+
+100000: point reads **599747→499747→599747**, все 100001 строки exact/cold,
+оба cursor и 200002 callbacks сохранены; commits сообщений 391, cursor 784.
+Время **123954→123687→123644 мс**: общего ускорения нет. 1544 frozen inputs,
+один production variant, native provenance/mappings и cleanup проверены.
+Кеш 92 entries, новых entries нет. Latency/NETCALL/остальная matrix открыты;
+новые изменения без push/релиза, sibling mailbox не добавлялся.
+
 ## 2026-11-10: опубликованы Veil 0.11.49 и xVeil 0.13.96+115
 
 [Проверки артефактов и развёртывания](../release-2026-11-10/README.md).

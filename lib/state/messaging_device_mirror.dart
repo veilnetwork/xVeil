@@ -648,7 +648,11 @@ class _MessagingDeviceMirror {
             !isAcceptableWireSeq(seq))) {
       return false;
     }
-    if (await _owner._hasMessage(peer, msgId)) {
+    // Existence already requires a fresh point read. Keep that row for the
+    // immediate delivery check instead of repeating the same acquisition.
+    // Ordering below still rereads after its asynchronous author admission.
+    final existing = await _owner._storage.loadMessageById(peer.hex, msgId);
+    if (existing != null) {
       // A legacy copy may already exist as `sent`. Completion evidence from
       // an authenticated sibling repairs its status without changing content,
       // time or provenance. A failed snapshot cannot undo a newer retry.
@@ -656,9 +660,8 @@ class _MessagingDeviceMirror {
       if ((status == MessageStatus.delivered ||
               _owner._messageDelivery.hasMirroredDelivery(peer.hex, msgId)) &&
           direction == MessageDirection.outgoing) {
-        final held = await _owner._storage.loadMessageById(peer.hex, msgId);
-        if (held?.direction == MessageDirection.outgoing &&
-            held?.status != MessageStatus.delivered) {
+        if (existing.direction == MessageDirection.outgoing &&
+            existing.status != MessageStatus.delivered) {
           deliveryChanged = await _owner._storage.markMessageStatus(
             peer.hex,
             msgId,

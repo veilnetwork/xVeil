@@ -32,6 +32,13 @@ class _Link extends LoopbackTransport {
 class _StatusWrites extends HiddenVolumeStorage {
   _StatusWrites(super.opener);
   int statusCalls = 0;
+  int pointReads = 0;
+
+  @override
+  Future<Message?> loadMessageById(String conversationId, String messageId) {
+    pointReads++;
+    return super.loadMessageById(conversationId, messageId);
+  }
 
   @override
   Future<bool> markMessageStatus(
@@ -123,6 +130,7 @@ void main() {
         );
         if (receiptFirst) await delivered(peer, 'already-delivered');
         counted.statusCalls = 0;
+        counted.pointReads = 0;
         final changed = await service.applyMirroredMessage(
           peer: peer,
           msgId: 'already-delivered',
@@ -132,6 +140,11 @@ void main() {
           status: receiptFirst ? null : MessageStatus.delivered,
         );
         expect(changed, isFalse);
+        expect(
+          counted.pointReads,
+          1,
+          reason: 'existence and delivery use the same fresh point read',
+        );
         expect(
           counted.statusCalls,
           0,
@@ -214,6 +227,7 @@ void main() {
           positionVerified: false,
         ),
       );
+      counted.pointReads = 0;
       expect(
         await service.applyMirroredMessage(
           peer: peer,
@@ -227,6 +241,11 @@ void main() {
           positionVerified: true,
         ),
         isTrue,
+      );
+      expect(
+        counted.pointReads,
+        2,
+        reason: 'ordering still rereads the row after author admission awaits',
       );
       final held = (await storage.loadMessageById(
         peer.hex,

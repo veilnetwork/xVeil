@@ -1,0 +1,74 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "local-fix-qualified",
+  "published": false,
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "stand": "local macOS JIT; isolated native Core and encrypted storage",
+  "phases": {
+    "A1": {
+      "applyMs": 123954,
+      "messagePointReadCalls": 599747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "historyApplyCalls": 200002,
+      "finalRows": 100001,
+      "allocatorCommits": 393
+    },
+    "B": {
+      "applyMs": 123687,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "historyApplyCalls": 200002,
+      "finalRows": 100001,
+      "allocatorCommits": 392
+    },
+    "A2": {
+      "applyMs": 123644,
+      "messagePointReadCalls": 599747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "historyApplyCalls": 200002,
+      "finalRows": 100001,
+      "allocatorCommits": 392
+    }
+  },
+  "frozenInputs": 1544,
+  "productionVariants": [
+    "lib/state/messaging_device_mirror.dart"
+  ],
+  "exactHistoryAndColdRetentionPassedAllPhases": true,
+  "sourceUnchangedWithinEveryPhase": true,
+  "nativeInputsIdenticalAcrossPhases": true,
+  "nativeBuildSource": "9fbf2d50302e976ea95315905ea53972aa494b1e",
+  "currentSdkSource": "476950abea0461bd12fc604373004b1dafd825fa",
+  "macRustDeltaWindowsOnly": [
+    "crates/veil-vpn-helper/src/windows.rs"
+  ],
+  "publishedBinaryEquivalenceClaimed": false,
+  "relatedTestsPassed": 208,
+  "focusedTestsPassed": 32,
+  "testSeriesOverlap": true,
+  "parentRegressionFailures": 3,
+  "analyzerIssues": 0,
+  "overallCatchUpSpeedupEstablished": false,
+  "pointReadsRemoved": 100000,
+  "newKernelCacheEntriesAllPhases": 0,
+  "standCleanupPassedAllPhases": true,
+  "latencyRemainsOpen": true,
+  "netcallStatusUnchanged": true,
+  "siblingMailboxAdded": false,
+  "receiverProfile": {
+    "chunks": 21,
+    "captureErrors": 1,
+    "unavailableIsolateResponses": 10,
+    "nonconflictingPhysicalSamples": 100298,
+    "overlappingRecordsDeduplicated": 13178,
+    "overlapConflicts": 327,
+    "truncatedPhysicalStacks": 862,
+    "trailingUncapturedMs": 5995.896,
+    "percentOfWallTimeClaimed": false,
+    "performanceComparison": false
+  }
+}

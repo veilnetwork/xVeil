@@ -14,7 +14,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
   test(
-    'display read census distinguishes row reads and resets its window',
+    'read census distinguishes display, row and point reads and resets its window',
     () async {
       final census = MessageApplyCensus();
       final backing = SyncWrappedAsyncKvLogStore(FakeKvLogStore());
@@ -29,9 +29,13 @@ void main() {
         await storage.loadMessageRows('peer');
         expect(census.snapshot()['displayReadCalls'], 1);
         expect(census.snapshot()['historyRowsReadCalls'], 1);
+        expect(await storage.loadMessageById('peer', 'missing'), isNull);
+        expect(census.snapshot()['messagePointReadCalls'], 1);
+        expect(census.snapshot()['historyRowsReadCalls'], 1);
         census.reset();
         expect(census.snapshot()['displayReadCalls'], 0);
         expect(census.snapshot()['historyRowsReadCalls'], 0);
+        expect(census.snapshot()['messagePointReadCalls'], 0);
       } finally {
         await storage.close();
       }
