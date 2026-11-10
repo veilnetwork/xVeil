@@ -2712,19 +2712,21 @@ class VeilCallMediaController implements CallMediaController {
     required bool Function() isCurrent,
   }) async {
     if (!isCurrent()) return;
+    _selectedSpeakerId = null;
     final preferred = _preferredSpeakerLabel;
-    if (preferred == null || preferred.isEmpty) return;
     final devices = await listSpeakers();
     if (!isCurrent()) return;
-    for (final device in devices) {
-      if (device.label != preferred) continue;
-      try {
-        if (engine.selectAudioOutput(device.id)) {
-          _selectedSpeakerId = device.id;
-        }
-      } catch (_) {}
-      return;
-    }
+    final chosen =
+        devices
+            .where((device) => preferred != null && device.label == preferred)
+            .firstOrNull ??
+        devices.where((device) => device.followsSystem).firstOrNull;
+    if (chosen == null) return;
+    try {
+      if (engine.selectAudioOutput(chosen.id)) {
+        _selectedSpeakerId = chosen.id;
+      }
+    } catch (_) {}
   }
 
   @override
@@ -2826,15 +2828,13 @@ class VeilCallMediaController implements CallMediaController {
     try {
       return engine
           .listAudioOutputs()
-          .indexed
           .map(
-            (entry) => CallMediaDevice(
-              id: entry.$2.id,
-              label: entry.$2.label,
+            (device) => CallMediaDevice(
+              id: device.id,
+              label: device.label,
               kind: CallMediaDeviceKind.speaker,
-              selected:
-                  entry.$2.id == _selectedSpeakerId ||
-                  (_selectedSpeakerId == null && entry.$1 == 0),
+              followsSystem: device.id == systemAudioOutputDeviceId,
+              selected: device.id == _selectedSpeakerId,
             ),
           )
           .toList(growable: false);
@@ -2899,9 +2899,13 @@ class VeilCallMediaController implements CallMediaController {
     try {
       if (!engine.selectAudioOutput(id)) return false;
       _selectedSpeakerId = id;
-      _preferredSpeakerLabel = chosen.label;
+      _preferredSpeakerLabel = chosen.followsSystem ? null : chosen.label;
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_speakerPreferenceKey, chosen.label);
+      if (chosen.followsSystem) {
+        await prefs.remove(_speakerPreferenceKey);
+      } else {
+        await prefs.setString(_speakerPreferenceKey, chosen.label);
+      }
       return true;
     } catch (_) {
       return false;

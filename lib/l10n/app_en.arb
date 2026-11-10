@@ -2327,6 +2327,7 @@
   "callEarpiece": "Phone earpiece",
   "callCameras": "Cameras",
   "callSpeakers": "Output devices",
+  "callSystemAudioOutput": "System output",
   "callMicrophones": "Microphones",
   "callDisplays": "Displays",
   "callWindows": "Windows",

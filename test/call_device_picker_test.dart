@@ -13,6 +13,35 @@ Widget _host(Widget child) => MaterialApp(
 );
 
 void main() {
+  testWidgets('system output is a localized, selectable output choice', (
+    tester,
+  ) async {
+    const system = CallMediaDevice(
+      id: 'system-default',
+      label: 'System default',
+      kind: CallMediaDeviceKind.speaker,
+      followsSystem: true,
+      selected: true,
+    );
+    CallMediaDevice? selected;
+    await tester.pumpWidget(
+      _host(
+        CallDevicePickerPanel(
+          devices: const [system],
+          onDismiss: () {},
+          onSelect: (device) => selected = device,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(system.label), findsNothing);
+    final label = find.text('System output');
+    expect(label, findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    await tester.tap(label);
+    expect(selected, same(system));
+  });
+
   testWidgets('shared settings sheet has matching audio and video tabs', (
     tester,
   ) async {

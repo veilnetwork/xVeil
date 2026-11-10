@@ -49,6 +49,7 @@ class CallMediaDevice {
     required this.kind,
     this.facing,
     this.selected = false,
+    this.followsSystem = false,
   });
 
   final String id;
@@ -56,6 +57,7 @@ class CallMediaDevice {
   final CallMediaDeviceKind kind;
   final String? facing;
   final bool selected;
+  final bool followsSystem;
 }
 
 /// How long an unanswered call rings before it auto-ends (the caller's "no

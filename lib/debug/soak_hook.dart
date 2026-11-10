@@ -7967,11 +7967,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       svc.listCameras(),
       svc.listMicrophones(),
       svc.listScreens(),
+      svc.listSpeakers(),
     ]);
     await _json(req, {
       'ok': true,
       'devices': [
-        for (final device in [...results[0], ...results[1], ...results[2]])
+        for (final device in results.expand((devices) => devices))
           {
             'id': device.id,
             'label': device.label,
@@ -7991,6 +7992,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ok = switch (req.uri.queryParameters['kind']) {
       'camera' => await svc.selectCamera(id),
       'screen' || 'window' => await svc.selectScreen(id),
+      'speaker' => await svc.selectSpeaker(id),
       _ => await svc.selectMicrophone(id),
     };
     await _json(req, {'ok': ok});
