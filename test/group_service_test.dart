@@ -246,6 +246,7 @@ class _MessageCheckCountingSigner extends _FakeSigner {
   final checks = <String, int>{};
   final rejectedBodies = <String>{};
   final sovereignChecks = <String, int>{};
+  final rejectedSovereignMessages = <String>{};
 
   @override
   bool verifySovereign({
@@ -260,13 +261,14 @@ class _MessageCheckCountingSigner extends _FakeSigner {
       (n) => n + 1,
       ifAbsent: () => 1,
     );
-    return super.verifySovereign(
-      algorithm: algorithm,
-      nodeId: nodeId,
-      publicKey: publicKey,
-      message: message,
-      signature: signature,
-    );
+    return !rejectedSovereignMessages.contains(base64Encode(message)) &&
+        super.verifySovereign(
+          algorithm: algorithm,
+          nodeId: nodeId,
+          publicKey: publicKey,
+          message: message,
+          signature: signature,
+        );
   }
 
   @override
@@ -15158,6 +15160,70 @@ void main() {
       }
     },
   );
+
+  test('own routing verifies its manifest once per synchronous control fold', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'fixture', createIfMissing: true);
+    addTearDown(storage.close);
+    final signer = _MessageCheckCountingSigner(owner);
+    final service = GroupService(storage, signer)..myDevice = owner;
+    addTearDown(service.dispose);
+    final devices = [for (var i = 0; i < 12; i++) _ordinalId(400 + i)];
+    for (final device in devices) {
+      expect(
+        await service.linkDevice(
+          device,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+    }
+    final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+    final bundle = (await service.load(gid))!;
+    expect(bundle.control.length, greaterThanOrEqualTo(devices.length));
+    final manifestKey = base64Encode(bundle.manifest.canonicalBytes());
+    for (var read = 0; read < 2; read++) {
+      signer.sovereignChecks.clear();
+      expect(await service.addressableOwnDevices(), unorderedEquals(devices));
+      expect(
+        signer.sovereignChecks[manifestKey],
+        2,
+        reason: 'fresh load plus one synchronous fold, independent of roster size',
+      );
+      for (final entry in bundle.control) {
+        expect(
+          signer.sovereignChecks[base64Encode(entry.canonicalBytes())],
+          1,
+          reason: 'each control row keeps its own signature verification',
+        );
+      }
+    }
+
+    // A verdict belongs to this fold only, never to the next routing read.
+    // Reject the terminal grant: rejecting an earlier sequence correctly
+    // hides its entire suffix, not just that member.
+    final lastGrant = bundle.control.firstWhere((e) => e.target == devices.last);
+    signer.rejectedSovereignMessages.add(
+      base64Encode(lastGrant.canonicalBytes()),
+    );
+    expect(
+      await service.addressableOwnDevices(),
+      unorderedEquals(devices.take(devices.length - 1)),
+    );
+    signer.rejectedSovereignMessages.clear();
+    expect(await service.addressableOwnDevices(), unorderedEquals(devices));
+    final firstGrant = bundle.control.firstWhere((e) => e.target == devices.first);
+    signer.rejectedSovereignMessages.add(
+      base64Encode(firstGrant.canonicalBytes()),
+    );
+    expect(await service.addressableOwnDevices(), isEmpty);
+    signer.rejectedSovereignMessages.clear();
+    signer.rejectedSovereignMessages.add(manifestKey);
+    expect(await service.addressableOwnDevices(), isEmpty);
+    signer.rejectedSovereignMessages.clear();
+    expect(await service.addressableOwnDevices(), unorderedEquals(devices));
+  });
 
   test(
     'an own routing read overtaken by revoke retries the committed journal',
