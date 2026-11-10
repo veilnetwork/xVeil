@@ -331,29 +331,41 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               style: textTheme(context).headlineSmall,
             ),
             const SizedBox(height: 12),
-            Text(_fresh ? l.onboardCertFreshWhy : l.onboardCertWhy),
+            Text(
+              _fresh ? l.onboardCertFreshWhy : l.onboardCertWhy,
+              style: _fresh
+                  ? textTheme(
+                      context,
+                    ).bodyLarge?.copyWith(fontWeight: FontWeight.w600)
+                  : null,
+            ),
             const SizedBox(height: 16),
             // No phrase line on the create path: there is no phrase. Leaving
             // it in would describe a secret this person does not have and will
             // never be given, which is the confusion this change removes.
-            if (!_fresh)
+            if (!_fresh) ...[
               _Role(
                 icon: Icons.article_outlined,
                 text: l.onboardCertRolePhrase,
               ),
-            _Role(icon: Icons.description_outlined, text: l.onboardCertRoleFile),
-            _Role(icon: Icons.key_outlined, text: l.onboardCertRoleCode),
-            const SizedBox(height: 16),
+              _Role(
+                icon: Icons.description_outlined,
+                text: l.onboardCertRoleFile,
+              ),
+              _Role(icon: Icons.key_outlined, text: l.onboardCertRoleCode),
+              const SizedBox(height: 16),
+            ],
             // Minting is automatic on the create path, so the only thing that
             // belongs here while it runs is the progress bar below.
             if (minted == null) ...[
               // Minting is automatic on the create path, so while it runs the
               // only thing that belongs here is the progress bar below.
-              if (!_fresh) FilledButton.icon(
-                onPressed: _busy ? null : _create,
-                icon: const Icon(Icons.verified_user_outlined),
-                label: Text(l.onboardCertCreate),
-              ),
+              if (!_fresh)
+                FilledButton.icon(
+                  onPressed: _busy ? null : _create,
+                  icon: const Icon(Icons.verified_user_outlined),
+                  label: Text(l.onboardCertCreate),
+                ),
               if (!_fresh) ...[
                 const SizedBox(height: 8),
                 // No way past on the create path: declining would leave an
@@ -369,32 +381,41 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
                   child: Text(l.onboardCertSkip),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  l.onboardCertLater,
-                  style: textTheme(context).bodySmall,
-                ),
+                Text(l.onboardCertLater, style: textTheme(context).bodySmall),
               ],
             ] else ...[
-              Text(
-                l.devicesCertificateWarning,
-                style: TextStyle(color: scheme.error),
+              if (!_fresh) ...[
+                Text(
+                  l.devicesCertificateWarning,
+                  style: TextStyle(color: scheme.error),
+                ),
+                const SizedBox(height: 12),
+              ],
+              ExpansionTile(
+                key: const ValueKey('onboarding-certificate-details'),
+                title: Text(l.devicesCertificate),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('${l.nodeIdLabel}: ${minted.nodeId.hex}'),
+                  const SizedBox(height: 12),
+                  SecretText(minted.certificate, maxLines: 5, fontSize: 10),
+                  SecretCopyButton(
+                    label: l.devicesCopyCertificate,
+                    value: () => minted.certificate,
+                    copiedMessage: l.devicesCertificateCopiedClears,
+                    onCopied: () => setState(() => _copied = true),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Text('${l.nodeIdLabel}: ${minted.nodeId.hex}'),
-              const SizedBox(height: 12),
-              SecretText(minted.certificate, maxLines: 5, fontSize: 10),
-              SecretCopyButton(
-                label: l.devicesCopyCertificate,
-                value: () => minted.certificate,
-                copiedMessage: l.devicesCertificateCopiedClears,
-                onCopied: () => setState(() => _copied = true),
-              ),
-              OutlinedButton.icon(
+              FilledButton.icon(
                 onPressed: _busy ? null : _save,
                 icon: const Icon(Icons.save_alt),
                 label: Text(l.devicesSaveCertificate),
               ),
               const SizedBox(height: 12),
+              Text(l.devicesRecoveryCode, style: textTheme(context).titleSmall),
+              const SizedBox(height: 8),
               SecretText(minted.code),
               SecretCopyButton(
                 label: l.devicesCopyCode,
@@ -427,9 +448,9 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   // The create path has no "later": this step does not let
-                // anyone past, so telling them to make one in Settings later
-                // describes a door that is not there.
-                _fresh ? l.onboardCertFreshFailed : l.onboardCertFailed,
+                  // anyone past, so telling them to make one in Settings later
+                  // describes a door that is not there.
+                  _fresh ? l.onboardCertFreshFailed : l.onboardCertFailed,
                   style: TextStyle(color: scheme.error),
                 ),
               ),

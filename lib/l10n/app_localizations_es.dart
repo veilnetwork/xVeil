@@ -5953,12 +5953,11 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
-  String get onboardCertFreshTitle =>
-      'Tu identidad y la única llave que la abre';
+  String get onboardCertFreshTitle => 'Guarda el acceso a tu identidad';
 
   @override
   String get onboardCertFreshWhy =>
-      'Esta identidad acaba de crearse. Su clave existe en un solo sitio, el certificado de abajo, y la abre un solo secreto: el código que lo acompaña. Guarda ambos por separado antes de continuar. No habrá otra copia.';
+      'Debes guardar el certificado y el código de recuperación. Sin ellos no podrás recuperar esta identidad. Guárdalos por separado.';
 
   @override
   String get onboardCertFreshFailed =>

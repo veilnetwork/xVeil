@@ -2485,8 +2485,8 @@
       }
     }
   },
-  "onboardCertFreshTitle": "Your identity and the one key to it",
-  "onboardCertFreshWhy": "This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. Save both, keeping them apart, before going on. There will be no other copy.",
+  "onboardCertFreshTitle": "Save access to your identity",
+  "onboardCertFreshWhy": "You must save the certificate and recovery code. Without them, you cannot restore this identity. Keep them separately.",
   "onboardCertFreshFailed": "The identity could not be made on this device, so none was. Nothing has been created and nothing was written. Go back and try again; if it keeps failing, this build cannot reach the component that makes keys.",
   "onboardCertFreshMustSave": "Save the certificate to a file first. It exists only on this screen, and nothing else can restore this identity.",
   "onboardCertTitle": "A way back if every device is lost",
