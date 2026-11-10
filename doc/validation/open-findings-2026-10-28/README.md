@@ -1,5 +1,26 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: физический scrub сохраняет актуальный point-patched fold
+
+[Исправление и два native A/B/A](../message-scrub-fold-100000-2026-11-10/README.md):
+успешная очистка без изменения логических IDs сбрасывала уже актуальный fold.
+Новый 100000-row parent-red видит 100000 лишних range records. Для point
+мутаций сохраняется warm fold, а пять bulk путей явно инвалидируют его;
+неопределённый исход commit/scrub по-прежнему принудительно обновляет кеш.
+Физический vacuum и durable cleanup obligation выполняются полностью.
+
+Erasure fixture: **300027→27→300027** message range records, активные восемь
+проходов **1838,679→903,984→1758,672 мс**, запросы/digest/bytes и 99996 точных
+строк после cold reopen совпали. Выигрыш относится к этому участку.
+Сквозная догрузка 100000: **133383→133702→133927 мс** — общего ускорения нет.
+Все 100001 строка, оба cursor, cold retention, 200002 callbacks, message/cursor
+commits и wire/page counts сохранились. Это не закрытие latency.
+
+**709 passed / 1 skipped**, analyzer чист, 1537 frozen inputs в full-стенде,
+один production variant, provenance/cleanup проверены. Кеш 92 файла, новых
+kernel entries нет, свободно около 147 ГиБ. Anti-entropy cadence, NETCALL и
+остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: void не попадает в другую личность и не дублируется
 
 [Подтверждение и исправление](../void-session-100000-2026-11-10/README.md):
