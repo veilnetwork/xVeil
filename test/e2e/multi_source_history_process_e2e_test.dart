@@ -342,7 +342,7 @@ void main() {
         'testBarriersEnabled': true,
         'convergencePollMs': pollMs,
         'compactProgressObserver': _rows > 10000,
-        'seedBatchRows': _rows > 10000 ? 64 : 16,
+        'seedBatchRows': historyArchiveSeedBatchRows(_rows),
         if (crashBeforeApply) 'receiverCrashBeforeApplyRequested': true,
         'receiverCrashAtRowRequested': ?crashAtRow,
       };
@@ -397,6 +397,19 @@ void main() {
         expect(_ordered(expectedArchive, _archive(second)), isTrue);
         expect((second['historyState'] as Map)['mirrors'], 0);
         result['sourceArchivesEqual'] = true;
+        final seedBatchRows = historyArchiveSeedBatchRows(_rows);
+        final expectedSeed = {
+          'rows': _rows,
+          'publications': (_rows + seedBatchRows - 1) ~/ seedBatchRows,
+          'maxRows': seedBatchRows,
+          'lastRows': (_rows - 1) % seedBatchRows + 1,
+        };
+        expect(first['seededArchiveBatch'], expectedSeed);
+        expect(second['seededArchiveBatch'], expectedSeed);
+        result['seedBatchBySource'] = {
+          'A': first['seededArchiveBatch'],
+          'E': second['seededArchiveBatch'],
+        };
         expect(first['seededArchiveOrder'], isA<Map>());
         expect(second['seededArchiveOrder'], isA<Map>());
         result['sourceArchiveAppendOrder'] = {

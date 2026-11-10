@@ -14,6 +14,7 @@ import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../domain/message_edit.dart';
+import '../../domain/message_history_key_index.dart';
 import '../../domain/p2p_policy.dart';
 import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
@@ -143,6 +144,7 @@ class HiddenVolumeStorage
         PreparedMessageBatchStore,
         PreparedOrderingBatchStore,
         MessageRowsReader,
+        MessageHistoryWindowReader,
         GuardedOutboxRetirement {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
@@ -1554,6 +1556,73 @@ class HiddenVolumeStorage
           .toList();
 
   @override
+  Future<List<Message>> loadMessageHistoryWindow(
+    String conversationId, {
+    required int limit,
+    int? afterTimestampMs,
+    String? afterId,
+  }) async {
+    if (limit < 0) throw ArgumentError.value(limit, 'limit');
+    if ((afterTimestampMs == null) != (afterId == null)) {
+      throw ArgumentError('history cursor requires both timestamp and id');
+    }
+    // Reuse the space-maintenance epoch: a suspended old read must not enter
+    // a reopened identity, including when a backend reuses the same handle.
+    final session = _as;
+    final epoch = _storageReadEpoch;
+    void check() {
+      if (_invalidStorageReadSession(session, epoch)) {
+        throw StateError(
+          'message storage session changed or is closing or erasing',
+        );
+      }
+    }
+
+    check();
+    final result = await _serialized(() async {
+      check();
+      await _foldCritical();
+      check();
+      if (limit == 0) return <Message>[];
+      var indexes = _messageHistoryIndexes;
+      if (indexes == null) {
+        final grouped = <String, List<String>>{};
+        for (final key in _scanOrder) {
+          (grouped[_scanById[key]!.conversationId] ??= []).add(key);
+        }
+        indexes = {
+          for (final entry in grouped.entries)
+            entry.key: MessageHistoryKeyIndex(
+              entry.value,
+              (key) => _scanById[key]!,
+            ),
+        };
+        _messageHistoryIndexes = indexes;
+      }
+      return indexes[conversationId]?.window(
+            _currentMessageRow,
+            limit: limit,
+            afterTimestampMs: afterTimestampMs,
+            afterId: afterId,
+          ) ??
+          <Message>[];
+    });
+    check();
+    return result;
+  }
+
+  Message _currentMessageRow(String key, [Message? held]) {
+    final message = held ?? _scanById[key]!;
+    final status = _scanStatusOps[key] ?? _scanStatusLegacy[message.id];
+    final signature = _scanSigOps[key];
+    var current = status != null && message.status != MessageStatus.delivered
+        ? message.copyWith(status: status)
+        : message;
+    if (signature != null) current = current.copyWith(signature: signature);
+    return current;
+  }
+
+  @override
   Future<List<Message>> loadMessages(
     String conversationId, {
     int? limit,
@@ -1632,18 +1701,8 @@ class HiddenVolumeStorage
     // project-filter-sort over every message in the log.
     await _foldCritical();
     final k = _msgKey(conversationId, messageId);
-    final msg = _scanById[k];
-    if (msg == null) return null;
-    // The same overlay [_scanLogCritical] applies on the way out, so a row read
-    // by id is the row `loadMessages` would have handed back and not a
-    // pre-status copy of it.
-    final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
-    final sig = _scanSigOps[k];
-    var out = s != null && msg.status != MessageStatus.delivered
-        ? msg.copyWith(status: s)
-        : msg;
-    if (sig != null) out = out.copyWith(signature: sig);
-    return out;
+    final message = _scanById[k];
+    return message == null ? null : _currentMessageRow(k, message);
   });
 
   @override
@@ -6841,6 +6900,17 @@ class HiddenVolumeStorage
   // by the bare id would let the later one overwrite the earlier in the fold, so
   // one conversation's message could erase/replace another's. The composite key
   // keeps them distinct.
+  // Only sorted storage keys are retained. Payload/status/signature rows are
+  // resolved from the freshly folded live maps on each bounded read. Every
+  // invalidation of the existing materialized list also drops these indexes,
+  // including in-place tombstones which do not advance the log frontier.
+  Map<String, MessageHistoryKeyIndex>? _messageHistoryIndexes;
+
+  void _invalidateMessageReadViews() {
+    _scanResult = null;
+    _messageHistoryIndexes = null;
+  }
+
   final List<String> _scanOrder = []; // composite keys, in arrival order
   final Map<String, Message> _scanById = {}; // composite key -> message
   // Composite key -> the namespace + log_id the live message was written
@@ -7034,7 +7104,7 @@ class HiddenVolumeStorage
   // SEPARATE from _scanGate so a multi-MiB store never blocks message scans.
   Future<void> _fileGate = Future<void>.value();
   int _fileIoFences = 0;
-  int _fileReadEpoch = 0;
+  int _storageReadEpoch = 0;
 
   // Reads stay concurrent: putting a large download ahead of journal reads on
   // the write gate would create another head-of-line wait. Pin the backing
@@ -7044,20 +7114,23 @@ class HiddenVolumeStorage
   Future<T> _readFileSession<T>(
     Future<T> Function(_FileReadSession session) read,
   ) async {
-    final session = (store: _as, blobs: _blobs, epoch: _fileReadEpoch);
+    final session = (store: _as, blobs: _blobs, epoch: _storageReadEpoch);
     _checkFileReadSession(session);
     final result = await read(session);
     _checkFileReadSession(session);
     return result;
   }
 
+  bool _invalidStorageReadSession(AsyncKvLogStore store, int epoch) =>
+      !identical(store, _store) ||
+      epoch != _storageReadEpoch ||
+      _closePending != null ||
+      _convSequenceFences > 0 ||
+      _fileIoFences > 0;
+
   void _checkFileReadSession(_FileReadSession session) {
-    if (!identical(session.store, _store) ||
-        !identical(session.blobs, _blobs) ||
-        session.epoch != _fileReadEpoch ||
-        _closePending != null ||
-        _convSequenceFences > 0 ||
-        _fileIoFences > 0) {
+    if (_invalidStorageReadSession(session.store, session.epoch) ||
+        !identical(session.blobs, _blobs)) {
       throw StateError('file storage session changed or is closing or erasing');
     }
   }
@@ -7085,7 +7158,7 @@ class HiddenVolumeStorage
 
   Future<T> _drainFileIo<T>(Future<T> Function() body) async {
     _fileIoFences++;
-    _fileReadEpoch++;
+    _storageReadEpoch++;
     try {
       final result = _fileGate.then((_) => body());
       _fileGate = result.then<void>((_) {}, onError: (_) {});
@@ -7249,7 +7322,7 @@ class HiddenVolumeStorage
           (_foldReadingUpTo != null && logId < _foldReadingUpTo!)) {
         _messageScanNeedsRebuild = true;
       }
-      _scanResult = null;
+      _invalidateMessageReadViews();
     }
   }
 
@@ -7466,7 +7539,7 @@ class HiddenVolumeStorage
     _clearedWatermark.clear();
     _clearedAt.clear();
     _scanFoldedUpTo = 0;
-    _scanResult = null;
+    _invalidateMessageReadViews();
     _messageLogNamespaces.clear();
     _messageLogNamespaceMarkers.clear();
     _messageLogNamespacesInit = null;
@@ -7488,7 +7561,7 @@ class HiddenVolumeStorage
   /// and the next scan folds from disk — still correct.
   Future<void> _patchCache(void Function() mutate) => _serialized(() async {
     mutate();
-    _scanResult = null;
+    _invalidateMessageReadViews();
   });
 
   Future<List<Message>> _scanLog() => _serialized(_scanLogCritical);
@@ -7507,20 +7580,7 @@ class HiddenVolumeStorage
     }
     await _foldCritical();
     // Materialise from the (now-current) fold state, applying delivery status.
-    final result = _scanOrder
-        .map((k) {
-          final msg = _scanById[k]!;
-          // Status by composite (conversation-scoped) key; fall back to a legacy
-          // by-id op for messages whose status predates conversation scoping.
-          final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
-          final sig = _scanSigOps[k];
-          var out = s != null && msg.status != MessageStatus.delivered
-              ? msg.copyWith(status: s)
-              : msg;
-          if (sig != null) out = out.copyWith(signature: sig);
-          return out;
-        })
-        .toList(growable: false);
+    final result = _scanOrder.map(_currentMessageRow).toList(growable: false);
     _scanResult = result;
     return result;
   }
@@ -7546,7 +7606,7 @@ class HiddenVolumeStorage
     // caller (isMessageDeleted / _liveEntryFor) advances the fold too — without
     // this, a later loadMessages would see _scanFoldedUpTo == nextId next to a
     // stale _scanResult and return the OLD list.
-    _scanResult = null;
+    _invalidateMessageReadViews();
     // Read one record of overlap to tolerate either range boundary convention.
     // Filter it below: replaying an old post over a warm edit is not idempotent.
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;

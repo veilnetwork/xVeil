@@ -712,5 +712,13 @@
     "rawJsonMiB": 445.48,
     "compressedRawJsonMiB": 29.81,
     "losslessArchivalVerified": true
+  },
+  "setupBatchErratum": {
+    "reportedSeedBatchRows": 64,
+    "actualSeedBatchRows": "production publication row ceiling in that phase",
+    "setupVariedAcrossRowCapPhases": true,
+    "rowCapLatencyCausalityWithdrawn": true,
+    "exactHistoryAndColdCrashChecksStillValid": true,
+    "fixedSeedRequalification": "../history-window-index-100000-2026-11-10/summary.json"
   }
 }

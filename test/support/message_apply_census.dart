@@ -44,7 +44,7 @@ class MessageApplyCensus {
   int started = 0, completed = 0, failed = 0, duplicates = 0;
   int active = 0, maxActive = 0, awaitUs = 0, maxAwaitUs = 0;
   int completedFromEarlierStarts = 0;
-  int displayReadCalls = 0;
+  int displayReadCalls = 0, historyRowsReadCalls = 0;
   bool keyLimitReached = false;
   static const maxKeys = 20000;
   final _completedKeys = <(String, String)>{};
@@ -76,6 +76,7 @@ class MessageApplyCensus {
     started = completed = failed = duplicates = 0;
     awaitUs = maxAwaitUs = completedFromEarlierStarts = 0;
     displayReadCalls = 0;
+    historyRowsReadCalls = 0;
     maxActive = active;
     keyLimitReached = false;
     _completedKeys.clear();
@@ -372,6 +373,7 @@ class MessageApplyCensus {
     'appendMaxAwaitUs': maxAwaitUs,
     'appendCompletedFromEarlierStarts': completedFromEarlierStarts,
     'displayReadCalls': displayReadCalls,
+    'historyRowsReadCalls': historyRowsReadCalls,
     'trackedKeys': _completedKeys.length,
     'keyLimitReached': keyLimitReached,
     'keyLimit': maxTrackedKeys,
@@ -408,6 +410,12 @@ class CountedMessageStorage extends HiddenVolumeStorage {
   Future<List<Message>> loadMessages(String conversationId, {int? limit}) {
     census.displayReadCalls++;
     return super.loadMessages(conversationId, limit: limit);
+  }
+
+  @override
+  Future<List<Message>> loadMessageRows(String conversationId) {
+    census.historyRowsReadCalls++;
+    return super.loadMessageRows(conversationId);
   }
 
   @override
