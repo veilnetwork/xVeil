@@ -75,6 +75,34 @@ void main() {
     expect(await file.readAsString(), isNot(contains('PRIVATE_')));
   });
 
+  test(
+    'own-device lookups form one busy span without duplicating waits',
+    () async {
+      var now = 0;
+      final probe = PrivateHistoryWorkProbe(file, nowUs: () => now);
+      final census = MessageApplyCensus(observeStage: probe.observe);
+      final release = Completer<void>();
+      final first = census.ownDevices(() async {
+        await release.future;
+        return 1;
+      });
+      now = 5;
+      expect(await census.ownDevices(() async => 2), 2);
+      now = 20;
+      release.complete();
+      expect(await first, 1);
+      await probe.close();
+      final rows = await read();
+      final spans = rows.where((row) => row['stage'] == 'ownDevices').toList();
+      expect(spans.map((row) => row['kind']), ['begin', 'end']);
+      expect(spans.map((row) => row['atUs']), [0, 20]);
+      expect(spans.last['calls'], 2);
+      expect(spans.last['failures'], 0);
+      expect(rows.last['active']['ownDevices'], 0);
+      expect(rows.last['dropped'], 0);
+    },
+  );
+
   test('only fixed stage labels can be written', () async {
     final probe = PrivateHistoryWorkProbe(file);
     probe.observe('PRIVATE_ID_OR_PATH', true, false);
@@ -104,6 +132,14 @@ void main() {
     () async {
       expect(
         () => PrivateHistoryWorkProbe(file, maxRecords: 0),
+        throwsArgumentError,
+      );
+      expect(await file.exists(), isFalse);
+      expect(
+        () => PrivateHistoryWorkProbe(
+          file,
+          maxRecords: PrivateHistoryWorkProbe.maxAllowedRecords + 1,
+        ),
         throwsArgumentError,
       );
       expect(await file.exists(), isFalse);

@@ -11,18 +11,24 @@ class PrivateHistoryWorkProbe {
     int Function()? nowUs,
   }) : _now = nowUs ?? _wallNow,
        _sink = _open(file, maxRecords) {
-    _write({'kind': 'open', 'atUs': _now()});
+    _write({'kind': 'open', 'atUs': _now(), 'maxRecords': maxRecords});
   }
 
   static IOSink _open(File file, int maxRecords) {
-    if (maxRecords < 1 || maxRecords > 20000) {
+    if (maxRecords < 1 || maxRecords > maxAllowedRecords) {
       throw ArgumentError('invalid private history work budget');
     }
     return file.openWrite(mode: FileMode.append);
   }
 
   static int _wallNow() => DateTime.now().microsecondsSinceEpoch;
-  static const stages = {'historyApply', 'historyPublish', 'historyCheckpoint'};
+  static const maxAllowedRecords = 65536;
+  static const stages = {
+    'historyApply',
+    'historyPublish',
+    'historyCheckpoint',
+    'ownDevices',
+  };
   final int maxRecords;
   final int Function() _now;
   final IOSink _sink;
