@@ -1,0 +1,122 @@
+{
+  "schema": "xveil-read-marker-session-validation/1",
+  "baselineRevision": "bcea87aba22b27067f5dce94d667e84b2d06d152",
+  "productionFilesChanged": 3,
+  "storageParentAssertionReds": 12,
+  "adminParentAssertionReds": 5,
+  "intermediateDeadlockAssertionReds": 1,
+  "focusedChecksPassed": 21,
+  "relatedChecksPassed": 1062,
+  "relatedChecksSkipped": 0,
+  "relatedTestFiles": 21,
+  "relatedSourcesUnchanged": true,
+  "analyzerIssues": 0,
+  "nativeArchiveRows": 100000,
+  "nativeChecksPassed": 2,
+  "nativeNegativeControlsQualified": 2,
+  "nativeMappingVerified": true,
+  "frozenOtherNativeInputs": 1518,
+  "nativeInputsStillMatchCurrentSource": true,
+  "nativePhases": {
+    "native-parent-100000": {
+      "qualificationPassed": true,
+      "negativeControl": true,
+      "exitCode": 1,
+      "nativeMappingVerified": true,
+      "sourceSha": "1e0d595034b05bd18879eb625e836613362ed4b591be658c3bad08ec20c46d80",
+      "ownedProcesses": 3,
+      "liveProcesses": [],
+      "runtimeDirectoriesRemoved": 2,
+      "elapsedSeconds": 46.58,
+      "evidence": [
+        {
+          "kind": "markRead",
+          "expectedRows": 100000,
+          "actualRows": 100000,
+          "uniqueRows": 100000,
+          "exactRows": 100000,
+          "expectedNextMarker": 1000,
+          "nextMarker": 2000000,
+          "expectedFirstMarker": 2000000,
+          "firstMarker": 0,
+          "firstRows": 1,
+          "coldReopened": true,
+          "outcome": "ok",
+          "reopenedBeforeRelease": true,
+          "closedBeforeRelease": true
+        },
+        {
+          "kind": "setReadMarker",
+          "expectedRows": 100000,
+          "actualRows": 100000,
+          "uniqueRows": 100000,
+          "exactRows": 100000,
+          "expectedNextMarker": 1000,
+          "nextMarker": 2000000,
+          "expectedFirstMarker": 2000000,
+          "firstMarker": 0,
+          "firstRows": 1,
+          "coldReopened": true,
+          "outcome": "ok",
+          "reopenedBeforeRelease": true,
+          "closedBeforeRelease": true
+        }
+      ]
+    },
+    "native-candidate-100000": {
+      "qualificationPassed": true,
+      "negativeControl": false,
+      "exitCode": 0,
+      "nativeMappingVerified": true,
+      "sourceSha": "bb695e046b9ffd6e06492972eb2fe2e6c70c27f54bc15d024e42d9148e3789a2",
+      "ownedProcesses": 3,
+      "liveProcesses": [],
+      "runtimeDirectoriesRemoved": 2,
+      "elapsedSeconds": 46.44,
+      "evidence": [
+        {
+          "kind": "markRead",
+          "expectedRows": 100000,
+          "actualRows": 100000,
+          "uniqueRows": 100000,
+          "exactRows": 100000,
+          "expectedNextMarker": 1000,
+          "nextMarker": 1000,
+          "expectedFirstMarker": 2000000,
+          "firstMarker": 2000000,
+          "firstRows": 1,
+          "coldReopened": true,
+          "outcome": "ok",
+          "reopenedBeforeRelease": false,
+          "closedBeforeRelease": false
+        },
+        {
+          "kind": "setReadMarker",
+          "expectedRows": 100000,
+          "actualRows": 100000,
+          "uniqueRows": 100000,
+          "exactRows": 100000,
+          "expectedNextMarker": 1000,
+          "nextMarker": 1000,
+          "expectedFirstMarker": 2000000,
+          "firstMarker": 2000000,
+          "firstRows": 1,
+          "coldReopened": true,
+          "outcome": "ok",
+          "reopenedBeforeRelease": false,
+          "closedBeforeRelease": false
+        }
+      ]
+    }
+  },
+  "relatedCleanup": {
+    "ownedPidsChecked": 20,
+    "liveOwnedPids": []
+  },
+  "testCacheFilesNow": 92,
+  "latencyComparisonPerformed": false,
+  "fullMultiDeviceMatrixQualified": false,
+  "siblingMailboxEnabled": false,
+  "push": false,
+  "release": false
+}
