@@ -22,6 +22,20 @@ class _ReadGate extends TimedNativeStore {
   int reads = 0;
 
   @override
+  Future<List<Uint8List?>> getBatch(int namespace, List<Uint8List> keys) async {
+    reads += keys.length;
+    final result = await super.getBatch(namespace, keys);
+    if (hold &&
+        namespace == Ns.settings &&
+        keys.any((key) => utf8.decode(key) == 'ondisk:shared')) {
+      hold = false;
+      entered.complete();
+      await release.future;
+    }
+    return result;
+  }
+
+  @override
   Future<Uint8List?> get(int namespace, Uint8List key) async {
     reads++;
     // Pause after the real worker has completed this exact metadata request.
