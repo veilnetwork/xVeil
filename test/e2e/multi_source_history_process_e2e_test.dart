@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
 import 'multi_device_process_e2e_test.dart' as base;
@@ -508,7 +509,8 @@ void main() {
           expect(marker['matchedFirstRow'], isFalse);
           final partial = await _inspect(b, ci, bn, cursors: [an, en]);
           final retained = _archive(partial).length;
-          expect(retained, crashAtRow ~/ 64 * 64);
+          expect(retained, crashAtRow ~/ preparedMessageBatchMaxRows *
+              preparedMessageBatchMaxRows);
           expect(retained, inInclusiveRange(1, _rows - 1));
           final checkpoints = Map<String, String>.from(
             partial['historyCursors'] as Map,

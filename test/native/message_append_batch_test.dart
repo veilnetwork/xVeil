@@ -506,10 +506,11 @@ void main() {
     );
   }
 
+  for (final count in [64, 128]) {
   test(
-    'native prepared cohort publishes one durable transaction and deduplicates retry',
+    'native prepared cohort ($count) publishes one durable transaction and deduplicates retry',
     () async {
-      final rows = [for (var i = 1; i <= 64; i++) row(i)];
+      final rows = [for (var i = 1; i <= count; i++) row(i)];
       backing.hold = true;
       var completed = false;
       final publication = storage
@@ -531,29 +532,29 @@ void main() {
       } finally {
         backing.release.complete();
       }
-      expect(await publication, List.filled(64, PreparedMessageWrite.appended));
+      expect(await publication, List.filled(count, PreparedMessageWrite.appended));
       expect(backing.commitBytes.single, lessThanOrEqualTo(64 * 1800));
-      expect(backing.commitRows, [64]);
+      expect(backing.commitRows, [count]);
       await reopen();
       expect(
         await storage.appendMissingMessageBatch(
           rows,
           beforeCommit: () async {},
         ),
-        List.filled(64, PreparedMessageWrite.existing),
+        List.filled(count, PreparedMessageWrite.existing),
       );
-      expect(await ids(), [for (var i = 1; i <= 64; i++) 'row-$i']);
+      expect(await ids(), [for (var i = 1; i <= count; i++) 'row-$i']);
     },
     skip: skip,
   );
 
   for (final uncertain in [false, true]) {
     test(
-      'native prepared cohort retries failure without duplicate posts ($uncertain)',
+      'native prepared cohort ($count) retries failure without duplicate posts ($uncertain)',
       () async {
         backing.refuse = !uncertain;
         backing.uncertain = uncertain;
-        final rows = [for (var i = 1; i <= 64; i++) row(i)];
+        final rows = [for (var i = 1; i <= count; i++) row(i)];
         await expectLater(
           storage.appendMissingMessageBatch(rows, beforeCommit: () async {}),
           throwsStateError,
@@ -565,19 +566,21 @@ void main() {
             beforeCommit: () async {},
           ),
           List.filled(
-            64,
+            count,
             uncertain
                 ? PreparedMessageWrite.existing
                 : PreparedMessageWrite.appended,
           ),
         );
-        expect(await ids(), [for (var i = 1; i <= 64; i++) 'row-$i']);
+        expect(await ids(), [for (var i = 1; i <= count; i++) 'row-$i']);
         final sync = await storage.conversationSync('peer');
-        expect(sync.highWater['author'], 64);
+        expect(sync.highWater['author'], count);
         expect(sync.holes, isEmpty);
       },
       skip: skip,
     );
+  }
+
   }
 
   test(

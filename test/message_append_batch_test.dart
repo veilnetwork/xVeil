@@ -427,7 +427,7 @@ void main() {
       );
       final count = backing.writes.length;
       expect(
-        await repair([for (var i = 0; i < 65; i++) correction('r-$i', i)]),
+        await repair([for (var i = 0; i < 129; i++) correction('r-$i', i)]),
         isNull,
       );
       expect(
@@ -492,6 +492,75 @@ void main() {
       expect(local.seq, 1);
     },
   );
+
+  for (final delta in [-1, 0, 1]) {
+    test('128 prepared posts retain the aggregate byte boundary ($delta)',
+        () async {
+      await publish([row('probe-0000', body: '')]);
+      final overhead = backing.writes.single.whereType<AppendLogOp>()
+          .single.payload.length;
+      final rows = [for (var i = 0; i < 128; i++)
+        row('bound-${i.toString().padLeft(4, '0')}',
+            body: 'x' * (900 - overhead + (i == 127 ? delta : 0)))];
+      final commits = backing.writes.length;
+      var admissions = 0;
+      final result = await publish(rows, guard: () async => admissions++);
+      if (delta > 0) {
+        expect(result, isNull);
+        expect(admissions, 0);
+        expect(backing.writes, hasLength(commits));
+        expect(await ids(), ['probe-0000']);
+      } else {
+        expect(result, List.filled(128, PreparedMessageWrite.appended));
+        expect(admissions, 1);
+        expect(backing.writes, hasLength(commits + 1));
+        final bytes = backing.writes.last.whereType<AppendLogOp>()
+            .fold<int>(0, (n, op) => n + op.payload.length);
+        expect(bytes, preparedMessageBatchMaxBytes + delta);
+        final held = await storage.loadMessages('conversation');
+        expect(held.where((m) => m.id.startsWith('bound-'))
+            .map((m) => (m.id, m.body, m.status)),
+          rows.map((m) => (m.id, m.body, m.status)));
+      }
+    });
+
+    test('128 prepared corrections retain the aggregate byte boundary ($delta)',
+        () async {
+      await publish([row('probe-0000')]);
+      await repair([correction('probe-0000', 100)]);
+      final overhead = backing.writes.last.whereType<AppendLogOp>()
+          .single.payload.length;
+      final rows = [for (var i = 0; i < 128; i++)
+        row('bound-${i.toString().padLeft(4, '0')}')];
+      await publish(rows);
+      final commits = backing.writes.length;
+      final requests = [for (var i = 0; i < rows.length; i++)
+        correction(rows[i].id, 100, author: 'a' *
+            (900 - overhead + 'original-device'.length +
+                (i == 127 ? delta : 0)))];
+      var admissions = 0;
+      final result = await repair(requests, guard: () async => admissions++);
+      if (delta > 0) {
+        expect(result, isNull);
+        expect(admissions, 0);
+        expect(backing.writes, hasLength(commits));
+      } else {
+        expect(result, List.filled(128, true));
+        expect(admissions, 1);
+        expect(backing.writes, hasLength(commits + 1));
+        final bytes = backing.writes.last.whereType<AppendLogOp>()
+            .fold<int>(0, (n, op) => n + op.payload.length);
+        expect(bytes, preparedMessageBatchMaxBytes + delta);
+      }
+      final held = (await storage.loadMessages('conversation'))
+          .where((m) => m.id.startsWith('bound-')).toList()
+        ..sort((a, b) => a.id.compareTo(b.id));
+      expect(held.map((m) => (m.id, m.body, m.author, m.seq, m.status)),
+          rows.map((m) => (m.id, m.body, m.author, m.seq, m.status)));
+      expect(held.map((m) => m.orderAuthor), delta > 0
+          ? everyElement('author') : requests.map((r) => r.author));
+    });
+  }
 
   test(
     'prepared cohort never overwrites a live row or resurrects a tombstone',
@@ -593,7 +662,7 @@ void main() {
   test('unsupported prepared payloads perform no writes', () async {
     expect(await publish([row('large', body: 'x' * 2000)]), isNull);
     expect(await publish([row('unpositioned', seq: null)]), isNull);
-    expect(await publish([for (var i = 0; i < 65; i++) row('id-$i')]), isNull);
+    expect(await publish([for (var i = 0; i < 129; i++) row('id-$i')]), isNull);
     expect(
       await publish([
         for (var i = 0; i < 64; i++)

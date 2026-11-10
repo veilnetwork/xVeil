@@ -2915,6 +2915,7 @@ class HiddenVolumeStorage
     }
     final frozen = <Message>[];
     final payloads = <Uint8List>[];
+    var payloadBytes = 0;
     final ids = <(String, String)>{};
     for (final message in messages) {
       if (!ids.add((message.conversationId, message.id))) {
@@ -2931,6 +2932,8 @@ class HiddenVolumeStorage
       );
       final payload = _sk(_encodeMessage(copy));
       if (payload.length > _messageInlineBytes) return Future.value(null);
+      payloadBytes += payload.length;
+      if (payloadBytes > preparedMessageBatchMaxBytes) return Future.value(null);
       frozen.add(copy);
       payloads.add(payload);
     }
@@ -3060,11 +3063,15 @@ class HiddenVolumeStorage
     final frozen = List<MessageOrderingAdoption>.of(requests);
     if (frozen.isEmpty) return Future.value(const []);
     final ids = <(String, String)>{};
+    var payloadBytes = 0;
     for (final request in frozen) {
       if (!ids.add((request.conversationId, request.messageId))) {
         return Future.error(ArgumentError('duplicate prepared ordering'));
       }
-      if (_orderingPayload(request).length > _messageInlineBytes) {
+      final bytes = _orderingPayload(request).length;
+      payloadBytes += bytes;
+      if (bytes > _messageInlineBytes ||
+          payloadBytes > preparedMessageBatchMaxBytes) {
         return Future.value(null);
       }
     }
@@ -7031,7 +7038,10 @@ class HiddenVolumeStorage
   // conversation sequence numbers are still committed gap-free with events.
   static const int _logIdReserveAhead = 8;
   static const int _logIdReserveMax = 64;
-  static const int _logPreparedReserveMax = 4 * preparedMessageBatchMaxRows;
+  // Reservation credit is independent of the prepared transaction row cap.
+  // Keep the existing 64 -> 128 -> 256 policy and crash-gap ceiling.
+  static const int _logPreparedReserveBase = 64;
+  static const int _logPreparedReserveMax = 256;
   static final Object _acceptedConvWriteZone = Object();
   final _logWrites = <Future<void>>{};
   AsyncKvLogStore? _allocatorStore;
@@ -7039,7 +7049,7 @@ class HiddenVolumeStorage
   int? _visibleNextLogId;
   int _logReservedUntil = 0;
   int _logReservationSize = _logIdReserveAhead;
-  int _logPreparedReservationSize = preparedMessageBatchMaxRows;
+  int _logPreparedReservationSize = _logPreparedReserveBase;
   Future<void>? _idInit;
   Future<void>? _idReservation;
 
@@ -7049,7 +7059,7 @@ class HiddenVolumeStorage
     _visibleNextLogId = null;
     _logReservedUntil = 0;
     _logReservationSize = _logIdReserveAhead;
-    _logPreparedReservationSize = preparedMessageBatchMaxRows;
+    _logPreparedReservationSize = _logPreparedReserveBase;
     _idInit = null;
     _idReservation = null;
   }
@@ -7272,7 +7282,7 @@ class HiddenVolumeStorage
     bool preparedBulk = false,
   }) => _trackLogWrite((store) async {
     final fullPrepared =
-        preparedBulk && payloads.length == preparedMessageBatchMaxRows;
+        preparedBulk && payloads.length >= _logPreparedReserveBase;
     final first = await _allocLogIds(
       store,
       count: payloads.length,
