@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: read marker и shown clock не переходят между личностями
+
+[Исправление и native 100000](../read-marker-session-100000-2026-11-10/README.md):
+`markRead`/`setReadMarker` могли после await записать timestamp в другую личность
+или понизить более новый marker. Общий принятый metadata turn привязан к store,
+упорядочен по разговору и дренируется перед close/open/erase. Поздние client
+read/shown/expiry callbacks остановлены; shown-clock RMW сериализован отдельно
+от message scan, без найденного в intermediate candidate lock inversion.
+Другой разговор продолжает работу.
+
+12 storage + 5 client parent-red, отдельный assertion-red собственного lock
+inversion; 21 focused / **1062 related passed, 0 skipped**, analyzer чист.
+Оба native parent случая меняли marker B **1000→2000000**, оставляя marker A 0;
+оба candidate сохранили B=1000 и A=2000000, все 100000 строк точны после cold
+reopen. Provenance/current sources и cleanup проверены. Это не объяснение
+исторических жалоб и не измерение ускорения. Кеш около 9,5 ГиБ, free около
+147 ГиБ. Latency/NETCALL/остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: меньше повторных проверок manifest в own-device read
 
 [Cost regression и native A/B/A](../routing-manifest-fold-100000-2026-11-10/README.md):

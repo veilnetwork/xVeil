@@ -9,6 +9,56 @@ class _MessagingConversationAdmin {
 
   final MessagingService _owner;
 
+  // Own complete read operations through teardown. Only first-show clock
+  // updates share a per-conversation lane: holding it while markRead scans
+  // messages would deadlock history publication's visibility check.
+  final _readOperations = <Future<void>>{};
+  final _shownTails = <String, Future<void>>{};
+  bool _readStateClosed = false;
+  Future<void>? _readStateClosing;
+  bool get _readStateLive => !_readStateClosed && !_owner._disposed;
+
+  Future<T> _ownReadState<T>(Future<T> Function() action) {
+    if (!_readStateLive) {
+      return Future.error(StateError('read-state owner is closing'));
+    }
+    final result = Future<T>.sync(action);
+    late final Future<void> settled;
+    settled = result
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() => _readOperations.remove(settled));
+    _readOperations.add(settled);
+    return result;
+  }
+
+  Future<T> _withShownState<T>(
+    String conversation,
+    Future<T> Function() action,
+  ) => _ownReadState(() {
+    final previous = _shownTails[conversation] ?? Future<void>.value();
+    final result = previous.then((_) {
+      if (!_readStateLive) throw StateError('read-state owner is closing');
+      return action();
+    });
+    late final Future<void> tail;
+    tail = result
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_shownTails[conversation], tail)) {
+            _shownTails.remove(conversation);
+          }
+        });
+    _shownTails[conversation] = tail;
+    return result;
+  });
+
+  Future<void> closeReadState() {
+    _readStateClosed = true;
+    return _readStateClosing ??= Future.wait(
+      _readOperations.toList(),
+    ).then((_) {});
+  }
+
   static const _kFoldersKey = 'chat_folders';
 
   Future<void> setContactName(NodeId peer, String? name) async {
@@ -596,13 +646,19 @@ class _MessagingConversationAdmin {
 
   Future<void> markRead(String conversationId) async {
     try {
-      await _owner._storage.markRead(conversationId);
-      _owner._signal();
-      final ts = await _owner._storage.readMarker(conversationId);
-      if (ts > 0) {
-        await _recordShown(conversationId, ts);
-        _owner.onConversationRead?.call(conversationId, ts);
-      }
+      await _ownReadState(() async {
+        await _owner._storage.markRead(conversationId);
+        if (!_readStateLive) return;
+        _owner._signal();
+        final ts = await _owner._storage.readMarker(conversationId);
+        if (!_readStateLive) return;
+        if (ts > 0) {
+          await _recordShown(conversationId, ts);
+          if (_readStateLive) {
+            _owner.onConversationRead?.call(conversationId, ts);
+          }
+        }
+      });
     } catch (_) {
       // storage locked / unavailable — skip the badge clear.
     }
@@ -635,7 +691,13 @@ class _MessagingConversationAdmin {
 
   String _shownKey(String conversationId) => '$_kShownPrefix$conversationId';
 
-  Future<void> _recordShown(String conversationId, int throughTs) async {
+  Future<void> _recordShown(String conversationId, int throughTs) =>
+      _withShownState(
+        conversationId,
+        () => _recordShownNow(conversationId, throughTs),
+      );
+
+  Future<void> _recordShownNow(String conversationId, int throughTs) async {
     final nowMs = _owner._now().millisecondsSinceEpoch;
     // A message's timestamp is its SENDER's clock, and the read marker rises
     // to the newest one. Left uncapped, a peer dating a message to the year
@@ -646,6 +708,7 @@ class _MessagingConversationAdmin {
     final covered = throughTs < nowMs ? throughTs : nowMs;
     if (covered <= 0) return;
     final state = await _loadShown(conversationId);
+    if (!_readStateLive) return;
     if (covered <= state.watermark) return;
     final entries = [...state.entries];
     // First showing wins: an entry that already covers this much keeps its own
@@ -667,7 +730,7 @@ class _MessagingConversationAdmin {
   /// entry list short without a separate maintenance pass.
   Future<int> hiddenThroughTs(NodeId peer) async {
     try {
-      return await _hiddenThroughTs(peer);
+      return await _ownReadState(() => _hiddenThroughTs(peer));
     } catch (_) {
       // Best-effort, like [markRead] and [sweepDisappearing] beside it. This
       // runs on the chat's fifteen-second timer, which keeps firing while a
@@ -690,22 +753,25 @@ class _MessagingConversationAdmin {
     final window = setting.hideWindow;
     if (window == null) return 0;
     final conversationId = peer.hex;
-    final state = await _loadShown(conversationId);
-    final now = _owner._now();
-    var watermark = state.watermark;
-    final live = <(int, int)>[];
-    for (final entry in state.entries) {
-      final shownAt = DateTime.fromMillisecondsSinceEpoch(entry.$2);
-      if (setting.isHiddenAfterRead(shownAt, now)) {
-        if (entry.$1 > watermark) watermark = entry.$1;
-      } else {
-        live.add(entry);
+    return _withShownState(conversationId, () async {
+      final state = await _loadShown(conversationId);
+      if (!_readStateLive) return 0;
+      final now = _owner._now();
+      var watermark = state.watermark;
+      final live = <(int, int)>[];
+      for (final entry in state.entries) {
+        final shownAt = DateTime.fromMillisecondsSinceEpoch(entry.$2);
+        if (setting.isHiddenAfterRead(shownAt, now)) {
+          if (entry.$1 > watermark) watermark = entry.$1;
+        } else {
+          live.add(entry);
+        }
       }
-    }
-    if (watermark != state.watermark || live.length != state.entries.length) {
-      await _saveShown(conversationId, watermark, live);
-    }
-    return watermark;
+      if (watermark != state.watermark || live.length != state.entries.length) {
+        await _saveShown(conversationId, watermark, live);
+      }
+      return _readStateLive ? watermark : 0;
+    });
   }
 
   Future<({int watermark, List<(int, int)> entries})> _loadShown(
@@ -738,6 +804,7 @@ class _MessagingConversationAdmin {
     int watermark,
     List<(int, int)> entries,
   ) async {
+    if (!_readStateLive) return;
     await _owner._storage.putSetting(
       _shownKey(conversationId),
       jsonEncode({
@@ -751,12 +818,14 @@ class _MessagingConversationAdmin {
 
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) async {
     try {
-      if (await _owner._storage.readMarker(conversationId) >= tsMs) {
-        return false;
-      }
-      await _owner._storage.setReadMarker(conversationId, tsMs);
-      _owner._signal();
-      return true;
+      return await _ownReadState(() async {
+        final held = await _owner._storage.readMarker(conversationId);
+        if (!_readStateLive || held >= tsMs) return false;
+        await _owner._storage.setReadMarker(conversationId, tsMs);
+        if (!_readStateLive) return false;
+        _owner._signal();
+        return true;
+      });
     } catch (_) {
       return false;
     }

@@ -1448,25 +1448,32 @@ class HiddenVolumeStorage
   // --- Conversations & messages -----------------------------------------
 
   @override
-  Future<void> markRead(String conversationId) async {
-    var latest = 0;
-    for (final m in await _scanLog()) {
-      if (m.conversationId == conversationId) {
-        final ms = m.timestamp.millisecondsSinceEpoch;
-        if (ms > latest) latest = ms;
-      }
-    }
-    final existing = await _readMarker(conversationId);
-    if (existing >= latest) return;
-    await _as.commit([
-      PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest')),
-    ]);
-  }
+  Future<void> markRead(String conversationId) =>
+      _metadataWrite('read:$conversationId', (store) async {
+        var latest = 0;
+        for (final m in await _scanLog()) {
+          if (m.conversationId == conversationId) {
+            final ms = m.timestamp.millisecondsSinceEpoch;
+            if (ms > latest) latest = ms;
+          }
+        }
+        final existing = await _readMarker(conversationId, store: store);
+        if (existing >= latest) return;
+        await store.commit([
+          PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest')),
+        ]);
+      });
 
   /// Millis of the latest message marked read in [conversationId] (0 = never
   /// read → all incoming count as unread).
-  Future<int> _readMarker(String conversationId) async {
-    final raw = await _as.get(Ns.settings, _sk('read:$conversationId'));
+  Future<int> _readMarker(
+    String conversationId, {
+    AsyncKvLogStore? store,
+  }) async {
+    final raw = await (store ?? _as).get(
+      Ns.settings,
+      _sk('read:$conversationId'),
+    );
     return raw == null ? 0 : (int.tryParse(utf8.decode(raw)) ?? 0);
   }
 
@@ -1474,12 +1481,16 @@ class HiddenVolumeStorage
   Future<int> readMarker(String conversationId) => _readMarker(conversationId);
 
   @override
-  Future<void> setReadMarker(String conversationId, int tsMs) async {
-    if (await _readMarker(conversationId) >= tsMs) return;
-    await _as.commit([
-      PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$tsMs')),
-    ]);
-  }
+  Future<void> setReadMarker(String conversationId, int tsMs) =>
+      _metadataWrite('read:$conversationId', (store) async {
+        // Both writers share the same read/compare/commit turn. A delayed lower
+        // mark cannot replace a newer one, enter another identity or outlive an
+        // erase; accepted writes drain before maintenance replaces their store.
+        if (await _readMarker(conversationId, store: store) >= tsMs) return;
+        await store.commit([
+          PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$tsMs')),
+        ]);
+      });
 
   @override
   Future<List<Conversation>> loadConversations() async {
