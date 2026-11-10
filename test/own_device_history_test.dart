@@ -997,7 +997,7 @@ void main() {
         // With all time-based policies off there is no visibility walk.
         // Count the fresh order check, binary lookup, encoding and metadata;
         // a helper-only check would miss a call-site revert.
-        expect(timestampReads, lessThanOrEqualTo(newerHead ? 301000 : 101000));
+        expect(timestampReads, lessThanOrEqualTo(101000));
         final parts =
             net.history
                 .where(
