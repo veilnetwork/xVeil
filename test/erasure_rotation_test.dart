@@ -15,11 +15,14 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
+
+import 'support/timed_native_store.dart';
 
 NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 
@@ -64,6 +67,7 @@ class _ReadCountingStorage extends HiddenVolumeStorage {
   _ReadCountingStorage.fake() : super.fromStore(FakeKvLogStore());
   _ReadCountingStorage.native(super.opener) : super.async();
   int displayRows = 0, rawRows = 0;
+  int Function()? logRowsRead;
 
   @override
   Future<List<Message>> loadMessages(
@@ -79,6 +83,32 @@ class _ReadCountingStorage extends HiddenVolumeStorage {
   Future<List<Message>> loadMessageRows(String conversationId) async {
     final rows = await super.loadMessageRows(conversationId);
     rawRows += rows.length;
+    return rows;
+  }
+}
+
+class _LogReadCountingStore extends TimedNativeStore {
+  _LogReadCountingStore(AsyncKvLogStore store)
+    : super(store, Stopwatch()..start(), (_) {});
+  int rowsRead = 0;
+
+  @override
+  Future<List<KvLogEntry>> iterLogRange({
+    required int namespace,
+    int? start,
+    int? end,
+    required int limit,
+  }) async {
+    final rows = await super.iterLogRange(
+      namespace: namespace,
+      start: start,
+      end: end,
+      limit: limit,
+    );
+    if (namespace >= Ns.messageLogShardFirst &&
+        namespace <= Ns.messageLogShardRetiredLast) {
+      rowsRead += rows.length;
+    }
     return rows;
   }
 }
@@ -117,7 +147,20 @@ void main() {
             argon: hv.ArgonPreset.light,
           ),
         ).close();
-        final store = _ReadCountingStorage.native(workerSpaceOpener(path));
+        final handles = <_LogReadCountingStore>[];
+        final opener = workerSpaceOpener(path);
+        final store = _ReadCountingStorage.native(({
+          required password,
+          required create,
+        }) async {
+          final inner = await opener(password: password, create: create);
+          if (inner == null) return null;
+          final counted = _LogReadCountingStore(inner);
+          handles.add(counted);
+          return counted;
+        });
+        store.logRowsRead = () =>
+            handles.fold<int>(0, (sum, h) => sum + h.rowsRead);
         expect(await store.open(password: label), isTrue);
         return store;
       }
@@ -194,6 +237,7 @@ void main() {
           transport.expectedRequests = round.isOdd ? 32 : 33;
           transport.completed = Completer<void>();
           final beforeDisplay = store.displayRows, beforeRaw = store.rawRows;
+          final beforeLog = store.logRowsRead?.call() ?? 0;
           final queryTimer = Stopwatch()..start();
           await service.deliverInbound(
             InboundMessage(
@@ -211,6 +255,7 @@ void main() {
             'elapsedMicros': queryTimer.elapsedMicroseconds,
             'displayRows': store.displayRows - beforeDisplay,
             'rawRows': store.rawRows - beforeRaw,
+            'logRowsRead': (store.logRowsRead?.call() ?? 0) - beforeLog,
             'requests': transport.requests.length,
             'requestJsonBytes': transport.requests.fold<int>(
               0,
