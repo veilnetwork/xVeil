@@ -1,5 +1,25 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: без временной политики — без лишней проверки каждой строки
+
+[Исправление и native A/B/A](../history-unrestricted-100000-2026-11-10/README.md):
+после свежего чтения политики не выполняется бессмысленный visibility walk
+при выключенных TTL/retention и отсутствии read watermark. История остаётся
+свежей и detached, active policy/revoke/consent/publication/cursor guards
+сохранены; кэша авторизации или sibling mailbox нет.
+
+Два parent assertion-red на 100000 строк; три проверки смены политики между
+запросами. **331 passed / 0 skipped**, analyzer чист. Native:
+**149,007 → 148,916 → 149,402 с** — устойчивое общее ускорение не доказано.
+Все ID/body/status/order, оба cursor и cold retention совпали. Page/byte counts,
+callbacks и message/cursor/allocator commits одинаковы, повторов нет.
+
+1532 frozen inputs, один production variant, candidate восстановлен;
+cleanup прошли, cache 92→92 без новых kernel entries. Следующий кандидат —
+receiver apply/storage/checkpoint и ожидания между страницами. Latency,
+NETCALL-01, физическая/AOT квалификация и остальная matrix открыты.
+Push/релиза нет.
+
 ## 2026-11-10: SIGKILL посреди догрузки 100000 сообщений
 
 [Новый native crash-сценарий](../history-mid-crash-100000-2026-11-10/README.md):

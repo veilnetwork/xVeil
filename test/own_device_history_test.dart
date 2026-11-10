@@ -854,6 +854,58 @@ void main() {
     },
   );
 
+  for (final policy in ['ttl', 'retention', 'read']) {
+    test('source rereads $policy policy after an unrestricted page', () async {
+      await seed(2);
+      final contact = (await sa.getContact(peer))!;
+      ma.start();
+      await until(() async => net.history.any(
+        (f) => f.from == a && f.body['q']?['op'] == 'list',
+      ));
+      for (var phase = 0; phase < 3; phase++) {
+        if (phase == 1) {
+          await sa.upsertContact(switch (policy) {
+            'ttl' => contact.copyWith(disappearingTtlSeconds: 5),
+            'retention' => contact.copyWith(retentionDays: 1),
+            _ => contact.copyWith(hideAfterReadSeconds: 5),
+          });
+          if (policy == 'read') {
+            await sa.putSetting('disap.shown.v1:${peer.hex}', jsonEncode({
+              'w': DateTime.utc(2020).add(const Duration(seconds: 1))
+                  .millisecondsSinceEpoch,
+              'e': <Object>[],
+            }));
+          }
+        } else if (phase == 2) {
+          await sa.upsertContact(contact);
+        }
+        final request = '${phase + 1}' * 32;
+        await net.send(tb, a, WireEnvelope.deviceHistory(jsonEncode({
+          'v': 1, 'd': b.hex, 'id': request,
+          'q': {'op': 'page', 'peer': peer.hex, 'cursor': null, 'rows': 256},
+        })).encode());
+        List<({NodeId from, NodeId to, Map<String, dynamic> body})> parts() =>
+            net.history.where((f) => f.from == a &&
+                f.body['id'] == request && f.body['b'] != null).toList();
+        await until(() async =>
+            parts().isNotEmpty && parts().length == parts().first.body['n']);
+        final ordered = parts()..sort(
+          (a, b) => (a.body['i'] as int).compareTo(b.body['i'] as int),
+        );
+        final reply = jsonDecode(utf8.decode([
+          for (final part in ordered) ...base64Decode(part.body['b'] as String),
+        ])) as Map;
+        final events = (reply['events'] as List).map(
+          (body) => DeviceSyncEvent.fromBody(body as String)!.key,
+        );
+        expect(events, phase == 1 ? isEmpty : ['m0000', 'm0001']);
+        expect(reply['next'], isNull);
+        await Future<void>(() {});
+      }
+      expect(errorJournal.entries, isEmpty);
+    });
+  }
+
   for (final newerHead in [false, true]) {
     test(
       newerHead
@@ -909,9 +961,10 @@ void main() {
               .toList();
           return parts.isNotEmpty && parts.length == parts.first.body['n'];
         });
-        // Includes the fresh visibility walk, order check, binary lookup, encoding
-        // and cursor metadata. A helper-only check would miss a call-site revert.
-        expect(timestampReads, lessThanOrEqualTo(newerHead ? 401000 : 201000));
+        // With all time-based policies off there is no visibility walk.
+        // Count the fresh order check, binary lookup, encoding and metadata;
+        // a helper-only check would miss a call-site revert.
+        expect(timestampReads, lessThanOrEqualTo(newerHead ? 301000 : 101000));
         final parts =
             net.history
                 .where(
