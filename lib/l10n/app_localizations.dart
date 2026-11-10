@@ -13811,6 +13811,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not change noise suppression.'**
   String get callNoiseSuppressionFailed;
+
+  /// No description provided for @onboardRecoveryCertificateDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'View recovery certificate (xveil-recovery:v1:…)'**
+  String get onboardRecoveryCertificateDetails;
+
+  /// No description provided for @onboardRecoveryCodeOnlyNow.
+  ///
+  /// In en, this message translates to:
+  /// **'This code is shown only now.'**
+  String get onboardRecoveryCodeOnlyNow;
+
+  /// No description provided for @quickUnlockMethods.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock methods'**
+  String get quickUnlockMethods;
+
+  /// No description provided for @startupUnlockBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Stores an unlock credential in the OS. Quick access will be discoverable.'**
+  String get startupUnlockBrief;
+
+  /// No description provided for @storageHiddenBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted hidden space'**
+  String get storageHiddenBrief;
+
+  /// No description provided for @storagePlainBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Data presence is visible on this device'**
+  String get storagePlainBrief;
+
+  /// No description provided for @storageCompactBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires every identity’s password. Other identities will be deleted.'**
+  String get storageCompactBrief;
+
+  /// No description provided for @storageAutoCompactBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Keeps only the current identity. Enable only when it is the sole identity here.'**
+  String get storageAutoCompactBrief;
+
+  /// No description provided for @storagePaddingBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses less space; weaker size disguise. Takes effect after reopening.'**
+  String get storagePaddingBrief;
+
+  /// No description provided for @seedsSwitchOnBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovery is on. The directory learns your network address.'**
+  String get seedsSwitchOnBrief;
+
+  /// No description provided for @seedsSwitchOffBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovery is off. Add a node manually.'**
+  String get seedsSwitchOffBrief;
+
+  /// No description provided for @onboardRecoveryWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'Why keep the certificate'**
+  String get onboardRecoveryWhy;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

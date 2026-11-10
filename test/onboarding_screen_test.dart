@@ -120,10 +120,10 @@ void main() {
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
                 home: OnboardingScreen(
-                generatePhrase: _phraseOf24,
-                mintIdentity: fakeMintedIdentity,
-                saveCertificate: fakeSaveCertificate,
-              ),
+                  generatePhrase: _phraseOf24,
+                  mintIdentity: fakeMintedIdentity,
+                  saveCertificate: fakeSaveCertificate,
+                ),
               );
             },
           ),
@@ -150,6 +150,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // The explanation step, NOT the create ceremony.
+      expect(find.text(l(tester).onboardLinkDeviceBody), findsNothing);
+      await tester.tap(find.text(l(tester).onboardLinkDeviceSub));
+      await tester.pumpAndSettle();
       expect(find.text(l(tester).onboardLinkDeviceBody), findsOneWidget);
       expect(
         find.text(l(tester).onboardCertFreshTitle),
@@ -279,10 +282,10 @@ void main() {
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
                 home: OnboardingScreen(
-                generatePhrase: _phraseOf24,
-                mintIdentity: fakeMintedIdentity,
-                saveCertificate: fakeSaveCertificate,
-              ),
+                  generatePhrase: _phraseOf24,
+                  mintIdentity: fakeMintedIdentity,
+                  saveCertificate: fakeSaveCertificate,
+                ),
               );
             },
           ),
@@ -541,9 +544,11 @@ void main() {
         // It shows a whole recovery capability at once — the file and the code
         // that opens it — so it is the screen that must not reach a recording.
         expect(find.text(l(tester).onboardCertFreshTitle), findsOneWidget);
-        expect(secureCalls, [
-          true,
-        ], reason: 'the certificate and its code are on screen unprotected');
+        expect(
+          secureCalls,
+          [true],
+          reason: 'the certificate and its code are on screen unprotected',
+        );
 
         // Off the step -> the flag goes back, so sharing works again.
         await confirmRecoveryPhrase(
@@ -554,7 +559,5 @@ void main() {
         expect(secureCalls, [true, false]);
       },
     );
-
-    });
-
+  });
 }

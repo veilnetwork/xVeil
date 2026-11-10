@@ -7961,4 +7961,46 @@ class AppL10nEn extends AppL10n {
   @override
   String get callNoiseSuppressionFailed =>
       'Could not change noise suppression.';
+
+  @override
+  String get onboardRecoveryCertificateDetails =>
+      'View recovery certificate (xveil-recovery:v1:…)';
+
+  @override
+  String get onboardRecoveryCodeOnlyNow => 'This code is shown only now.';
+
+  @override
+  String get quickUnlockMethods => 'Unlock methods';
+
+  @override
+  String get startupUnlockBrief =>
+      'Stores an unlock credential in the OS. Quick access will be discoverable.';
+
+  @override
+  String get storageHiddenBrief => 'Encrypted hidden space';
+
+  @override
+  String get storagePlainBrief => 'Data presence is visible on this device';
+
+  @override
+  String get storageCompactBrief =>
+      'Requires every identity’s password. Other identities will be deleted.';
+
+  @override
+  String get storageAutoCompactBrief =>
+      'Keeps only the current identity. Enable only when it is the sole identity here.';
+
+  @override
+  String get storagePaddingBrief =>
+      'Uses less space; weaker size disguise. Takes effect after reopening.';
+
+  @override
+  String get seedsSwitchOnBrief =>
+      'Discovery is on. The directory learns your network address.';
+
+  @override
+  String get seedsSwitchOffBrief => 'Discovery is off. Add a node manually.';
+
+  @override
+  String get onboardRecoveryWhy => 'Why keep the certificate';
 }
