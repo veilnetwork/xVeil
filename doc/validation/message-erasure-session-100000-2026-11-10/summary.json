@@ -1,0 +1,83 @@
+{
+  "schema": "xveil-validation/1",
+  "archiveRows": 100000,
+  "unitParentAssertionFailures": 3,
+  "newUnitChecksPassed": 10,
+  "relatedChecksPassed": 559,
+  "relatedChecksSkipped": 1,
+  "analyzerIssues": 0,
+  "nativeSmokeRows": 512,
+  "nativeSmokeChecksPassed": 3,
+  "parentNegativeControl": {
+    "qualificationPassed": true,
+    "negativeControl": true,
+    "exitCode": 1,
+    "nativeMappingVerified": true,
+    "sourceSha": "062aeafa2d1a5bcc57c3ce5f35029fa2c00c1244fa7c2df007f2c2955e3c71c6",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 1,
+    "elapsedSeconds": 25.47,
+    "evidence": [
+      {
+        "kind": "delete",
+        "expectedRows": 100000,
+        "actualRows": 99999,
+        "uniqueRows": 99999,
+        "exactRows": 99999,
+        "outcome": "ok",
+        "reopenedBeforeRelease": true,
+        "closedBeforeRelease": true
+      }
+    ]
+  },
+  "candidateNative": {
+    "qualificationPassed": true,
+    "negativeControl": false,
+    "exitCode": 0,
+    "nativeMappingVerified": true,
+    "sourceSha": "120bb2a90b9316ff07c68247b5c6a417e44a340cdc77f3820cadb30d52ded0aa",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 3,
+    "elapsedSeconds": 67.74,
+    "evidence": [
+      {
+        "kind": "delete",
+        "expectedRows": 100000,
+        "actualRows": 100000,
+        "uniqueRows": 100000,
+        "exactRows": 100000,
+        "outcome": "ok",
+        "reopenedBeforeRelease": false,
+        "closedBeforeRelease": false
+      },
+      {
+        "kind": "clear",
+        "expectedRows": 100000,
+        "actualRows": 100000,
+        "uniqueRows": 100000,
+        "exactRows": 100000,
+        "outcome": "ok",
+        "reopenedBeforeRelease": false,
+        "closedBeforeRelease": false
+      },
+      {
+        "kind": "prune",
+        "expectedRows": 100000,
+        "actualRows": 100000,
+        "uniqueRows": 100000,
+        "exactRows": 100000,
+        "outcome": "ok",
+        "reopenedBeforeRelease": false,
+        "closedBeforeRelease": false
+      }
+    ]
+  },
+  "frozenNonvariantInputs": 1512,
+  "testCacheEntriesBefore": 92,
+  "testCacheEntriesAfter": 92,
+  "testCacheGiBApprox": 9.5,
+  "push": false,
+  "release": false
+}
