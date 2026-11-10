@@ -4683,6 +4683,7 @@ class MessagingService {
 
   Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
+    final readStateClosed = _conversationAdmin.closeReadState();
     final largeFramesClosed = _largeFrames.close();
     final postReceiptsClosed = _postReceipts.close();
     final groupReceiptsClosed = _groupReceiptQueue.close();
@@ -4721,6 +4722,7 @@ class MessagingService {
     await contactResponsesClosed;
     await contactAcceptancesClosed;
     await historyClosed;
+    await readStateClosed;
     await _mutations.quiesce();
     Object? shutdownError;
     StackTrace? shutdownTrace;
