@@ -28,8 +28,10 @@ void main() {
         expect(census.snapshot()['displayReadCalls'], 1);
         await storage.loadMessageRows('peer');
         expect(census.snapshot()['displayReadCalls'], 1);
+        expect(census.snapshot()['historyRowsReadCalls'], 1);
         census.reset();
         expect(census.snapshot()['displayReadCalls'], 0);
+        expect(census.snapshot()['historyRowsReadCalls'], 0);
       } finally {
         await storage.close();
       }

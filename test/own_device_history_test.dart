@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/message_batch_store.dart';
+import 'package:xveil/domain/message_history_order.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -198,6 +199,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   int? preparedRowsLimit;
   final preparedRowAttempts = <int>[];
   int displayReads = 0;
+  int historyWindowReads = 0;
   List<Message> Function(List<Message>)? historyRows;
 
   @override
@@ -276,6 +278,31 @@ class _SnapshotStorage extends HiddenVolumeStorage {
     afterMessagesRead = null;
     await hook?.call();
     return historyRows?.call(rows) ?? rows;
+  }
+  @override
+  Future<List<Message>> loadMessageHistoryWindow(
+    String conversationId, {
+    required int limit,
+    int? afterTimestampMs,
+    String? afterId,
+  }) async {
+    historyWindowReads++;
+    if (historyRows != null ||
+        beforeMessagesRead != null ||
+        afterMessagesRead != null) {
+      return messageHistoryWindow(
+        await loadMessageRows(conversationId),
+        limit: limit,
+        afterTimestampMs: afterTimestampMs,
+        afterId: afterId,
+      );
+    }
+    return super.loadMessageHistoryWindow(
+      conversationId,
+      limit: limit,
+      afterTimestampMs: afterTimestampMs,
+      afterId: afterId,
+    );
   }
 }
 
@@ -985,6 +1012,7 @@ void main() {
         );
         final request = 'd' * 32;
         timestampReads = 0;
+        sa.historyWindowReads = 0;
         await net.send(
           tb,
           a,
@@ -1019,6 +1047,8 @@ void main() {
         // With all time-based policies off there is no visibility walk.
         // Count the fresh order check, binary lookup, encoding and metadata;
         // a helper-only check would miss a call-site revert.
+        expect(sa.historyWindowReads, 1,
+            reason: 'an unrestricted page must use the bounded storage capability');
         expect(timestampReads, lessThanOrEqualTo(101000));
         final parts =
             net.history
