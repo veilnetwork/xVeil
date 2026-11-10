@@ -5258,12 +5258,14 @@ void main() {
   Future<Completer<void>> holdHistoryAdmission({
     List<NodeId> Function()? roster,
     bool failOnRelease = false,
+    void Function()? onReadStarted,
   }) async {
     ma.start();
     await Future<void>.delayed(const Duration(milliseconds: 20));
     final entered = Completer<void>(), release = Completer<void>();
     ma.isOwnDevice = (node) async => node == identity || node == b;
     ma.myOtherDevices = () async {
+      onReadStarted?.call();
       if (!entered.isCompleted) entered.complete();
       await release.future;
       if (failOnRelease) throw StateError('fixture history close failure');
@@ -5273,6 +5275,98 @@ void main() {
     await entered.future.timeout(const Duration(seconds: 1));
     return release;
   }
+
+  test('history admission overlaps at most four fresh roster reads', () async {
+    var lookups = 0;
+    final release = await holdHistoryAdmission(onReadStarted: () => lookups++);
+    final budget = ma.historyInboundAdmission;
+    try {
+      for (var i = 1; i < 8; i++) {
+        ta.incoming.add(historyRequest(i));
+      }
+      await until(() async => budget.queuedFrames == 8);
+      await Future<void>(() {});
+      expect(
+        lookups,
+        4,
+        reason:
+            'four handlers may await fresh reads; the rest retain bounded leases',
+      );
+      final closing = ma.dispose();
+      release.complete();
+      await closing;
+      expect(budget.queuedFrames, 0);
+      expect(budget.queuedBytes, 0);
+      expect(
+        net.history.where((e) => e.from == a && e.body['i'] != null),
+        isEmpty,
+      );
+    } finally {
+      if (!release.isCompleted) release.complete();
+    }
+  });
+
+  test(
+    'a held history roster read does not block a ready following frame',
+    () async {
+      ma.start();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      ma.isOwnDevice = (node) async => node == identity || node == b;
+      var lookups = 0;
+      final entered = Completer<void>(), release = Completer<void>();
+      ma.myOtherDevices = () async {
+        if (++lookups == 1) {
+          entered.complete();
+          await release.future;
+        }
+        return [b];
+      };
+      ta.incoming.add(historyRequest(0));
+      await entered.future;
+      try {
+        ta.incoming.add(historyRequest(1));
+        // A following ordinary post proves the live dispatcher passed the
+        // history enqueue, independently of the history authorization gate.
+        ta.incoming.add(
+          InboundMessage(
+            src: peer,
+            provenance: SenderProvenance.signed,
+            payload: const WireEnvelope.message(
+              'live dispatch barrier',
+              id: 'history-dispatch-barrier',
+              seq: 0,
+            ).encode(),
+          ),
+        );
+        await until(
+          () async =>
+              await sa.loadMessageById(peer.hex, 'history-dispatch-barrier') !=
+              null,
+        );
+        expect(
+          lookups,
+          greaterThan(1),
+          reason:
+              'an unrelated ready authorization need not wait for the first lookup',
+        );
+        await until(
+          () async => net.history.any(
+            (e) =>
+                e.from == a &&
+                e.body['id'] == '1'.padLeft(32, '0') &&
+                e.body['i'] != null,
+          ),
+        );
+        expect(release.isCompleted, isFalse);
+        final closing = ma.dispose();
+        release.complete();
+        await closing;
+        expect(ma.historyInboundAdmission.queuedFrames, 0);
+      } finally {
+        if (!release.isCompleted) release.complete();
+      }
+    },
+  );
 
   test(
     'history work is frame-bounded, coalesced and joined during shutdown',

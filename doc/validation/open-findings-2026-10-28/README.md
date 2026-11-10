@@ -1,5 +1,24 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: history ingress перекрывает до четырёх свежих проверок
+
+[Две parent-red, bounded queue и native A/B/A](../history-inbound-parallel-100000-2026-11-10/README.md):
+один медленный roster lookup больше не паркует все входящие history-кадры.
+Четыре handler slots, FIFO waiters, прежние byte/frame caps и каждый свежий
+admission сохранены. Page apply/cursor остаются последовательными по разговору.
+169 history + 13 admission tests passed; отдельная focused-серия пересекается,
+analyzer чист. Ошибочный mailbox-вариант теста исправлен и не засчитан.
+
+100000: **118621→108555→118537 мс**; passive witness
+**114110,520→103666,534→113753,552 мс**. В этой локальной серии около 10 с выигрыша;
+все 100001 строки exact/cold, commits/callbacks/wire counts совпадают.
+RPC ownDevices/kv.getBatch **23632→12654→23310** без кеша завершённого verdict.
+1544 frozen inputs, один production variant, native provenance/mappings,
+полнота raw traces и cleanup проверены. Старый page-profile порог не пройден
+для B (692/782 при пороге 700), его не снижали; полное per-page разложение
+не заявляется. Cache 92→92. Latency/NETCALL/остальная matrix открыты;
+новые изменения без push/релиза, sibling mailbox не добавлялся.
+
 ## 2026-11-10: read-проверки устройств не двигают часы подписанных событий
 
 [Пять parent-red, native A/B/A и полная трасса ожиданий](../device-admission-clock-100000-2026-11-10/README.md):
