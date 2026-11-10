@@ -1,0 +1,66 @@
+{
+  "schema": "xveil-validation/1",
+  "initialMessages": 100000,
+  "conversations": 32,
+  "simulatedPresenceRounds": 8,
+  "expectedDeletes": 4,
+  "plannerPeriodCombinations": 272,
+  "plannerInitialPhases": [
+    0,
+    137
+  ],
+  "relatedChecksPassed": 576,
+  "relatedChecksSkipped": 1,
+  "analyzerIssues": 0,
+  "nativeParent": {
+    "qualificationPassed": true,
+    "negativeControl": true,
+    "exitCode": 1,
+    "nativeMappingVerified": true,
+    "sourceSha": "8319b0e5f2240e72dcbce3b47bfcc87bb148a675ddf5ffba2b08e072dfd133a0",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 1,
+    "elapsedSeconds": 30.68,
+    "evidence": {
+      "native": true,
+      "coldReopened": true,
+      "initialRows": 100000,
+      "rounds": 8,
+      "expectedRows": 99996,
+      "actualRows": 99998,
+      "uniqueRows": 99998,
+      "exactRows": 99996,
+      "retainedDeleted": 2,
+      "targetPasses": 4
+    }
+  },
+  "nativeCandidate": {
+    "qualificationPassed": true,
+    "negativeControl": false,
+    "exitCode": 0,
+    "nativeMappingVerified": true,
+    "sourceSha": "b3567e6cd1fe4d41e66417bc501e1287a795926aacecc811e84325daf46f4190",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 1,
+    "elapsedSeconds": 30.77,
+    "evidence": {
+      "native": true,
+      "coldReopened": true,
+      "initialRows": 100000,
+      "rounds": 8,
+      "expectedRows": 99996,
+      "actualRows": 99996,
+      "uniqueRows": 99996,
+      "exactRows": 99996,
+      "retainedDeleted": 0,
+      "targetPasses": 4
+    }
+  },
+  "nativeFrozenNonvariantInputs": 1514,
+  "testCacheEntriesBefore": 92,
+  "testCacheEntriesAfter": 92,
+  "push": false,
+  "release": false
+}

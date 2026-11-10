@@ -1,11 +1,21 @@
 part of 'messaging_core.dart';
 
 /// Compare recent erasures on every pass and one older page on each pass.
-/// The older page advances by the persisted round, including across restarts.
-List<int> erasureComparisonPages({required int round, required int pages}) => [
-  if (pages > 0) 0,
-  if (pages > 1) 1 + (round - 1) % (pages - 1),
-];
+/// A rotated conversation advances on its own visits, not on every global
+/// round: sharing both rotations' modulo would permanently skip pages when
+/// the conversation and page periods have a common factor. The persisted
+/// global round still carries progress across restarts without extra writes.
+List<int> erasureComparisonPages({
+  required int round,
+  required int pages,
+  int roundsPerVisit = 1,
+}) {
+  if (roundsPerVisit < 1) throw ArgumentError.value(roundsPerVisit);
+  return [
+    if (pages > 0) 0,
+    if (pages > 1) 1 + ((round - 1) ~/ roundsPerVisit) % (pages - 1),
+  ];
+}
 
 /// Keep recent conversations current while eventually visiting every older one.
 List<int> erasureComparisonConversations({
@@ -89,7 +99,13 @@ class _MessagingDeviceMirror {
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         if (messages.isEmpty) continue;
         final pages = (messages.length + _erasureWindow - 1) ~/ _erasureWindow;
-        for (final page in erasureComparisonPages(round: round, pages: pages)) {
+        for (final page in erasureComparisonPages(
+          round: round,
+          pages: pages,
+          roundsPerVisit: index < _erasureConversations
+              ? 1
+              : conversations.length - _erasureConversations,
+        )) {
           final keys = [
             for (final m
                 in messages.skip(page * _erasureWindow).take(_erasureWindow))
