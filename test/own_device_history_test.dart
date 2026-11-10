@@ -626,7 +626,7 @@ void main() {
   }
 
   for (final direction in MessageDirection.values) {
-    test('256 short $direction mirrors share one bounded page', () async {
+    test('256 short $direction mirrors share one bounded page and durable cohort', () async {
       await seed(256, direction: direction);
       ma.start();
       mb.start();
@@ -640,7 +640,7 @@ void main() {
           .toList();
       expect(requests, hasLength(1));
       expect(requests.single.body['q']['rows'], 256);
-      expect(bStore.postBatches, [128, 128]);
+      expect(bStore.postBatches, [256]);
       expect(bStore.historyCursorCommits, 3);
       final source = await sa.loadMessages(peer.hex);
       final held = await sb.loadMessages(peer.hex);
@@ -679,6 +679,28 @@ void main() {
     expect(applied, 128);
     expect(errorJournal.entries, isEmpty);
   });
+
+  for (final cap in [64, 128]) {
+    test('a 256-row page recursively uses the smaller $cap-row adapter', () async {
+      await seed(256);
+      sb.preparedRowsLimit = cap;
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      ma.start(); mb.start();
+      await until(() async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}');
+      expect(sb.preparedRowAttempts, cap == 128
+          ? [256, 128, 128]
+          : [256, 128, 64, 64, 128, 64, 64]);
+      expect(bStore.postBatches, cap == 128 ? [128, 128] : [64, 64, 64, 64]);
+      final held = await sb.loadMessages(peer.hex);
+      final source = await sa.loadMessages(peer.hex);
+      expect(held.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)),
+          source.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)));
+      expect(held.map((m) => m.id).toSet(), hasLength(256));
+      expect(applied, 256);
+      expect(errorJournal.entries, isEmpty);
+    });
+  }
 
   for (final failure in ['revoke', 'storage']) {
     test(

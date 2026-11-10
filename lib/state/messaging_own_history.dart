@@ -49,7 +49,7 @@ class _MessagingOwnHistory {
   // round trip, snapshot and durable cursor every eight rows. The 128-KiB,
   // 64-part and admission ceilings remain independent of this row cap.
   // A page may fill that byte budget with up to 256 short rows; preparation
-  // and atomic publication keep their separate 64-row cohort bound.
+  // and atomic publication keep their independent byte and 256-row bounds.
   static const _legacyMessagePage = 64;
   static const _messagePage = 256;
   static const _maxPrefixes = 8;
