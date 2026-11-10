@@ -597,14 +597,25 @@ class _MessagingOwnHistory {
     }
   }
 
-  Future<List<Message>> _messages(String peer) async {
+  Future<List<Message>> _messages(
+    String peer, {
+    List<dynamic>? after,
+    int? window,
+  }) async {
     final visible = await _visible(peer);
     // History defines its own raw timestamp/id order. Avoid first building
     // the unrelated UI causal-time projection, while keeping a fresh fold.
-    final held = await readMessageRows(
-      _owner._storage,
-      peer,
-    );
+    final held = await readMessageRows(_owner._storage, peer);
+    if (window != null) {
+      return messageHistoryWindow(
+        visible == _unrestrictedVisibility
+            ? held
+            : held.where((message) => visible(message.timestamp)).toList(),
+        limit: window,
+        afterTimestampMs: after?[0] as int?,
+        afterId: after?[1] as String?,
+      );
+    }
     final rows = visible == _unrestrictedVisibility
         ? List<Message>.of(held)
         : held.where((message) => visible(message.timestamp)).toList();
@@ -642,15 +653,19 @@ class _MessagingOwnHistory {
   // as the newer edit. Both reads are warm folds; retry a changing snapshot,
   // rather than rescanning raw history separately for every message.
   Future<({List<Message> rows, Map<String, int> edits})> _snapshot(
-    String peer,
-  ) async {
+    String peer, {
+    List<dynamic>? after,
+    int? window,
+  }) async {
     for (var attempt = 0; attempt < 3; attempt++) {
       final before = await _owner._storage.editSeqs(peer);
-      final rows = await _messages(peer);
-      final after = await _owner._storage.editSeqs(peer);
-      if (before.length == after.length &&
-          before.entries.every((entry) => after[entry.key] == entry.value)) {
-        return (rows: rows, edits: after);
+      final rows = await _messages(peer, after: after, window: window);
+      final afterEdits = await _owner._storage.editSeqs(peer);
+      if (before.length == afterEdits.length &&
+          before.entries.every(
+            (entry) => afterEdits[entry.key] == entry.value,
+          )) {
+        return (rows: rows, edits: afterEdits);
       }
     }
     throw StateError('History changed during snapshot');
@@ -858,7 +873,6 @@ class _MessagingOwnHistory {
             await _owner._isSiblingDevice(node)) {
           return;
         }
-        final snapshot = await _snapshot(peer);
         Map? acceptedPrefix;
         final prefixes = _queryPrefixes(query);
         if (prefixes == null ||
@@ -866,6 +880,15 @@ class _MessagingOwnHistory {
             prefixes.any((p) => !_afterCursor(p['position'] as List, cursor))) {
           return;
         }
+        // Prefix proofs still need the complete fresh view. An ordinary
+        // page/record only needs its cursor window, not a full archive merge.
+        final snapshot = await _snapshot(
+          peer,
+          after: prefixes.isEmpty ? cursor as List<dynamic>? : null,
+          window: prefixes.isEmpty
+              ? (query['op'] == 'record' ? 1 : limit + 1)
+              : null,
+        );
         var pendingPrefixes = 0;
         for (var i = 0; i < prefixes.length; i++) {
           final prefix = prefixes[i];

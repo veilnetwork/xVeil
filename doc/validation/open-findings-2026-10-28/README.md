@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: page читает окно без полного слияния свежего архива
+
+[Cost regression и native A/B/A](../history-page-window-100000-2026-11-10/README.md):
+source при двух sorted runs сливал все 100000 строк перед каждой page.
+Теперь свежий order scan + binary lookup в каждом run + bounded merge окна;
+для произвольных раскладок — прежняя сортировка копии. Prefix/digest остаются
+полными свежими снимками. Кеш авторизации/снимка или новый индекс не добавлен.
+Parent **300273 timestamp reads**, candidate ≤101000 на реальном call site.
+
+1082 related passed / 0 skipped, analyzer чист, 1540 frozen inputs / два variants.
+Все 100001 строка и cold retention точны, оба cursor, callbacks/commits/wire
+counts сохранены. Общая проверка **139095→133964→134346 мс**, passive inventory
+**133328,659→130369,313→131451,491 мс**: ускорение всего пути не доказано.
+IO/authorization/commit остаток около 190 мс после reply остаётся следующим
+участком. Cleanup/provenance проверены; кеш 92 файла / около 9,5 ГиБ.
+Latency/NETCALL/остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: read marker и shown clock не переходят между личностями
 
 [Исправление и native 100000](../read-marker-session-100000-2026-11-10/README.md):
