@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/event.dart';
 
 class _HeldErasureStore extends SyncWrappedAsyncKvLogStore {
   _HeldErasureStore(this.raw) : super(raw);
@@ -18,10 +19,20 @@ class _HeldErasureStore extends SyncWrappedAsyncKvLogStore {
   bool holdKeys = false,
       holdRange = false,
       closed = false,
-      refuseDelete = false;
+      refuseDelete = false,
+      refuseVoid = false;
 
   @override
   Future<int> commit(List<KvLogOp> ops) {
+    if (refuseVoid &&
+        ops.whereType<AppendLogOp>().any(
+          (op) =>
+              (jsonDecode(utf8.decode(op.payload)) as Map)['k'] ==
+              EventKind.void_.index,
+        )) {
+      refuseVoid = false;
+      return Future.error(StateError('fixture void refused'));
+    }
     if (refuseDelete &&
         ops.whereType<AppendLogOp>().any(
           (op) => (jsonDecode(utf8.decode(op.payload)) as Map)['op'] == 'del',
@@ -97,6 +108,222 @@ void main() {
           DateTime.utc(2021),
         ),
       };
+
+  test(
+    'accepted void cannot enter another identity after its preparation read',
+    () {
+      fakeAsync((time) {
+        final first = _HeldErasureStore(FakeKvLogStore());
+        final next = _HeldErasureStore(FakeKvLogStore());
+        final storage = HiddenVolumeStorage.async(({
+          required password,
+          required create,
+        }) async {
+          final result = utf8.decode(password) == 'first' ? first : next;
+          result.closed = false;
+          return result;
+        });
+        storage.open(password: 'next');
+        time.flushMicrotasks();
+        storage.appendMessage(row(nextPeer, 'next-row', 'next-space-body'));
+        time.flushMicrotasks();
+        storage.open(password: 'first');
+        time.flushMicrotasks();
+        storage.appendMessage(row(firstPeer, 'old-row', 'first-space-body'));
+        time.flushMicrotasks();
+        first.holdRange = true;
+        String? outcome;
+        storage
+            .applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2)
+            .then(
+              (_) => outcome = 'ok',
+              onError: (Object _) => outcome = 'error',
+            );
+        time.flushMicrotasks();
+        expect(first.entered.isCompleted, isTrue);
+        bool? opened;
+        storage.open(password: 'next').then((ok) => opened = ok);
+        time.flushMicrotasks();
+        final openedBeforeRelease = opened;
+        first.release.complete();
+        time.flushMicrotasks();
+        expect(opened, isTrue);
+        List<int>? foreign;
+        storage
+            .loadEventsSince(firstPeer.hex, firstPeer.hex, 0)
+            .then((events) => foreign = [for (final e in events) e.seq]);
+        time.flushMicrotasks();
+        Message? kept;
+        storage.loadMessageById(nextPeer.hex, 'next-row').then((m) => kept = m);
+        time.flushMicrotasks();
+        storage.close();
+        time.flushMicrotasks();
+        expect(
+          foreign,
+          isEmpty,
+          reason:
+              'an older identity must not leave gap-fill metadata in the new space',
+        );
+        expect(kept?.body, 'next-space-body');
+        expect(openedBeforeRelease, isNull);
+        expect(outcome, 'ok');
+      });
+    },
+  );
+
+  test('concurrent copies of one void consume one log slot', () {
+    fakeAsync((time) {
+      final raw = _HeldErasureStore(FakeKvLogStore());
+      final storage = HiddenVolumeStorage.fromAsyncStore(raw);
+      storage.appendMessage(row(firstPeer, 'old-row', 'first-space-body'));
+      time.flushMicrotasks();
+      raw.holdRange = true;
+      final first = storage.applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2);
+      time.flushMicrotasks();
+      expect(raw.entered.isCompleted, isTrue);
+      final second = storage.applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2);
+      time.flushMicrotasks();
+      raw.release.complete();
+      var done = false;
+      Future.wait([first, second]).then((_) => done = true);
+      time.flushMicrotasks();
+      expect(done, isTrue);
+      List<int>? seqs;
+      storage
+          .loadEventsSince(firstPeer.hex, firstPeer.hex, 1)
+          .then((events) => seqs = [for (final e in events) e.seq]);
+      time.flushMicrotasks();
+      storage.close();
+      time.flushMicrotasks();
+      expect(seqs, [
+        2,
+      ], reason: 'the idempotency read and write must share the stream turn');
+    });
+  });
+
+  test('a pending void does not block a different author', () {
+    fakeAsync((time) {
+      final raw = _HeldErasureStore(FakeKvLogStore());
+      final storage = HiddenVolumeStorage.fromAsyncStore(raw);
+      storage.appendMessage(row(firstPeer, 'old-row', 'first-space-body'));
+      time.flushMicrotasks();
+      raw.holdRange = true;
+      final first = storage.applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2);
+      time.flushMicrotasks();
+      expect(raw.entered.isCompleted, isTrue);
+      var otherDone = false;
+      storage
+          .applyRemoteVoid(firstPeer.hex, nextPeer.hex, 1)
+          .then((_) => otherDone = true);
+      time.flushMicrotasks();
+      final doneBeforeRelease = otherDone;
+      raw.release.complete();
+      var firstDone = false;
+      first.then((_) => firstDone = true);
+      time.flushMicrotasks();
+      expect(firstDone && otherDone, isTrue);
+      List<int>? seqs;
+      storage
+          .loadEventsSince(firstPeer.hex, nextPeer.hex, 0)
+          .then((events) => seqs = [for (final e in events) e.seq]);
+      time.flushMicrotasks();
+      storage.close();
+      time.flushMicrotasks();
+      expect(doneBeforeRelease, isTrue);
+      expect(seqs, [1]);
+    });
+  });
+
+  for (final erasing in [false, true]) {
+    test(
+      'accepted void drains before ${erasing ? 'erase' : 'close'} and refuses late voids',
+      () {
+        fakeAsync((time) {
+          final raw = _HeldErasureStore(FakeKvLogStore());
+          final storage = HiddenVolumeStorage.fromAsyncStore(raw);
+          storage.appendMessage(row(firstPeer, 'old-row', 'first-space-body'));
+          time.flushMicrotasks();
+          raw.holdRange = true;
+          String? accepted, late;
+          storage
+              .applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2)
+              .then(
+                (_) => accepted = 'ok',
+                onError: (Object _) => accepted = 'error',
+              );
+          time.flushMicrotasks();
+          expect(raw.entered.isCompleted, isTrue);
+          var done = false;
+          final maintenance = erasing ? storage.eraseSpace() : storage.close();
+          maintenance.then((_) => done = true);
+          time.flushMicrotasks();
+          expect(done, isFalse);
+          storage
+              .applyRemoteVoid(firstPeer.hex, nextPeer.hex, 1)
+              .then((_) => late = 'ok', onError: (Object _) => late = 'error');
+          time.flushMicrotasks();
+          expect(late, 'error');
+          raw.release.complete();
+          time.flushMicrotasks();
+          expect(accepted, 'ok');
+          expect(done, isTrue);
+          if (erasing) {
+            expect([
+              for (
+                var ns = Ns.messageLogShardFirst;
+                ns <= Ns.messageLogShardLast;
+                ns++
+              )
+                raw.raw.count(ns),
+            ], everyElement(0));
+          }
+          storage.close();
+          time.flushMicrotasks();
+          expect(raw.closed, isTrue);
+        });
+      },
+    );
+  }
+
+  test(
+    'failed accepted void releases close without acknowledging the slot',
+    () {
+      fakeAsync((time) {
+        final raw = _HeldErasureStore(FakeKvLogStore());
+        final storage = HiddenVolumeStorage.fromAsyncStore(raw);
+        storage.appendMessage(row(firstPeer, 'old-row', 'first-space-body'));
+        time.flushMicrotasks();
+        raw.holdRange = true;
+        raw.refuseVoid = true;
+        String? outcome;
+        storage
+            .applyRemoteVoid(firstPeer.hex, firstPeer.hex, 2)
+            .then(
+              (_) => outcome = 'ok',
+              onError: (Object _) => outcome = 'error',
+            );
+        time.flushMicrotasks();
+        expect(raw.entered.isCompleted, isTrue);
+        var closed = false;
+        storage.close().then((_) => closed = true);
+        time.flushMicrotasks();
+        expect(closed, isFalse);
+        raw.release.complete();
+        time.flushMicrotasks();
+        expect(outcome, 'error');
+        expect(closed && raw.closed, isTrue);
+        expect([
+          for (
+            var ns = Ns.messageLogShardFirst;
+            ns <= Ns.messageLogShardLast;
+            ns++
+          )
+            for (final e in raw.raw.iterLogRange(namespace: ns, limit: 1000))
+              jsonDecode(utf8.decode(e.payload)),
+        ], everyElement(isNot(containsPair('k', EventKind.void_.index))));
+      });
+    },
+  );
 
   for (final kind in _Erasure.values) {
     test('accepted ${kind.name} cannot rewrite the next opened identity', () {
