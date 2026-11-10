@@ -3866,7 +3866,11 @@ class GroupService implements ArchiveGroups {
     return incoming.isLegacyGroup ? existing : null;
   }
 
-  bool _validControlFor(SpaceManifest manifest, ControlEntry e) {
+  bool _validControlFor(
+    SpaceManifest manifest,
+    ControlEntry e, {
+    bool? sovereignManifestValid,
+  }) {
     if (!e.isStructurallyValid) return false;
     if ((e.version == 17 ||
             e.version == 18 ||
@@ -3901,7 +3905,7 @@ class GroupService implements ArchiveGroups {
           e.target != null &&
           (e.op != ControlOp.addMember || e.role == GroupRole.member) &&
           (e.op != ControlOp.removeMember || e.role == null);
-      return _validManifest(manifest) &&
+      return (sovereignManifestValid ?? _validManifest(manifest)) &&
           e.groupId == manifest.groupId &&
           e.author == manifest.owner &&
           _listEquals(e.authorPubKey, manifest.genesisPubKey) &&
@@ -20246,10 +20250,20 @@ class GroupService implements ArchiveGroups {
     // readers share only this unfinished lookup; completion and any routing
     // mutation discard it. No view survives into a later operation. A revoke
     // overtaking the read makes every waiter retry the new committed state.
+    // This manifest is identical for every row of this synchronous fold.
+    // Verify it freshly here, then keep each row's own signature/shape checks.
+    // The verdict never crosses an await or survives into a later read.
+    final sovereignManifestValid = b.manifest.isSovereignDevice
+        ? _validManifest(b.manifest)
+        : null;
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest, e),
+      verify: (e) => _validControlFor(
+        b.manifest,
+        e,
+        sovereignManifestValid: sovereignManifestValid,
+      ),
     ).state;
     final ids = [
       ...snapshotRecipients(

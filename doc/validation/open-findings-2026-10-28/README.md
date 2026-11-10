@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: меньше повторных проверок manifest в own-device read
+
+[Cost regression и native A/B/A](../routing-manifest-fold-100000-2026-11-10/README.md):
+подпись одного manifest проверялась для каждой control row одного синхронного
+routing fold. На 12 целях **14→2**, подписи строк и новое fresh чтение сохранены.
+Межоперационный кеш авторизации не добавлен. Parent assertion-red; **785 passed /
+0 skipped**, analyzer чист; финальный regression отдельно подтверждён JSON events.
+
+100000: финальная проверка **133940→128700→133909 мс** с шагом опроса 5 с;
+passive post-page inventory **129930,715→127463,272→131586,497 мс**.
+Ускорение в одной локальной серии не обобщается на весь продукт. Все 100001
+строка, оба cursor, cold retention, 200002 callbacks, commits и wire/page counts
+сохранились. 1537 frozen inputs / один production variant; provenance/cleanup
+проверены. Кеш 92 файла, новых entries 0; source snapshots сжаты со сверкой SHA.
+Latency/NETCALL/остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: новый профиль получателя на 100000
 
 [Диагностический native прогон](../history-receiver-profile-100000-2026-11-10/README.md)
