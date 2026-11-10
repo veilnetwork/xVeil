@@ -13686,6 +13686,12 @@ abstract class AppL10n {
   /// **'Also unlock after restart'**
   String get startupUnlockTitle;
 
+  /// No description provided for @startupUnlockBiometricOnlyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Without re-entering the pattern, sign-in after a restart will use biometrics only. Your existing screen-lock pattern stays available.'**
+  String get startupUnlockBiometricOnlyHint;
+
   /// No description provided for @startupUnlockHint.
   ///
   /// In en, this message translates to:

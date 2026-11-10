@@ -7984,6 +7984,10 @@ class AppL10nEs extends AppL10n {
   String get startupUnlockTitle => 'Desbloquear también tras reiniciar';
 
   @override
+  String get startupUnlockBiometricOnlyHint =>
+      'Sin volver a introducir el patrón, el acceso tras reiniciar usará solo la biometría. Se conservará el patrón de bloqueo de pantalla.';
+
+  @override
   String get startupUnlockHint =>
       'Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.';
 
