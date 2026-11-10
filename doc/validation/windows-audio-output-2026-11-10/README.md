@@ -64,12 +64,38 @@ candidate, the media startup and device-picker suites pass all 66 tests, includi
 failed selection, clearing an override, and an engine without role metadata.
 Analyzer: no issues in the six changed call/test files checked.
 
-Physical testing of the **new** native output selector and the completed picker is
-still required. The preceding audible calls used the old released media library.
+The new selector/picker was subsequently tested using a provenance-checked
+Windows build. The owner confirmed live voice in both directions. One roughly
+ten-minute call survived ten output switches. Five more completed call lifecycles
+each passed two switches, with both capture and playout startup observed. These
+twenty switches were checked for API success and call continuity; human audibility
+after switching was not confirmed because the owner missed that listening window.
+
+Locking the QA application after those calls exposed a separate release blocker:
+an unhandled WinRT exception from notification cancellation. A debugger captured
+the second-chance exception. The real application was not affected.
+
+`test/native/windows_audio_com_lifetime_probe.cpp` isolates engine construction
+and destruction from Flutter, profiles, microphones, playback and the network.
+It loads a real media DLL with a separate transport stub and compares the caller's
+COM apartment and context before construction, after construction and after
+destruction. With candidate DLL
+`065ef10f6738ac02f4ccf3ff213dab7979285185795196a8aa702bcae59ec64c`,
+all four cases (direct/group engine, STA/MTA caller) preserved COM on creation
+but corrupted it on destruction (exit 1 in each case).
+
+The Windows ADM was created on its dedicated thread, but the final reference
+was released on the caller. Its COM initializer therefore uninitialized the
+caller's apartment. The candidate now retains a lifetime reference until other
+media state and queues are destroyed, then releases it synchronously on the ADM
+thread. Both engine types and construction-error cleanup use this rule. Eight
+portable lifetime checks pass. The real-DLL probe and application call/lock cycle
+must still pass on the rebuilt library before release.
+
 One old-library QA process exited with `0xc0000409` after an output switch; its
 cause is unknown, and neither the route diagnosis nor this patch is claimed to
 explain that exit. It did not repeat during the roughly ten-minute control call
-or subsequent calls. Candidate switching and teardown remain qualification work.
+or subsequent calls.
 
 Started QA applications, owned helpers and forwarding were closed after the
 series, with process checks. The real Windows application remained running.
