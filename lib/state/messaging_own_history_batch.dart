@@ -139,13 +139,15 @@ class _HistoryWriteCohort {
           ], beforeCommit: () => checkAdmission(events));
     if (results == null && rows.length > _splitRows) {
       // An aggregate byte bound, smaller adapter or unsupported row may refuse
-      // the larger request without writing. Retry ordered, bounded halves
+      // the larger request without writing. Retry ordered halves down to 64
       // before using the original single-row fallback. Each half keeps fresh
       // admission and its own durable completion; no cursor is published here.
-      for (var start = 0; start < rows.length; start += _splitRows) {
+      final half = rows.length ~/ 2;
+      final split = half < _splitRows ? _splitRows : half;
+      for (var start = 0; start < rows.length; start += split) {
         await _publish(rows.sublist(
           start,
-          (start + _splitRows).clamp(0, rows.length),
+          (start + split).clamp(0, rows.length),
         ));
       }
       return;

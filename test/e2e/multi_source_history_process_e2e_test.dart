@@ -501,7 +501,7 @@ void main() {
             '${b.dir.path}/history-midpoint-apply-entered.json',
           );
           await waitUntil(() => midpoint.exists(),
-            what: 'receiver holds a selected row in an unfinished page',
+            what: 'receiver holds durable page data before its checkpoint',
             timeout: Duration(minutes: _rows > 10000 ? 20 : 3),
             interval: const Duration(milliseconds: 100));
           final marker = jsonDecode(await midpoint.readAsString()) as Map;
@@ -509,7 +509,7 @@ void main() {
           expect(marker['matchedFirstRow'], isFalse);
           final partial = await _inspect(b, ci, bn, cursors: [an, en]);
           final retained = _archive(partial).length;
-          expect(retained, crashAtRow ~/ preparedMessageBatchMaxRows *
+          expect(retained, (crashAtRow ~/ preparedMessageBatchMaxRows + 1) *
               preparedMessageBatchMaxRows);
           expect(retained, inInclusiveRange(1, _rows - 1));
           final checkpoints = Map<String, String>.from(
@@ -528,11 +528,12 @@ void main() {
             dataBeyondCursor |= index + 1 < retained;
           }
           expect(dataBeyondCursor, isTrue,
-              reason: 'SIGKILL must interrupt a partly committed page');
+              reason: 'SIGKILL must precede the durable page checkpoint');
           expect((partial['historyGates'] as Map)['partialApplyRowCalls'], 1);
           expect((partial['historyGates'] as Map)['partialApplyReleased'], 0);
           expect((partial['historyGates'] as Map)['partialApplyFailures'], 0);
           result['unfinishedPageAtCrash'] = true;
+          result['crashAfterPublicationBeforeCheckpoint'] = true;
           result['applyReleaseToCrashGateMs'] = applyElapsed.elapsedMilliseconds;
           await _crashAndRecover(
             fleet: fleet, peer: ci, receiver: bn, source: an,
