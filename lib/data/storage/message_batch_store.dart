@@ -1,9 +1,10 @@
 import '../../domain/chat.dart';
 
-/// One bounded prepared cohort may publish atomically. Each encoded storage row is
-/// still limited to 1800 bytes by the adapter (at most 115200 payload bytes).
-/// Ordinary live-message coalescing keeps its separate, smaller budget.
-const preparedMessageBatchMaxRows = 64;
+/// Short rows may share a larger prepared cohort. The adapter retains its
+/// independent 1800-byte row and 115200-byte aggregate payload limits; a full
+/// row-count cohort need not fit. Ordinary live coalescing is unchanged.
+const preparedMessageBatchMaxRows = 128;
+const preparedMessageBatchMaxBytes = 64 * 1800;
 
 /// Outcome of an insert-if-missing publication, not an authorization verdict.
 enum PreparedMessageWrite { appended, existing, suppressed }
