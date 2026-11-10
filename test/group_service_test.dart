@@ -773,19 +773,63 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage
     await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 
+  Future<void> _afterHeaderRead(String fileId) async {
+    if (fileId != heldKey) return;
+    headerReads++;
+    final held = release;
+    if (held != null) {
+      if (!(captured?.isCompleted ?? true)) captured!.complete();
+      await held.future;
+    }
+    if (failRead) throw StateError('injected group header read failure');
+  }
+
   @override
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     final bytes = await super.loadFile(fileId, maxBytes: maxBytes);
-    if (fileId == heldKey) {
-      headerReads++;
-      final held = release;
-      if (held != null) {
-        if (!(captured?.isCompleted ?? true)) captured!.complete();
-        await held.future;
-      }
-      if (failRead) throw StateError('injected group header read failure');
-    }
+    await _afterHeaderRead(fileId);
     return bytes;
+  }
+
+  @override
+  Future<List<Uint8List>?> loadFiles(
+    List<String> ids, {required int maxBytesPerFile}
+  ) async {
+    final bytes = await super.loadFiles(ids, maxBytesPerFile: maxBytesPerFile);
+    for (final id in ids) { await _afterHeaderRead(id); }
+    return bytes;
+  }
+
+}
+
+/// Records physical file calls, including the header inside a bounded batch.
+class _DeviceFileReadProbe extends _HeldGroupHeaderStorage {
+  final reads = <List<String>>[];
+  bool missBatch = false;
+  bool rejectBatch = false;
+  Completer<void>? batchEntered, batchRelease;
+
+  @override
+  Future<Uint8List?> loadFile(String id, {int? maxBytes}) {
+    reads.add([id]);
+    return super.loadFile(id, maxBytes: maxBytes);
+  }
+
+  @override
+  Future<List<Uint8List>?> loadFiles(
+    List<String> ids, {required int maxBytesPerFile}
+  ) async {
+    reads.add(List.of(ids));
+    if (ids.firstOrNull?.contains(':s:') == false) {
+      final gate = batchRelease;
+      if (gate != null) {
+        batchEntered!.complete();
+        await gate.future;
+      }
+      if (missBatch) return Future.value(null);
+      if (rejectBatch) return Future.error(StateError('injected batch refusal'));
+    }
+    return super.loadFiles(ids, maxBytesPerFile: maxBytesPerFile);
   }
 }
 
@@ -16073,6 +16117,127 @@ void main() {
       });
     }
   }
+
+  test('own journal reads header and current segments in one fresh batch', () async {
+    final store = _DeviceFileReadProbe();
+    await store.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async { await service.dispose(); await store.close(); });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+    expect(await service.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: 'fixture', tsMs: 1,
+      payload: const {'v': 'routing-read'},
+    )), isTrue);
+    final key = 'group:${gid.hex}';
+    final headerBytes = (await store.loadFile(key))!;
+    final header = jsonDecode(utf8.decode(headerBytes)) as Map;
+    final segments = (header['gs'] as List).cast<String>();
+    expect(segments, isNotEmpty);
+    expect(segments.length, lessThan(StoredFileBatchReader.maxFiles));
+    expect(await service.addressableOwnDevices(), [bob]);
+    store.reads.clear();
+    expect(await service.addressableOwnDevices(), [bob]);
+    expect(store.reads, [[key, ...segments]],
+        reason: 'every completed lookup must freshly read header and payload together');
+
+    for (final reject in [false, true]) {
+      store.missBatch = !reject;
+      store.rejectBatch = reject;
+      store.reads.clear();
+      expect(await service.addressableOwnDevices(), [bob]);
+      expect(store.reads.any((names) => names.length == 1 && names.single == key), isTrue,
+          reason: 'an optional failed prefetch must retry the ordinary fresh header');
+      store.missBatch = store.rejectBatch = false;
+    }
+
+    // Hints never stand in for stored bytes or signature/roster verification.
+    final segmentBytes = (await store.loadFile(segments.first))!;
+    await store.storeFile(segments.first, Uint8List.fromList(utf8.encode('{}')));
+    expect(await service.addressableOwnDevices(), isEmpty);
+    await store.storeFile(segments.first, segmentBytes);
+    expect(await service.addressableOwnDevices(), [bob]);
+    await store.deleteStoredFile(segments.first);
+    expect(await service.addressableOwnDevices(), isEmpty);
+    await store.storeFile(segments.first, segmentBytes);
+    expect(await service.addressableOwnDevices(), [bob]);
+
+    // A header beyond the optimization's ceiling retains the original reader.
+    await store.storeFile(key, Uint8List.fromList(utf8.encode(jsonEncode({
+      ...header, 'fixturePadding': 'x' * (140 * 1024),
+    }))));
+    expect(await service.addressableOwnDevices(), [bob]);
+    await store.storeFile(key, headerBytes);
+    expect(await service.addressableOwnDevices(), [bob]);
+    await store.storeFile(key, Uint8List.fromList(utf8.encode('{}')));
+    expect(await service.addressableOwnDevices(), isEmpty);
+    await store.storeFile(key, headerBytes);
+    expect(await service.addressableOwnDevices(), [bob]);
+    expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+    expect(await service.addressableOwnDevices(), isEmpty);
+  });
+
+  test('fresh header references override still-readable speculative segments', () async {
+    final store = _DeviceFileReadProbe();
+    await store.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    final writer = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async {
+      await service.dispose(); await writer.dispose(); await store.close();
+    });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    expect(await service.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: 'before', tsMs: 1,
+      payload: const {'v': 'old'},
+    )), isTrue);
+    final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+    final key = 'group:${gid.hex}';
+    final before = jsonDecode(utf8.decode((await store.loadFile(key))!)) as Map;
+    final oldKeys = (before['gs'] as List).cast<String>();
+    final oldBytes = [for (final name in oldKeys) (await store.loadFile(name))!];
+    expect(await service.addressableOwnDevices(), [bob]);
+    expect(await writer.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: 'after', tsMs: 2,
+      payload: const {'v': 'new'},
+    )), isTrue);
+    for (var i = 0; i < oldKeys.length; i++) {
+      await store.storeFile(oldKeys[i], oldBytes[i]);
+    }
+    store.reads.clear();
+    final view = await service.deviceSyncState();
+    expect(view[(DeviceSyncKind.settingSet, 'after')]?.payload['v'], 'new');
+    expect(store.reads.first, [key, ...oldKeys],
+        reason: 'old speculative names were genuinely readable in the batch');
+    expect(store.reads.length, greaterThan(1),
+        reason: 'the current header must trigger a fresh read of its new names');
+  });
+
+  test('failed speculative device read cannot retry after identity shutdown', () async {
+    final store = _DeviceFileReadProbe();
+    await store.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async { await service.dispose(); await store.close(); });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    expect(await service.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: 'fixture', tsMs: 1,
+      payload: const {'v': 'routing-read'},
+    )), isTrue);
+    expect(await service.addressableOwnDevices(), [bob]);
+    store.reads.clear();
+    store.batchEntered = Completer<void>();
+    store.batchRelease = Completer<void>();
+    store.missBatch = true;
+    final reading = service.addressableOwnDevices();
+    await store.batchEntered!.future;
+    service.beginShutdown();
+    store.batchRelease!.complete();
+    expect(await reading, isEmpty);
+    expect(store.reads, hasLength(1),
+        reason: 'shutdown must not start the ordinary fallback acquisition');
+  });
 
   test(
     'own transport addresses use one fresh validated journal view',
