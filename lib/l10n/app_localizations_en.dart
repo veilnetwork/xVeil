@@ -5879,11 +5879,11 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get onboardCertFreshTitle => 'Your identity and the one key to it';
+  String get onboardCertFreshTitle => 'Save access to your identity';
 
   @override
   String get onboardCertFreshWhy =>
-      'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. Save both, keeping them apart, before going on. There will be no other copy.';
+      'You must save the certificate and recovery code. Without them, you cannot restore this identity. Keep them separately.';
 
   @override
   String get onboardCertFreshFailed =>

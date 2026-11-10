@@ -49,6 +49,68 @@ Widget _host({
 );
 
 void main() {
+  testWidgets('collapsed certificate still requires a completed backup', (
+    tester,
+  ) async {
+    final minted = _fakeMint(_phrase);
+    final l = AppL10nEn();
+    var allowSave = false;
+    var done = 0;
+    bool? seenSaved;
+    Uint8List? keptCredential;
+    final exports = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Scaffold(
+          body: RecoveryCertificateStep(
+            mintFresh: () => minted,
+            save: (certificate, _) async {
+              exports.add(certificate);
+              return allowSave;
+            },
+            onDone: ({required bool saved, Uint8List? credential}) {
+              done++;
+              seenSaved = saved;
+              keptCredential = credential;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(minted.certificate), findsNothing);
+    expect(find.text(l.onboardCertFreshWhy), findsOneWidget);
+    expect(find.text(minted.code), findsOneWidget);
+
+    Future<void> press(String label) async {
+      final button = find.text(label);
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+
+    await press(l.onboardCertContinue);
+    expect(done, 0);
+    await press(l.devicesCertificate);
+    expect(find.text(minted.certificate), findsOneWidget);
+    await press(l.onboardCertContinue);
+    expect(done, 0, reason: 'expanding a certificate is not a backup');
+    await press(l.devicesSaveCertificate);
+    await press(l.onboardCertContinue);
+    expect(done, 0, reason: 'a cancelled export is not a backup');
+    allowSave = true;
+    await press(l.devicesSaveCertificate);
+    await press(l.onboardCertContinue);
+    expect(done, 1);
+    expect(seenSaved, isTrue);
+    expect(keptCredential, minted.credential);
+    expect(exports, [minted.certificate, minted.certificate]);
+  });
+
   testWidgets('returning to a saved certificate keeps its file marker', (
     tester,
   ) async {
@@ -101,7 +163,9 @@ void main() {
   testWidgets('declining reports that nothing was saved', (tester) async {
     bool? seen;
     await tester.pumpWidget(
-      _host(onDone: ({required bool saved, Uint8List? credential}) => seen = saved),
+      _host(
+        onDone: ({required bool saved, Uint8List? credential}) => seen = saved,
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text(AppL10nEn().onboardCertSkip));
@@ -117,7 +181,9 @@ void main() {
     tester,
   ) async {
     var done = 0;
-    await tester.pumpWidget(_host(onDone: ({required saved, credential}) => done++));
+    await tester.pumpWidget(
+      _host(onDone: ({required saved, credential}) => done++),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.verified_user_outlined));
     await tester.pumpAndSettle();

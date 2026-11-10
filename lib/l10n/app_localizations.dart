@@ -10349,13 +10349,13 @@ abstract class AppL10n {
   /// No description provided for @onboardCertFreshTitle.
   ///
   /// In en, this message translates to:
-  /// **'Your identity and the one key to it'**
+  /// **'Save access to your identity'**
   String get onboardCertFreshTitle;
 
   /// No description provided for @onboardCertFreshWhy.
   ///
   /// In en, this message translates to:
-  /// **'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. Save both, keeping them apart, before going on. There will be no other copy.'**
+  /// **'You must save the certificate and recovery code. Without them, you cannot restore this identity. Keep them separately.'**
   String get onboardCertFreshWhy;
 
   /// No description provided for @onboardCertFreshFailed.
