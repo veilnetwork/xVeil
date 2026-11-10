@@ -1,0 +1,112 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "candidate-rejected",
+  "published": false,
+  "productionChangeRetained": false,
+  "candidateTestsRetainedInProject": false,
+  "candidateParentFailures": 2,
+  "candidateRelatedTestsPassed": 206,
+  "candidateAnalyzerIssues": 0,
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "localMacJitOnly": true,
+  "frozenInputs": 1544,
+  "productionVariantsDuringExperiment": [
+    "lib/state/messaging_own_history.dart"
+  ],
+  "controlsByteIdentical": true,
+  "nativeInputsIdentical": true,
+  "nativeBuildSource": "9fbf2d50302e976ea95315905ea53972aa494b1e",
+  "currentSdkSource": "476950abea0461bd12fc604373004b1dafd825fa",
+  "publishedBinaryEquivalenceClaimed": false,
+  "wireCountsEachPhase": {
+    "logicalPages": 782,
+    "partFrames": 19536,
+    "uniqueParts": 19536,
+    "frameBytes": 108151972
+  },
+  "exactHistoryAndColdRetentionPassedAllPhases": true,
+  "standCleanupPassedAllPhases": true,
+  "productAndTestsRestoredToHead": true,
+  "pointReadCountEachPhase": 399747,
+  "historyApplyCallsEachPhase": 200002,
+  "messageCommitsEachPhase": 391,
+  "historyCursorCommitsEachPhase": 784,
+  "allocatorCommitsEachPhase": 392,
+  "phases": {
+    "A1": {
+      "applyMs": 103189,
+      "releaseToBothPostPageInventoryMs": 101455.349,
+      "perSourceMs": {
+        "A": 101455.349,
+        "E": 101042.065
+      },
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 30140,
+      "windowMs": 101455.349,
+      "busyMs": {
+        "historyApply": 43382.019,
+        "historyPublish": 15699.032,
+        "historyCheckpoint": 14605.133,
+        "ownDevices": 40846.033
+      },
+      "applyCheckpointOverlapMs": 0.0,
+      "publishCheckpointOverlapMs": 0.0,
+      "overlapsNotExclusiveOrAdditive": true,
+      "newKernelCacheEntries": 0
+    },
+    "B": {
+      "applyMs": 109044,
+      "releaseToBothPostPageInventoryMs": 103753.815,
+      "perSourceMs": {
+        "A": 103753.815,
+        "E": 103613.194
+      },
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 30066,
+      "windowMs": 103753.815,
+      "busyMs": {
+        "historyApply": 42403.216,
+        "historyPublish": 16027.281,
+        "historyCheckpoint": 14893.107,
+        "ownDevices": 40599.566
+      },
+      "applyCheckpointOverlapMs": 0.0,
+      "publishCheckpointOverlapMs": 0.0,
+      "overlapsNotExclusiveOrAdditive": true,
+      "newKernelCacheEntries": 0
+    },
+    "A2": {
+      "applyMs": 103119,
+      "releaseToBothPostPageInventoryMs": 99693.066,
+      "perSourceMs": {
+        "A": 99693.066,
+        "E": 98824.075
+      },
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 28708,
+      "windowMs": 99693.066,
+      "busyMs": {
+        "historyApply": 43217.018,
+        "historyPublish": 15043.078,
+        "historyCheckpoint": 15169.72,
+        "ownDevices": 42038.855
+      },
+      "applyCheckpointOverlapMs": 0.0,
+      "publishCheckpointOverlapMs": 0.0,
+      "overlapsNotExclusiveOrAdditive": true,
+      "newKernelCacheEntries": 0
+    }
+  },
+  "checkpointProbeCoversPutSettingOnly": true,
+  "preAndPostCheckpointAdmissionNotIncludedInProbe": true,
+  "candidateSlowerThanBothControlsInThisSeries": true,
+  "causalUniversalRegressionClaimed": false,
+  "speedupClaimed": false,
+  "wholeLatencyStillOpen": true,
+  "mailboxPolicyChanged": false,
+  "otherFrontStatusUnchanged": true
+}
