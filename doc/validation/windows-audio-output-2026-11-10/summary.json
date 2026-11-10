@@ -1,6 +1,6 @@
 {
   "schema": "xveil-validation/1",
-  "status": "qualified-for-release",
+  "status": "released",
   "diagnosis": "saved-output-differs-from-system-output",
   "liveSpeechWithSystemOutputConfirmedBothWays": 2,
   "savedOutputLiveSpeechAudibleOnWindows": false,
@@ -25,5 +25,6 @@
     "causeEstablished": false,
     "claimedFixed": false
   },
-  "applicationReleasePublished": false
+  "applicationReleasePublished": true,
+  "applicationVersion": "0.13.96+115"
 }
