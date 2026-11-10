@@ -77,8 +77,8 @@ Previously deferred complaints are not declared fixed without reproduction.
   restarts. Testnet features and immutable source provenance were checked before
   deploying its separate static binary.
 
-The owner requested release before another reporter recheck of the locked-screen
-incoming-call complaint. That complaint is not marked fixed or confirmed by the
-incomplete new window observation. Previously completed call-screen qualification
-keeps its original scope; reporter feedback after updating is still required.
+At publication, the locked-screen incoming-call complaint awaited a recheck.
+The owner subsequently confirmed normal behavior and requested removing the
+complaint from the open list. It is closed on that user confirmation; no new
+stand run or attribution of the original complaint is claimed.
 Raw operator reports and host details remain outside version control.
