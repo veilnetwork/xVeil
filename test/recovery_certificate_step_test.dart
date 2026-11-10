@@ -95,7 +95,7 @@ void main() {
 
     await press(l.onboardCertContinue);
     expect(done, 0);
-    await press(l.devicesCertificate);
+    await press(l.onboardRecoveryCertificateDetails);
     expect(find.text(minted.certificate), findsOneWidget);
     await press(l.onboardCertContinue);
     expect(done, 0, reason: 'expanding a certificate is not a backup');

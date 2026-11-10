@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../common/help_label.dart';
 import '../common/translation_models_tile.dart';
 import '../common/whisper_model_tile.dart';
 import 'compaction_offer_dialog.dart';
@@ -36,6 +37,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   /// (no real container, several identities, a backing that cannot measure).
   /// Null renders the size ALONE — never "0 B reclaimable".
   StorageReclaim? _reclaim;
+
   /// The container's kept hardening warning, or null when there is none and
   /// when it cannot be read. Shown here rather than announced: what it reports
   /// is a PAST commit whose disguise did not land, and nothing can repair that
@@ -124,14 +126,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   }
 
   Future<void> _pickThreshold(AppL10n l) async {
-    const options = [
-      256 << 20,
-      512 << 20,
-      1 << 30,
-      2 << 30,
-      5 << 30,
-      10 << 30,
-    ];
+    const options = [256 << 20, 512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30];
     final chosen = await showDialog<int>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -206,7 +201,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
       ),
     );
     if (pw == null || pw.isEmpty || !mounted) return;
-    final offer = await ref.read(appControllerProvider.notifier).compactionOffer();
+    final offer = await ref
+        .read(appControllerProvider.notifier)
+        .compactionOffer();
     if (offer == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final sizes = await showCompactionOffer(
@@ -314,9 +311,8 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     // A container with more than one identity cannot take the
                     // single-password path: it would keep one space and delete
                     // the rest. Same nudge, the flow that fits.
-                    onCompact: () => ctrl.canCompactStorage
-                        ? _compact(l)
-                        : _compactAll(l),
+                    onCompact: () =>
+                        ctrl.canCompactStorage ? _compact(l) : _compactAll(l),
                   ),
                 ListTile(
                   leading: const Icon(Icons.sd_storage_outlined),
@@ -339,9 +335,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                       color: Theme.of(context).colorScheme.error,
                     ),
                     title: Text(l.settingsStorageHardening),
-                    subtitle: Text(
-                      l.settingsStorageHardeningBody(_hardening!),
-                    ),
+                    subtitle: Text(l.settingsStorageHardeningBody(_hardening!)),
                     // Dismissing is what acknowledges it, to the container as
                     // well: the record is sticky on purpose, and clearing it
                     // on RENDER would mean a warning shown to a screen nobody
@@ -356,9 +350,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                           // The container did not take it, so the warning is
                           // still there. Hiding it here would be this screen
                           // deciding on its own that a thing was dismissed.
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(failed)),
-                          );
+                          ScaffoldMessenger.of(
+                            context,
+                          ).showSnackBar(SnackBar(content: Text(failed)));
                           return;
                         }
                         setState(() => _hardening = null);
@@ -369,8 +363,11 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 if (ctrl.canCompactStorage)
                   ListTile(
                     leading: const Icon(Icons.compress),
-                    title: Text(l.settingsStorageCompact),
-                    subtitle: Text(l.settingsStorageCompactBody),
+                    title: HelpLabel(
+                      title: l.settingsStorageCompact,
+                      help: l.settingsStorageCompactBody,
+                    ),
+                    subtitle: Text(l.storageCompactBrief),
                     onTap: () => _compact(l),
                   ),
                 if (ctrl.canCompactStorage)
@@ -380,9 +377,11 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                   // contract as the manual compact above).
                   SwitchListTile(
                     secondary: const Icon(Icons.compress_outlined),
-                    title: Text(l.settingsStorageAutoCompact),
-                    subtitle: Text(l.settingsStorageAutoCompactBody),
-                    isThreeLine: true,
+                    title: HelpLabel(
+                      title: l.settingsStorageAutoCompact,
+                      help: l.settingsStorageAutoCompactBody,
+                    ),
+                    subtitle: Text(l.storageAutoCompactBrief),
                     value: _autoCompact,
                     onChanged: (v) => _setAutoCompact(l, v),
                   ),
@@ -396,9 +395,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                   ),
                 SwitchListTile(
                   secondary: const Icon(Icons.notifications_active_outlined),
-                  title: Text(l.settingsCompactOffer),
-                  subtitle: Text(l.settingsCompactOfferHint),
-                  isThreeLine: true,
+                  title: HelpLabel(
+                    title: l.settingsCompactOffer,
+                    help: l.settingsCompactOfferHint,
+                  ),
                   value: _offer.enabled,
                   onChanged: (v) => _saveOffer(_offer.copyWith(enabled: v)),
                 ),
@@ -406,7 +406,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                   ListTile(
                     leading: const Icon(Icons.schedule_outlined),
                     title: Text(l.settingsCompactOfferPeriod),
-                    trailing: Text(l.settingsCompactOfferDays(_offer.period.inDays)),
+                    trailing: Text(
+                      l.settingsCompactOfferDays(_offer.period.inDays),
+                    ),
                     onTap: () => _pickPeriod(l),
                   ),
                   ListTile(
@@ -418,9 +420,11 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 ],
                 SwitchListTile(
                   secondary: const Icon(Icons.speed_outlined),
-                  title: Text(l.settingsStorageLeanPadding),
-                  subtitle: Text(l.settingsStorageLeanPaddingBody),
-                  isThreeLine: true,
+                  title: HelpLabel(
+                    title: l.settingsStorageLeanPadding,
+                    help: l.settingsStorageLeanPaddingBody,
+                  ),
+                  subtitle: Text(l.storagePaddingBrief),
                   value: _leanPadding,
                   onChanged: (v) {
                     setState(() => _leanPadding = v);

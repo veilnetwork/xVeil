@@ -3210,5 +3210,17 @@
   "inviteNotReady": "Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir.",
   "callNoiseSuppression": "Supresión de ruido del micrófono",
   "callNoiseSuppressionHint": "Reduce el ruido de fondo del micrófono. La cancelación de eco sigue activada.",
-  "callNoiseSuppressionFailed": "No se pudo cambiar la supresión de ruido."
+  "callNoiseSuppressionFailed": "No se pudo cambiar la supresión de ruido.",
+  "onboardRecoveryCertificateDetails": "Ver certificado de recuperación (xveil-recovery:v1:…)",
+  "onboardRecoveryCodeOnlyNow": "Este código solo se muestra ahora.",
+  "quickUnlockMethods": "Métodos de desbloqueo",
+  "startupUnlockBrief": "Guarda una credencial de acceso en el SO. El acceso rápido será detectable.",
+  "storageHiddenBrief": "Espacio oculto cifrado",
+  "storagePlainBrief": "La presencia de datos es visible en este dispositivo",
+  "storageCompactBrief": "Se necesitan las contraseñas de todas las identidades. Las demás se eliminarán.",
+  "storageAutoCompactBrief": "Conserva solo la identidad actual. Actívalo solo si es la única aquí.",
+  "storagePaddingBrief": "Usa menos espacio; oculta menos el tamaño. Se aplica al reabrir.",
+  "seedsSwitchOnBrief": "Búsqueda activada. El directorio conoce tu dirección de red.",
+  "seedsSwitchOffBrief": "Búsqueda desactivada. Añade un nodo manualmente.",
+  "onboardRecoveryWhy": "Por qué guardar el certificado"
 }

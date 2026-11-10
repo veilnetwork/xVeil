@@ -8059,4 +8059,48 @@ class AppL10nEs extends AppL10n {
   @override
   String get callNoiseSuppressionFailed =>
       'No se pudo cambiar la supresión de ruido.';
+
+  @override
+  String get onboardRecoveryCertificateDetails =>
+      'Ver certificado de recuperación (xveil-recovery:v1:…)';
+
+  @override
+  String get onboardRecoveryCodeOnlyNow => 'Este código solo se muestra ahora.';
+
+  @override
+  String get quickUnlockMethods => 'Métodos de desbloqueo';
+
+  @override
+  String get startupUnlockBrief =>
+      'Guarda una credencial de acceso en el SO. El acceso rápido será detectable.';
+
+  @override
+  String get storageHiddenBrief => 'Espacio oculto cifrado';
+
+  @override
+  String get storagePlainBrief =>
+      'La presencia de datos es visible en este dispositivo';
+
+  @override
+  String get storageCompactBrief =>
+      'Se necesitan las contraseñas de todas las identidades. Las demás se eliminarán.';
+
+  @override
+  String get storageAutoCompactBrief =>
+      'Conserva solo la identidad actual. Actívalo solo si es la única aquí.';
+
+  @override
+  String get storagePaddingBrief =>
+      'Usa menos espacio; oculta menos el tamaño. Se aplica al reabrir.';
+
+  @override
+  String get seedsSwitchOnBrief =>
+      'Búsqueda activada. El directorio conoce tu dirección de red.';
+
+  @override
+  String get seedsSwitchOffBrief =>
+      'Búsqueda desactivada. Añade un nodo manualmente.';
+
+  @override
+  String get onboardRecoveryWhy => 'Por qué guardar el certificado';
 }

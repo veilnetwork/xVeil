@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilException;
 
+import '../common/help_label.dart';
 import '../../core/log.dart';
 import '../../core/bounded_file.dart';
 
@@ -963,8 +964,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             ),
           ListTile(
             leading: const Icon(Icons.add_link),
-            title: Text(l.devicesLinkNew),
-            subtitle: Text(l.devicesPhraseHint),
+            title: HelpLabel(
+              title: l.devicesLinkNew,
+              help: l.devicesPhraseHint,
+            ),
             enabled: canOwn,
             trailing: const Icon(Icons.chevron_right),
             onTap: canOwn ? _showSource : null,
@@ -986,16 +989,20 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.key_outlined),
-            title: Text(l.devicesCreateRecovery),
-            subtitle: Text(l.devicesCreateRecoveryHint),
+            title: HelpLabel(
+              title: l.devicesCreateRecovery,
+              help: l.devicesCreateRecoveryHint,
+            ),
             enabled: canOwn,
             trailing: const Icon(Icons.chevron_right),
             onTap: canOwn ? _showRecoveryExport : null,
           ),
           ListTile(
             leading: const Icon(Icons.settings_backup_restore),
-            title: Text(l.devicesRecover),
-            subtitle: Text(l.devicesRecoverHint),
+            title: HelpLabel(
+              title: l.devicesRecover,
+              help: l.devicesRecoverHint,
+            ),
             enabled: ready && !_hasDeviceGroup && !_hasSovereignBundle,
             trailing: const Icon(Icons.chevron_right),
             onTap: ready && !_hasDeviceGroup && !_hasSovereignBundle

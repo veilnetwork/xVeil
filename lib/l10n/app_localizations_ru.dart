@@ -8029,4 +8029,46 @@ class AppL10nRu extends AppL10n {
   @override
   String get callNoiseSuppressionFailed =>
       'Не удалось изменить шумоподавление.';
+
+  @override
+  String get onboardRecoveryCertificateDetails =>
+      'Посмотреть сертификат восстановления (xveil-recovery:v1:…)';
+
+  @override
+  String get onboardRecoveryCodeOnlyNow => 'Код показан только сейчас.';
+
+  @override
+  String get quickUnlockMethods => 'Способы разблокировки';
+
+  @override
+  String get startupUnlockBrief =>
+      'Средство входа хранится в ОС. Наличие быстрого входа будет видно.';
+
+  @override
+  String get storageHiddenBrief => 'Зашифрованное скрытое пространство';
+
+  @override
+  String get storagePlainBrief => 'Наличие данных видно на устройстве';
+
+  @override
+  String get storageCompactBrief =>
+      'Нужны пароли всех личностей. Остальные будут удалены.';
+
+  @override
+  String get storageAutoCompactBrief =>
+      'Сохраняет только текущую личность. Включайте, если она здесь одна.';
+
+  @override
+  String get storagePaddingBrief =>
+      'Меньше расход места; слабее маскировка размера. После переоткрытия.';
+
+  @override
+  String get seedsSwitchOnBrief =>
+      'Поиск включён. Указатель узнаёт ваш сетевой адрес.';
+
+  @override
+  String get seedsSwitchOffBrief => 'Поиск выключен. Добавьте узел вручную.';
+
+  @override
+  String get onboardRecoveryWhy => 'Зачем сохранять сертификат';
 }

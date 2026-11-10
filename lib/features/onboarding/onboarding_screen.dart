@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/help_label.dart';
 import '../../core/log.dart';
 import '../../core/diagnostic_journal.dart';
 import '../../core/error_journal.dart';
@@ -793,9 +794,9 @@ class _LinkStep extends StatelessWidget {
         const SizedBox(height: 16),
         Expanded(
           child: SingleChildScrollView(
-            child: Text(
-              l.onboardLinkDeviceBody,
-              style: Theme.of(context).textTheme.bodyMedium,
+            child: ExpansionTile(
+              title: Text(l.onboardLinkDeviceSub),
+              children: [Text(l.onboardLinkDeviceBody)],
             ),
           ),
         ),
@@ -910,7 +911,10 @@ class _OpenExistingStepState extends State<_OpenExistingStep> {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 12),
-          Text(l.onboardOpenExistingBody),
+          ExpansionTile(
+            title: Text(l.navHelp),
+            children: [Text(l.onboardOpenExistingBody)],
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _password,
@@ -994,7 +998,8 @@ class _StorageChoice extends StatelessWidget {
           selected: mode == StorageMode.hiddenSpace,
           icon: Icons.lock_outline,
           title: l.storageHiddenTitle,
-          body: l.storageHiddenBody,
+          body: l.storageHiddenBrief,
+          help: l.storageHiddenBody,
           onTap: () => onChanged(StorageMode.hiddenSpace),
         ),
         const SizedBox(height: 12),
@@ -1002,7 +1007,8 @@ class _StorageChoice extends StatelessWidget {
           selected: mode == StorageMode.plain,
           icon: Icons.folder_open_outlined,
           title: l.storagePlainTitle,
-          body: l.storagePlainBody,
+          body: l.storagePlainBrief,
+          help: l.storagePlainBody,
           onTap: () => onChanged(StorageMode.plain),
         ),
         if (mode == StorageMode.plain) ...[
@@ -1033,12 +1039,14 @@ class _StorageOption extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
+    required this.help,
     required this.onTap,
   });
   final bool selected;
   final IconData icon;
   final String title;
   final String body;
+  final String help;
   final VoidCallback onTap;
 
   @override
@@ -1065,7 +1073,7 @@ class _StorageOption extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  HelpLabel(title: title, help: help),
                   const SizedBox(height: 4),
                   Text(body, style: Theme.of(context).textTheme.bodyMedium),
                 ],

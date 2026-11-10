@@ -9,6 +9,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/identity_guard.dart';
 import '../../state/app_controller.dart' show IdentityLease;
 import '../../state/screen_lock_controller.dart';
+import '../common/help_label.dart';
 import '../lock/pattern_pad.dart';
 
 class QuickUnlockScreen extends ConsumerStatefulWidget {
@@ -165,12 +166,15 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Text(l.quickUnlockHint),
+                HelpLabel(title: l.quickUnlockMethods, help: l.quickUnlockHint),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   value: _startup,
-                  title: Text(l.startupUnlockTitle),
-                  subtitle: Text(l.startupUnlockHint),
+                  title: HelpLabel(
+                    title: l.startupUnlockTitle,
+                    help: l.startupUnlockHint,
+                  ),
+                  subtitle: Text(l.startupUnlockBrief),
                   onChanged: _busy
                       ? null
                       : (v) => setState(() {
