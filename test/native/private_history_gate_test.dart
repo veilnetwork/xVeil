@@ -13,9 +13,9 @@ void main() {
     gate = PrivateHistoryGate(root, prefix);
   });
   tearDown(() => root.delete(recursive: true));
-  Future<void> entered() async {
+  Future<void> entered([PrivateHistoryGate? selected]) async {
     final deadline = Stopwatch()..start();
-    while (!await gate.file(kind, 'entered.json').exists()) {
+    while (!await (selected ?? gate).file(kind, 'entered.json').exists()) {
       if (deadline.elapsed > const Duration(seconds: 2)) fail('no gate marker');
       await Future<void>.delayed(const Duration(milliseconds: 1));
     }
@@ -34,6 +34,43 @@ void main() {
     await gate.file(kind, 'arm').writeAsString('arm');
     expect(await wait(id: '${prefix}0001'), isFalse);
     expect(await gate.file(kind, 'entered.json').exists(), isFalse);
+  });
+  test('a selected row has an independent one-shot gate and a data-free marker',
+      () async {
+    final selected = PrivateHistoryGate(root, prefix,
+        rowIndex: 350, filePrefix: 'history-midpoint');
+    await gate.file(kind, 'arm').writeAsString('arm');
+    await selected.file(kind, 'arm').writeAsString('arm');
+    expect(await selected.wait(kind: kind, id: '${prefix}0000',
+        body: '${prefix}body', isActive: () => true), isFalse);
+    final first = wait();
+    final middle = selected.wait(kind: kind, id: '${prefix}0350',
+        body: '${prefix}body', isActive: () => true);
+    try {
+      await entered();
+      await entered(selected);
+      expect(await selected.file(kind, 'arm').exists(), isFalse);
+      expect(await selected.wait(kind: kind, id: '${prefix}0350',
+          body: '${prefix}body', isActive: () => true), isFalse);
+      final marker = await selected.file(kind, 'entered.json').readAsString();
+      expect(marker, isNot(contains(prefix)));
+      expect(marker, isNot(contains('body')));
+      expect(selected.snapshot['applySelectedRowCalls'], 2);
+      expect(gate.snapshot['applyFirstRowCalls'], 1);
+    } finally {
+      await gate.file(kind, 'release').writeAsString('release');
+      await selected.file(kind, 'release').writeAsString('release');
+    }
+    expect(await first, isTrue);
+    expect(await middle, isTrue);
+  });
+  test('gate selectors cannot escape the owned directory', () {
+    expect(() => PrivateHistoryGate(root, prefix, rowIndex: -1),
+        throwsArgumentError);
+    for (final stem in ['../escape', '/tmp/escape', '', 'a/b']) {
+      expect(() => PrivateHistoryGate(root, prefix, filePrefix: stem),
+          throwsArgumentError);
+    }
   });
   test(
     'one matching caller waits; its marker omits data and arm is consumed',

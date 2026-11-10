@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: SIGKILL посреди догрузки 100000 сообщений
+
+[Новый native crash-сценарий](../history-mid-crash-100000-2026-11-10/README.md):
+B остановлен внутри незавершённой 256-row страницы после 49984 durable строк,
+не на чистой границе cursor. До сети после SIGKILL сохранены все эти строки,
+прежняя строка и оба точных курсора. При возвращении только A восстановлены
+все **100001 ID/body/delivered/canonical/order**, без пропусков и дублей;
+ещё одно холодное открытие при offline всех источников сохранило результат
+и оба cursor. Sibling mailbox не добавлен, production-код не менялся.
+
+Два native smoke на 512 строк и полный сценарий прошли, **34 helper checks /
+0 skipped**, analyzer чист. 1532 одинаковых frozen inputs, native provenance
+сверена; owned процессы/порты закрыты, synthetic runtime удалён, cache 92 entries.
+Первый wire capture оборван SIGKILL и не объявлен полным. Это локальный Mac/JIT
+crash внутри страницы, не все fsync/ratchet/ACK windows и не Android/AOT.
+Latency, NETCALL-01 и остальные пробелы matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: 256 коротких строк в прежнем byte budget
 
 [Исправление и native A/B/A](../history-page256-100000-2026-11-10/README.md):

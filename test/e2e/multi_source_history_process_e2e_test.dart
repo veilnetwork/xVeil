@@ -134,7 +134,7 @@ Future<void> _entered(ProcessDevice d, String kind) => waitUntil(
   interval: const Duration(milliseconds: 50),
 );
 
-Future<void> _crashBeforeApply({
+Future<void> _crashAndRecover({
   required ProcessFleet fleet,
   required String peer,
   required String receiver,
@@ -143,19 +143,37 @@ Future<void> _crashBeforeApply({
   required Map<String, dynamic> held,
   required Map<String, Object?> result,
   required Future<void> Function() save,
+  bool beforeApply = true,
+  Map<String, String> cursorsBeforeCrash = const {},
 }) async {
   final a = fleet.a, b = fleet.b, e = fleet.devices['E']!;
   final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR']!;
   final before = _all(held);
   expect(before, isNotEmpty);
-  expect(_archive(held), isEmpty);
-  expect(expected.length, _rows + before.length);
+  final archivedBefore = _archive(held);
+  if (beforeApply) {
+    expect(archivedBefore, isEmpty);
+    expect(expected.length, _rows + before.length);
+  } else {
+    expect(archivedBefore.length, inInclusiveRange(1, _rows - 1));
+    final archive = expected.where(
+      (row) => (row['id'] as String).startsWith(_prefix),
+    ).toList();
+    expect(_compare(archive.take(archivedBefore.length).toList(), archivedBefore)
+        ['passed'], isTrue);
+    expect(_ordered(archive.take(archivedBefore.length).toList(), archivedBefore),
+        isTrue);
+    expect(before.length - archivedBefore.length, expected.length - _rows);
+    expect(cursorsBeforeCrash, hasLength(2));
+  }
 
-  Future<int> witness(List<Map<String, dynamic>> rows) async {
+  Future<int> witness(List<Map<String, dynamic>> rows,
+      {Map<String, String> cursors = const {}}) async {
     final value = ++_nonce;
     await File('${b.dir.path}/history-overlap-witness.json').writeAsString(
       jsonEncode({
         'witness': value,
+        if (cursors.isNotEmpty) 'expectedCursors': cursors,
         'allowedIds': expected.map((row) => row['id']).toList(),
         'expectedRows': [
           for (final row in _retentionRows(rows))
@@ -180,48 +198,68 @@ Future<void> _crashBeforeApply({
           .map((line) => jsonDecode(line) as Map)
           .singleWhere((row) => row['witness'] == value);
 
-  final beforeWitness = await witness(before);
+  final beforeWitness = await witness(before, cursors: cursorsBeforeCrash);
   await b.stop(crash: true);
   expect(b.lastExitCode, -9);
   await a.stop();
   await e.stop();
-  result['receiverKilledBeforeApply'] = true;
+  result[beforeApply ? 'receiverKilledBeforeApply' : 'receiverKilledDuringApply'] = true;
   result['receiverCrashExitCode'] = b.lastExitCode;
   result['bothRepliesReceivedBeforeCrash'] = true;
-  result['archiveRowsAtCrash'] = 0;
+  result['archiveRowsAtCrash'] = archivedBefore.length;
   await save();
   await b.start();
   final initialBoot = await boot(beforeWitness);
   expect((initialBoot['retention'] as Map)['passed'], isTrue);
   expect(initialBoot['rows'], before.length);
+  if (cursorsBeforeCrash.isNotEmpty) {
+    expect((initialBoot['cursorRetention'] as Map)['passed'], isTrue);
+    expect((initialBoot['cursorRetention'] as Map)['expectedRows'], 2);
+    result['cursorRetentionBeforeNetworkAfterCrash'] =
+        initialBoot['cursorRetention'];
+  }
   final offline = await _inspect(b, peer, receiver);
   expect(_compare(before, _all(offline))['passed'], isTrue);
-  expect(_archive(offline), isEmpty);
+  expect(_archive(offline).length, archivedBefore.length);
   result['retentionBeforeNetworkAfterCrash'] = initialBoot['retention'];
-  result['initialArchiveRowsWithAllSourcesOffline'] = 0;
+  result['initialArchiveRowsWithAllSourcesOffline'] = archivedBefore.length;
 
   final recovery = Stopwatch()..start();
   await a.start();
   Map<String, dynamic>? recovered;
   await waitUntil(
     () async {
-      recovered = await _inspect(b, peer, receiver, cursors: [source]);
+      recovered = await _inspect(b, peer, receiver, cursors: [source],
+          progressOnly: _rows > 10000);
+      final cursors = recovered!['historyCursors'] as Map;
+      if (cursors.length != 1 || cursors.values.single is! String) return false;
+      final cursor = jsonDecode(cursors.values.single as String) as Map;
+      if (cursor.containsKey('peer') ||
+          (cursor.isNotEmpty && cursor['after'] != peer)) {
+        return false;
+      }
+      if (_rows > 10000) {
+        recovered = await _inspect(b, peer, receiver, cursors: [source]);
+      }
       if (_compare(expected, _all(recovered!))['passed'] != true ||
           !_ordered(expected, _all(recovered!))) {
         return false;
       }
-      final cursors = recovered!['historyCursors'] as Map;
-      if (cursors.length != 1 || cursors.values.single is! String) return false;
-      final cursor = jsonDecode(cursors.values.single as String) as Map;
-      return !cursor.containsKey('peer') &&
-          (cursor.isEmpty || cursor['after'] == peer);
+      return true;
     },
     what: 'one returning source repairs both interrupted history replies',
-    timeout: const Duration(minutes: 3),
-    interval: const Duration(milliseconds: 250),
+    timeout: Duration(minutes: _rows > 10000 ? 20 : 3),
+    interval: Duration(milliseconds: _rows > 10000 ? 5000 : 250),
   );
   result['singleSourceStartToConvergenceMs'] = recovery.elapsedMilliseconds;
   result['recoveredWithOneSource'] = true;
+  final authenticatedParts = (recovered!['historyWire'] as List).where(
+    (row) => row['kind'] == 'part' && row['fromDevice'] == source &&
+        row['authenticated'] == true,
+  ).length;
+  expect(authenticatedParts, greaterThan(0));
+  result['authenticatedRecoveryParts'] = authenticatedParts;
+  result['historyFailuresAfterRestart'] = recovered!['historyFailures'];
   result['fullHistoryConvergence'] = _compare(expected, _all(recovered!));
   result['archiveConvergence'] = _compare(
     expected.where((row) => (row['id'] as String).startsWith(_prefix)).toList(),
@@ -232,13 +270,22 @@ Future<void> _crashBeforeApply({
     ((await _inspect(a, peer, receiver))['historyState'] as Map)['mirrors'],
     0,
   );
-  final finalWitness = await witness(_all(recovered!));
+  result['sourceDeviceJournalArchiveMirrors'] = 0;
+  final finalSnapshot = cursorsBeforeCrash.isEmpty ? recovered! :
+      await _inspect(b, peer, receiver, cursors: cursorsBeforeCrash.keys.toList());
+  final finalCursors = cursorsBeforeCrash.isEmpty ? const <String, String>{} :
+      Map<String, String>.from(finalSnapshot['historyCursors'] as Map);
+  final finalWitness = await witness(_all(finalSnapshot), cursors: finalCursors);
   await a.stop();
   await b.stop();
   await b.start();
   final finalBoot = await boot(finalWitness);
   expect((finalBoot['retention'] as Map)['passed'], isTrue);
   expect(finalBoot['rows'], expected.length);
+  if (finalCursors.isNotEmpty) {
+    expect((finalBoot['cursorRetention'] as Map)['passed'], isTrue);
+    result['finalCursorRetentionBeforeNetwork'] = finalBoot['cursorRetention'];
+  }
   final finalRows = _all(await _inspect(b, peer, receiver));
   expect(_compare(expected, finalRows)['passed'], isTrue);
   expect(_ordered(expected, finalRows), isTrue);
@@ -252,12 +299,20 @@ Future<void> _crashBeforeApply({
 
 void main() {
   final gate = E2eGate.read();
+  final crashAtRow = historyCrashRow(
+    Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_CRASH_AT_ROW'], _rows,
+  );
   final crashBeforeApply =
       Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_CRASH_BEFORE_APPLY'] ==
       '1';
+  if (crashBeforeApply && crashAtRow != null) {
+    throw ArgumentError('choose one synthetic receiver crash point');
+  }
   test(
     crashBeforeApply
         ? 'overlapping replies recover after receiver crashes before apply'
+        : crashAtRow != null
+        ? 'partially published native history recovers after receiver SIGKILL'
         : 'two native sibling sources deliver overlapping archived pages',
     () async {
       expect(Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'], '1');
@@ -288,6 +343,7 @@ void main() {
         'compactProgressObserver': _rows > 10000,
         'seedBatchRows': _rows > 10000 ? 64 : 16,
         if (crashBeforeApply) 'receiverCrashBeforeApplyRequested': true,
+        'receiverCrashAtRowRequested': ?crashAtRow,
       };
       Future<void> save() =>
           File('$evidence/result.json').writeAsString(jsonEncode(result));
@@ -349,6 +405,10 @@ void main() {
         await _gate(a, 'encode', 'arm').writeAsString('arm');
         await _gate(e, 'encode', 'arm').writeAsString('arm');
         await _gate(b, 'apply', 'arm').writeAsString('arm');
+        if (crashAtRow != null) {
+          await File('${b.dir.path}/history-midpoint-apply-arm')
+              .writeAsString('arm');
+        }
         await a.start();
         await b.start();
         await Future.wait([_entered(a, 'encode'), _entered(e, 'encode')]);
@@ -420,7 +480,7 @@ void main() {
         result['archiveRowsBeforeApplyRelease'] = 0;
         await save();
         if (crashBeforeApply) {
-          await _crashBeforeApply(
+          await _crashAndRecover(
             fleet: fleet,
             peer: ci,
             receiver: bn,
@@ -435,6 +495,50 @@ void main() {
         await _inspect(b, ci, bn, resetTiming: true);
         final applyElapsed = Stopwatch()..start();
         await _gate(b, 'apply', 'release').writeAsString('release');
+        if (crashAtRow != null) {
+          final midpoint = File(
+            '${b.dir.path}/history-midpoint-apply-entered.json',
+          );
+          await waitUntil(() => midpoint.exists(),
+            what: 'receiver holds a selected row in an unfinished page',
+            timeout: Duration(minutes: _rows > 10000 ? 20 : 3),
+            interval: const Duration(milliseconds: 100));
+          final marker = jsonDecode(await midpoint.readAsString()) as Map;
+          expect(marker['matchedRowIndex'], crashAtRow);
+          expect(marker['matchedFirstRow'], isFalse);
+          final partial = await _inspect(b, ci, bn, cursors: [an, en]);
+          final retained = _archive(partial).length;
+          expect(retained, crashAtRow ~/ 64 * 64);
+          expect(retained, inInclusiveRange(1, _rows - 1));
+          final checkpoints = Map<String, String>.from(
+            partial['historyCursors'] as Map,
+          );
+          expect(checkpoints, hasLength(2));
+          var dataBeyondCursor = false;
+          for (final raw in checkpoints.values) {
+            final cursor = jsonDecode(raw) as Map;
+            expect(cursor['peer'], ci);
+            final position = cursor['cursor'] as List;
+            final id = position[1] as String;
+            expect(id.startsWith(_prefix), isTrue);
+            final index = int.parse(id.substring(_prefix.length));
+            expect(index, lessThan(retained));
+            dataBeyondCursor |= index + 1 < retained;
+          }
+          expect(dataBeyondCursor, isTrue,
+              reason: 'SIGKILL must interrupt a partly committed page');
+          expect((partial['historyGates'] as Map)['partialApplyRowCalls'], 1);
+          expect((partial['historyGates'] as Map)['partialApplyReleased'], 0);
+          expect((partial['historyGates'] as Map)['partialApplyFailures'], 0);
+          result['unfinishedPageAtCrash'] = true;
+          result['applyReleaseToCrashGateMs'] = applyElapsed.elapsedMilliseconds;
+          await _crashAndRecover(
+            fleet: fleet, peer: ci, receiver: bn, source: an,
+            expected: _all(first), held: partial, result: result, save: save,
+            beforeApply: false, cursorsBeforeCrash: checkpoints,
+          );
+          return;
+        }
         Map<String, dynamic>? finalB;
         await waitUntil(
           () async {
@@ -555,6 +659,8 @@ void main() {
           for (final kind in ['encode', 'apply']) {
             await _gate(d, kind, 'release').writeAsString('cleanup');
           }
+          await File('${d.dir.path}/history-midpoint-apply-release')
+              .writeAsString('cleanup');
         }
         await save();
       }

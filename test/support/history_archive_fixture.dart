@@ -18,6 +18,17 @@ int historyArchiveRows(String? raw) {
   return count;
 }
 
+/// Optional selected row for a process crash; zero belongs to the separate
+/// before-first-apply case. It must leave a nonempty suffix to recover.
+int? historyCrashRow(String? raw, int rows) {
+  if (raw == null) return null;
+  final index = int.tryParse(raw);
+  if (index == null || index <= 0 || index >= rows) {
+    throw ArgumentError('history crash row must be inside the archive');
+  }
+  return index;
+}
+
 /// Setup-only census of the actual fold order. Fixed count/boolean fields,
 /// independent of the product's comparator; never exports IDs or timestamps.
 Map<String, Object> historyArchiveOrderShape(List<Message> rows) {
