@@ -4823,3 +4823,21 @@ livenessTimeout около +21,84 с после выключения Wi-Fi. Gate
 passed, без skips; analyzer чистый. Физика версии с таймером pending.
 NETCALL-01 и новое событие завершения остаются активны; старый 25-с случай
 не объявляется объяснённым. Push/релиза нет.
+
+
+## 2026-11-10: совместное свежее чтение device journal, 100000 сообщений
+
+[Механизм и native A/B/A](../device-bundle-read-100000-2026-11-10/README.md).
+Собственный device journal больше не требует отдельных header/segment запросов:
+сохраняются только bounded имена файлов, все байты и проверки свежие. При
+новом header, stale/missing/oversized hint действует обычный путь; после shutdown
+нет позднего fallback. Parent cost assertion-red; три focused guards и
+1085 related passed, 0 skipped, analyzer чистый.
+
+Native 100000: RPC получателя **130449 → 81221 → 129412**, примерно −37–38%.
+Общее время **128723 → 128688 → 128851 мс**, ускорение не доказано;
+latency остаётся открытой. Все 100001 строки exact/cold, по 391 странице
+на источник без повторов, обязательства durable commits не сокращались.
+1540 frozen inputs, один production variant; cache 92 entries без прироста,
+около 146 ГиБ свободно. Стенд остановлен, PID/listeners и runtime проверены,
+снимки сжаты без потерь. Push/релиза и sibling mailbox нет.

@@ -6137,7 +6137,12 @@ class GroupService implements ArchiveGroups {
     }
   }
 
-  Future<String?> _loadBundleRaw(NodeId groupId) async {
+  Future<String?> _loadBundleRaw(NodeId groupId) async =>
+      (await _loadBundleFiles(groupId)).raw;
+
+  Future<({String? raw, Map<String, Uint8List> segments})> _loadBundleFiles(
+    NodeId groupId,
+  ) async {
     final key = _key(groupId);
     // Wait out any replacement of this bundle first. storeFile is not atomic
     // to readers, and loadFile answers null for a half-written file exactly as
@@ -6150,11 +6155,13 @@ class GroupService implements ArchiveGroups {
     await _awaitStoreWrite(key);
     // A timeout deliberately falls back to a direct read. Do not share that
     // potentially half-written view with a reader arriving after the save.
-    if (_bundleWrites.containsKey(key)) return _readBundleRaw(key);
+    if (_bundleWrites.containsKey(key)) {
+      return (raw: await _readBundleRaw(key), segments: const <String, Uint8List>{});
+    }
     final pending = _bundleReads[key];
     if (pending != null) return pending;
-    late final Future<String?> read;
-    read = _readBundleRaw(key).whenComplete(() {
+    late final Future<({String? raw, Map<String, Uint8List> segments})> read;
+    read = _readBundleFiles(groupId, key).whenComplete(() {
       if (identical(_bundleReads[key], read)) _bundleReads.remove(key);
     });
     _bundleReads[key] = read;
@@ -6166,7 +6173,71 @@ class GroupService implements ArchiveGroups {
   // then reach the existing shared segment reads at different times. Share
   // unfinished immutable bytes only; each load still decodes and validates,
   // and a later read must observe deletion, corruption or repair from storage.
-  final Map<String, Future<String?>> _bundleReads = {};
+  final Map<String, Future<({String? raw, Map<String, Uint8List> segments})>>
+  _bundleReads = {};
+
+  // Only file names survive a completed read, never bytes or an accepted view.
+  // The next bounded acquisition reads the header and these speculative names
+  // afresh. Changed references use the current header's ordinary segment path.
+  ({String key, List<String> segments})? _ownDeviceSegmentHint;
+
+  Future<({String? raw, Map<String, Uint8List> segments})> _readBundleFiles(
+    NodeId groupId,
+    String key,
+  ) async {
+    final hint = _ownDeviceSegmentHint;
+    if (!_disposed &&
+        groupId.hex == _deviceGidCache &&
+        hint?.key == key &&
+        _storage is StoredFileBatchReader) {
+      try {
+        final names = hint!.segments;
+        final bytes = await (_storage as StoredFileBatchReader).loadFiles([
+          key,
+          ...names,
+        ], maxBytesPerFile: 2 * _kSegmentTargetBytes);
+        if (_disposed) return (raw: null, segments: const <String, Uint8List>{});
+        if (bytes != null && bytes.length == names.length + 1) {
+          return (
+            raw: utf8.decode(bytes.first),
+            segments: {
+              for (var i = 0; i < names.length; i++) names[i]: bytes[i + 1],
+            },
+          );
+        }
+      } catch (_) {
+        // Stale/deleted/oversized speculative files must not make a valid
+        // current header unavailable. The ordinary fresh read still reports
+        // its own errors and retains support for legacy settings and sizes.
+      }
+      // A failed speculative read released by identity shutdown must not start
+      // another acquisition against a subsequently reopened storage instance.
+      if (_disposed) return (raw: null, segments: const <String, Uint8List>{});
+    }
+    return (raw: await _readBundleRaw(key), segments: const <String, Uint8List>{});
+  }
+
+  void _rememberOwnDeviceSegmentNames(
+    NodeId groupId,
+    String raw,
+    Map<String, dynamic> header,
+  ) {
+    if (_disposed || groupId.hex != _deviceGidCache) return;
+    _ownDeviceSegmentHint = null;
+    final names = header['gs'];
+    final key = _key(groupId);
+    const ceiling = 2 * _kSegmentTargetBytes;
+    if (_storage is! StoredFileBatchReader ||
+        names is! List ||
+        names.isEmpty ||
+        names.length >= StoredFileBatchReader.maxFiles ||
+        names.any((name) => name is! String || !name.startsWith('$key:s:')) ||
+        raw.length > ceiling ||
+        (raw.length > ceiling ~/ 3 && utf8.encode(raw).length > ceiling)) {
+      return;
+    }
+    _ownDeviceSegmentHint = (key: key, segments: names.cast<String>().toList());
+  }
 
   Future<String?> _readBundleRaw(String key) async {
     final blob = await _storage.loadFile(key);
@@ -6183,7 +6254,8 @@ class GroupService implements ArchiveGroups {
       devLog(() => 'xVeil[group]: load ${groupId.short} refused — $why');
 
   Future<GroupBundle?> load(NodeId groupId) async {
-    var raw = await _loadBundleRaw(groupId);
+    var files = await _loadBundleFiles(groupId);
+    var raw = files.raw;
     if (raw == null) {
       _loadRefused(groupId, 'no bundle in the file store nor the legacy key');
       return null;
@@ -6197,13 +6269,26 @@ class GroupService implements ArchiveGroups {
       // gives a set that exists. Measured on the stand: every device log
       // refused to load again and again while it was being written, and a
       // refused load reads to its caller as "no such group".
-      var missing = await _joinSameHeaderSegments(groupId, raw, d);
+      _rememberOwnDeviceSegmentNames(groupId, raw, d);
+      var missing = await _joinSameHeaderSegments(
+        groupId,
+        raw,
+        d,
+        prefetched: files.segments,
+      );
       for (var retry = 0; missing != null && retry < 3; retry++) {
-        final again = await _loadBundleRaw(groupId);
+        files = await _loadBundleFiles(groupId);
+        final again = files.raw;
         if (again == null || again == raw) break;
         raw = again;
         d = jsonDecode(again) as Map<String, dynamic>;
-        missing = await _joinSameHeaderSegments(groupId, raw, d);
+        _rememberOwnDeviceSegmentNames(groupId, raw, d);
+        missing = await _joinSameHeaderSegments(
+          groupId,
+          raw,
+          d,
+          prefetched: files.segments,
+        );
       }
       if (missing != null) {
         _loadRefused(groupId, missing);
@@ -6703,6 +6788,7 @@ class GroupService implements ArchiveGroups {
     // Its completion also must not remove a newer read's shared future.
     _bundleReads.remove(key);
     _joinedSegmentReads.remove(key);
+    if (_ownDeviceSegmentHint?.key == key) _ownDeviceSegmentHint = null;
     _bundleWrites[key] = write;
     try {
       await write;
@@ -7003,34 +7089,43 @@ class GroupService implements ArchiveGroups {
   final Map<
     String,
     ({String raw, Future<({String? missing, List<Object?> rows})> read})
-  > _joinedSegmentReads = {};
+  >
+  _joinedSegmentReads = {};
 
   Future<String?> _joinSameHeaderSegments(
     NodeId groupId,
     String raw,
-    Map<String, dynamic> target,
-  ) async {
+    Map<String, dynamic> target, {
+    Map<String, Uint8List> prefetched = const {},
+  }) async {
     if (target['gs'] is! List) return null;
     final key = _key(groupId);
     // _loadBundleRaw bypasses shared reads after a write-wait timeout. Keep
     // that potentially incomplete view out of the joined acquisition too.
-    if (_bundleWrites.containsKey(key)) return _joinSegments(groupId, target);
+    if (_bundleWrites.containsKey(key)) {
+      return _joinSegments(groupId, target, prefetched: prefetched);
+    }
     var pending = _joinedSegmentReads[key];
     if (pending == null || pending.raw != raw) {
       late final Future<({String? missing, List<Object?> rows})> read;
-      read = Future<({String? missing, List<Object?> rows})>.sync(() async {
-        final missing = await _joinSegments(groupId, target);
-        return (
-          missing: missing,
-          rows: missing == null
-              ? List<Object?>.unmodifiable(target['g'] as List)
-              : const <Object?>[],
-        );
-      }).whenComplete(() {
-        if (identical(_joinedSegmentReads[key]?.read, read)) {
-          _joinedSegmentReads.remove(key);
-        }
-      });
+      read =
+          Future<({String? missing, List<Object?> rows})>.sync(() async {
+            final missing = await _joinSegments(
+              groupId,
+              target,
+              prefetched: prefetched,
+            );
+            return (
+              missing: missing,
+              rows: missing == null
+                  ? List<Object?>.unmodifiable(target['g'] as List)
+                  : const <Object?>[],
+            );
+          }).whenComplete(() {
+            if (identical(_joinedSegmentReads[key]?.read, read)) {
+              _joinedSegmentReads.remove(key);
+            }
+          });
       pending = (raw: raw, read: read);
       _joinedSegmentReads[key] = pending;
     }
@@ -7047,7 +7142,11 @@ class GroupService implements ArchiveGroups {
   /// Put the messages of a segmented header back where [load] expects them.
   /// Null when done, else why not: a segment the header names cannot be read,
   /// and loading on without it would lose those rows at the next save.
-  Future<String?> _joinSegments(NodeId groupId, Map<String, dynamic> d) async {
+  Future<String?> _joinSegments(
+    NodeId groupId,
+    Map<String, dynamic> d, {
+    Map<String, Uint8List> prefetched = const {},
+  }) async {
     final raw = d['gs'];
     if (raw is! List) return null; // a header from before segments: inline
     final key = _key(groupId);
@@ -7064,7 +7163,14 @@ class GroupService implements ArchiveGroups {
     ) {
       final end = min(start + StoredFileBatchReader.maxFiles, keys.length);
       final wave = keys.sublist(start, end);
-      final batch = _storage is StoredFileBatchReader
+      // Only names actually referenced by this freshly decoded header may be
+      // used. A changed header never turns speculative old files into rows.
+      final batch = wave.every(prefetched.containsKey)
+          ? [
+              for (final name in wave)
+                jsonDecode(utf8.decode(prefetched[name]!)),
+            ]
+          : _storage is StoredFileBatchReader
           ? await _readMessageSegmentBatch(wave)
           : null;
       if (batch != null) {
@@ -22691,6 +22797,7 @@ class GroupService implements ArchiveGroups {
     }
     _bundleReads.clear();
     _joinedSegmentReads.clear();
+    _ownDeviceSegmentHint = null;
     _pendingPublicFeedObjects.clear();
     _publicFeedServeQuotas.clear();
     _publicMediaServeQuotas.clear();
