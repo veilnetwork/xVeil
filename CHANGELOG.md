@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Bound concurrent history-frame handlers to four so a slow fresh device-roster
+  read does not park every queued frame. Preserve admission budgets and serialized
+  page publication/checkpoints.
 - Keep device-admission cache checks on the wall clock so read volume cannot
   expire their leases early or move later signed-message timestamps forward.
   Refresh a cache whose recorded wall time is in the future after clock rollback.

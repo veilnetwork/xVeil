@@ -1,0 +1,164 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "local-fix-qualified",
+  "published": false,
+  "parentRegressionFailures": 2,
+  "ownHistoryTestsPassed": 169,
+  "inboundAdmissionTestsPassed": 13,
+  "focusedTestsPassed": 6,
+  "testSeriesOverlap": true,
+  "analyzerIssues": 0,
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "localMacJitOnly": true,
+  "maxConcurrentInboundHandlers": 4,
+  "maxAdmittedFrames": 512,
+  "maxAdmittedBytes": 1048576,
+  "maxKnownPeerBytes": 262144,
+  "freshAdmissionRetained": true,
+  "completedAuthorizationCacheAdded": false,
+  "pageApplyStillSerializedPerConversation": true,
+  "phases": {
+    "A1": {
+      "applyMs": 118621,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 225496,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 114110.52,
+      "perSourceMs": {
+        "A": 114110.52,
+        "E": 112797.486
+      }
+    },
+    "B": {
+      "applyMs": 108555,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 225495,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 103666.534,
+      "perSourceMs": {
+        "A": 103467.811,
+        "E": 103666.534
+      }
+    },
+    "A2": {
+      "applyMs": 118537,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 225496,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 113753.552,
+      "perSourceMs": {
+        "A": 113753.552,
+        "E": 113347.195
+      }
+    }
+  },
+  "wholeWindowBusySpans": {
+    "A1": {
+      "windowMs": 114110.52,
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 51196,
+      "busyMs": {
+        "historyApply": 47361.72,
+        "historyPublish": 16274.468,
+        "historyCheckpoint": 14121.295,
+        "ownDevices": 55867.162
+      },
+      "ownDeviceSpans": 23551,
+      "ownDevicesDuringApplyMs": 14970.2,
+      "ownDevicesDuringCursorMs": 7279.591,
+      "ownDeviceRpcCounts": {
+        "ownDevices/kv.get": 1,
+        "ownDevices/kv.getBatch": 23632,
+        "ownDevices/kv.readLogBatch": 4,
+        "ownDevices/kv.readLogGroups": 23628
+      },
+      "overlapsAreNotExclusiveTime": true
+    },
+    "B": {
+      "windowMs": 103666.534,
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 28256,
+      "busyMs": {
+        "historyApply": 46296.897,
+        "historyPublish": 15441.34,
+        "historyCheckpoint": 15107.955,
+        "ownDevices": 41223.966
+      },
+      "ownDeviceSpans": 12112,
+      "ownDevicesDuringApplyMs": 13185.859,
+      "ownDevicesDuringCursorMs": 5973.523,
+      "ownDeviceRpcCounts": {
+        "ownDevices/kv.get": 1,
+        "ownDevices/kv.getBatch": 12654,
+        "ownDevices/kv.readLogBatch": 6,
+        "ownDevices/kv.readLogGroups": 12648
+      },
+      "overlapsAreNotExclusiveTime": true
+    },
+    "A2": {
+      "windowMs": 113753.552,
+      "traceComplete": true,
+      "traceBoots": 4,
+      "traceRecords": 50562,
+      "busyMs": {
+        "historyApply": 46952.284,
+        "historyPublish": 16099.962,
+        "historyCheckpoint": 14611.3,
+        "ownDevices": 57843.658
+      },
+      "ownDeviceSpans": 23238,
+      "ownDevicesDuringApplyMs": 17474.637,
+      "ownDevicesDuringCursorMs": 7839.406,
+      "ownDeviceRpcCounts": {
+        "ownDevices/kv.get": 1,
+        "ownDevices/kv.getBatch": 23310,
+        "ownDevices/kv.readLogBatch": 1,
+        "ownDevices/kv.readLogGroups": 23309
+      },
+      "overlapsAreNotExclusiveTime": true
+    }
+  },
+  "wireCountsEachPhase": {
+    "logicalPages": 782,
+    "partFrames": 19532,
+    "uniqueParts": 19532,
+    "frameBytes": 108150700
+  },
+  "frozenInputs": 1544,
+  "productionVariants": [
+    "lib/state/messaging_own_history.dart"
+  ],
+  "nativeBuildSource": "9fbf2d50302e976ea95315905ea53972aa494b1e",
+  "currentSdkSource": "476950abea0461bd12fc604373004b1dafd825fa",
+  "publishedBinaryEquivalenceClaimed": false,
+  "exactHistoryAndColdRetentionPassedAllPhases": true,
+  "standCleanupPassedAllPhases": true,
+  "newKernelCacheEntriesAllPhases": 0,
+  "localSpeedupObserved": true,
+  "universalSpeedupClaimed": false,
+  "detailedPageProfileGatePassed": false,
+  "candidateUniquelyMatchedPageIntervals": 692,
+  "detailedPageProfileRequiredIntervals": 700,
+  "candidatePageIntervalsTotal": 782,
+  "originalDetailedProfileGateRelaxed": false,
+  "initialWrongMailboxTestDiscarded": true,
+  "mailboxPolicyChanged": false,
+  "latencyRemainsOpen": true,
+  "netcallStatusUnchanged": true,
+  "siblingMailboxAdded": false
+}

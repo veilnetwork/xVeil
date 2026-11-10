@@ -19,7 +19,11 @@ class _MessagingOwnHistory {
     maxStrangerPeerBytes: 0,
     maxStrangerBytes: 0,
   );
-  Future<void> _inbound = Future<void>.value();
+  static const _maxInboundHandlers = 4;
+  int _inboundHandlers = 0;
+  // Admission already bounds all waiting/in-flight frames and payload bytes.
+  // These waiters retain only turns; a freed slot goes to the oldest waiter.
+  final _inboundTurns = <Completer<void>>[];
   final _pageApplies = <String, Future<void>>{};
 
   final _pulls = <String, _OwnHistoryPull>{};
@@ -499,23 +503,37 @@ class _MessagingOwnHistory {
       message,
       known: true,
       coalesceIdentical: true,
-      handle: (frame) {
-        final next = _inbound.then((_) async {
-          if (_ready && _wanted(frame, body)) await handle(frame, body);
-        });
-        // A failed read is reported by the owned task, but must not poison
-        // the next request in this lane.
-        _inbound = next.then<void>(
-          (_) {},
-          onError: (Object _, StackTrace _) {},
-        );
-        return next;
-      },
+      handle: (frame) => _handleAdmitted(frame, body),
     );
     // The original reservation is already owned. Tracking each duplicate of
     // its future would recreate an unbounded task list despite byte coalescing.
     if (work != null && admission.coalescedFrames == coalesced) {
       _run(() => work);
+    }
+  }
+
+  Future<void> _handleAdmitted(InboundMessage frame, String body) async {
+    // Defer callbacks until admission and the owner have registered this job.
+    await Future<void>.value();
+    if (_inboundHandlers >= _maxInboundHandlers) {
+      final turn = Completer<void>();
+      _inboundTurns.add(turn);
+      await turn.future;
+    } else {
+      _inboundHandlers++;
+    }
+    try {
+      // Fresh membership/binding checks remain inside handle. Parts already
+      // accept reordering; page apply and durable cursors keep their own gate.
+      if (_ready && _wanted(frame, body)) await handle(frame, body);
+    } finally {
+      // Transfer this occupied slot without letting a new arrival jump ahead.
+      // Failure/close drains queued turns too, releasing admission leases.
+      if (_inboundTurns.isNotEmpty) {
+        _inboundTurns.removeAt(0).complete();
+      } else {
+        _inboundHandlers--;
+      }
     }
   }
 
