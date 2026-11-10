@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: готовая позиция mirror не требует повторного ordering lookup
+
+[Четыре parent-red и native A/B/A](../mirror-settled-order-100000-2026-11-10/README.md):
+исходная или уже исправленная effective position совпадает с входящей —
+повторная author resolution/point read не выполняются. Delivery repair и
+нужная ordering correction сохраняют свежие чтения/admission; deletion race
+проверена. Новый кеш не добавлен. 203 related passed, 0 skipped, analyzer чист.
+
+100000: point reads **499747→399747→499747**, время
+**108294→103755→108034 мс**; passive witness
+**106194,923→102242,746→105725,350 мс**. Локальный выигрыш около 3,5–4 с;
+все 100001 строки exact/cold, callbacks/commits/wire counts сохранены.
+1544 frozen inputs, один production variant, provenance/mappings/cleanup
+проверены; cache 92→92. Latency около 104 с остаётся открытой, другие фронты
+статус не меняют. Без push/релиза; sibling mailbox не добавлялся.
+
 ## 2026-11-10: history ingress перекрывает до четырёх свежих проверок
 
 [Две parent-red, bounded queue и native A/B/A](../history-inbound-parallel-100000-2026-11-10/README.md):
