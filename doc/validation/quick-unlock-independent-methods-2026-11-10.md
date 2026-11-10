@@ -22,4 +22,12 @@ Phone-sized widget checks also verify visible, working biometric buttons with no
 pattern on both cold container startup and the reloaded screen cover. Those
 checks use mocked OS authentication, not a physical fingerprint sensor.
 
-Physical qualification of this particular settings flow on Android is pending.
+On Android, a separate QA application was configured for biometric startup entry
+with the pattern set to Off. The biometric button appeared without entering a
+pattern, and the owner unlocked it using a real fingerprint. After force-stopping
+and restarting that application, the button appeared again and fingerprint entry
+opened the same test identity. The owner reported apparently one cold-start
+prompt and confirmed exactly one prompt on a subsequent lock/unlock. The main
+application and its container were not changed. The existing-pattern coupling
+case remains covered by the real settings/vault fixture, rather than a physical
+recreation of the original reporter's unknown configuration.
