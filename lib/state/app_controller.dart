@@ -919,9 +919,13 @@ class AppController extends Notifier<AppState> {
     if (missing.isNotEmpty) {
       throw CompactionWouldDropIdentities(missing);
     }
+    final passwords = roster.passwords();
+    if (!passwords.any((bytes) => listEquals(bytes, utf8.encode(reopenWith)))) {
+      throw StateError('compaction must retain the reopen password');
+    }
     return _compactKeeping(
       passwords: [
-        for (final bytes in roster.passwords()) Uint8List.fromList(bytes),
+        for (final bytes in passwords) Uint8List.fromList(bytes),
       ],
       reopenWith: reopenWith,
       // What each password opened before the repack — the only way back from
