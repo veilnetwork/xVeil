@@ -38,6 +38,7 @@ import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
 import 'device_history_backfill.dart' show deviceMirrorOf;
 import 'transferable_settings.dart';
+import 'transferable_files.dart';
 import '../domain/contact_preferences.dart';
 
 /// Files larger than this are named in the archive but their bytes are not
@@ -211,15 +212,22 @@ class DataExporter {
   Future<DataExportPlan> plan() async {
     final conversations = await _storage.loadConversations();
     var messages = 0;
+    final attachments = <String>{};
     for (final c in conversations) {
-      messages += (await _storage.loadMessages(c.id)).length;
+      final rows = await _storage.loadMessages(c.id);
+      messages += rows.length;
+      for (final row in rows) {
+        attachments.addAll(_attachmentIds(row));
+      }
     }
     // Only what will actually travel. Counting every key in the namespace made
     // the preview promise settings the export then dropped in silence — and a
     // count is exactly what a person checks the archive against afterwards
     // (report24 CH-W1).
     final settings = (await _storedSettingNames())
-        .where((k) => _syncedSettingKeys.contains(k) || isTransferableSetting(k))
+        .where(
+          (k) => _syncedSettingKeys.contains(k) || isTransferableSetting(k),
+        )
         .toList();
     final calls = await _storage.callLogEntries();
 
@@ -227,8 +235,12 @@ class DataExporter {
     var oversize = 0;
     var fileBytes = 0;
     final snapshot = await _storage.sharedContentReferenceSnapshot();
-    for (final id in snapshot.storedContentIds) {
-      final size = await _storage.fileSize(id) ?? 0;
+    for (final id in {
+      ...snapshot.storedContentIds,
+      ...attachments,
+    }.where(isTransferableFileId)) {
+      final size = await _storage.fileSize(id);
+      if (size == null) continue;
       if (size > _fileCeiling) {
         oversize++;
         continue;
@@ -279,8 +291,13 @@ class DataExporter {
   }) async {
     final counted = await plan();
     var written = 0;
-    var total = counted.contacts * 2 + counted.messages + counted.settings +
-        counted.callLogEntries + (includeFiles ? counted.files : 0) + 2;
+    var total =
+        counted.contacts * 2 +
+        counted.messages +
+        counted.settings +
+        counted.callLogEntries +
+        (includeFiles ? counted.files : 0) +
+        2;
     if (total <= 0) total = 1;
     var bytes = 0;
 
@@ -334,10 +351,7 @@ class DataExporter {
 
     Future<void> emit(DeviceSyncEvent e) async {
       await writer.add(
-        TransferRecord(
-          kind: TransferRecordKind.sync,
-          meta: {'b': e.toBody()},
-        ),
+        TransferRecord(kind: TransferRecordKind.sync, meta: {'b': e.toBody()}),
       );
       records++;
     }
@@ -424,6 +438,9 @@ class DataExporter {
       step();
     }
 
+    // Attachment reachability is wider than the GC's CID-only inventory:
+    // legacy message files use UUIDs. Keep GC policy out of backup policy.
+    final attachments = <String>{};
     // 4. Conversations: the contact, where it was read to, and the messages.
     for (final conversation in await _storage.loadConversations()) {
       final contact = conversation.peer;
@@ -474,6 +491,7 @@ class DataExporter {
       step();
 
       for (final message in await _storage.loadMessages(conversation.id)) {
+        attachments.addAll(_attachmentIds(message));
         await emit(_mirrorOf(peerHex, message));
         step();
       }
@@ -556,7 +574,10 @@ class DataExporter {
     var files = 0;
     var manifests = 0;
     final snapshot = await _storage.sharedContentReferenceSnapshot();
-    for (final id in snapshot.storedContentIds) {
+    for (final id in {
+      ...snapshot.storedContentIds,
+      ...attachments,
+    }.where(isTransferableFileId)) {
       final manifestId = '$kContentManifestFilePrefix$id';
       final manifest = await _storage.loadFile(manifestId);
       if (manifest != null && manifest.isNotEmpty) {
@@ -574,8 +595,8 @@ class DataExporter {
         step();
         continue;
       }
-      final size = await _storage.fileSize(id) ?? 0;
-      if (size > _fileCeiling) {
+      final size = await _storage.fileSize(id);
+      if (size == null || size > _fileCeiling) {
         skipped.add(id);
         continue;
       }
@@ -617,6 +638,17 @@ class DataExporter {
   /// between two live devices.
   DeviceSyncEvent _mirrorOf(String peerHex, Message message) =>
       deviceMirrorOf(peerHex, message, withFileBytes: false).event;
+
+  static final _attachmentFileId = RegExp(
+    r'^(?:[a-fA-F0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$',
+  );
+
+  // Message metadata is untrusted. Widen the CID-only inventory to actual
+  // attachment UUIDs, never to arbitrary internal files named by a message.
+  static Iterable<String> _attachmentIds(Message message) => {
+    ?message.fileId,
+    ?message.fileContentId,
+  }.where((id) => _attachmentFileId.hasMatch(id));
 
   Stream<List<int>> _fileChunks(String id, int size) async* {
     const window = 1 << 20;
