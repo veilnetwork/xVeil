@@ -873,9 +873,9 @@ class AppController extends Notifier<AppState> {
   /// Compact the deniable container in place to reclaim dead padding (the
   /// log-structured store never shrinks on its own; only a repack does). The
   /// node + open store hold a `LOCK_EX`, so we tear the session down, compact
-  /// off-isolate, then re-open via [unlock]. Reopened even on failure (the
-  /// rewrite is atomic — the container is untouched on error), so the user is
-  /// never stranded locked out. Returns the on-disk size before/after in bytes.
+  /// off-isolate, then re-open via [unlock] while the originating session is
+  /// still authorized, including on failure. An intervening lock/wipe/switch
+  /// must not trigger a new unlock. Returns the on-disk sizes before/after.
   Future<({int before, int after})> compactStorage(String password) async {
     if (!canCompactStorage) {
       throw StateError('compaction is single-identity only');
@@ -1153,20 +1153,31 @@ class AppController extends Notifier<AppState> {
     required String reopenWith,
     List<({List<int> password, List<int> oldSpaceKeys})> credentials = const [],
   }) async {
+    final lease = leaseIdentity();
+    void requireCurrentSession() {
+      if (!ref.mounted || !holdsIdentity(lease)) {
+        throw StateError('compaction session ended');
+      }
+    }
+
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
+    requireCurrentSession();
     state = state.copyWith(
       phase: AppPhase.preparingNode,
       preparingReason: PreparingReason.unlocking,
     );
     await _boundedTeardown('session teardown', _teardownSession);
+    requireCurrentSession();
     await _boundedTeardown('node teardown', _teardownRealStack);
+    requireCurrentSession();
     // release the LOCK_EX
     final released = await _boundedTeardown(
       'store close',
       () => ref.read(storageProvider).close(),
     );
     try {
+      requireCurrentSession();
       // `compact_known` opens the container under LOCK_EX and BLOCKS for it.
       // Starting it while our own handle is still open means waiting on a lock
       // only we could release — no progress, no CPU, no temp file, and a screen
@@ -1179,10 +1190,12 @@ class AppController extends Notifier<AppState> {
         );
       }
       await hv.compactKnownAsync(path, passwords, dylibPath: _hvDylibPath());
+      requireCurrentSession();
       // BEFORE the session comes back, while the container is closed and every
       // password is still here: a repack gave every space new keys, and the
       // rosters that name them by keys are now pointing at nothing.
       final stale = await remapRostersAfterCompaction(credentials);
+      requireCurrentSession();
       if (stale.isNotEmpty) {
         devLog(
           () =>
@@ -1191,7 +1204,10 @@ class AppController extends Notifier<AppState> {
         );
       }
     } finally {
-      await unlock(reopenWith); // always reopen
+      // A lock/wipe/switch can end the session while teardown or the native
+      // rewrite is pending. Never turn that explicit boundary into a fresh
+      // password-based unlock after the operation eventually returns.
+      if (ref.mounted && holdsIdentity(lease)) await unlock(reopenWith);
     }
     final after = await File(path).length();
     // Remember the post-compaction size: the auto-compact trigger compares the
