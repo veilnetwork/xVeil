@@ -654,6 +654,10 @@ class AppController extends Notifier<AppState> {
   /// restart. One unlock at a time; latecomers are dropped (the in-flight run
   /// ends in ready/locked either way).
   bool _unlockInFlight = false;
+  // Wipe waits for the complete reopening. StartOver only needs its accepted
+  // marker write to settle before clearing prefs, not an unrelated node boot.
+  Future<void>? _reopenInFlight;
+  Future<void>? _reopenMarkerInFlight;
   // Unlike a cancelled Future, this ownership survives an accepted native
   // create until its handle and any rollback have actually settled.
   Future<void>? _onboardingInFlight;
@@ -787,7 +791,10 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  Future<void> _unlockInner(String password) async {
+  Future<void> _unlockInner(
+    String password, {
+    Future<bool> Function()? onOpened,
+  }) async {
     final t0 = DateTime.now();
     // Taken before the first await: everything this unlock publishes is only
     // valid while the lifecycle it started in is still current.
@@ -808,11 +815,12 @@ class AppController extends Notifier<AppState> {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
+    if (!ref.mounted || _supersededSince(gen)) return;
     final storage = ref.read(storageProvider);
     bool ok;
     try {
       ok = await storage.open(password: password);
-      if (_supersededSince(gen)) {
+      if (!ref.mounted || _supersededSince(gen)) {
         // The opener may finish after lock() has already closed the previous
         // handle. Do not let this old unlock acquire a fresh compaction lease
         // (or leave its newly opened handle behind the lock screen).
@@ -836,6 +844,12 @@ class AppController extends Notifier<AppState> {
         error: e,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
+      // Preparation can fail after adopting a worker handle. Release it even
+      // when lock/startOver has already ended the originating attempt.
+      try {
+        await storage.close();
+      } catch (_) {}
+      if (!ref.mounted || _supersededSince(gen)) return;
       ok = false;
     }
     if (!ok) {
@@ -843,10 +857,6 @@ class AppController extends Notifier<AppState> {
       state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
-    // The container just answered to this password, so this is the one moment
-    // the screen lock can learn to recognise it. Only a recogniser is kept —
-    // never the password, and never anything that reaches disk.
-    ref.read(screenLockProvider.notifier).rememberPassword(password);
     // Master vs identity is decided AFTER unlock by inspecting contents (never
     // from disk — deniability). A roster ⇒ master: read it, then release the
     // exclusive lock (only one space open at a time) and let the user pick.
@@ -856,8 +866,23 @@ class AppController extends Notifier<AppState> {
     // unlock spinner frozen with the container half-open — bounce back to the
     // lock screen so the user retries cleanly.
     try {
+      // Reopening from onboarding records its launch marker only after the
+      // password actually opens a space, and before any session is published.
+      if (onOpened != null && !await onOpened()) {
+        await storage.close();
+        if (ref.mounted && !_supersededSince(gen)) {
+          state = const AppState(AppPhase.locked, unlockError: true);
+        }
+        return;
+      }
+      if (!ref.mounted || _supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
+      // Only a recogniser is kept, never the password or anything on disk.
+      ref.read(screenLockProvider.notifier).rememberPassword(password);
       final roster = await storage.loadRoster();
-      if (_supersededSince(gen)) {
+      if (!ref.mounted || _supersededSince(gen)) {
         await storage.close();
         return;
       }
@@ -899,7 +924,7 @@ class AppController extends Notifier<AppState> {
             await _teardownSession();
           }
         }
-        if (_supersededSince(gen)) {
+        if (!ref.mounted || _supersededSince(gen)) {
           // Locked while we were classifying. The picker is a SESSION screen —
           // putting it up now would walk the phase back off the lock screen.
           devLog(() => 'xVeil[unlock]: locked mid-unlock — not showing picker');
@@ -915,6 +940,10 @@ class AppController extends Notifier<AppState> {
       await _maybeAutoCompactBeforeSession(password);
       if (_supersededSince(gen)) return;
       final profile = await _loadProfileOrHalt(storage);
+      if (!ref.mounted || _supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
       if (profile == null) return; // damaged record — parked, nothing written
       await _enterSession(profile);
       devLog(
@@ -933,9 +962,11 @@ class AppController extends Notifier<AppState> {
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
       try {
-        await ref.read(storageProvider).close();
+        await storage.close();
       } catch (_) {}
-      state = const AppState(AppPhase.locked, unlockError: true);
+      if (ref.mounted && !_supersededSince(gen)) {
+        state = const AppState(AppPhase.locked, unlockError: true);
+      }
     }
   }
 
@@ -1402,6 +1433,7 @@ class AppController extends Notifier<AppState> {
   /// Forgetting a native Future does not cancel it: an opener can create the
   /// file, and a compactor can rename its replacement over the path afterwards.
   Future<void> waitForCompaction() async {
+    await _reopenInFlight;
     await _onboardingInFlight;
     await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
@@ -3795,6 +3827,9 @@ class AppController extends Notifier<AppState> {
     await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
+    // A marker write accepted before startOver may still land after its
+    // lifecycle ended. Let it settle before removing that launch marker.
+    await _reopenMarkerInFlight;
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
@@ -3830,22 +3865,77 @@ class AppController extends Notifier<AppState> {
   /// cost. What would have leaked is the opposite: an entry that appeared only
   /// when a container existed.
   ///
-  /// Returns false when the password opened nothing; the flag is rolled back
-  /// so a refused attempt leaves no trace of having been made.
+  /// Returns true only for an admitted, authenticated reopening with its launch
+  /// marker saved. A busy or wrong-password attempt writes no marker.
   Future<bool> reopenExistingContainer(String password) async {
-    final prefs = await ref.read(prefsProvider.future);
-    // Set BEFORE the attempt, because `unlock` is written for a device that
-    // has already been through setup — and rolled back after a refusal, so
-    // this cannot mark an empty install as onboarded.
-    final marked = await prefs.setBool(_onboardedKey(), true);
-    await unlock(password);
-    if (!ref.mounted) return marked;
-    if (state.phase == AppPhase.locked && state.unlockError) {
-      if (marked) await prefs.remove(_onboardedKey());
-      state = const AppState(AppPhase.onboarding);
+    if (_unlockInFlight ||
+        _onboardingInFlight != null ||
+        _manualCompactionBlocksUnlock ||
+        _compactionInFlight != null ||
+        _wipeInFlight != null ||
+        _compactionCollectionInFlight != null ||
+        _compactionProbeInFlight != null) {
       return false;
     }
-    return marked;
+    final gen = _lifecycle;
+    final finished = Completer<void>();
+    // Claim the same admission as ordinary unlock before the first await.
+    // Calling public unlock from here would silently discard our own attempt.
+    _unlockInFlight = true;
+    _reopenInFlight = finished.future;
+    try {
+      var marked = false;
+      await _unlockInner(
+        password,
+        onOpened: () async {
+          marked = await _markReopenedContainer(gen);
+          return marked;
+        },
+      );
+      if (!ref.mounted || _supersededSince(gen)) return false;
+      if (state.phase == AppPhase.locked && state.unlockError) {
+        state = const AppState(AppPhase.onboarding);
+        return false;
+      }
+      return marked &&
+          (state.phase == AppPhase.ready ||
+              state.phase == AppPhase.pickingIdentity ||
+              state.phase == AppPhase.identityDamaged);
+    } finally {
+      _unlockInFlight = false;
+      _reopenInFlight = null;
+      finished.complete();
+    }
+  }
+
+  Future<bool> _markReopenedContainer(int lifecycle) async {
+    final finished = Completer<void>();
+    _reopenMarkerInFlight = finished.future;
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      if (!ref.mounted || _supersededSince(lifecycle)) return false;
+      final key = _onboardedKey();
+      final previous = prefs.getBool(key);
+      try {
+        if (!await prefs.setBool(key, true)) {
+          throw StateError('preference store refused the reopening marker');
+        }
+      } catch (error, stack) {
+        // SharedPreferences also changes its RAM cache before persistence.
+        // Restore the exact previous value, not an unconditional deletion.
+        final restored = previous == null
+            ? await prefs.remove(key)
+            : await prefs.setBool(key, previous);
+        if (!restored) {
+          throw StateError('reopening marker rollback was not recorded');
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+      return ref.mounted && !_supersededSince(lifecycle);
+    } finally {
+      _reopenMarkerInFlight = null;
+      finished.complete();
+    }
   }
 
   /// IRREVERSIBLE WIPE: delete the on-disk container, destroying EVERY identity
@@ -4147,9 +4237,13 @@ class AppController extends Notifier<AppState> {
   /// empty app, and the session then went on to write into the very space whose
   /// contents could not be read (audit XV-13).
   Future<UserProfile?> _loadProfileOrHalt(Storage storage) async {
+    final gen = _lifecycle;
     try {
-      return await storage.loadProfile() ?? _profileOfSpaceWithNoRecord();
+      final profile = await storage.loadProfile();
+      if (!ref.mounted || _supersededSince(gen)) return null;
+      return profile ?? _profileOfSpaceWithNoRecord();
     } on CorruptIdentityRecord catch (e, st) {
+      if (!ref.mounted || _supersededSince(gen)) return null;
       await _haltOnDamagedIdentity(e, st);
       return null;
     }
@@ -4165,6 +4259,7 @@ class AppController extends Notifier<AppState> {
     CorruptIdentityRecord e,
     StackTrace st,
   ) async {
+    final gen = _lifecycle;
     devLog(
       () =>
           'xVeil[identity]: DAMAGED identity record — refusing to open a '
@@ -4179,12 +4274,15 @@ class AppController extends Notifier<AppState> {
     try {
       await _teardownSession();
     } catch (_) {}
+    if (!ref.mounted || _supersededSince(gen)) return;
     try {
       await _teardownRealStack();
     } catch (_) {}
+    if (!ref.mounted || _supersededSince(gen)) return;
     try {
       await ref.read(storageProvider).close();
     } catch (_) {}
+    if (!ref.mounted || _supersededSince(gen)) return;
     _clearMasterSession();
     state = const AppState(AppPhase.identityDamaged);
   }
