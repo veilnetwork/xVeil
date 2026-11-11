@@ -96,9 +96,9 @@ runtime удалены. Свои нативные Cargo caches удалены; �
 
 ## Что ещё необходимо
 
-- Встроить workspace → locked pub → remap → build → artifact checks в обычный
-  builder/release workflow. Сейчас workspace/helper/checker остаются отдельными
-  инструментами; обязательный автоматический packaging gate пока не заявляется.
+- Последующая [интеграция в обычный builder](../neutral-release-builder-2026-11-12/README.md)
+  подключила workspace → locked pub → remap → build → artifact checks. Полная
+  квалификация нового автоматического пути на Apple ещё нужна.
 - Обновить семь media pins и проверить финальные release-артефакты. Profile QA
   с заменой известных native inputs не подменяет эту проверку.
 - Исходная Windows 10 жалоба на исходящие звук/камеру и аватары остаётся открытой.

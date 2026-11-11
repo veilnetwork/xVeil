@@ -48,7 +48,6 @@ class BuilderPathRemapTest(unittest.TestCase):
     def test_windows_compiler_remaps_narrow_and_wide_file_macros(self):
         compiler = shutil.which('clang-cl')
         self.assertIsNotNone(compiler, 'Windows builds require clang-cl')
-        env = {**os.environ, **windows_native_env()}
         # Under the home directory deliberately, so the real production prefix
         # applies. Include a space to exercise cc-rs/CMake flag tokenisation.
         with tempfile.TemporaryDirectory(prefix='xveil remap ', dir=Path.home()) as directory:
@@ -58,15 +57,26 @@ class BuilderPathRemapTest(unittest.TestCase):
                               'int main(){volatile const wchar_t* w=W(__FILE__);'
                               'std::puts(__FILE__);return w[0]==0;}\n')
             binary = Path(directory) / 'probe.exe'
-            subprocess.run([compiler, '/nologo', str(source), '/Fe' + str(binary),
-                            *shlex.split(env['CXXFLAGS'])], cwd=directory, env=env,
-                           capture_output=True, check=True)
-            ran = subprocess.run([str(binary)], capture_output=True, check=True, text=True)
-            self.assertTrue(ran.stdout.strip().replace('\\', '/').startswith('/build/'))
-            self.assertTrue(ran.stdout.strip().endswith('probe.cc'))
-            for prefix in (str(Path.home()), str(Path.home()).replace('\\', '/')):
-                for encoding in ('utf-8', 'utf-16-le'):
-                    self.assertNotIn(prefix.encode(encoding), binary.read_bytes())
+            # Caller-supplied correct flags must not mask a missing remap in
+            # the Flutter step (which also builds the native VPN helper).
+            with mock.patch.dict(os.environ, {'CFLAGS': '', 'CXXFLAGS': ''}):
+                producers = {
+                    'FFI': windows_native_env(),
+                    'Flutter': next(step.env for step in builder._windows(release=True)
+                                    if step.argv[:3] == ['flutter', 'build', 'windows']),
+                }
+            for role, additions in producers.items():
+                with self.subTest(role=role):
+                    env = {**os.environ, **additions}
+                    subprocess.run([compiler, '/nologo', str(source), '/Fe' + str(binary),
+                                    *shlex.split(env['CXXFLAGS'])], cwd=directory, env=env,
+                                   capture_output=True, check=True)
+                    ran = subprocess.run([str(binary)], capture_output=True, check=True, text=True)
+                    self.assertTrue(ran.stdout.strip().replace('\\', '/').startswith('/build/'))
+                    self.assertTrue(ran.stdout.strip().endswith('probe.cc'))
+                    for prefix in (str(Path.home()), str(Path.home()).replace('\\', '/')):
+                        for encoding in ('utf-8', 'utf-16-le'):
+                            self.assertNotIn(prefix.encode(encoding), binary.read_bytes())
 
 
 if __name__ == '__main__':
