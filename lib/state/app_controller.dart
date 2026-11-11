@@ -707,7 +707,9 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_manualCompactionBlocksUnlock || _compactionProbeInFlight != null) {
+    if (_manualCompactionBlocksUnlock ||
+        _compactionCollectionInFlight != null ||
+        _compactionProbeInFlight != null) {
       devLog(
         () => 'xVeil[unlock]: ignored — container maintenance is in progress',
       );
@@ -977,20 +979,35 @@ class AppController extends Notifier<AppState> {
   Future<bool> beginCompactionCollection() async {
     if (_wipeInFlight != null ||
         _compactionInFlight != null ||
+        _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null ||
         _unlockInFlight) {
       throw StateError('container maintenance is already in progress');
     }
-    state = state.copyWith(
-      phase: AppPhase.preparingNode,
-      preparingReason: PreparingReason.unlocking,
-    );
-    await _boundedTeardown('session teardown', _teardownSession);
-    await _boundedTeardown('node teardown', _teardownRealStack);
-    return _boundedTeardown(
-      'store close',
-      () => ref.read(storageProvider).close(),
-    );
+    final lease = leaseIdentity();
+    bool current() => ref.mounted && holdsIdentity(lease);
+    final finished = Completer<void>();
+    // Teardown is itself maintenance, before the first password is checked.
+    // A lock can invalidate it while an old node's disposal is still pending.
+    _compactionCollectionInFlight = finished.future;
+    try {
+      state = state.copyWith(
+        phase: AppPhase.preparingNode,
+        preparingReason: PreparingReason.unlocking,
+      );
+      await _boundedTeardown('session teardown', _teardownSession);
+      if (!current()) return false;
+      await _boundedTeardown('node teardown', _teardownRealStack);
+      if (!current()) return false;
+      final released = await _boundedTeardown(
+        'store close',
+        () => ref.read(storageProvider).close(),
+      );
+      return current() && released;
+    } finally {
+      _compactionCollectionInFlight = null;
+      finished.complete();
+    }
   }
 
   /// Undo [beginCompactionCollection] without compacting.
@@ -1003,6 +1020,7 @@ class AppController extends Notifier<AppState> {
     // A dismissed route can leave its password check awaiting the worker. Its
     // finally owns closing that handle; reopening sooner would let it close
     // the recovered session instead.
+    await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     if (!ref.mounted ||
         !holdsIdentity(lease) ||
@@ -1019,6 +1037,7 @@ class AppController extends Notifier<AppState> {
     required IdentityLease lease,
     required String reopenWith,
   }) async {
+    await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     if (!ref.mounted ||
         !holdsIdentity(lease) ||
@@ -1064,6 +1083,7 @@ class AppController extends Notifier<AppState> {
     );
     final storage = ref.read(storageProvider);
     if (_compactionProbeInFlight != null ||
+        _compactionCollectionInFlight != null ||
         _compactionInFlight != null ||
         _wipeInFlight != null ||
         _unlockInFlight ||
@@ -1284,6 +1304,7 @@ class AppController extends Notifier<AppState> {
   );
 
   Future<void>? _compactionInFlight;
+  Future<void>? _compactionCollectionInFlight;
   Future<void>? _compactionProbeInFlight;
   Future<List<String>>? _wipeInFlight;
   // Manual maintenance opens several spaces through the same facade. A new
@@ -1297,6 +1318,7 @@ class AppController extends Notifier<AppState> {
   }) async {
     if (_wipeInFlight != null ||
         _compactionInFlight != null ||
+        _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null) {
       throw StateError('container maintenance is already in progress');
     }
@@ -1321,6 +1343,7 @@ class AppController extends Notifier<AppState> {
   /// The native isolate cannot be cancelled by forgetting its Future: it may
   /// still rename its temporary file over the container's path afterwards.
   Future<void> waitForCompaction() async {
+    await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     await _compactionInFlight;
   }

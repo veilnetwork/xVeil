@@ -56,11 +56,32 @@ Future<({int before, int after})?> showCompactionOffer(
   // redirect back to home can still remove its pageless dialog; the operation
   // itself must be awaited independently below.
   final navigator = Navigator.of(context, rootNavigator: true);
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final failure = AppL10n.of(context).settingsStorageCompactFailed;
   final ctrl = ref.read(appControllerProvider.notifier);
   final lease = ctrl.leaseIdentity();
-  await ctrl.noteCompactionOffered();
-  if (!navigator.mounted || !ctrl.holdsIdentity(lease)) return null;
-  final opened = await ctrl.beginCompactionCollection();
+  final bool opened;
+  try {
+    await ctrl.noteCompactionOffered();
+    if (!navigator.mounted || !ctrl.holdsIdentity(lease)) return null;
+    opened = await ctrl.beginCompactionCollection();
+  } catch (_, stack) {
+    errorJournal.record(
+      kind: 'storage-compaction-entry',
+      error: StateError('could not begin compaction collection'),
+      stack: stack,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    if (navigator.mounted &&
+        messenger != null &&
+        messenger.mounted &&
+        ctrl.holdsIdentity(lease)) {
+      messenger.showSnackBar(SnackBar(content: Text(failure)));
+    }
+    // No collection was acquired. In particular, a rejected second caller
+    // must not recover/unlock the first caller's still active collection.
+    return null;
+  }
   if (!opened || !navigator.mounted || !ctrl.holdsIdentity(lease)) {
     await ctrl.recoverCompactionCollection(
       lease: lease,

@@ -17,15 +17,23 @@ import 'package:xveil/state/providers.dart';
 import 'support/fake_hv_container.dart';
 
 class _FailedCompaction extends AppController {
-  _FailedCompaction({this.incomplete = false});
+  _FailedCompaction({this.incomplete = false, this.failEntry});
   final bool incomplete;
+  final String? failEntry;
   bool cancelled = false;
   @override
   AppState build() => const AppState(AppPhase.ready);
   @override
-  Future<void> noteCompactionOffered({DateTime? at}) async {}
+  Future<void> noteCompactionOffered({DateTime? at}) async {
+    if (failEntry == 'note') throw StateError('fixture entry failure');
+  }
+
   @override
-  Future<bool> beginCompactionCollection() async => true;
+  Future<bool> beginCompactionCollection() async {
+    if (failEntry == 'begin') throw StateError('fixture maintenance busy');
+    return true;
+  }
+
   @override
   Future<void> cancelCompactionCollection(String password) async {
     cancelled = true;
@@ -46,6 +54,61 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
   });
+  for (final stage in ['note', 'begin']) {
+    testWidgets('entry failure is visible and owns no recovery ($stage)', (
+      tester,
+    ) async {
+      final controller = _FailedCompaction(failEntry: stage);
+      var returned = false;
+      Object? result = 'pending';
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [appControllerProvider.overrideWith(() => controller)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Consumer(
+              builder: (context, ref, _) => Scaffold(
+                body: TextButton(
+                  onPressed: () async {
+                    result = await showCompactionOffer(
+                      context,
+                      ref,
+                      estimate: const CompactionEstimate(
+                        fileBytes: 100,
+                        liveBytes: 10,
+                        identitiesCounted: 1,
+                        identitiesKnown: 1,
+                      ),
+                      currentPassword: 'fixture',
+                    );
+                    returned = true;
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(returned, isTrue);
+      expect(result, isNull);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.text(AppL10nEn().settingsStorageCompactFailed),
+        findsOneWidget,
+      );
+      expect(
+        controller.cancelled,
+        isFalse,
+        reason: 'a rejected caller must not reopen another collection',
+      );
+      expect(errorJournal.entries.single.kind, 'storage-compaction-entry');
+    });
+  }
   test(
     'collection cannot drop the identity used to reopen the container',
     () async {
