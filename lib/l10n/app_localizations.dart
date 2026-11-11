@@ -459,6 +459,18 @@ abstract class AppL10n {
   /// **'The downloaded speech model could not be deleted and is still on this device.'**
   String get lockWipeLeftSpeechModel;
 
+  /// No description provided for @lockWipeLeftRewrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporary copies of the container could not be deleted.'**
+  String get lockWipeLeftRewrite;
+
+  /// No description provided for @lockWipeLeftRewriteUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check whether temporary copies of the container remain.'**
+  String get lockWipeLeftRewriteUnknown;
+
   /// No description provided for @lockWipeLeftSpeechModelUnknown.
   ///
   /// In en, this message translates to:

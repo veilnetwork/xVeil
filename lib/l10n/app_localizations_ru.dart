@@ -220,6 +220,14 @@ class AppL10nRu extends AppL10n {
       'Загруженную модель распознавания речи удалить не удалось — она всё ещё на этом устройстве.';
 
   @override
+  String get lockWipeLeftRewrite =>
+      'Не удалось удалить временные копии хранилища.';
+
+  @override
+  String get lockWipeLeftRewriteUnknown =>
+      'Не удалось проверить, остались ли временные копии хранилища.';
+
+  @override
   String get lockWipeLeftSpeechModelUnknown =>
       'Модель распознавания речи проверить не удалось — устройство не ответило, где она хранится.';
 

@@ -26,6 +26,13 @@ Widget _appAround(Widget home) => MaterialApp(
   home: home,
 );
 
+class _RewriteWipeReport extends WipeReportController {
+  _RewriteWipeReport(this.code);
+  final String code;
+  @override
+  WipeReport? build() => WipeReport(remaining: [code], stopped: false);
+}
+
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +50,34 @@ void main() {
           (call) async => <String, Object?>{'phase': 'stopped'},
         );
   });
+
+  for (final unknown in [false, true]) {
+    testWidgets('wipe names temporary-copy status (unknown=$unknown)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            wipeReportProvider.overrideWith(
+              () => _RewriteWipeReport(
+                unknown ? 'container-rewrite-unknown' : 'container-rewrite',
+              ),
+            ),
+          ],
+          child: _appAround(const Scaffold()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(WipeReportHost)));
+      expect(
+        find.text(
+          unknown ? l.lockWipeLeftRewriteUnknown : l.lockWipeLeftRewrite,
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('Start over confirms then returns to onboarding', (tester) async {
     late ProviderContainer container;

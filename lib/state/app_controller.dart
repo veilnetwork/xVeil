@@ -23,6 +23,7 @@ import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/kv_log_store.dart' show SlotUtilization;
+import '../data/storage/container_rewrite_files.dart';
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/prefs_rollback_anchor.dart';
 import '../data/storage/storage.dart';
@@ -698,6 +699,10 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
+    if (_wipeInFlight != null) {
+      devLog(() => 'xVeil[unlock]: ignored — container wipe is in progress');
+      return;
+    }
     if (_unlockInFlight) {
       devLog(() => 'xVeil[unlock]: ignored — an unlock is already in flight');
       return;
@@ -735,6 +740,13 @@ class AppController extends Notifier<AppState> {
     bool ok;
     try {
       ok = await storage.open(password: password);
+      if (_supersededSince(gen)) {
+        // The opener may finish after lock() has already closed the previous
+        // handle. Do not let this old unlock acquire a fresh compaction lease
+        // (or leave its newly opened handle behind the lock screen).
+        await storage.close();
+        return;
+      }
       devLog(() => 'xVeil[unlock]: container open -> $ok (+${ms()}ms)');
     } catch (e) {
       // Missing or corrupt container, a Busy flock, an FFI/worker fault — never
@@ -773,6 +785,10 @@ class AppController extends Notifier<AppState> {
     // lock screen so the user retries cleanly.
     try {
       final roster = await storage.loadRoster();
+      if (_supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
       devLog(
         () =>
             'xVeil[unlock]: classified as '
@@ -825,6 +841,7 @@ class AppController extends Notifier<AppState> {
       }
       // Single identity space — unchanged path.
       await _maybeAutoCompactBeforeSession(password);
+      if (_supersededSince(gen)) return;
       final profile = await _loadProfileOrHalt(storage);
       if (profile == null) return; // damaged record — parked, nothing written
       await _enterSession(profile);
@@ -924,9 +941,7 @@ class AppController extends Notifier<AppState> {
       throw StateError('compaction must retain the reopen password');
     }
     return _compactKeeping(
-      passwords: [
-        for (final bytes in passwords) Uint8List.fromList(bytes),
-      ],
+      passwords: [for (final bytes in passwords) Uint8List.fromList(bytes)],
       reopenWith: reopenWith,
       // What each password opened before the repack — the only way back from
       // a roster that names its children by keys the repack has just changed.
@@ -1152,6 +1167,44 @@ class AppController extends Notifier<AppState> {
     required List<Uint8List> passwords,
     required String reopenWith,
     List<({List<int> password, List<int> oldSpaceKeys})> credentials = const [],
+  }) => _withCompaction(
+    () => _compactKeepingOwned(
+      passwords: passwords,
+      reopenWith: reopenWith,
+      credentials: credentials,
+    ),
+  );
+
+  Future<void>? _compactionInFlight;
+  Future<List<String>>? _wipeInFlight;
+
+  Future<T> _withCompaction<T>(Future<T> Function() run) async {
+    if (_wipeInFlight != null || _compactionInFlight != null) {
+      throw StateError('container maintenance is already in progress');
+    }
+    final finished = Completer<void>();
+    _compactionInFlight = finished.future;
+    try {
+      return await run();
+    } finally {
+      _compactionInFlight = null;
+      // This barrier describes quiescence, including a failed rewrite. Its
+      // owner reports the error; a wipe must still proceed to deletion.
+      finished.complete();
+    }
+  }
+
+  /// Wait for an accepted compaction, including its remap/recovery, to settle.
+  /// The native isolate cannot be cancelled by forgetting its Future: it may
+  /// still rename its temporary file over the container's path afterwards.
+  Future<void> waitForCompaction() async {
+    await _compactionInFlight;
+  }
+
+  Future<({int before, int after})> _compactKeepingOwned({
+    required List<Uint8List> passwords,
+    required String reopenWith,
+    required List<({List<int> password, List<int> oldSpaceKeys})> credentials,
   }) async {
     final lease = leaseIdentity();
     void requireCurrentSession() {
@@ -1189,7 +1242,11 @@ class AppController extends Notifier<AppState> {
           'compaction would wait forever on a lock we still hold',
         );
       }
-      await hv.compactKnownAsync(path, passwords, dylibPath: _hvDylibPath());
+      await ref.read(containerCompactorProvider)(
+        path,
+        passwords,
+        dylibPath: _hvDylibPath(),
+      );
       requireCurrentSession();
       // BEFORE the session comes back, while the container is closed and every
       // password is still here: a repack gave every space new keys, and the
@@ -1628,45 +1685,68 @@ class AppController extends Notifier<AppState> {
   /// never gets a chance to fire. Only runs for single-identity spaces with the
   /// existing opt-in setting enabled.
   Future<void> _maybeAutoCompactBeforeSession(String password) async {
-    if (_autoCompactRunning || !canCompactStorage) return;
+    if (_autoCompactRunning ||
+        _compactionInFlight != null ||
+        _wipeInFlight != null ||
+        !canCompactStorage) {
+      return;
+    }
+    final lease = leaseIdentity();
+    bool current() => ref.mounted && holdsIdentity(lease);
     final storage = ref.read(storageProvider);
     final path = ref.read(deniableBootProvider)?.storePath;
     if (path == null) return;
     try {
-      if (!await autoCompactEnabled()) return;
+      if (!await autoCompactEnabled() || !current()) return;
       final size = await File(path).length();
-      if (size < _autoCompactMinBytes) return;
+      if (!current() || size < _autoCompactMinBytes) return;
       final lastRaw = await storage.getSetting(_lastCompactSizeKey);
+      if (!current()) return;
       final last = int.tryParse(lastRaw ?? '') ?? 0;
       if (last > 0 && size < last * _autoCompactGrowthFactor) return;
-      _autoCompactRunning = true;
-      devLog(
-        () =>
-            'xVeil[storage]: pre-session auto-compact triggered '
-            '(size=$size, lastCompacted=$last)',
-      );
-      await storage.close(); // release LOCK_EX before compact_known.
-      await hv.compactKnownAsync(path, [
-        Uint8List.fromList(utf8.encode(password)),
-      ], dylibPath: _hvDylibPath());
-      final reopened = await storage.open(password: password);
-      if (!reopened) {
-        throw StateError('container did not reopen after compaction');
-      }
-      final after = await File(path).length();
-      await storage.putSetting(_lastCompactSizeKey, '$after');
-      devLog(
-        () => 'xVeil[storage]: pre-session auto-compact done $size -> $after',
-      );
+      await _withCompaction(() async {
+        _autoCompactRunning = true;
+        try {
+          devLog(
+            () =>
+                'xVeil[storage]: pre-session auto-compact triggered '
+                '(size=$size, lastCompacted=$last)',
+          );
+          await storage.close(); // release LOCK_EX before compact_known.
+          if (!current()) return;
+          await ref.read(containerCompactorProvider)(path, [
+            Uint8List.fromList(utf8.encode(password)),
+          ], dylibPath: _hvDylibPath());
+          if (!current()) return;
+          final reopened = await storage.open(password: password);
+          if (!current()) {
+            await storage.close();
+            return;
+          }
+          if (!reopened) {
+            throw StateError('container did not reopen after compaction');
+          }
+          final after = await File(path).length();
+          if (!current()) return;
+          await storage.putSetting(_lastCompactSizeKey, '$after');
+          devLog(
+            () =>
+                'xVeil[storage]: pre-session auto-compact done $size -> $after',
+          );
+        } catch (e) {
+          devLog(() => 'xVeil[storage]: pre-session auto-compact failed: $e');
+          if (current() && !storage.isOpen) {
+            try {
+              await storage.open(password: password);
+              if (!current()) await storage.close();
+            } catch (_) {}
+          }
+        } finally {
+          _autoCompactRunning = false;
+        }
+      });
     } catch (e) {
       devLog(() => 'xVeil[storage]: pre-session auto-compact failed: $e');
-      if (!storage.isOpen) {
-        try {
-          await storage.open(password: password);
-        } catch (_) {}
-      }
-    } finally {
-      _autoCompactRunning = false;
     }
   }
 
@@ -3464,8 +3544,13 @@ class AppController extends Notifier<AppState> {
   Future<void> _forgetStartupUnlock() async {
     final prefs = await ref.read(prefsProvider.future);
     if (prefs.getBool(kStartupUnlockOptIn) == true) {
-      await ref.read(quickUnlockVaultProvider).forget().timeout(const Duration(seconds: 15));
-      if (!await prefs.remove(kStartupUnlockOptIn)) throw StateError('Saved sign-in removal not recorded');
+      await ref
+          .read(quickUnlockVaultProvider)
+          .forget()
+          .timeout(const Duration(seconds: 15));
+      if (!await prefs.remove(kStartupUnlockOptIn)) {
+        throw StateError('Saved sign-in removal not recorded');
+      }
     }
     ref.invalidate(startupUnlockOptionsProvider);
   }
@@ -3563,7 +3648,28 @@ class AppController extends Notifier<AppState> {
   ///
   /// The returned list names what is still there, checked by looking rather
   /// than by trusting the delete call. Empty means empty.
-  Future<List<String>> wipeContainers() async {
+  Future<List<String>> wipeContainers() {
+    final pending = _wipeInFlight;
+    if (pending != null) return pending;
+    final completed = Completer<List<String>>();
+    // Claim the boundary before the first await. A new unlock or compaction
+    // cannot enter while we wait for an earlier native rename to settle.
+    _wipeInFlight = completed.future;
+    Future<void> run() async {
+      try {
+        completed.complete(await _wipeContainersOwned());
+      } catch (error, stack) {
+        completed.completeError(error, stack);
+      } finally {
+        _wipeInFlight = null;
+      }
+    }
+
+    unawaited(run());
+    return completed.future;
+  }
+
+  Future<List<String>> _wipeContainersOwned() async {
     _endLifecycle(); // invalidate pending unlocks before the first await
     _stopMediaCapture();
     _incomplete.clear();
@@ -3590,6 +3696,12 @@ class AppController extends Notifier<AppState> {
     }
     _clearMasterSession();
 
+    // Deleting before an accepted rewrite's final rename merely unlinks the
+    // old inode: the worker can then publish a complete container at this
+    // same path again. Its failure is quiescent too, so deletion still runs.
+    // Do not time out this barrier and claim the file cannot reappear.
+    await waitForCompaction();
+
     // Delete the container file when we know its path (native/deniable build).
     // On the in-memory/loopback path there is no file — startOver semantics.
     final path = ref.read(deniableBootProvider)?.storePath;
@@ -3599,6 +3711,11 @@ class AppController extends Notifier<AppState> {
         if (await f.exists()) await f.delete();
       } catch (e) {
         devLog(() => 'xVeil[wipe]: failed to delete container at $path: $e');
+      }
+      try {
+        await removeContainerRewriteFiles(path);
+      } catch (e) {
+        devLog(() => 'xVeil[wipe]: rewrite temporary cleanup failed: $e');
       }
       // The large-file tier lives BESIDE the container, not inside it, so
       // deleting the container left the whole blob directory standing (audit
@@ -3700,6 +3817,15 @@ class AppController extends Notifier<AppState> {
     final remaining = <String>[];
     if (!quickUnlockRemoved) remaining.add('quick-unlock');
     if (path != null && File(path).existsSync()) remaining.add('container');
+    if (path != null) {
+      try {
+        if ((await containerRewriteFiles(path)).isNotEmpty) {
+          remaining.add('container-rewrite');
+        }
+      } catch (_) {
+        remaining.add('container-rewrite-unknown');
+      }
+    }
     if (path != null && blobRootFor(path).existsSync()) {
       remaining.add('files');
     }

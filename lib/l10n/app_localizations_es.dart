@@ -221,6 +221,14 @@ class AppL10nEs extends AppL10n {
       'No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.';
 
   @override
+  String get lockWipeLeftRewrite =>
+      'No se pudieron borrar las copias temporales del contenedor.';
+
+  @override
+  String get lockWipeLeftRewriteUnknown =>
+      'No se pudo comprobar si quedan copias temporales del contenedor.';
+
+  @override
   String get lockWipeLeftSpeechModelUnknown =>
       'No se pudo comprobar el modelo de voz: este dispositivo no indicó dónde se guarda.';
 

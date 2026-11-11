@@ -395,6 +395,9 @@ class _WipeLeftoverDialog extends StatelessWidget {
       else if (files)
         l.lockWipeLeftFiles,
       if (remaining.contains('quick-unlock')) l.wipeLeftQuickUnlock,
+      if (remaining.contains('container-rewrite')) l.lockWipeLeftRewrite,
+      if (remaining.contains('container-rewrite-unknown'))
+        l.lockWipeLeftRewriteUnknown,
       if (remaining.contains('speech-model')) l.lockWipeLeftSpeechModel,
       if (remaining.contains('translations')) l.lockWipeLeftTranslations,
       // Could-not-check is its own line, not silence. Folding it into the

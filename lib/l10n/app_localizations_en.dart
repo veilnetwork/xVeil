@@ -219,6 +219,14 @@ class AppL10nEn extends AppL10n {
       'The downloaded speech model could not be deleted and is still on this device.';
 
   @override
+  String get lockWipeLeftRewrite =>
+      'Temporary copies of the container could not be deleted.';
+
+  @override
+  String get lockWipeLeftRewriteUnknown =>
+      'Could not check whether temporary copies of the container remain.';
+
+  @override
   String get lockWipeLeftSpeechModelUnknown =>
       'The speech model could not be checked — this device did not answer where it is stored.';
 

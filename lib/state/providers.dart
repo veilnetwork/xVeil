@@ -42,6 +42,20 @@ final prefsProvider = FutureProvider<SharedPreferences>((ref) {
   return SharedPreferences.getInstance();
 });
 
+/// Native compaction is an asynchronous external operation: once started, its
+/// final rename can outlive a session-ending request. Keep that boundary
+/// injectable so teardown ordering can be held at the publish point in tests.
+typedef ContainerCompactor =
+    Future<void> Function(
+      String path,
+      List<Uint8List> passwords, {
+      String? dylibPath,
+    });
+
+final containerCompactorProvider = Provider<ContainerCompactor>(
+  (ref) => hv.compactKnownAsync,
+);
+
 /// The SINGLE-identity storage (one space open at a time) — the default path.
 /// main() overrides this with the real container-backed one; here it is the
 /// in-memory dev/test wiring. In "all identities online" mode the active
