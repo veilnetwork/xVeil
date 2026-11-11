@@ -614,8 +614,17 @@ class DataTransferWriter {
       await _sink(bytes);
       return;
     }
-    _pending.add(bytes);
-    await _flush();
+    // Bound staging even when a caller already holds a large record. Every
+    // completed chunk is encrypted and handed to the sink before reading on.
+    final chunkBytes = _seal!.chunkBytes;
+    var offset = 0;
+    while (offset < bytes.length) {
+      final room = chunkBytes - _pending.length;
+      final end = offset + room < bytes.length ? offset + room : bytes.length;
+      _pending.add(bytes.sublist(offset, end));
+      offset = end;
+      await _flush();
+    }
   }
 
   Future<void> _flush({bool force = false}) async {
@@ -643,7 +652,6 @@ class DataTransferWriter {
       await _sink(frame);
       await _sink(box.cipherText);
       await _sink(box.mac.bytes);
-      if (!force) break;
     }
   }
 }
