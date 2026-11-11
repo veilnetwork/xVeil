@@ -63,6 +63,34 @@ Future<List<TransferRecord>> read(Uint8List bytes, {String? password}) async {
 Uint8List body(String s) => Uint8List.fromList(utf8.encode(s));
 
 void main() {
+  test('sealed records drain all complete chunks before add returns', () async {
+    var emitted = 0;
+    final writer = await DataTransferWriter.open(
+      header: headerFor(files: true),
+      password: 'test password',
+      cost: cheap(),
+      sink: (bytes) async => emitted += bytes.length,
+    );
+    const length = 3 * 1024 * 1024;
+    for (var i = 0; i < 4; i++) {
+      final before = emitted;
+      await writer.add(
+        TransferRecord(
+          kind: TransferRecordKind.file,
+          meta: {'id': 'file-$i'},
+          payload: Uint8List(length),
+        ),
+      );
+      expect(
+        emitted - before,
+        greaterThanOrEqualTo(length),
+        reason: 'a completed record must not leave full chunks staged',
+      );
+    }
+    await writer.close();
+  });
+
+
   group('open archive', () {
     test('records come back exactly as they went in', () async {
       final archive = await write([

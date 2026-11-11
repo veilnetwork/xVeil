@@ -142,6 +142,18 @@ class _Space implements Storage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Production GC inventory excludes legacy UUID attachments.
+class _GcInventorySpace extends _Space {
+  @override
+  Future<SharedContentReferenceSnapshot>
+  sharedContentReferenceSnapshot() async =>
+      const SharedContentReferenceSnapshot(
+        storedContentIds: {},
+        referencedContentIds: {},
+        complete: true,
+      );
+}
+
 /// Collects what the appliers would have been given.
 ///
 /// Standing in for the real appliers on purpose: they live inside the running
@@ -309,6 +321,110 @@ Future<Uint8List> _exportOf(
 }
 
 void main() {
+  test(
+    'backup includes message attachments outside the GC inventory',
+    () async {
+      final space = _GcInventorySpace();
+      final peer = NodeId.fromHex(hexOf(3));
+      const id = 'e1a1bbf7-670f-4d10-83af-596fce28ba38';
+      space.conversations.add(
+        Conversation(
+          peer: Contact(nodeId: peer, name: 'Peer'),
+        ),
+      );
+      space.messages[peer.hex] = [
+        Message(
+          id: 'attachment-message',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'attachment',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1),
+          fileId: id,
+        ),
+      ];
+      space.files[id] = Uint8List.fromList([1, 2, 3]);
+      final target = _Space();
+      final plan = await DataExporter(
+        storage: space,
+        nodeIdHex: hexOf(1),
+        syncedSettingKeys: {},
+      ).plan();
+      expect(plan.files, 1);
+      await DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(await _exportOf(space)));
+      expect(target.files[id], [1, 2, 3]);
+    },
+  );
+
+  test(
+    'manifest-only content is skipped, while a real empty file travels',
+    () async {
+      final space = _Space();
+      final cid = List.filled(64, 'a').join();
+      space.files['$kContentManifestFilePrefix$cid'] = Uint8List.fromList([1]);
+      space.files['empty'] = Uint8List(0);
+      final out = BytesBuilder();
+      final report = await DataExporter(
+        storage: space,
+        nodeIdHex: hexOf(1),
+        syncedSettingKeys: {},
+      ).run(sink: (b) async => out.add(b), includeFiles: true);
+      expect(report.skippedFiles, contains(cid));
+      final target = _Space();
+      await DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(out.takeBytes()));
+      expect(target.files.containsKey(cid), isFalse);
+      expect(target.files['empty'], isEmpty);
+      expect(target.files['$kContentManifestFilePrefix$cid'], [1]);
+    },
+  );
+
+  test('archive file records cannot create a master roster', () async {
+    final out = BytesBuilder();
+    final writer = await DataTransferWriter.open(
+      sink: (b) async => out.add(b),
+      header: TransferHeader(
+        createdMs: 1,
+        nodeIdHex: hexOf(1),
+        includesIdentity: false,
+        includesFiles: true,
+        counts: {},
+        fileBytes: 2,
+      ),
+    );
+    await writer.add(
+      TransferRecord(
+        kind: TransferRecordKind.file,
+        meta: {'id': 'master:roster.v2'},
+        payload: Uint8List.fromList(utf8.encode('[]')),
+      ),
+    );
+    await writer.close();
+    final target = _Space();
+    await expectLater(
+      DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(out.takeBytes())),
+      throwsA(
+        isA<ImportInterrupted>().having(
+          (e) => (e.cause as TransferException).failure,
+          'failure',
+          TransferFailure.corrupt,
+        ),
+      ),
+    );
+    expect(target.files, isEmpty);
+  });
+
+
   /// An archive that stops part-way says what it already applied.
   ///
   /// A streaming import applies as it reads — that is what lets an archive

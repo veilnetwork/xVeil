@@ -38,6 +38,7 @@ import '../domain/device_sync.dart';
 import '../domain/identity.dart';
 import 'device_sync_appliers.dart';
 import 'transferable_settings.dart';
+import 'transferable_files.dart';
 
 /// Why an archive was refused before anything was applied.
 enum ImportRefusal {
@@ -641,6 +642,11 @@ class DataImporter {
           final id = record.meta['id'];
           final payload = record.payload;
           if (id is! String || payload == null) break;
+          if (!isTransferableFileId(id)) {
+            throw const TransferException(
+              TransferFailure.corrupt, 'reserved file namespace',
+            );
+          }
           if (await _storage.hasFile(id)) {
             // Content is addressed by id, so "already here" is the same bytes.
             filesHere++;
