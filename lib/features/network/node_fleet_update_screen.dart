@@ -8,6 +8,8 @@ import '../../data/node/node_update_plan.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/veil_github_release.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart' show IdentityLease;
+import '../../state/identity_guard.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../common/shown_cause.dart';
 import 'ssh_command_dialog.dart';
@@ -33,6 +35,14 @@ class NodeFleetUpdateScreen extends ConsumerStatefulWidget {
 class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
   final _resolver = VeilGithubReleaseResolver();
 
+  late final IdentityLease _lease;
+  bool get _current => mounted && ref.holdsIdentity(_lease);
+  @override
+  void initState() {
+    super.initState();
+    _lease = ref.leaseIdentity();
+  }
+
   /// What each node said THIS session, keyed by node id. Absent means it was
   /// not asked; null means it was asked and did not answer.
   final Map<String, NodeReading?> _reported = {};
@@ -43,10 +53,15 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
 
   List<ManagedNode> get _nodes =>
       (ref.read(managedNodesProvider).value ?? const <ManagedNode>[])
-          .where((node) => node.hasSsh && node.sshUser != null)
+          .where((node) => node.hasManagement)
           .toList(growable: false);
 
-  Future<SshResult?> _run(ManagedNode node, String title, String command) async {
+  Future<SshResult?> _run(
+    ManagedNode node,
+    String title,
+    String command,
+  ) async {
+    if (!mounted || !_current) return null;
     SshResult? outcome;
     await showDialog<void>(
       context: context,
@@ -57,7 +72,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
         onSuccess: (result) async => outcome = result,
       ),
     );
-    return outcome;
+    return _current ? outcome : null;
   }
 
   Future<void> _checkAll() async {
@@ -68,8 +83,9 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
     try {
       // The release first: without it there is nothing to compare against, and
       // walking the fleet would spend somebody's credentials for nothing.
-      _latestTag = (await _resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl))
-          .tag;
+      _latestTag = (await _resolver.resolve(
+        VeilLinuxReleaseTarget.x86_64Musl,
+      )).tag;
     } on Object catch (error) {
       if (mounted) {
         setState(() {
@@ -79,11 +95,16 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       }
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !_current) return;
     final inventoryTitle = AppL10n.of(context).nodeInventory;
     for (final node in _nodes) {
-      if (!mounted) break;
-      final result = await _run(node, inventoryTitle, buildNodeInventoryScript());
+      if (!_current) break;
+      final result = await _run(
+        node,
+        inventoryTitle,
+        buildNodeInventoryScript(),
+      );
+      if (!_current) return;
       // Asked and heard nothing is recorded as null, not left absent: the plan
       // treats both the same, and this way the screen can say so.
       final report = result == null || !result.ok
@@ -121,7 +142,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
     });
     final title = AppL10n.of(context).fleetUpdateTitle;
     for (final step in plan.upgradable) {
-      if (!mounted) break;
+      if (!_current) break;
       final NodeReleaseArtifact artifact;
       try {
         // The step's own target, never a fleet-wide default: a person can run
@@ -143,6 +164,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
         }
         break;
       }
+      if (!mounted || !_current) return;
       final result = await _run(
         step.node,
         title,
@@ -155,6 +177,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
           targetVeilVersion: step.to.replaceFirst('v', ''),
         ),
       );
+      if (!_current) return;
       // Only what the run reported: a node whose update failed keeps the
       // version it had, so the next check still offers it.
       if (result != null && result.ok) {
@@ -182,7 +205,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
     final scheme = Theme.of(context).colorScheme;
     final nodes =
         (ref.watch(managedNodesProvider).value ?? const <ManagedNode>[])
-            .where((node) => node.hasSsh && node.sshUser != null)
+            .where((node) => node.hasManagement)
             .toList(growable: false);
     final plan = planNodeUpdates(
       nodes: nodes,

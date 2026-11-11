@@ -3706,5 +3706,15 @@
   "storagePaddingBrief": "Uses less space; weaker size disguise. Takes effect after reopening.",
   "seedsSwitchOnBrief": "Discovery is on. The directory learns your network address.",
   "seedsSwitchOffBrief": "Discovery is off. Add a node manually.",
-  "onboardRecoveryWhy": "Why keep the certificate"
+  "onboardRecoveryWhy": "Why keep the certificate",
+  "nodeConnectTitle": "Connect by QR",
+  "nodeConnectHint": "Run veil-connect on the server, then scan its temporary QR. Keep the terminal open.",
+  "nodeConnectLink": "Temporary connection code",
+  "nodeConnectTrust": "Connect only to your server. This QR grants control with the permissions of the account running veil-connect. It expires when the helper closes.",
+  "nodeConnectAction": "Connect",
+  "nodeConnectTemporary": "Temporary HTTPS access",
+  "nodeConnectExpired": "Access expired. Run veil-connect again and scan the new QR.",
+  "nodeConnectError": "Could not connect. Check the code, server address, port and certificate.",
+  "nodeConnectRefresh": "Renew QR access",
+  "nodeConnectInstall": "Install or manage components"
 }

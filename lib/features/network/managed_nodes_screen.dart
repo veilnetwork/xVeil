@@ -17,7 +17,9 @@ import '../../state/identity_guard.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/ssh_credentials.dart';
+import '../../state/node_connect.dart';
 import 'node_fleet_update_screen.dart';
+import 'node_connect_screen.dart';
 import 'node_management_screen.dart';
 import 'node_provision_screen.dart';
 import 'ssh_check_dialog.dart';
@@ -52,7 +54,7 @@ class ManagedNodesScreen extends ConsumerWidget {
           if (nodes.isEmpty) {
             return _Empty(message: l.nodesEmpty, hint: l.nodesEmptyHint);
           }
-          final withSsh = nodes.where((n) => n.hasSsh && n.sshUser != null);
+          final withSsh = nodes.where((n) => n.hasManagement);
           return ListView(
             children: [
               for (final n in nodes) _NodeTile(node: n),
@@ -90,7 +92,10 @@ class _NodeTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sub = <String>[
       if (node.hasNodeId) '${node.nodeId!.substring(0, 8)}…',
-      if (node.hasSsh) '${node.sshUser ?? ''}@${node.sshHost}:${node.sshPort}',
+      if (node.hasConnect)
+        AppL10n.of(context).nodeConnectTemporary
+      else if (node.hasSsh)
+        '${node.sshUser ?? ''}@${node.sshHost}:${node.sshPort}',
     ].join('  ·  ');
     return ListTile(
       leading: const Icon(Icons.dns_outlined),
@@ -141,45 +146,62 @@ class _Empty extends StatelessWidget {
   }
 }
 
-enum _NodeCreateMode { existing, bootstrap }
+enum _NodeCreateMode { existing, bootstrap, qr }
 
 Future<void> _showManagedNodeCreateChooser(BuildContext context) async {
   final l = AppL10n.of(context);
   final mode = await showModalBottomSheet<_NodeCreateMode>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
     builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-            child: Text(
-              l.nodesAddChoiceTitle,
-              style: Theme.of(sheetContext).textTheme.titleLarge,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+              child: Text(
+                l.nodesAddChoiceTitle,
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.dns_outlined),
-            title: Text(l.nodesAddExisting),
-            subtitle: Text(l.nodesAddExistingHint),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pop(sheetContext, _NodeCreateMode.existing),
-          ),
-          ListTile(
-            leading: const Icon(Icons.rocket_launch_outlined),
-            title: Text(l.nodesBootstrapNew),
-            subtitle: Text(l.nodesBootstrapNewHint),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pop(sheetContext, _NodeCreateMode.bootstrap),
-          ),
-          const SizedBox(height: 12),
-        ],
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: Text(l.nodeConnectTitle),
+              subtitle: Text(l.nodeConnectHint),
+              onTap: () => Navigator.pop(sheetContext, _NodeCreateMode.qr),
+            ),
+            ListTile(
+              leading: const Icon(Icons.dns_outlined),
+              title: Text(l.nodesAddExisting),
+              subtitle: Text(l.nodesAddExistingHint),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () =>
+                  Navigator.pop(sheetContext, _NodeCreateMode.existing),
+            ),
+            ListTile(
+              leading: const Icon(Icons.rocket_launch_outlined),
+              title: Text(l.nodesBootstrapNew),
+              subtitle: Text(l.nodesBootstrapNewHint),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () =>
+                  Navigator.pop(sheetContext, _NodeCreateMode.bootstrap),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     ),
   );
   if (mode == null || !context.mounted) return;
+  if (mode == _NodeCreateMode.qr) {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const NodeConnectScreen()));
+    return;
+  }
   await _showManagedNodeEditor(context, null, createMode: mode);
 }
 
@@ -240,11 +262,12 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   /// load showed A's SSH password and private key under B, and the save read
   /// the providers again and wrote A's endpoint and secrets into B's
   /// encrypted storage.
-  late final IdentityLease _lease = ref.leaseIdentity();
+  late final IdentityLease _lease;
 
   @override
   void initState() {
     super.initState();
+    _lease = ref.leaseIdentity();
     final e = widget.existing;
     _label = TextEditingController(text: e?.label ?? '');
     _nodeId = TextEditingController(text: e?.nodeId ?? '');
@@ -417,6 +440,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       sshPort: port,
       sshUser: sshUser,
       sshHostFingerprint: pin,
+      connectEndpoint: sameEndpoint ? current.connectEndpoint : null,
       // Pointed at a different machine, these describe the previous one: the
       // host key, the version it reported, the timer somebody enabled there.
       // Carrying them over would claim things about a server nobody has asked
@@ -512,8 +536,13 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    await ref.read(sshCredentialsRepositoryProvider).clear(widget.existing!.id);
+    if (confirmed != true || !mounted || !ref.holdsIdentity(_lease)) return;
+    final ssh = ref.read(sshCredentialsRepositoryProvider);
+    final connect = ref.read(nodeConnectRepositoryProvider);
+    await ssh.clear(widget.existing!.id);
+    if (!mounted || !ref.holdsIdentity(_lease)) return;
+    await connect.clear(widget.existing!.id);
+    if (!mounted || !ref.holdsIdentity(_lease)) return;
     final registryError = await ref
         .read(managedNodesProvider.notifier)
         .remove(widget.existing!.id);

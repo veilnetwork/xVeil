@@ -8111,4 +8111,38 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardRecoveryWhy => 'Por qué guardar el certificado';
+
+  @override
+  String get nodeConnectTitle => 'Conectar por QR';
+
+  @override
+  String get nodeConnectHint =>
+      'Ejecute veil-connect en el servidor y escanee el QR temporal. Mantenga la terminal abierta.';
+
+  @override
+  String get nodeConnectLink => 'Código temporal de conexión';
+
+  @override
+  String get nodeConnectTrust =>
+      'Conecte solo su servidor. Este QR permite controlarlo con los permisos de la cuenta que ejecuta veil-connect. El acceso termina al cerrar el script.';
+
+  @override
+  String get nodeConnectAction => 'Conectar';
+
+  @override
+  String get nodeConnectTemporary => 'Acceso temporal por HTTPS';
+
+  @override
+  String get nodeConnectExpired =>
+      'El acceso caducó. Ejecute veil-connect de nuevo y escanee el nuevo QR.';
+
+  @override
+  String get nodeConnectError =>
+      'No se pudo conectar. Compruebe el código, la dirección, el puerto y el certificado.';
+
+  @override
+  String get nodeConnectRefresh => 'Renovar acceso por QR';
+
+  @override
+  String get nodeConnectInstall => 'Instalar o administrar componentes';
 }

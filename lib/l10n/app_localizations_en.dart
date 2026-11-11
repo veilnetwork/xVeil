@@ -8011,4 +8011,38 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardRecoveryWhy => 'Why keep the certificate';
+
+  @override
+  String get nodeConnectTitle => 'Connect by QR';
+
+  @override
+  String get nodeConnectHint =>
+      'Run veil-connect on the server, then scan its temporary QR. Keep the terminal open.';
+
+  @override
+  String get nodeConnectLink => 'Temporary connection code';
+
+  @override
+  String get nodeConnectTrust =>
+      'Connect only to your server. This QR grants control with the permissions of the account running veil-connect. It expires when the helper closes.';
+
+  @override
+  String get nodeConnectAction => 'Connect';
+
+  @override
+  String get nodeConnectTemporary => 'Temporary HTTPS access';
+
+  @override
+  String get nodeConnectExpired =>
+      'Access expired. Run veil-connect again and scan the new QR.';
+
+  @override
+  String get nodeConnectError =>
+      'Could not connect. Check the code, server address, port and certificate.';
+
+  @override
+  String get nodeConnectRefresh => 'Renew QR access';
+
+  @override
+  String get nodeConnectInstall => 'Install or manage components';
 }

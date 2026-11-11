@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ssh_host_confirm.dart';
+import 'node_connect_screen.dart' show nodeConnectError;
+import '../../data/node/node_connect.dart';
+import '../../state/node_connect.dart';
+import '../../state/identity_guard.dart';
+import '../../state/app_controller.dart' show IdentityLease;
 
 import '../../data/node/managed_node.dart';
 import '../../data/node/ssh_client.dart';
@@ -39,6 +44,9 @@ class SshCommandDialog extends ConsumerStatefulWidget {
 }
 
 class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
+  late final IdentityLease _lease;
+  bool get _current => mounted && ref.holdsIdentity(_lease);
+
   final _password = TextEditingController();
   final _key = TextEditingController();
   final _passphrase = TextEditingController();
@@ -52,14 +60,19 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
   @override
   void initState() {
     super.initState();
+    _lease = ref.leaseIdentity();
     unawaited(_loadCredentials());
   }
 
   Future<void> _loadCredentials() async {
+    if (widget.node.hasConnect) {
+      setState(() => _credentialsLoaded = true);
+      return;
+    }
     final credentials = await ref
         .read(sshCredentialsRepositoryProvider)
         .load(widget.node.id);
-    if (!mounted) return;
+    if (!_current) return;
     _password.text = credentials.password ?? '';
     setState(() {
       _credentials = credentials;
@@ -78,6 +91,11 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
 
   Future<void> _run() async {
     final node = widget.node;
+    if (!_current) return;
+    if (node.hasConnect) {
+      await _runConnect();
+      return;
+    }
     if (!node.hasSsh || node.sshUser == null || !_credentialsLoaded) return;
     final l = AppL10n.of(context);
     final key = _key.text.trim().isNotEmpty
@@ -108,6 +126,7 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
         port: node.sshPort,
         pinned: node.sshHostFingerprint,
       );
+      if (!_current) return;
       if (pin == null) {
         if (mounted) {
           setState(() => _error = AppL10n.of(context).sshHostNotConfirmed);
@@ -123,6 +142,7 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
         expectedHostFingerprint: pin,
         timeout: widget.timeout,
       );
+      if (!_current) return;
       if (result.hostFingerprint.isNotEmpty &&
           node.sshHostFingerprint == null) {
         // The controller REPORTS a failed write rather than throwing, so a
@@ -139,8 +159,9 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
           );
         }
       }
-      if (result.ok) await widget.onSuccess?.call(result);
-      if (!mounted) return;
+      if (!_current) return;
+      if (result.ok && !result.truncated) await widget.onSuccess?.call(result);
+      if (!_current) return;
       final combined = [
         if (result.stdout.isNotEmpty) result.stdout.trimRight(),
         if (result.stderr.isNotEmpty) result.stderr.trimRight(),
@@ -159,6 +180,44 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
     }
   }
 
+  Future<void> _runConnect() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _output = null;
+    });
+    try {
+      final result = await runNodeConnect(
+        ref,
+        widget.node,
+        _lease,
+        widget.command,
+        timeout: widget.timeout,
+        isMounted: () => mounted,
+      );
+      if (!_current) return;
+      if (result.ok && !result.truncated) await widget.onSuccess?.call(result);
+      if (!_current) return;
+      setState(
+        () => _output =
+            '${result.stdout}\n${result.stderr}\n${AppL10n.of(context).sshDone('${result.exitCode}')}',
+      );
+      if (result.truncated) {
+        setState(() => _error = AppL10n.of(context).nodeConnectError);
+      }
+    } on NodeConnectException catch (error) {
+      if (_current) {
+        setState(() => _error = nodeConnectError(AppL10n.of(context), error));
+      }
+    } catch (_) {
+      if (_current) {
+        setState(() => _error = AppL10n.of(context).nodeConnectError);
+      }
+    } finally {
+      if (_current) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -173,7 +232,9 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
+                widget.node.hasConnect
+                    ? AppL10n.of(context).nodeConnectTemporary
+                    : '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
                 style: const TextStyle(fontFamily: 'monospace'),
               ),
               const SizedBox(height: 12),
@@ -181,59 +242,64 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
                 const LinearProgressIndicator(),
                 const SizedBox(height: 12),
               ],
-              SegmentedButton<bool>(
-                segments: [
-                  ButtonSegment(value: false, label: Text(l.sshUsePassword)),
-                  ButtonSegment(value: true, label: Text(l.sshUseKey)),
-                ],
-                selected: {_useKey},
-                onSelectionChanged: _busy || !_credentialsLoaded
-                    ? null
-                    : (selection) => setState(() => _useKey = selection.first),
-              ),
-              const SizedBox(height: 12),
-              if (!_useKey)
-                TextField(
-                  controller: _password,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: l.sshPasswordLabel,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                )
-              else ...[
-                if (_credentials.hasKey) ...[
-                  SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
-                  const SizedBox(height: 8),
-                ],
-                SshPrivateKeyField(
-                  controller: _key,
-                  maxLines: 5,
-                  labelText: _credentials.hasKey
-                      ? l.sshOtherKeyLabel
-                      : l.sshKeyLabel,
-                  helperText: _credentials.hasKey ? l.sshUseSavedKeyHint : null,
-                  helperMaxLines: 2,
+              if (!widget.node.hasConnect) ...[
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(value: false, label: Text(l.sshUsePassword)),
+                    ButtonSegment(value: true, label: Text(l.sshUseKey)),
+                  ],
+                  selected: {_useKey},
+                  onSelectionChanged: _busy || !_credentialsLoaded
+                      ? null
+                      : (selection) =>
+                            setState(() => _useKey = selection.first),
                 ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passphrase,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: l.sshKeyPassphraseLabel,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
+                const SizedBox(height: 12),
+                if (!_useKey)
+                  TextField(
+                    controller: _password,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: l.sshPasswordLabel,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  )
+                else ...[
+                  if (_credentials.hasKey) ...[
+                    SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
+                    const SizedBox(height: 8),
+                  ],
+                  SshPrivateKeyField(
+                    controller: _key,
+                    maxLines: 5,
+                    labelText: _credentials.hasKey
+                        ? l.sshOtherKeyLabel
+                        : l.sshKeyLabel,
+                    helperText: _credentials.hasKey
+                        ? l.sshUseSavedKeyHint
+                        : null,
+                    helperMaxLines: 2,
                   ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _passphrase,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: l.sshKeyPassphraseLabel,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  l.sshCredsNotSaved,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: scheme.outline),
                 ),
               ],
-              const SizedBox(height: 6),
-              Text(
-                l.sshCredsNotSaved,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: scheme.outline),
-              ),
               if (widget.showCommandPreview) ...[
                 const SizedBox(height: 12),
                 ExpansionTile(

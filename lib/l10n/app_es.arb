@@ -3224,5 +3224,15 @@
   "storagePaddingBrief": "Usa menos espacio; oculta menos el tamaño. Se aplica al reabrir.",
   "seedsSwitchOnBrief": "Búsqueda activada. El directorio conoce tu dirección de red.",
   "seedsSwitchOffBrief": "Búsqueda desactivada. Añade un nodo manualmente.",
-  "onboardRecoveryWhy": "Por qué guardar el certificado"
+  "onboardRecoveryWhy": "Por qué guardar el certificado",
+  "nodeConnectTitle": "Conectar por QR",
+  "nodeConnectHint": "Ejecute veil-connect en el servidor y escanee el QR temporal. Mantenga la terminal abierta.",
+  "nodeConnectLink": "Código temporal de conexión",
+  "nodeConnectTrust": "Conecte solo su servidor. Este QR permite controlarlo con los permisos de la cuenta que ejecuta veil-connect. El acceso termina al cerrar el script.",
+  "nodeConnectAction": "Conectar",
+  "nodeConnectTemporary": "Acceso temporal por HTTPS",
+  "nodeConnectExpired": "El acceso caducó. Ejecute veil-connect de nuevo y escanee el nuevo QR.",
+  "nodeConnectError": "No se pudo conectar. Compruebe el código, la dirección, el puerto y el certificado.",
+  "nodeConnectRefresh": "Renovar acceso por QR",
+  "nodeConnectInstall": "Instalar o administrar componentes"
 }

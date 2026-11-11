@@ -111,3 +111,4 @@ jobs:
       # None of them needs a toolchain, and all of them gate a release.
       - run: python scripts/test-build-support.py
       - run: python3 -m unittest discover -s scripts -p test_scan_artifacts.py
+      - run: python3 -m unittest discover -s scripts -p test_veil_connect_agent.py -v

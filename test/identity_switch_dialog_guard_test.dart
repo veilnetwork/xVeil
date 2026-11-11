@@ -186,7 +186,7 @@ void main() {
   test('the managed node editor checks its lease on load and on save', () {
     final source = read('lib/features/network/managed_nodes_screen.dart');
     expect(
-      source.contains('IdentityLease _lease = ref.leaseIdentity()'),
+      source.contains('_lease = ref.leaseIdentity()'),
       isTrue,
       reason: 'the editor no longer records the identity that opened it',
     );

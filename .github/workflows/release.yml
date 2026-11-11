@@ -1479,9 +1479,33 @@ jobs:
           path: xveil-linux-x64-musl.tar.gz
           if-no-files-found: error
 
+  node-connect:
+    name: node-connect helper
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install helper test dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq openssl qrencode
+      - name: Verify temporary command transport
+        run: python3 -m unittest discover -s scripts -p test_veil_connect_agent.py -v
+      - name: Build standalone script and checksum
+        run: |
+          mkdir -p node-connect
+          python3 scripts/build_veil_connect.py node-connect/veil-connect
+          bash -n node-connect/veil-connect
+          (cd node-connect && sha256sum veil-connect > veil-connect.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: node-connect
+          path: node-connect/*
+          if-no-files-found: error
+
   scan:
     name: scan artifacts
-    needs: [android, linux, windows, linux-musl]
+    needs: [android, linux, windows, linux-musl, node-connect]
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:

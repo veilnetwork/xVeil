@@ -2,6 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/contacts/qr_scan_screen.dart';
 
 void main() {
+  test('node-control QR is accepted only by the dedicated node scanner', () {
+    const code = 'xveil:node?v=1&token=synthetic';
+    expect(classifyScannedInviteValues([code]).invite, isNull);
+    expect(
+      classifyScannedInviteValues([
+        'veil:invite?payload=abc',
+      ], nodeConnect: true).invite,
+      isNull,
+    );
+    expect(classifyScannedInviteValues([code], nodeConnect: true).invite, code);
+  });
   test('QR capture ignores empty values and trims a valid veil invite', () {
     final decision = classifyScannedInviteValues([
       null,
