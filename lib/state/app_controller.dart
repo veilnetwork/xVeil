@@ -699,6 +699,12 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
+    if (_manualCompactionBlocksUnlock) {
+      devLog(
+        () => 'xVeil[unlock]: ignored — container maintenance is in progress',
+      );
+      return;
+    }
     if (_wipeInFlight != null) {
       devLog(() => 'xVeil[unlock]: ignored — container wipe is in progress');
       return;
@@ -1096,6 +1102,13 @@ class AppController extends Notifier<AppState> {
     List<({List<int> password, List<int> oldSpaceKeys})> credentials,
   ) async {
     if (credentials.isEmpty) return const [];
+    final lease = leaseIdentity();
+    void requireCurrentSession() {
+      if (!ref.mounted || !holdsIdentity(lease)) {
+        throw StateError('compaction session ended');
+      }
+    }
+
     final storage = ref.read(storageProvider);
     String hex(List<int> b) =>
         b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -1106,17 +1119,25 @@ class AppController extends Notifier<AppState> {
     final rosterHolders = <List<int>>[];
     final failed = <String>[];
     for (final credential in credentials) {
+      requireCurrentSession();
       final password = utf8.decode(credential.password, allowMalformed: true);
       try {
-        if (!await storage.open(password: password)) {
+        final opened = await storage.open(password: password);
+        requireCurrentSession();
+        if (!opened) {
           failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
           continue;
         }
-        moved[hex(credential.oldSpaceKeys)] = await storage.exportSpaceKeys();
-        if (await storage.loadRoster() != null) {
+        final keys = await storage.exportSpaceKeys();
+        requireCurrentSession();
+        moved[hex(credential.oldSpaceKeys)] = keys;
+        final roster = await storage.loadRoster();
+        requireCurrentSession();
+        if (roster != null) {
           rosterHolders.add(credential.password);
         }
       } catch (e) {
+        requireCurrentSession();
         failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
         devLog(() => 'xVeil[storage]: remap probe failed: $e');
       } finally {
@@ -1127,10 +1148,14 @@ class AppController extends Notifier<AppState> {
     }
 
     for (final holder in rosterHolders) {
+      requireCurrentSession();
       final password = utf8.decode(holder, allowMalformed: true);
       try {
-        if (!await storage.open(password: password)) continue;
+        final opened = await storage.open(password: password);
+        requireCurrentSession();
+        if (!opened) continue;
         final roster = await storage.loadRoster();
+        requireCurrentSession();
         if (roster == null) continue;
         final repaired = <RosterEntry>[];
         for (final entry in roster) {
@@ -1146,12 +1171,14 @@ class AppController extends Notifier<AppState> {
           repaired.add(entry.copyWith(spaceKeys: next));
         }
         await storage.saveRoster(repaired);
+        requireCurrentSession();
         devLog(
           () =>
               'xVeil[storage]: roster remapped after compaction '
               '(${repaired.length} identities)',
         );
       } catch (e) {
+        requireCurrentSession();
         failed.add('roster');
         devLog(() => 'xVeil[storage]: roster remap failed: $e');
       } finally {
@@ -1160,6 +1187,7 @@ class AppController extends Notifier<AppState> {
         } catch (_) {}
       }
     }
+    requireCurrentSession();
     return failed;
   }
 
@@ -1173,20 +1201,33 @@ class AppController extends Notifier<AppState> {
       reopenWith: reopenWith,
       credentials: credentials,
     ),
+    blocksUnlock: true,
   );
 
   Future<void>? _compactionInFlight;
   Future<List<String>>? _wipeInFlight;
+  // Manual maintenance opens several spaces through the same facade. A new
+  // unlock must not replace that handle; automatic compaction already runs
+  // inside the ordinary _unlockInFlight guard.
+  bool _manualCompactionBlocksUnlock = false;
 
-  Future<T> _withCompaction<T>(Future<T> Function() run) async {
+  Future<T> _withCompaction<T>(
+    Future<T> Function() run, {
+    bool blocksUnlock = false,
+  }) async {
     if (_wipeInFlight != null || _compactionInFlight != null) {
       throw StateError('container maintenance is already in progress');
     }
+    if (blocksUnlock && _unlockInFlight) {
+      throw StateError('container unlock is already in progress');
+    }
     final finished = Completer<void>();
     _compactionInFlight = finished.future;
+    _manualCompactionBlocksUnlock = blocksUnlock;
     try {
       return await run();
     } finally {
+      _manualCompactionBlocksUnlock = false;
       _compactionInFlight = null;
       // This barrier describes quiescence, including a failed rewrite. Its
       // owner reports the error; a wipe must still proceed to deletion.
@@ -1264,6 +1305,10 @@ class AppController extends Notifier<AppState> {
       // A lock/wipe/switch can end the session while teardown or the native
       // rewrite is pending. Never turn that explicit boundary into a fresh
       // password-based unlock after the operation eventually returns.
+      // The native rewrite and remap have settled. Release only the unlock
+      // gate before the authorized recovery; the maintenance barrier still
+      // covers that recovery, so wipe cannot pass an in-flight reopen.
+      _manualCompactionBlocksUnlock = false;
       if (ref.mounted && holdsIdentity(lease)) await unlock(reopenWith);
     }
     final after = await File(path).length();
