@@ -966,6 +966,21 @@ class AppController extends Notifier<AppState> {
   Future<void> cancelCompactionCollection(String reopenWith) =>
       unlock(reopenWith);
 
+  /// Restore an abandoned collection only while its original authorization is
+  /// still current. A lock, wipe or identity switch must never become an
+  /// automatic password-based unlock when a route disappears afterwards.
+  Future<void> recoverCompactionCollection({
+    required IdentityLease lease,
+    required String reopenWith,
+  }) async {
+    if (!ref.mounted ||
+        !holdsIdentity(lease) ||
+        state.phase != AppPhase.preparingNode) {
+      return;
+    }
+    await cancelCompactionCollection(reopenWith);
+  }
+
   /// What a password opens in this container — for the screen that collects
   /// them before a compaction.
   ///
