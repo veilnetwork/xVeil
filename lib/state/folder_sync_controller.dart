@@ -240,13 +240,14 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         final reason =
             'the sync root is no longer safe to use '
             '(${unsafe.code.name}${unsafe.path == null ? '' : ': ${unsafe.path}'})';
-        final saved = await store.state(pair.id);
-        await store.saveState(
+        final saved = await store.updateState(
           pair.id,
-          FolderSyncState(
+          (saved) => FolderSyncState(
             base: saved.base,
             pendingConflicts: saved.pendingConflicts,
             resolutions: saved.resolutions,
+            resolutionSerial: saved.resolutionSerial,
+            resolutionRevisions: saved.resolutionRevisions,
             lastPassAtMs: saved.lastPassAtMs,
             lastRefusal: reason,
           ),
