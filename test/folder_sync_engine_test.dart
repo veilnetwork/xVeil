@@ -158,15 +158,30 @@ class _FakeDisk implements FolderSyncDisk {
   }
 
   @override
-  Future<bool> writeFrom(String root, String path, RangeSource source) async {
+  Future<bool> writeFrom(String root, String path, RangeSource source) async =>
+      await _write(path, source) != null;
+
+  Future<LocalFile?> _write(String path, RangeSource source) async {
     calls.add('write:$path');
     if (refuseWrites.contains(path)) {
       // Nothing is written and nothing is renamed: whatever was there stays.
-      return false;
+      return null;
     }
     final bytes = await _drain(source.size, (o, l) async => (await source.read(o, l))!);
-    files[path] = utf8.decode(bytes);
-    return true;
+    final body = utf8.decode(bytes);
+    files[path] = body;
+    // This model publishes by one synchronous map assignment. Return its
+    // stamp, never a later lookup which could observe a different mutation.
+    return LocalFile(path: path, size: body.length, modifiedAtMs: 100 + body.length);
+  }
+
+  @override
+  Future<LocalFile?> writeChecked(String root, String path, RangeSource source,
+      {required LocalFile? expected}) async {
+    if (!sameFolderSyncVersion(expected, await stat(root, path))) {
+      throw const FolderSyncLocalChanged();
+    }
+    return _write(path, source);
   }
 
   @override

@@ -78,6 +78,17 @@ abstract class FolderSyncDisk {
   /// XV24-02). The writer knows whether it renamed; now it says so.
   Future<bool> writeFrom(String root, String path, RangeSource source);
 
+  /// Download against the version captured by the scan, including absence.
+  /// Returns the incoming version's stamp from BEFORE publication, never a
+  /// later stat of a file the user could already have edited. Null refuses
+  /// publication; [FolderSyncLocalChanged] preserves a detected local edit.
+  Future<LocalFile?> writeChecked(
+    String root,
+    String path,
+    RangeSource source, {
+    required LocalFile? expected,
+  });
+
   Future<void> remove(String root, String path);
 
   /// Current size and mtime. Upload captures this BEFORE opening its source:
@@ -265,12 +276,13 @@ class FolderSyncEngine {
             if (id == null) continue;
             final source = await _cloud.openDownload(id);
             if (source == null) continue; // content not here yet; try next pass
-            bool published;
+            LocalFile? published;
             try {
-              published = await _disk.writeFrom(
+              published = await _disk.writeChecked(
                 pair.localPath,
                 action.path,
                 source,
+                expected: localByPath[action.path],
               );
             } finally {
               await source.dispose();
@@ -278,8 +290,7 @@ class FolderSyncEngine {
             // The writer's own verdict comes first: a refusal or a dead remote
             // copy leaves the old file in place, and an old file of the same
             // size satisfies every check that only looks at the size.
-            if (!published) continue;
-            final stat = await _disk.stat(pair.localPath, action.path);
+            if (published == null) continue;
             // CONFIRMED, not assumed (audit XV-12). `writeFrom` returns
             // silently when it refuses a path or the remote copy stops being
             // readable — both deliberate, both indistinguishable from success
@@ -288,12 +299,14 @@ class FolderSyncEngine {
             // written: the next pass saw nothing to do, and the file never
             // arrived. Absent or short means not applied — leave base alone and
             // let the next pass retry.
-            if (stat == null || stat.size != source.size) continue;
+            if (published.path != action.path || published.size != source.size) {
+              continue;
+            }
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: remoteByPath[action.path]?.contentId ?? '',
-              size: stat.size,
-              localModifiedAtMs: stat.modifiedAtMs,
+              size: published.size,
+              localModifiedAtMs: published.modifiedAtMs,
             );
             applied.add(action);
           case SyncActionKind.deleteLocal:
@@ -323,6 +336,8 @@ class FolderSyncEngine {
             );
             applied.add(action);
         }
+      } on FolderSyncLocalChanged {
+        conflicts.add(action.path);
       } catch (error) {
         // One file's failure is not the pass's failure. Its base row is left
         // exactly as it was, so nothing later reads the failure as a deletion.
@@ -369,8 +384,7 @@ class FolderSyncEngine {
       resolutions: kept,
       resolutionSerial: current.resolutionSerial,
       resolutionRevisions: {
-        for (final key in kept.keys)
-          key: ?current.resolutionRevisions[key],
+        for (final key in kept.keys) key: ?current.resolutionRevisions[key],
       },
       lastPassAtMs: result.lastPassAtMs,
       lastRefusal: result.lastRefusal,
