@@ -9,9 +9,9 @@ import 'package:xveil/data/native_libs.dart';
 import 'package:xveil/data/storage/folder_sync_store.dart';
 import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/domain/range_source.dart';
-import 'package:xveil/state/folder_sync_adapters.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
 
+import 'support/folder_fs_fixture.dart';
 import 'support/fake_hv_container.dart';
 
 class _Cloud implements FolderSyncCloud {
@@ -65,7 +65,7 @@ void main() {
       addTearDown(storage.close);
       final cloud = _Cloud();
       final store = FolderSyncStore(storage);
-      final engine = FolderSyncEngine(cloud, LocalFolderSyncDisk(), store, () => 1);
+      final engine = FolderSyncEngine(cloud, folderDiskFixture(), store, () => 1);
       final pair = FolderSyncPair(id: 'fixture-pair', localPath: dir.path);
       final pass = engine.runOnce(pair);
       await cloud.read.future;

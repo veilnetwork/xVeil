@@ -82,6 +82,69 @@ void main() {
   }, skip: skip);
 
   test(
+    'incoming preparation makes parents under the admission and keeps exclusions',
+    () async {
+      final scope = open();
+      final sink = scope.createIncoming('one/two/$_stem.incoming');
+      await sink.writeFrom([1, 2, 3]);
+      await sink.flush();
+      await sink.close();
+      await sink.close();
+      expect(
+        () => scope.createIncoming('one/two/$_stem.incoming'),
+        throwsA(failure(FolderFsFailureKind.preparation)),
+      );
+      expect(
+        () => scope.createIncoming('forbidden/user.txt'),
+        throwsA(failure(FolderFsFailureKind.preparation)),
+      );
+      expect(Directory('${root.path}/forbidden').existsSync(), isFalse);
+      final receipt = scope.publish(
+        'one/two/note.txt',
+        'one/two/$_stem.incoming',
+        expected: null,
+      );
+      expect(receipt.size, 3);
+      expect(File('${root.path}/one/two/note.txt').readAsBytesSync(), [
+        1,
+        2,
+        3,
+      ]);
+    },
+    skip: skip,
+  );
+
+  test(
+    'publication recovery is parent-scoped while a full scan refuses unrelated damage',
+    () async {
+      final scope = open();
+      Directory('${root.path}/unrelated').createSync();
+      File('${root.path}/unrelated/$_stem.intent').writeAsStringSync('invalid');
+      await scope.recoverBeforePublish('new/note.txt');
+      final sink = scope.createIncoming('new/$_second.incoming');
+      await sink.writeFrom([7]);
+      await sink.close();
+      await scope.recoverBeforePublish('new/note.txt');
+      expect(
+        scope
+            .publish('new/note.txt', 'new/$_second.incoming', expected: null)
+            .size,
+        1,
+      );
+      await expectLater(
+        scope.recoverBeforeScan(),
+        throwsA(failure(FolderFsFailureKind.recovery)),
+      );
+      expect(
+        () => scope.recoverBeforePublish('../note.txt'),
+        throwsFormatException,
+      );
+      expect(File('${root.path}/new/note.txt').readAsBytesSync(), [7]);
+    },
+    skip: skip,
+  );
+
+  test(
     'real publication returns the incoming stamp and keeps the previous bytes',
     () {
       final scope = open();

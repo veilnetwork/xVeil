@@ -8,9 +8,9 @@ import 'package:xveil/data/fs_beneath.dart';
 import 'package:xveil/data/native_libs.dart';
 import 'package:xveil/data/storage/folder_sync_store.dart';
 import 'package:xveil/domain/folder_sync.dart';
-import 'package:xveil/state/folder_sync_adapters.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
 
+import 'support/folder_fs_fixture.dart';
 import 'support/fake_hv_container.dart';
 
 class _Cloud implements FolderSyncCloud {
@@ -20,6 +20,7 @@ class _Cloud implements FolderSyncCloud {
   final release = Completer<void>();
   String? hold;
   int uploads = 0;
+  Future<void> Function()? afterDownloadClose;
   RemoteFile row(String path) => RemoteFile(
     path: path,
     itemId: 'fixture-item',
@@ -70,6 +71,11 @@ class _Cloud implements FolderSyncCloud {
           (offset + length).clamp(0, bytes.length),
         );
       },
+      close: () async {
+        final action = afterDownloadClose;
+        afterDownloadClose = null;
+        await action?.call();
+      },
     );
   }
 
@@ -77,14 +83,15 @@ class _Cloud implements FolderSyncCloud {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// An external edit at the real rename boundary. The override changes timing
-/// only; both the edit and the rename operate on the real filesystem.
-class _EditAtRename implements File {
-  _EditAtRename(this.file, this.target, this.edit, {this.before = false});
+/// Edit after the final Dart version observation, before publication consumes
+/// it. This witnesses the exact stat->publish gap for both the old pathname
+/// rename and the admitted native publisher. Rust tests separately inject
+/// writers inside the native compare/move boundaries.
+class _EditAfterVersion implements File {
+  _EditAfterVersion(this.file, this.target, this.edit);
   final File file;
   final String target;
-  final Future<void> Function() edit;
-  final bool before;
+  final void Function() edit;
   @override
   String get path => file.path;
   @override
@@ -105,14 +112,21 @@ class _EditAtRename implements File {
   @override
   Future<FileStat> stat() => file.stat();
   @override
-  FileStat statSync() => file.statSync();
-  @override
-  Future<File> rename(String newPath) async {
-    if (newPath == target && before) await edit();
-    final renamed = await file.rename(newPath);
-    if (newPath == target && !before) await edit();
-    return renamed;
+  FileStat statSync() {
+    final observed = file.statSync();
+    if (file.path == target &&
+        file.parent.listSync().any(
+          (entry) =>
+              entry.path.endsWith('.incoming') ||
+              entry.path.endsWith(kPartialSuffix),
+        )) {
+      edit();
+    }
+    return observed;
   }
+
+  @override
+  Future<File> rename(String newPath) => file.rename(newPath);
 
   @override
   Future<FileSystemEntity> delete({bool recursive = false}) =>
@@ -158,7 +172,7 @@ void main() {
         final cloud = _Cloud();
         final engine = FolderSyncEngine(
           cloud,
-          const LocalFolderSyncDisk(),
+          folderDiskFixture(),
           store,
           () => 1,
         );
@@ -173,16 +187,23 @@ void main() {
         }
 
         late FolderSyncReport report;
-        if (stage == 'published' || stage == 'before-publish') {
+        if (stage == 'before-publish') {
           report = await IOOverrides.runZoned(
             () => engine.runOnce(pair),
-            createFile: (path) => _EditAtRename(
+            createFile: (path) => _EditAfterVersion(
               Zone.root.run(() => File(path)),
               file.path,
-              edit,
-              before: stage == 'before-publish',
+              () {
+                if (edits != 0) return;
+                edits++;
+                file.writeAsStringSync('new local edit', flush: true);
+                file.setLastModifiedSync(DateTime.utc(2026, 2, 1));
+              },
             ),
           );
+        } else if (stage == 'published') {
+          cloud.afterDownloadClose = edit;
+          report = await engine.runOnce(pair);
         } else {
           cloud.hold = stage;
           final pass = engine.runOnce(pair);
@@ -193,9 +214,8 @@ void main() {
         }
         expect(edits, 1, reason: 'the intended edit must actually execute');
         if (stage == 'before-publish') {
-          // R33-07 is still open for the final external-writer race. A future
-          // publisher may preserve the displaced version recoverably rather
-          // than keep it under the original name. Neither copy may vanish.
+          // The late local edit and complete remote incoming copy both survive.
+          // The stale observed stamp must not turn into a certified download.
           final copies = dir
               .listSync(recursive: true, followLinks: false)
               .whereType<File>();
@@ -204,6 +224,15 @@ void main() {
             isTrue,
             reason: 'the local edit must survive in the folder',
           );
+          expect(
+            copies.any(
+              (copy) => copy.readAsStringSync() == 'remote replacement',
+            ),
+            isTrue,
+          );
+          expect(report.conflicts, contains('note.txt'));
+          expect(report.applied, isEmpty);
+          expect(report.failed, isEmpty);
           return;
         }
         expect(await file.readAsString(), 'new local edit');
@@ -216,11 +245,6 @@ void main() {
           expect(report.applied, isEmpty);
         }
       },
-      skip:
-          stage == 'before-publish' &&
-              Platform.environment['XVEIL_R33_PUBLISH_RACE_REPRO'] != '1'
-          ? 'R33-07 atomic publisher remains open; opt-in reproducer still fails'
-          : false,
     );
   }
 }

@@ -1,8 +1,10 @@
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import '../data/folder_scan.dart';
+import '../data/folder_publication.dart';
 import '../domain/cloud.dart';
 import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
@@ -253,10 +255,24 @@ class CloudServiceFolderSync implements FolderSyncCloud {
 const int kFolderSyncChunkBytes = 256 * 1024;
 
 class LocalFolderSyncDisk implements FolderSyncDisk {
-  const LocalFolderSyncDisk();
+  const LocalFolderSyncDisk({this.library});
+
+  /// Explicit FS-only fixture seam. Production always uses the verified SDK.
+  final DynamicLibrary? library;
 
   @override
-  Future<FolderScan> scan(String root) => scanFolder(Directory(root));
+  Future<FolderScan> scan(String root) async {
+    if (!Directory(root).existsSync()) return scanFolder(Directory(root));
+    final scope = NativeFolderSession.open(root, lib: library);
+    try {
+      await scope.recoverBeforeScan();
+      final result = await scanFolder(Directory(root));
+      scope.checkRoot();
+      return result;
+    } finally {
+      scope.close();
+    }
+  }
 
   @override
   Future<RangeSource?> openRead(String root, String path) async {
@@ -273,7 +289,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // `supported` is not the same question as "refused": a refusal must not
     // fall back to the weaker open, or the fallback serves exactly the file
     // the walk rejected.
-    final beneath = await veilOpenBeneath(root, path);
+    final beneath = await veilOpenBeneath(root, path, lib: library);
     if (beneath.supported) {
       final source = beneath.source;
       if (source == null) return null;
@@ -288,12 +304,8 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     return fileRangeSource(resolved);
   }
 
-  /// Written to a sibling and then renamed.
-  ///
-  /// A crash halfway through a direct write leaves a truncated file, and the
-  /// next scan reads that as the user having edited it — the mirror would then
-  /// faithfully upload the damage over the good copy in the cloud. The rename
-  /// is atomic on every platform this runs on.
+  /// Download outside the folder admission. Only a fully prepared local copy
+  /// enters the pinned-root publisher, which preserves the displaced version.
   @override
   Future<bool> writeFrom(String root, String path, RangeSource source) async =>
       await writeChecked(
@@ -311,74 +323,79 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     RangeSource source, {
     required LocalFile? expected,
   }) async {
-    final resolved = mirrorPathWithin(root, path);
-    if (resolved == null) {
-      // Refuse rather than throw: one hostile name must not stop the pass from
-      // mirroring every other file, and a throw here would be reported to the
-      // user as "sync failed" with nothing they can act on.
-      return null;
-    }
+    if (mirrorPathWithin(root, path) == null) return null;
     await _requireVersion(root, path, expected);
-    final file = File(resolved);
-    await file.parent.create(recursive: true);
-    // The ROOT goes with it: the scratch file is created through a descriptor
-    // walk from there, so a component turned into a symlink between
-    // `mirrorPathWithin` above and this open is refused rather than followed.
-    // That is the residual this file has documented since it was written.
-    final temp = await _openScratch(root, path, file);
-    if (temp == null) return null;
-    final sink = temp.sink;
-    var written = 0;
+    // Private staging keeps slow/failed network reads out of the root-wide
+    // admission. No user target or parent directory is touched during download.
+    final staging = await Directory.systemTemp.createTemp(
+      'xveil-folder-stage-',
+    );
     try {
-      await for (final chunk in rangeChunks(
-        source,
-        0,
-        source.size,
-        chunkBytes: kFolderSyncChunkBytes,
-      )) {
-        await sink.writeFrom(chunk);
-        written += chunk.length;
-      }
-      await sink.flush();
-    } on RangeSourceUnreadable {
-      // The remote copy stopped being readable. Leave the `.part` behind
-      // unrenamed and bail: the real path keeps whatever it had, and the next
-      // pass retries. Renaming a short file would publish a truncated one that
-      // the following scan reads as a deliberate user edit and faithfully
-      // uploads over the good copy.
-      return null;
-    } finally {
-      await sink.close();
-    }
-    // Deliberately a second gate: the loop already returns without renaming on
-    // a dead source, but that makes publishing depend on a `return` staying a
-    // `return`. Turn it into a `break` — a plausible refactor — and this is the
-    // only thing left standing between a truncated download and the mirrored
-    // path. Verified by weakening: dropping either alone keeps the tests green,
-    // dropping both turns them red.
-    if (written == source.size) {
-      final incoming = await temp.file.stat();
-      if (incoming.type != FileSystemEntityType.file ||
-          incoming.size != source.size) {
-        return null;
-      }
-      await _requireVersion(root, path, expected);
-      // These checks cover edits during preparation. They are NOT an atomic
-      // compare-and-publish: an external process can still edit after this
-      // check. Descriptor-relative publication with recovery remains needed.
-      await temp.file.rename(file.path);
-      return LocalFile(
-        path: path,
-        size: incoming.size,
-        modifiedAtMs: incoming.modified.millisecondsSinceEpoch,
-      );
-    } else {
-      // Nothing will rename it now; do not leave a scratch file behind under a
-      // name the scanner does not recognise.
+      final prepared = File('${staging.path}/payload');
+      final output = await prepared.open(mode: FileMode.writeOnly);
+      var written = 0;
       try {
-        await temp.file.delete();
-      } catch (_) {}
-      return null;
+        await for (final chunk in rangeChunks(
+          source,
+          0,
+          source.size,
+          chunkBytes: kFolderSyncChunkBytes,
+        )) {
+          await output.writeFrom(chunk);
+          written += chunk.length;
+        }
+        await output.flush();
+      } on RangeSourceUnreadable {
+        return null;
+      } finally {
+        await output.close();
+      }
+      if (written != source.size) return null;
+      final scope = NativeFolderSession.open(root, lib: library);
+      try {
+        await scope.recoverBeforePublish(path);
+        await _requireVersion(root, path, expected);
+        final random = Random.secure();
+        final tag = List.generate(
+          16,
+          (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+        ).join();
+        final parts = path.replaceAll(r'\', '/').split('/');
+        final incoming = [
+          ...parts.take(parts.length - 1),
+          '.xveil-$tag.incoming',
+        ].join('/');
+        final sink = scope.createIncoming(incoming);
+        RandomAccessFile? input;
+        try {
+          input = await prepared.open();
+          for (var offset = 0; offset < source.size;) {
+            final chunk = await input.read(
+              (source.size - offset).clamp(0, kFolderSyncChunkBytes),
+            );
+            if (chunk.isEmpty) return null;
+            await sink.writeFrom(chunk);
+            offset += chunk.length;
+          }
+          await sink.flush();
+        } finally {
+          try {
+            await input?.close();
+          } finally {
+            await sink.close();
+          }
+        }
+        scope.checkRoot();
+        await _requireVersion(root, path, expected);
+        // Native compares the actual displaced object and installs with
+        // destination exclusion. A last-window writer is never erased by a
+        // pathname rename. The returned stamp belongs to the incoming file.
+        return scope.publish(path, incoming, expected: expected);
+      } finally {
+        scope.close();
+      }
+    } finally {
+      await staging.delete(recursive: true);
     }
   }
 
@@ -390,93 +407,6 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     if (!sameFolderSyncVersion(expected, await stat(root, path))) {
       throw const FolderSyncLocalChanged();
     }
-  }
-
-  /// Open an unpredictable scratch file beside [target], or null if it cannot
-  /// be created safely.
-  ///
-  /// The old name was `<target>.xveil-part` — fixed, and derivable from the
-  /// remote listing (audit XV-13). Anyone able to write into the sync root
-  /// could pre-create a SYMLINK there pointing anywhere the user can write,
-  /// and `File.open` follows it: the next download truncated and overwrote
-  /// whatever it aimed at, entirely outside the mirrored tree.
-  ///
-  /// A random name cannot be pre-created, which is the part that actually
-  /// closes it. The no-follow check is belt-and-braces for a name that somehow
-  /// already exists.
-  ///
-  /// Residual TOCTOU, stated rather than implied: between the check and the
-  /// open the name could still be replaced. Closing that needs `O_NOFOLLOW`
-  /// with `O_EXCL`, which `dart:io` does not expose — the same boundary
-  /// `mirrorPathWithin` documents.
-  Future<({File file, VeilCreatedSink sink})?> _openScratch(
-    String root,
-    String relative,
-    File target,
-  ) async {
-    // Sweep OUR OWN leftovers for this target first. A random name means an
-    // interrupted write no longer collides with the next attempt — which also
-    // means it no longer gets reused and cleaned up, so without this the
-    // directory would slowly fill with scratch files the scanner deliberately
-    // ignores. Scoped to `<this target>.<hex>.xveil-part` so a user file can
-    // never match, and `delete` on a symlink removes the LINK, not its target.
-    final base = target.uri.pathSegments.last;
-    try {
-      for (final entry in target.parent.listSync(followLinks: false)) {
-        final name = entry.uri.pathSegments.last;
-        if (name.startsWith('$base.') && name.endsWith(kPartialSuffix)) {
-          try {
-            entry.deleteSync();
-          } catch (_) {}
-        }
-      }
-    } catch (_) {
-      // Unreadable directory — the open below will fail for the same reason.
-    }
-
-    final rand = Random.secure();
-    for (var attempt = 0; attempt < 8; attempt++) {
-      final tag = List.generate(
-        8,
-        (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
-      ).join();
-      final candidate = File('${target.path}.$tag$kPartialSuffix');
-      if (FileSystemEntity.typeSync(candidate.path, followLinks: false) !=
-          FileSystemEntityType.notFound) {
-        continue; // occupied — never adopt it
-      }
-      // THE WALK FIRST, and its verdict is final where it works: falling back
-      // to `File.open` on a refusal would open the very name the walk just
-      // rejected, which is the whole thing being closed.
-      final beneath = await veilCreateBeneath(
-        root,
-        '$relative.$tag$kPartialSuffix',
-      );
-      if (beneath.supported) {
-        if (beneath.sink == null) continue; // occupied or unreachable — retry
-        return (file: candidate, sink: beneath.sink!);
-      }
-      try {
-        final raf = await candidate.open(mode: FileMode.writeOnly);
-        // The host cannot do the walk — a build whose library predates the
-        // symbols, since every platform this ships to can. Wrapped so the
-        // caller has one sink type either way, and the weaker check above is
-        // what stands.
-        return (
-          file: candidate,
-          sink: (
-            writeFrom: (chunk) async {
-              await raf.writeFrom(chunk);
-            },
-            flush: raf.flush,
-            close: raf.close,
-          ),
-        );
-      } catch (_) {
-        continue;
-      }
-    }
-    return null;
   }
 
   @override
