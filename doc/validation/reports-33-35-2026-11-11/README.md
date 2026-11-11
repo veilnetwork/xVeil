@@ -688,3 +688,17 @@ staging проверяет обе связи и функции, отсутств
 checks и ad-hoc AOT build прошли. Это снимает пробел сборки macOS, но не
 физическую Windows 10 жалобу и не квалификацию Android/Windows/других артефактов.
 Immutable пины ещё требуют обновления. [Доказательства](../media-package-provenance-2026-11-11/README.md).
+
+
+## Windows source engine и пути компиляции
+
+Свежая Windows x64 DLL собрана из текущего media source на закреплённом SDK,
+provenance и 107 exports проверены. На Windows 11 прошли input/default/hot-switch,
+noise controls, захват камеры и передача RTP в отдельную локальную заглушку.
+Это не сетевой звонок и не закрытие исходной жалобы Windows 10.
+
+Дополнительно найден и устранён локальный source root в `__FILE__` native
+binary: remap включён во все пять wrappers, полные Windows/macOS пересборки и
+четыре host compiler cases подтверждают устранение обнаруженных корней.
+Макетная заглушка не устанавливалась как SDK приложения; пользовательские данные
+не менялись. [Доказательства и ограничения](../windows-source-media-2026-11-11/README.md).

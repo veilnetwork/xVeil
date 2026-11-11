@@ -733,7 +733,9 @@ library. Keep them together: local app packaging checks the binary SHA, the
 current media-source digest and the exported symbols. An existing stale or
 unrecorded engine stops packaging; an absent optional engine removes an older
 copy from the app bundle. Rebuild the engine rather than generating a record
-for a previously downloaded binary.
+for a previously downloaded binary. Native wrapper compiles also remap their
+source root to `/src/veil-media`, keeping `__FILE__` diagnostics useful without
+embedding the local account directory.
 
 For an ad-hoc macOS build, `XVEIL_PACKET_TUNNEL_TARGET_BASE` can place the
 separate PacketTunnel Cargo cache on a disk with enough space. Architecture
@@ -1733,7 +1735,9 @@ WEBRTC_ROOT=~/Projects/veilnetwork/webrtc-checkout \
 и экспортируемые функции. Старый движок или отсутствие записи о его сборке
 останавливает упаковку. Если необязательный движок отсутствует, его прежняя
 копия удаляется из app bundle. Нужно пересобрать движок, а не создавать запись
-для ранее скачанного бинарника.
+для ранее скачанного бинарника. Компиляция wrapper также заменяет локальный
+корень исходников на `/src/veil-media`: `__FILE__` сохраняет имя файла для
+диагностики, не встраивая каталог учётной записи.
 
 Для ad-hoc macOS-сборки `XVEIL_PACKET_TUNNEL_TARGET_BASE` задаёт каталог
 отдельного Cargo-кэша PacketTunnel на диске с достаточным местом. Подкаталоги
