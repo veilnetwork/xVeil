@@ -19,9 +19,14 @@ Future<ProviderContainer> _open() async {
   SharedPreferences.setMockInitialValues({});
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
-  return ProviderContainer(
+  final container = ProviderContainer(
     overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
   );
+  // Settings actions are reachable after startup, not while the bootstrap's
+  // preference read can still replace the controller phase underneath them.
+  container.read(appControllerProvider);
+  await container.read(prefsProvider.future);
+  return container;
 }
 
 void main() {
@@ -146,9 +151,9 @@ void main() {
     // that list, and compaction keeps exactly what the list says.
     final c = await _open();
     addTearDown(c.dispose);
-    final probe = await c
-        .read(appControllerProvider.notifier)
-        .probeCompactionIdentity('not-the-password');
+    final ctrl = c.read(appControllerProvider.notifier);
+    await ctrl.beginCompactionCollection();
+    final probe = await ctrl.probeCompactionIdentity('not-the-password');
     expect(probe.opened, isFalse);
     expect(probe.isMaster, isFalse);
     expect(probe.displayName, isNull);
@@ -161,6 +166,7 @@ void main() {
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
     // The fixture container was created with this password and holds no roster.
+    await ctrl.beginCompactionCollection();
     final probe = await ctrl.probeCompactionIdentity('pw');
     expect(probe.opened, isTrue);
     expect(

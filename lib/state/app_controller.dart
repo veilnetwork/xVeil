@@ -707,7 +707,7 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_manualCompactionBlocksUnlock) {
+    if (_manualCompactionBlocksUnlock || _compactionProbeInFlight != null) {
       devLog(
         () => 'xVeil[unlock]: ignored — container maintenance is in progress',
       );
@@ -975,6 +975,12 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
+    if (_wipeInFlight != null ||
+        _compactionInFlight != null ||
+        _compactionProbeInFlight != null ||
+        _unlockInFlight) {
+      throw StateError('container maintenance is already in progress');
+    }
     state = state.copyWith(
       phase: AppPhase.preparingNode,
       preparingReason: PreparingReason.unlocking,
@@ -992,8 +998,19 @@ class AppController extends Notifier<AppState> {
   /// The one path this exists for is the person changing their mind, which is
   /// the most likely outcome of a dialog that asks for several passwords. It
   /// must leave them exactly where they were.
-  Future<void> cancelCompactionCollection(String reopenWith) =>
-      unlock(reopenWith);
+  Future<void> cancelCompactionCollection(String reopenWith) async {
+    final lease = leaseIdentity();
+    // A dismissed route can leave its password check awaiting the worker. Its
+    // finally owns closing that handle; reopening sooner would let it close
+    // the recovered session instead.
+    await _compactionProbeInFlight;
+    if (!ref.mounted ||
+        !holdsIdentity(lease) ||
+        state.phase != AppPhase.preparingNode) {
+      return;
+    }
+    await unlock(reopenWith);
+  }
 
   /// Restore an abandoned collection only while its original authorization is
   /// still current. A lock, wipe or identity switch must never become an
@@ -1002,6 +1019,7 @@ class AppController extends Notifier<AppState> {
     required IdentityLease lease,
     required String reopenWith,
   }) async {
+    await _compactionProbeInFlight;
     if (!ref.mounted ||
         !holdsIdentity(lease) ||
         state.phase != AppPhase.preparingNode) {
@@ -1016,9 +1034,8 @@ class AppController extends Notifier<AppState> {
   /// MUST be called with the store CLOSED. A live session holds the container
   /// under `LOCK_EX`, so this cannot verify a password while the app is running
   /// normally; the offer tears the session down once and probes inside that
-  /// window. Called with the store open it answers `opened: false`, which reads
-  /// as "wrong password" and would be a lie — so the caller owns the teardown
-  /// and this says so rather than guessing.
+  /// window. A live store or overlapping maintenance is refused before any
+  /// open/close, rather than replacing its handle or reporting a wrong password.
   ///
   /// Returns what the container ACTUALLY knows. A node id is deliberately not
   /// among it: a space does not carry one (see [CompactionRoster]). What is
@@ -1046,41 +1063,74 @@ class AppController extends Notifier<AppState> {
       children: <({String label, List<int> keys})>[],
     );
     final storage = ref.read(storageProvider);
-    if (!await storage.open(password: password)) return closed;
-    try {
-      // A roster-bearing space is a master: unlocking it brings everything it
-      // lists, which is the whole reason one password can cover several
-      // identities.
-      final roster = await storage.loadRoster();
-      final profile = await storage.loadProfile();
-      return (
-        opened: true,
-        isMaster: roster != null,
-        displayName: profile?.displayName,
-        username: profile?.username,
-        subordinates: <String>[
-          for (final e in roster ?? const <RosterEntry>[]) e.label,
-        ],
-        // What this password opened. Compaction keeps SPACES, and the keys are
-        // what say which space this was — so a master's list of children can be
-        // ticked off against the passwords actually typed.
-        spaceKeys: await storage.exportSpaceKeys(),
-        // A master names every identity under it. Each of those is its own
-        // space with its own password: this list is what compaction would
-        // DESTROY if the person stopped at the master's password.
-        children: [
-          for (final e in roster ?? const <RosterEntry>[])
-            (label: e.label, keys: e.spaceKeys),
-        ],
-      );
-    } catch (_) {
-      // A damaged record is not an identity we may claim to have found. Audit
-      // XV-13: reading this as "not a master" once let a bind proceed on a
-      // space nobody could read.
-      return closed;
-    } finally {
-      await storage.close();
+    if (_compactionProbeInFlight != null ||
+        _compactionInFlight != null ||
+        _wipeInFlight != null ||
+        _unlockInFlight ||
+        storage.isOpen) {
+      throw StateError('container must be idle and closed before a probe');
     }
+    final lease = leaseIdentity();
+    bool current() => ref.mounted && holdsIdentity(lease);
+    final finished = Completer<void>();
+    // Own the facade before the opener's first await, through its final close.
+    // Invalidating the lease does not cancel an accepted native worker open.
+    _compactionProbeInFlight = finished.future;
+    final result = await () async {
+      try {
+        if (!await storage.open(password: password) || !current()) {
+          return closed;
+        }
+        try {
+          // A roster-bearing space is a master: unlocking it brings everything it
+          // lists, which is the whole reason one password can cover several
+          // identities.
+          final roster = await storage.loadRoster();
+          if (!current()) return closed;
+          final profile = await storage.loadProfile();
+          if (!current()) return closed;
+          final spaceKeys = await storage.exportSpaceKeys();
+          if (!current()) return closed;
+          return (
+            opened: true,
+            isMaster: roster != null,
+            displayName: profile?.displayName,
+            username: profile?.username,
+            subordinates: <String>[
+              for (final e in roster ?? const <RosterEntry>[]) e.label,
+            ],
+            // What this password opened. Compaction keeps SPACES, and the keys are
+            // what say which space this was — so a master's list of children can be
+            // ticked off against the passwords actually typed.
+            spaceKeys: spaceKeys,
+            // A master names every identity under it. Each of those is its own
+            // space with its own password: this list is what compaction would
+            // DESTROY if the person stopped at the master's password.
+            children: [
+              for (final e in roster ?? const <RosterEntry>[])
+                (label: e.label, keys: e.spaceKeys),
+            ],
+          );
+        } catch (_) {
+          // A damaged record is not an identity we may claim to have found. Audit
+          // XV-13: reading this as "not a master" once let a bind proceed on a
+          // space nobody could read.
+          return closed;
+        }
+      } finally {
+        try {
+          // Includes an opener that adopted a native handle and then failed
+          // during preparation. Even a rejected late result must release it.
+          await storage.close();
+        } finally {
+          _compactionProbeInFlight = null;
+          finished.complete();
+        }
+      }
+    }();
+    // Closing is asynchronous too: lock/wipe can revoke even a fully read
+    // result before the owned handle is finally released.
+    return current() ? result : closed;
   }
 
   /// Put the space keys of a compacted container back into the rosters that
@@ -1234,6 +1284,7 @@ class AppController extends Notifier<AppState> {
   );
 
   Future<void>? _compactionInFlight;
+  Future<void>? _compactionProbeInFlight;
   Future<List<String>>? _wipeInFlight;
   // Manual maintenance opens several spaces through the same facade. A new
   // unlock must not replace that handle; automatic compaction already runs
@@ -1244,7 +1295,9 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
   }) async {
-    if (_wipeInFlight != null || _compactionInFlight != null) {
+    if (_wipeInFlight != null ||
+        _compactionInFlight != null ||
+        _compactionProbeInFlight != null) {
       throw StateError('container maintenance is already in progress');
     }
     if (blocksUnlock && _unlockInFlight) {
@@ -1264,10 +1317,11 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Wait for an accepted compaction, including its remap/recovery, to settle.
+  /// Wait for accepted compaction work, including probes and recovery, to settle.
   /// The native isolate cannot be cancelled by forgetting its Future: it may
   /// still rename its temporary file over the container's path afterwards.
   Future<void> waitForCompaction() async {
+    await _compactionProbeInFlight;
     await _compactionInFlight;
   }
 
