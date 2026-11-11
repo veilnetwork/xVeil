@@ -845,3 +845,15 @@ QA-контейнер до живого узла и была закрыта. А�
 прошла 5 проверок на macOS и Windows 11. Полный release workflow/pins и исходная
 Win10-жалоба ещё открыты.
 [Доказательства и ограничения](../macos-native-source-privacy-2026-11-12/README.md).
+
+## Обычный release builder: нейтральная workspace и обязательный gate
+
+Подготовка подключена ко всем release targets: исходные producers, защищённая
+копия, locked pub/remap, дочерняя упаковка, проверка готовых байтов и безопасная
+замена результата. 11 boundary/dispatch tests прошли на macOS и Windows.
+Настоящий Windows release прошёл builder и scan 41 члена с двумя нулевыми
+счётчиками. Исправлены Flutter clang-cl remap и пойманная при запуске собственная
+регрессия ACL экспортера; limited token прочитал итоговые EXE/AOT.
+GUI/открытие контейнера/звонки этим release-проходом не квалифицированы.
+Остальные platform jobs и новые pins ещё нужны.
+[Подробности](../neutral-release-builder-2026-11-12/README.md).

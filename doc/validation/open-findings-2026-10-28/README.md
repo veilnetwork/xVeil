@@ -5475,3 +5475,22 @@ QA-открытия до настоящего узла прошли; загру�
 Полная интеграция workspace в builder, обязательный packaging gate и новые media
 pins ещё нужны. Исходная Win10-жалоба остаётся открытой.
 [Доказательства, восстановление и границы](../macos-native-source-privacy-2026-11-12/README.md).
+
+## 2026-11-12: обязательный нейтральный release builder
+
+`builder.py` теперь выполняет Flutter/упаковку release в собственной защищённой
+копии с locked pub, neutral package roots, отдельным Cargo target и обязательным
+artifact privacy gate до экспорта. Все пять targets охвачены dispatch tests;
+debug не менялся. Native version labels сохраняются без Git в копии, Apple dSYM
+отделены от публичного артефакта. Ошибка child/privacy/rename сохраняет прежний
+результат. 11 проверок прошли на macOS и Windows без skips.
+
+Настоящий Windows staged builder собрал обычный release: 41 член, URI 0 и путь
+сборщика 0. Пойманы и исправлены Windows Flutter clang-cl remap (на baseline
+один compiler assertion-red) и собственная ACL-регрессия нового экспортера:
+limited token сначала не читал EXE, после исправления прочитал EXE/AOT с верным
+SHA. Контейнер через release-only запуск не проверялся; soak API там запрещён.
+
+Полная квалификация остальных platform jobs, семь media pins и исходная
+Win10-жалоба остаются открытыми. Ничего не пушилось/публиковалось.
+[Доказательства и границы](../neutral-release-builder-2026-11-12/README.md).

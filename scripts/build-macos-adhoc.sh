@@ -46,8 +46,8 @@ if [[ -z "$VERSION" ]]; then
   echo "cannot read 'version:' from pubspec.yaml" >&2
   exit 1
 fi
-VEIL_BUILD_VERSION="$(git -C third_party/veil describe --tags --always --dirty 2>/dev/null || echo '?')"
-HV_BUILD_VERSION="$(git -C third_party/hidden-volume describe --tags --always --dirty 2>/dev/null || echo '?')"
+VEIL_BUILD_VERSION="${XVEIL_VEIL_VERSION:-$(git -C third_party/veil describe --tags --always --dirty 2>/dev/null || echo '?')}"
+HV_BUILD_VERSION="${XVEIL_HV_VERSION:-$(git -C third_party/hidden-volume describe --tags --always --dirty 2>/dev/null || echo '?')}"
 
 # The debug hook is opt-in at COMPILE time -- soak_hook.dart reads a
 # `bool.fromEnvironment`, so a build without the define has no hook at all and
@@ -93,7 +93,11 @@ case "${XVEIL_DIAGNOSTICS:-}" in
 esac
 
 echo "==> flutter config ($CONFIG, version=$VERSION)"
-flutter build macos "--$CONFIG" --config-only \
+PUB_ARGS=()
+if [[ "${XVEIL_AOT_PACKAGE_ROOTS_READY:-}" == "1" ]]; then
+  PUB_ARGS=(--no-pub)
+fi
+flutter build macos "--$CONFIG" --config-only "${PUB_ARGS[@]}" \
   --dart-define=XVEIL_VERSION="$VERSION" \
   --dart-define=XVEIL_VEIL_VERSION="$VEIL_BUILD_VERSION" \
   --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION" "${HOOK_DEFINE[@]}" "${REPORT_DEFINE[@]}"

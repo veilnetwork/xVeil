@@ -105,8 +105,11 @@ class AotWorkspaceTest(unittest.TestCase):
         (self.source / "lib").mkdir()
         _directory_alias(self.source / "lib/alias", outside)
         before = set(self.base.iterdir())
-        with self.assertRaises(ValueError):
-            prepare_workspace(self.source, self.base)
+        # A false/missing newer pathlib predicate must not make a Windows
+        # junction traversable on older supported Python installations.
+        with patch.object(Path, "is_junction", return_value=False, create=True):
+            with self.assertRaises(ValueError):
+                prepare_workspace(self.source, self.base)
         self.assertEqual(set(self.base.iterdir()), before)
         self.assertEqual((outside / "keep").read_text(), "external data")
 
