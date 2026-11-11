@@ -5,11 +5,10 @@ extension MessagingProfiles on MessagingService {
   /// Cached profile is refreshed when a conversation/avatar is opened again.
   Future<void> requestPeerAvatar(NodeId peer) async {
     try {
-      if (_disposed ||
-          (await _storage.getContact(peer))?.status != ContactStatus.accepted) {
+      final consent = await _realtimeControl._acceptedContactEpoch(peer);
+      if (consent == null || !_realtimeControl._consentCurrent(peer, consent)) {
         return;
       }
-      if (_disposed) return;
       final now = DateTime.now();
       final last = _avatarRequestedAt[peer.hex];
       if (last != null && now.difference(last) < const Duration(minutes: 1)) {
@@ -67,6 +66,15 @@ extension MessagingProfiles on MessagingService {
       if (_disposed) return;
       if (contact.status != ContactStatus.accepted) continue;
       try {
+        // A conversation snapshot may precede a local or mirrored block. Use
+        // the same revision witness as call consent at live-send admission.
+        final consent = await _realtimeControl._acceptedContactEpoch(
+          contact.nodeId,
+        );
+        if (consent == null ||
+            !_realtimeControl._consentCurrent(contact.nodeId, consent)) {
+          continue;
+        }
         await _send(
           contact.nodeId,
           WireEnvelope(WireKind.profileAvatar, raw).encode(),
@@ -78,6 +86,11 @@ extension MessagingProfiles on MessagingService {
   }
 
   Future<void> _receiveAvatar(InboundMessage message, String body) async {
+    final consent = await _realtimeControl._acceptedContactEpoch(message.src);
+    if (consent == null ||
+        !_realtimeControl._consentCurrent(message.src, consent)) {
+      return;
+    }
     if (body == '?') {
       final now = DateTime.now();
       final last = _avatarRepliedAt[message.src.hex];
@@ -89,7 +102,9 @@ extension MessagingProfiles on MessagingService {
       }
       _avatarRepliedAt[message.src.hex] = now;
       final raw = await loadAvatar();
-      if (raw != null && ProfileAvatar.decode(raw) != null) {
+      if (_realtimeControl._consentCurrent(message.src, consent) &&
+          raw != null &&
+          ProfileAvatar.decode(raw) != null) {
         await _send(
           message.src,
           WireEnvelope(WireKind.profileAvatar, raw).encode(),
@@ -101,6 +116,7 @@ extension MessagingProfiles on MessagingService {
     if (value == null) return;
     final key = peerAvatarSetting(message.src.hex);
     final old = await _storage.getSetting(key);
+    if (!_realtimeControl._consentCurrent(message.src, consent)) return;
     if (old == body) return;
     final previous = old == null ? null : ProfileAvatar.decode(old);
     if (previous != null &&
