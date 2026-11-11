@@ -883,6 +883,9 @@ class AppController extends Notifier<AppState> {
       ref.read(screenLockProvider.notifier).rememberPassword(password);
       final roster = await storage.loadRoster();
       if (!ref.mounted || _supersededSince(gen)) {
+        _releaseKeys([
+          for (final entry in roster ?? const <RosterEntry>[]) entry.spaceKeys,
+        ]);
         await storage.close();
         return;
       }
@@ -896,12 +899,20 @@ class AppController extends Notifier<AppState> {
         _setPendingRoster(roster);
         // Cache the master's keys so roster edits can reopen it without a
         // password re-prompt (held in memory like the child keys above).
-        _setMasterKeys(await storage.exportSpaceKeys());
+        final masterKeys = await storage.exportSpaceKeys();
+        if (!ref.mounted || _supersededSince(gen)) {
+          _releaseKeys([masterKeys]);
+          await storage.close();
+          return;
+        }
+        _setMasterKeys(masterKeys);
         await storage.close(); // release the single-space lock first
+        if (!ref.mounted || _supersededSince(gen)) return;
         // Once per install: this container is a master, so no identity in it
         // may still carry the "I am the only one here" attestation that
         // auto-compaction runs on.
         await _sweepAutoCompactUnderMaster(roster);
+        if (!ref.mounted || _supersededSince(gen)) return;
         // "All identities online" (the NORM since 2026-07-11): host every
         // space + run every node at once (needs the real container path).
         // Else the one-active picker. AWAIT the persisted value — the lazily
@@ -912,6 +923,7 @@ class AppController extends Notifier<AppState> {
         final allOnline = await ref
             .read(keepAllOnlineProvider.notifier)
             .resolved();
+        if (!ref.mounted || _supersededSince(gen)) return;
         if (allOnline && boot?.storePath != null) {
           try {
             await _enterAllOnline(roster, boot!);
@@ -965,8 +977,14 @@ class AppController extends Notifier<AppState> {
         await storage.close();
       } catch (_) {}
       if (ref.mounted && !_supersededSince(gen)) {
+        _clearMasterSession();
+        ref.read(screenLockProvider.notifier).forgetSession();
         state = const AppState(AppPhase.locked, unlockError: true);
       }
+    } finally {
+      // There is no replacement session in a disposed controller. Release any
+      // roster adopted before disposal even when its key export arrived later.
+      if (!ref.mounted) _clearMasterSession();
     }
   }
 
@@ -1712,6 +1730,7 @@ class AppController extends Notifier<AppState> {
   /// New identities are revoked as they are added; this is for the containers
   /// that already exist.
   Future<void> _sweepAutoCompactUnderMaster(List<RosterEntry> roster) async {
+    final gen = _lifecycle;
     try {
       // Keyed by the container, not by the install: a second container is a
       // second set of identities, and one sweep must not answer for both.
@@ -1719,8 +1738,10 @@ class AppController extends Notifier<AppState> {
           '$_autoCompactSweptPref:'
           '${ref.read(deniableBootProvider)?.storePath ?? ''}';
       final prefs = await ref.read(prefsProvider.future);
+      if (!ref.mounted || _supersededSince(gen)) return;
       if (prefs.getBool(key) ?? false) return;
       final unsettled = await revokeAutoCompactAcross(roster);
+      if (!ref.mounted || _supersededSince(gen)) return;
       if (unsettled.isNotEmpty) {
         // NOT marked. A migration that skipped a space is not a migration that
         // ran: marking it here would make the next unlock skip the retry, and
@@ -1756,18 +1777,34 @@ class AppController extends Notifier<AppState> {
   Future<List<String>> revokeAutoCompactAcross(
     Iterable<RosterEntry> spaces,
   ) async {
+    final gen = _lifecycle;
+    bool current() => ref.mounted && !_supersededSince(gen);
     final storage = ref.read(storageProvider);
     final unsettled = <String>[];
     for (final entry in spaces) {
+      if (!current()) {
+        unsettled.add(entry.label);
+        continue;
+      }
       try {
-        if (!await storage.openWithKeys(entry.spaceKeys)) {
-          // The space did not open. Whatever it holds, this call did not read
-          // it — which is not the same as "it holds nothing to revoke".
+        final opened = await storage.openWithKeys(entry.spaceKeys);
+        if (!opened || !current()) {
+          // Neither an unopened space nor a cancelled open is a confirmed
+          // revocation. An accepted late opener is still closed in finally.
           unsettled.add(entry.label);
           continue;
         }
-        if (await storage.getSetting(_autoCompactKey) == '1') {
+        final enabled = await storage.getSetting(_autoCompactKey);
+        if (!current()) {
+          unsettled.add(entry.label);
+          continue;
+        }
+        if (enabled == '1') {
           await storage.putSetting(_autoCompactKey, '0');
+          if (!current()) {
+            unsettled.add(entry.label);
+            continue;
+          }
           devLog(
             () =>
                 'xVeil[storage]: auto-compact revoked in "${entry.label}" — '
@@ -2027,6 +2064,7 @@ class AppController extends Notifier<AppState> {
       preparingReason: PreparingReason.unlocking,
     );
     final leanPadding = await leanStoragePaddingEnabled();
+    if (!ref.mounted || _supersededSince(gen)) return;
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
