@@ -85,6 +85,28 @@ extension MessagingProfiles on MessagingService {
     }
   }
 
+  /// Complete the live profile exchange after the peer accepted our request.
+  /// Their earlier avatar question may have arrived while we were still
+  /// pendingOutgoing and been refused. The accepted transition happens once;
+  /// don't wait for its best-effort profile send inside the serialized inbox.
+  Future<void> _shareAvatarAfterAcceptance(NodeId peer) async {
+    try {
+      final consent = await _realtimeControl._acceptedContactEpoch(peer);
+      if (consent == null || !_realtimeControl._consentCurrent(peer, consent)) {
+        return;
+      }
+      final raw = await loadAvatar();
+      if (!_realtimeControl._consentCurrent(peer, consent) ||
+          raw == null ||
+          ProfileAvatar.decode(raw) == null) {
+        return;
+      }
+      await _send(peer, WireEnvelope(WireKind.profileAvatar, raw).encode());
+    } catch (_) {
+      /* best effort; opening the contact can request it again */
+    }
+  }
+
   Future<void> _receiveAvatar(InboundMessage message, String body) async {
     final consent = await _realtimeControl._acceptedContactEpoch(message.src);
     if (consent == null ||
