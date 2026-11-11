@@ -43,6 +43,11 @@ jobs:
           arch: amd64
       - shell: pwsh
         run: ./scripts/test-windows-audio-probe.ps1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts -p test_builder_path_remap.py
+      - run: python -m unittest discover -s scripts -p test_aot_build.py
 
   reachable:
     name: the triggers name a branch that exists
@@ -124,6 +129,7 @@ jobs:
       - run: python3 scripts/test_check_aot_source_paths.py
       - run: python3 -m unittest discover -s scripts -p test_aot_package_roots.py
       - run: python3 -m unittest discover -s scripts -p test_aot_workspace.py
+      - run: python3 -m unittest discover -s scripts -p test_aot_build.py
       - run: python3 -m unittest discover -s scripts -p test_strip_macos_debug_info.py
       - run: python3 scripts/test-android-native-deps.py
       - run: python3 -m unittest discover -s scripts -p test_scan_artifacts.py

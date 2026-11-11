@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 import zipfile
 from urllib.parse import quote
@@ -23,6 +24,12 @@ _HOME_URI = re.compile(
     re.IGNORECASE,
 )
 DEFAULT_LIMIT = 1024 * 1024 * 1024
+
+
+def directory_alias(path: Path) -> bool:
+    """Recognize Windows junctions even before pathlib.is_junction (3.12)."""
+    return path.is_symlink() or (os.name == "nt" and
+        getattr(path.lstat(), "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT)
 
 
 def source_home_uri_count(data: bytes) -> int:
@@ -110,9 +117,7 @@ def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT,
                 directory = Path(root) / name
                 if not directory.resolve(strict=True).is_relative_to(base):
                     raise ValueError("external artifact directory link")
-                if directory.is_symlink() or (
-                    hasattr(directory, "is_junction") and directory.is_junction()
-                ):
+                if directory_alias(directory):
                     # Internal targets are reached by their real directory;
                     # do not follow aliases or cycles a second time.
                     directories.remove(name)

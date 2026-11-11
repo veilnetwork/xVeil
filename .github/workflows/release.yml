@@ -4,10 +4,10 @@ name: release
 # in that order. `run_checks` still exists, but it can only turn the checks off
 # on a manual dispatch, and that path cannot reach `publish`.
 #
-# Building on a runner also keeps the builder's home directory out of the
-# binaries. `libapp.so` carries the absolute path of the Flutter plugin
-# registrant and there is no remap flag for it, so a laptop build always names
-# its owner; `/home/runner/work/...` does not.
+# builder.py compiles release Flutter artifacts in a protected neutral source
+# workspace, remaps Dart package roots and checks actual output bytes before
+# export. Rust/C/C++ prefix maps remain necessary for native runtime strings.
+# Running on CI alone is not evidence that a binary contains no home paths.
 #
 # macOS and iOS are absent on purpose: without an Apple signing identity
 # Gatekeeper refuses the result outright, so the build would produce something
@@ -124,6 +124,12 @@ jobs:
           python3 -m unittest discover -s scripts -p test_stage_macos_media.py
           python3 -m unittest discover -s scripts -p test_media_build_paths.py
           python3 -m unittest discover -s scripts -p test_builder_path_remap.py
+      - name: Neutral AOT build and artifact privacy regressions
+        run: |
+          python3 scripts/test_check_aot_source_paths.py
+          python3 -m unittest discover -s scripts -p test_aot_package_roots.py
+          python3 -m unittest discover -s scripts -p test_aot_workspace.py
+          python3 -m unittest discover -s scripts -p test_aot_build.py
 
   android:
     name: android APKs

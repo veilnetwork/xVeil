@@ -265,6 +265,13 @@ def _pubspec_version() -> str:
 
 def _native_version_defines() -> list[str]:
     """Name the checked-out native revisions actually used by this build."""
+    if os.environ.get("XVEIL_AOT_WORKSPACE_CHILD") == "1":
+        from pathlib import Path
+        from aot_build import child_marker
+
+        versions = child_marker(Path(ROOT))["native_versions"]
+        return [f"--dart-define={name}={versions[name]}" for name in (
+            "XVEIL_VEIL_VERSION", "XVEIL_HV_VERSION")]
     result = []
     for name, directory in (
         ("XVEIL_VEIL_VERSION", VEIL),
@@ -1399,7 +1406,7 @@ def _windows(release: bool) -> list[Step]:
                 *_diagnostic_log_define(),
                 *_diagnostic_report_define(release),
             ],
-            env=_build_env(**_engine_policy_env(release)),
+            env=_build_env(msvc=True, **_engine_policy_env(release)),
         ),
         # Staged after the Flutter build, which creates the runner directory.
         Step(
@@ -1440,6 +1447,38 @@ def _windows(release: bool) -> list[Step]:
     ]
 
 
+def _is_aot_flutter_step(step: Step) -> bool:
+    return bool(step.argv) and (
+        step.argv[:2] == ["flutter", "build"] or
+        (step.argv[0] == "bash" and len(step.argv) > 1 and
+         os.path.basename(step.argv[1]) == "build-macos-adhoc.sh"))
+
+
+def _release_aot_plan(steps: list[Step], target: str) -> list[Step]:
+    from pathlib import Path
+    from aot_build import CHILD_ENV, child_marker, check_artifact, run_neutral_build
+
+    start = next(index for index, step in enumerate(steps) if _is_aot_flutter_step(step))
+    if os.environ.get(CHILD_ENV) == "1":
+        child_marker(Path(ROOT))
+        # Producers ran in the original checkout. Recheck staged inputs and
+        # perform copy/packaging operations; never repeat the producer commands.
+        result = [step for step in steps[:start] if step.call is not None] + steps[start:]
+        for step in result:
+            if step.argv[:2] == ["flutter", "build"] and "--no-pub" not in step.argv:
+                step.argv.append("--no-pub")
+        result.append(Step("artifact source-path privacy", call=lambda: check_artifact(Path(ROOT), target)))
+        return result
+
+    def build():
+        versions = dict(define.removeprefix("--dart-define=").split("=", 1)
+                        for define in _native_version_defines())
+        result = run_neutral_build(Path(ROOT), target, native_versions=versions)
+        print(f"    neutral AOT artifact verified ({result['privacy']['members_scanned']} members)")
+
+    return steps[:start] + [Step("neutral AOT build, packaging and artifact privacy", call=build)]
+
+
 def plan(target: str, *, release: bool) -> list[Step]:
     if not have("flutter"):
         from xveil_build_support import Abort
@@ -1453,7 +1492,8 @@ def plan(target: str, *, release: bool) -> list[Step]:
         "windows": _windows,
     }
     print(f"profile: {'release' if release else 'debug'}")
-    return builders[target](release)
+    steps = builders[target](release)
+    return _release_aot_plan(steps, target) if release else steps
 
 
 if __name__ == "__main__":

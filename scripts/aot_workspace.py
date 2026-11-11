@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 from aot_package_roots import _ps_literal
-from check_aot_source_paths import source_home_uri_count
+from check_aot_source_paths import source_home_uri_count, directory_alias
 
 
 SOURCE_TREES = (
@@ -42,8 +42,11 @@ def _walk_error(error):
 
 
 def _file_digest(path: Path) -> bytes:
+    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").digest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.digest()
 
 
 def _input_files(source: Path):
@@ -55,7 +58,7 @@ def _input_files(source: Path):
         tree = source / name
         if not tree.exists():
             continue
-        if tree.is_symlink():
+        if directory_alias(tree):
             raise ValueError("source tree must be materialized")
         for directory, directories, filenames in os.walk(tree, followlinks=False,
                                                          onerror=_walk_error):
@@ -67,7 +70,7 @@ def _input_files(source: Path):
                 cargo_cache = base == source / "third_party/veil" and child in {"debug", "release"}
                 if child in CACHE_DIRECTORIES or cargo_cache:
                     directories.remove(child)
-                elif path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                elif directory_alias(path):
                     raise ValueError("source directory alias requires explicit materialization")
             for child in sorted(filenames):
                 if child != ".git" and child != ".DS_Store":

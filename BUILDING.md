@@ -30,6 +30,15 @@ Two entry points cover every target from a Windows, Linux or macOS host:
 print the plan and execute nothing — which also works for a target this host
 cannot build, so a Windows plan can be reviewed from a Mac.
 
+Release builds prepare the native libraries first, then run Flutter and packaging
+in a protected neutral source copy. Locked pub setup and remapped package roots
+keep the builder's home paths out of Dart AOT. The complete artifact is checked
+before it replaces the previous output; debug builds keep the in-place workflow.
+Use `builder.py` for publication: a direct Flutter command bypasses these checks.
+Apple dSYM sidecars are retained separately under `build/private-symbols/` and
+must not be included in a public app archive. Temporary source/Cargo workspaces
+are removed after the build.
+
 `prepare.py` installs Rust and the cross-compilation targets, cargo-ndk, the
 Android command-line tools and NDK, the Linux system packages, CocoaPods, the
 git submodules the native libraries live in, and the Dart packages. It stops
@@ -1046,6 +1055,15 @@ xVeil — Flutter-приложение с двумя нативными зави
 `windows`, `macos`, `ios`. `--debug` даёт отладочную сборку, `--dry-run`
 печатает план и ничего не выполняет — в том числе для цели, которую этот хост
 собрать не может, так что план для Windows можно посмотреть с мака.
+
+Release-сборка сначала готовит нативные библиотеки, затем запускает Flutter и
+упаковку в защищённой нейтральной копии исходников. Locked pub setup и перенос
+package roots убирают домашние пути сборщика из Dart AOT. Готовый артефакт
+проверяется перед заменой предыдущего результата; debug собирается как прежде.
+Для публикации используйте `builder.py`: прямой вызов Flutter обходит эти проверки.
+Apple dSYM сохраняются отдельно в `build/private-symbols/`; их нельзя включать
+в публичный архив приложения. Временные копии исходников и Cargo targets после
+сборки удаляются.
 
 `prepare.py` ставит Rust и кросс-цели, cargo-ndk, командные инструменты
 Android и NDK, системные пакеты Linux, CocoaPods, git-подмодули с нативными
