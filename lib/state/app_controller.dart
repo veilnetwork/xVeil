@@ -411,68 +411,87 @@ class AppController extends Notifier<AppState> {
     /// needs a signer, which needs this identity.
     String? nodeConfigToml,
   }) async {
-    diagnosticJournal.record(DiagnosticEvent.onboardingBegin);
-    _pendingIdentityPhrase = identityPhrase;
-    _pendingRestoringIdentity = restoringIdentity;
-    // Set BEFORE the session opens: _enterSession flips the phase to ready, and
-    // the router consumes the flag on that transition. Setting it afterwards
-    // would race the redirect and drop the user on chats.
-    ref.read(pendingDeviceLinkProvider.notifier).state = joinExisting;
-    // Same timing, same reason: set before the session opens, because the
-    // router consumes it on the flip to ready. A CREATED identity has a
-    // credential nobody has saved yet; a restored or linked one does not need
-    // the step — it either already has its certificate or is joining a device
-    // group that holds one.
-    ref.read(pendingRecoveryCertificateProvider.notifier).state =
-        identityPhrase != null &&
-        identityPhrase.isNotEmpty &&
-        !restoringIdentity &&
-        !joinExisting &&
-        !recoveryCertificateOffered;
-    // Show the "setting up" screen up front and let it paint a frame BEFORE the
-    // CPU-heavy work begins — creating the container (Argon2id KDF) and
-    // provisioning the node identity both block briefly, and without this the
-    // onboarding window looks frozen on "Done". Only in deniable mode (the
-    // loopback/test path is instant, so it would just flash).
-    if (ref.read(deniableBootProvider) != null) {
-      state = state.copyWith(
-        phase: AppPhase.preparingNode,
-        preparingReason: PreparingReason.firstRunMining,
+    if (_onboardingInFlight != null ||
+        _unlockInFlight ||
+        _wipeInFlight != null ||
+        _compactionInFlight != null ||
+        _compactionCollectionInFlight != null ||
+        _compactionProbeInFlight != null) {
+      throw StateError(
+        'container maintenance or sign-in is already in progress',
       );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    final storage = ref.read(storageProvider);
+    final gen = _lifecycle;
+    void requireCurrent() {
+      if (!ref.mounted || _supersededSince(gen)) {
+        throw StateError('onboarding session ended');
+      }
     }
 
-    final storage = ref.read(storageProvider);
-    // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
-    // dropped and the profile write ran anyway, against a storage that was not
-    // open — so a failure here surfaced later, somewhere else, as a confusing
-    // error against half-written onboarding state. Roll the phase back and say
-    // what happened while the cause is still on the stack.
-    final opened = await storage.open(
-      password: password,
-      createIfMissing: true,
-    );
-    diagnosticJournal.record(
-      DiagnosticEvent.containerOpen,
-      values: {DiagnosticMetric.success: opened ? 1 : 0},
-    );
-    if (!opened) {
-      await _abandonOnboarding();
-      throw StateError(
-        'storage.open refused the onboarding password; nothing was written',
-      );
-    }
-    // Source-owned diagnostic stages: 1 existing-identity guard, 2 profile,
-    // 3 onboarding marker, 4 storage-mode preference, 5 credential/settings,
-    // 6 session boot. No profile name, password or exception message.
-    var onboardingStage = 1;
-    // From here the container is OPEN, and every remaining step can fail. The
-    // rollback used to cover only the step above — the one that had not opened
-    // anything yet — so a profile write, a preference write or a node boot that
-    // threw left the container OPEN, its exclusive flock held, the screen lock
-    // primed with the password, and the phase parked on "setting up" with no
-    // way forward and no way back (audit report8).
+    final finished = Completer<void>();
+    _onboardingInFlight = finished.future;
+    bool? opened;
+    var onboardingStage = 0;
     try {
+      diagnosticJournal.record(DiagnosticEvent.onboardingBegin);
+      _pendingIdentityPhrase = identityPhrase;
+      _pendingRestoringIdentity = restoringIdentity;
+      // Set BEFORE the session opens: _enterSession flips the phase to ready, and
+      // the router consumes the flag on that transition. Setting it afterwards
+      // would race the redirect and drop the user on chats.
+      ref.read(pendingDeviceLinkProvider.notifier).state = joinExisting;
+      // Same timing, same reason: set before the session opens, because the
+      // router consumes it on the flip to ready. A CREATED identity has a
+      // credential nobody has saved yet; a restored or linked one does not need
+      // the step — it either already has its certificate or is joining a device
+      // group that holds one.
+      ref.read(pendingRecoveryCertificateProvider.notifier).state =
+          identityPhrase != null &&
+          identityPhrase.isNotEmpty &&
+          !restoringIdentity &&
+          !joinExisting &&
+          !recoveryCertificateOffered;
+      // Show the "setting up" screen up front and let it paint a frame BEFORE the
+      // CPU-heavy work begins — creating the container (Argon2id KDF) and
+      // provisioning the node identity both block briefly, and without this the
+      // onboarding window looks frozen on "Done". Only in deniable mode (the
+      // loopback/test path is instant, so it would just flash).
+      if (ref.read(deniableBootProvider) != null) {
+        state = state.copyWith(
+          phase: AppPhase.preparingNode,
+          preparingReason: PreparingReason.firstRunMining,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      requireCurrent();
+      // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
+      // dropped and the profile write ran anyway, against a storage that was not
+      // open — so a failure here surfaced later, somewhere else, as a confusing
+      // error against half-written onboarding state. Roll the phase back and say
+      // what happened while the cause is still on the stack.
+      opened = await storage.open(password: password, createIfMissing: true);
+      requireCurrent();
+      diagnosticJournal.record(
+        DiagnosticEvent.containerOpen,
+        values: {DiagnosticMetric.success: opened ? 1 : 0},
+      );
+      if (!opened) {
+        throw StateError(
+          'storage.open refused the onboarding password; nothing was written',
+        );
+      }
+      // Source-owned diagnostic stages: 1 existing-identity guard, 2 profile,
+      // 3 onboarding marker, 4 storage-mode preference, 5 credential/settings,
+      // 6 session boot. No profile name, password or exception message.
+      onboardingStage = 1;
+      // From here the container is OPEN, and every remaining step can fail. The
+      // rollback used to cover only the step above — the one that had not opened
+      // anything yet — so a profile write, a preference write or a node boot that
+      // threw left the container OPEN, its exclusive flock held, the screen lock
+      // primed with the password, and the phase parked on "setting up" with no
+      // way forward and no way back (audit report8).
       // The container just answered to this password — the same one moment
       // [unlock] uses, and the only one onboarding gets. Without this the very
       // first session had nothing to check a typed password against, so the
@@ -495,7 +514,9 @@ class AppController extends Notifier<AppState> {
       // identity" with the password they know. So this refuses and names the
       // door that does what they meant.
       final heldConfig = await storage.loadNodeConfig();
+      requireCurrent();
       final heldCredential = await readSovereignCredential(storage);
+      requireCurrent();
       if (heldConfig != null ||
           (heldCredential.bundle?.isNotEmpty ?? false) ||
           heldCredential.corrupt) {
@@ -505,8 +526,10 @@ class AppController extends Notifier<AppState> {
       onboardingStage = 2;
       final profile = UserProfile(displayName: displayName);
       await storage.saveProfile(profile);
+      requireCurrent();
 
       final prefs = await ref.read(prefsProvider.future);
+      requireCurrent();
       // `setBool`/`setString` ANSWER whether the write landed, and both answers
       // were dropped. A preference store that refuses (the in-memory fallback
       // main() installs when the profile store cannot be created, a full disk)
@@ -517,10 +540,12 @@ class AppController extends Notifier<AppState> {
       if (!await prefs.setBool(_onboardedKey(), true)) {
         throw StateError('preference store refused the onboarding marker');
       }
+      requireCurrent();
       onboardingStage = 4;
       if (!await prefs.setString(_kStorageModeKey, mode.name)) {
         throw StateError('preference store refused the storage mode');
       }
+      requireCurrent();
 
       // The ceremony already wrote the certificate to a file and read it back.
       // Recording it HERE, against the container that has just opened, is what
@@ -531,11 +556,13 @@ class AppController extends Notifier<AppState> {
       onboardingStage = 5;
       if (recoveryCertificateSaved) {
         await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
+        requireCurrent();
       }
       // BEFORE the session, so nothing can reach `openLocalSovereign` and mint
       // a second credential first. Whichever one is stored is the identity.
       if (nodeConfigToml != null && nodeConfigToml.trim().isNotEmpty) {
         await storage.saveNodeConfig(nodeConfigToml);
+        requireCurrent();
       }
       if (sovereignCredential != null) {
         await storage.storeFile(
@@ -543,9 +570,11 @@ class AppController extends Notifier<AppState> {
           Uint8List.fromList(sovereignCredential),
           name: 'sovereign-credential',
         );
+        requireCurrent();
       }
       onboardingStage = 6;
       await _enterSession(profile);
+      requireCurrent();
       diagnosticJournal.record(DiagnosticEvent.onboardingSession);
     } catch (e, st) {
       diagnosticJournal.record(
@@ -559,8 +588,15 @@ class AppController extends Notifier<AppState> {
         stack: st,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
-      await _abandonOnboarding(closeStorage: true);
+      await _abandonOnboarding(
+        storage: storage,
+        lifecycle: gen,
+        closeStorage: opened != false,
+      );
       rethrow;
+    } finally {
+      _onboardingInFlight = null;
+      finished.complete();
     }
   }
 
@@ -573,25 +609,41 @@ class AppController extends Notifier<AppState> {
   /// password recogniser, the master phrase, the device-link intent, and the
   /// two preference keys that would otherwise send the next launch to a lock
   /// screen for an identity that was never finished.
-  Future<void> _abandonOnboarding({bool closeStorage = false}) async {
+  Future<void> _abandonOnboarding({
+    required Storage storage,
+    required int lifecycle,
+    bool closeStorage = false,
+  }) async {
+    bool current() => ref.mounted && !_supersededSince(lifecycle);
+    // No subsequent sign-in can enter until this operation's finally. These
+    // intents belong to the failed attempt, even if lock/startOver ended it.
+    takePendingIdentityPhrase();
+    _pendingRestoringIdentity = false;
+    if (ref.mounted) {
+      ref.read(pendingDeviceLinkProvider.notifier).state = false;
+      ref.read(pendingRecoveryCertificateProvider.notifier).state = false;
+    }
     if (closeStorage) {
       try {
-        await ref.read(storageProvider).close();
+        // Includes an opener that adopted a handle before preparation failed.
+        // Always release our own handle, even after the lifecycle ended.
+        await storage.close();
       } catch (e) {
         devLog(() => 'xVeil[onboarding]: rollback close failed: $e');
       }
-      // Primed with a password for a session that will not exist.
+      if (!current()) return;
       ref.read(screenLockProvider.notifier).forgetSession();
       try {
         final prefs = await ref.read(prefsProvider.future);
+        if (!current()) return;
         await prefs.remove(_onboardedKey());
+        if (!current()) return;
         await prefs.remove(_kStorageModeKey);
       } catch (e) {
         devLog(() => 'xVeil[onboarding]: rollback prefs failed: $e');
       }
     }
-    ref.read(pendingDeviceLinkProvider.notifier).state = false;
-    takePendingIdentityPhrase();
+    if (!current()) return;
     state = state.copyWith(phase: AppPhase.onboarding, preparingReason: null);
   }
 
@@ -602,6 +654,9 @@ class AppController extends Notifier<AppState> {
   /// restart. One unlock at a time; latecomers are dropped (the in-flight run
   /// ends in ready/locked either way).
   bool _unlockInFlight = false;
+  // Unlike a cancelled Future, this ownership survives an accepted native
+  // create until its handle and any rollback have actually settled.
+  Future<void>? _onboardingInFlight;
 
   /// LIFECYCLE GENERATION — what makes "is the session I am building still the
   /// one the user wants?" a question with an answer (audit H-06).
@@ -707,7 +762,8 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_manualCompactionBlocksUnlock ||
+    if (_onboardingInFlight != null ||
+        _manualCompactionBlocksUnlock ||
         _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null) {
       devLog(
@@ -977,7 +1033,8 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
-    if (_wipeInFlight != null ||
+    if (_onboardingInFlight != null ||
+        _wipeInFlight != null ||
         _compactionInFlight != null ||
         _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null ||
@@ -1082,7 +1139,8 @@ class AppController extends Notifier<AppState> {
       children: <({String label, List<int> keys})>[],
     );
     final storage = ref.read(storageProvider);
-    if (_compactionProbeInFlight != null ||
+    if (_onboardingInFlight != null ||
+        _compactionProbeInFlight != null ||
         _compactionCollectionInFlight != null ||
         _compactionInFlight != null ||
         _wipeInFlight != null ||
@@ -1316,7 +1374,8 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
   }) async {
-    if (_wipeInFlight != null ||
+    if (_onboardingInFlight != null ||
+        _wipeInFlight != null ||
         _compactionInFlight != null ||
         _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null) {
@@ -1339,10 +1398,11 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Wait for accepted compaction work, including probes and recovery, to settle.
-  /// The native isolate cannot be cancelled by forgetting its Future: it may
-  /// still rename its temporary file over the container's path afterwards.
+  /// Wait for accepted creation/compaction work and its recovery before wipe.
+  /// Forgetting a native Future does not cancel it: an opener can create the
+  /// file, and a compactor can rename its replacement over the path afterwards.
   Future<void> waitForCompaction() async {
+    await _onboardingInFlight;
     await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     await _compactionInFlight;

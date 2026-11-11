@@ -171,12 +171,17 @@ void main() {
     await tester.tap(door);
     await tester.pumpAndSettle();
 
+    // The long explanation is deliberately collapsed until Help is opened.
+    expect(find.text(l.onboardOpenExistingBody), findsNothing);
+    await tester.tap(find.widgetWithText(ExpansionTile, l.navHelp));
+    await tester.pumpAndSettle();
     expect(find.text(l.onboardOpenExistingBody), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
       reason: 'nothing to try until a password is typed',
     );
+    await tester.ensureVisible(find.byType(TextField));
     await tester.enterText(find.byType(TextField), 'pw');
     await tester.pumpAndSettle();
     expect(
