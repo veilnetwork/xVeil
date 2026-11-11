@@ -3729,5 +3729,9 @@
   "folderSyncSavedChanged": "The copy changed while it was being read. Refresh the list and try saving again.",
   "folderSyncSavedSessionChanged": "The identity changed or was locked. Open this list again.",
   "folderSyncSavedRefresh": "Refresh list",
-  "folderSyncSavedNext": "Next page"
+  "folderSyncSavedNext": "Next page",
+  "folderSyncSavedRemove": "Remove saved copy",
+  "folderSyncSavedRemoveConfirm": "This permanently removes the selected copy. Save it elsewhere first if you need it. The current synced file is kept. Copies still needed for recovery cannot be removed.",
+  "folderSyncSavedRemoved": "Saved copy removed",
+  "folderSyncSavedRemoveFailed": "Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere."
 }

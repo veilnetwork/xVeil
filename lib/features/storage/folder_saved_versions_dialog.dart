@@ -160,6 +160,60 @@ class _FolderSavedVersionsDialogState
     }
   }
 
+  Future<void> _discard(FolderSavedVersion version) async {
+    if (!_current() || _exporting != null || !version.readable) return;
+    final l = AppL10n.of(context);
+    setState(() => _exporting = version.relativePath);
+    String? message;
+    try {
+      final removed = await _access.discard(
+        _root,
+        version,
+        stillCurrent: _current,
+        confirm: () async {
+          if (!_current()) return false;
+          return await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Text(l.folderSyncSavedRemove),
+                  content: Text(l.folderSyncSavedRemoveConfirm),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(l.actionCancel),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(l.actionRemove),
+                    ),
+                  ],
+                ),
+              ) ??
+              false;
+        },
+      );
+      if (removed) message = l.folderSyncSavedRemoved;
+    } on FolderSavedOperationCancelled {
+      // The old operation has no authority in the replacement identity.
+    } on FolderSavedVersionChanged catch (error) {
+      _recordError(error, FolderSavedDiagnosticAction.discarding);
+      message = l.folderSyncSavedChanged;
+    } catch (error) {
+      _recordError(error, FolderSavedDiagnosticAction.discarding);
+      message = l.folderSyncSavedRemoveFailed;
+    } finally {
+      if (mounted) setState(() => _exporting = null);
+    }
+    // Refusal can retain a capture under another protocol name. Refresh after
+    // either result; never hide retained bytes behind the old page inventory.
+    if (_current()) await _load();
+    if (mounted && _current() && message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -216,12 +270,24 @@ class _FolderSavedVersionsDialogState
                             height: 24,
                             child: CircularProgressIndicator(),
                           )
-                        : IconButton(
-                            tooltip: l.chatFileSaveAs,
-                            icon: const Icon(Icons.save_alt),
-                            onPressed: enabled && version.readable
-                                ? () => _export(version)
-                                : null,
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: l.chatFileSaveAs,
+                                icon: const Icon(Icons.save_alt),
+                                onPressed: enabled && version.readable
+                                    ? () => _export(version)
+                                    : null,
+                              ),
+                              IconButton(
+                                tooltip: l.folderSyncSavedRemove,
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: enabled && version.readable
+                                    ? () => _discard(version)
+                                    : null,
+                              ),
+                            ],
                           ),
                   );
                 },

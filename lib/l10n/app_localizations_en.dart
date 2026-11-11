@@ -8089,4 +8089,18 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get folderSyncSavedNext => 'Next page';
+
+  @override
+  String get folderSyncSavedRemove => 'Remove saved copy';
+
+  @override
+  String get folderSyncSavedRemoveConfirm =>
+      'This permanently removes the selected copy. Save it elsewhere first if you need it. The current synced file is kept. Copies still needed for recovery cannot be removed.';
+
+  @override
+  String get folderSyncSavedRemoved => 'Saved copy removed';
+
+  @override
+  String get folderSyncSavedRemoveFailed =>
+      'Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere.';
 }

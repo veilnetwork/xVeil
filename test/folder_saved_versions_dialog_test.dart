@@ -78,6 +78,9 @@ class _Source implements SavedFolderFile {
   @override
   bool Function() get unchanged =>
       () => !closed;
+  @override
+  bool Function(NativeFolderSession, String, String) get discard =>
+      (_, _, _) => throw StateError('Unexpected direct native discard');
 }
 
 class _Access implements FolderSavedVersionAccess {
@@ -85,6 +88,8 @@ class _Access implements FolderSavedVersionAccess {
   final cursors = <String?>[];
   Completer<FolderSavedVersionPage>? pending;
   bool fail = false;
+  bool failDiscard = false;
+  int removals = 0;
   @override
   Future<FolderSavedVersionPage> list(
     String root, {
@@ -102,6 +107,24 @@ class _Access implements FolderSavedVersionAccess {
   @override
   Future<SavedFolderFile> open(String root, FolderSavedVersion version) async =>
       source;
+  @override
+  Future<bool> discard(
+    String root,
+    FolderSavedVersion version, {
+    required Future<bool> Function() confirm,
+    required bool Function() stillCurrent,
+  }) async {
+    try {
+      if (!stillCurrent()) throw const FolderSavedOperationCancelled();
+      if (!await confirm()) return false;
+      if (!stillCurrent()) throw const FolderSavedOperationCancelled();
+      if (failDiscard) throw const FolderFsFailure(FolderFsFailureKind.cleanup);
+      removals++;
+      return true;
+    } finally {
+      await source.source.dispose();
+    }
+  }
 }
 
 class _Document implements ExportDocument {
@@ -228,6 +251,88 @@ void main() {
     expect(document.writes, 1);
     expect(access.source.closed, isTrue);
   });
+
+  testWidgets('removal is cancelled without touching the selected copy', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l.folderSyncSavedRemove));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text(l.folderSyncSavedRemoveConfirm), findsOneWidget);
+    expect(access.removals, 0);
+    await tester.tap(find.text(l.actionCancel));
+    await tester.pumpAndSettle();
+    expect(access.removals, 0);
+    expect(access.source.closed, isTrue);
+    expect(find.text(l.folderSyncSavedRemoved), findsNothing);
+  });
+
+  testWidgets('confirmed removal refreshes inventory and reports success', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l.folderSyncSavedRemove));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(access.removals, 0);
+    await tester.tap(find.text(l.actionRemove));
+    await tester.pumpAndSettle();
+    expect(access.removals, 1);
+    expect(access.source.closed, isTrue);
+    expect(access.cursors, [null, null]);
+    expect(find.text(l.folderSyncSavedRemoved), findsOneWidget);
+  });
+
+  testWidgets('identity switch during confirmation never authorizes deletion', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l.folderSyncSavedRemove));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    app.replaceIdentity();
+    await tester.pump();
+    await tester.tap(find.text(l.actionRemove));
+    await tester.pumpAndSettle();
+    expect(access.removals, 0);
+    expect(access.source.closed, isTrue);
+    expect(find.text(l.folderSyncSavedRemoved), findsNothing);
+    expect(find.text('first.txt'), findsNothing);
+  });
+
+  testWidgets(
+    'recovery refusal refreshes retained copies and emits only a category',
+    (tester) async {
+      access.failDiscard = true;
+      await mount(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(l.folderSyncSavedRemove));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text(l.actionRemove));
+      await tester.pumpAndSettle();
+      expect(access.removals, 0);
+      expect(access.source.closed, isTrue);
+      expect(access.cursors, [null, null]);
+      expect(find.text(l.folderSyncSavedRemoveFailed), findsOneWidget);
+      expect(find.text(l.folderSyncSavedRemoved), findsNothing);
+      if (kDiagnosticReportEnabled) {
+        final evidence =
+            (diagnosticJournal.toJson()['last_evidence']
+                    as Map)['folderSavedFailure']
+                as Map;
+        expect(evidence['values'], {
+          'origin': 2,
+          'code': FolderSavedDiagnosticFailure.cleanup.index,
+          'success': 0,
+        });
+      }
+    },
+  );
 
   testWidgets(
     'permission failure reports access refusal and closes the source',

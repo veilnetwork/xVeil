@@ -129,6 +129,12 @@ void main() {
         );
         expect(file.lengthSync(), source.version.size);
         expect(source.unchanged(), isFalse);
+        // This fixture has no journal: orphan previous copies are deliberately
+        // refused before deletion, even when the held file also changed.
+        expect(
+          () => source.discard(scope, '$_stem.previous', '$_second.incoming'),
+          throwsA(failure(FolderFsFailureKind.cleanup)),
+        );
         expect(scope.openSaved('$_second.incoming'), isNull);
         expect(
           () => scope.openSaved('user-file.txt'),
@@ -137,6 +143,10 @@ void main() {
       } finally {
         await source.source.dispose();
       }
+      expect(
+        () => source.discard(scope, '$_stem.previous', '$_second.incoming'),
+        throwsStateError,
+      );
     },
     skip: skip,
   );

@@ -19,6 +19,7 @@ FolderSavedDiagnosticFailure folderSavedFailureCode(
     FolderFsFailureKind.preparation => FolderSavedDiagnosticFailure.preparation,
     FolderFsFailureKind.reading => FolderSavedDiagnosticFailure.reading,
     FolderFsFailureKind.publication => FolderSavedDiagnosticFailure.publication,
+    FolderFsFailureKind.cleanup => FolderSavedDiagnosticFailure.cleanup,
   },
   FolderSavedVersionChanged() => FolderSavedDiagnosticFailure.changed,
   FileSystemException() => FolderSavedDiagnosticFailure.reading,

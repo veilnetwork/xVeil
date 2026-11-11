@@ -16,6 +16,7 @@ enum FolderFsFailureKind {
   preparation,
   reading,
   publication,
+  cleanup,
 }
 
 /// Only a category survives this boundary. Native paths and error strings are
@@ -96,6 +97,22 @@ typedef _OpenSavedDart =
 typedef _UnchangedNative =
     Int32 Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
 typedef _UnchangedDart = int Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+typedef _DiscardNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DiscardDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _CloseDart = void Function(Pointer<Void>);
 typedef _FreeNative = Void Function(Pointer<Utf8>);
 typedef _FreeDart = void Function(Pointer<Utf8>);
@@ -123,6 +140,9 @@ class _Api {
       unchanged = library.lookupFunction<_UnchangedNative, _UnchangedDart>(
         'veil_fs_saved_unchanged',
       ),
+      discard = library.lookupFunction<_DiscardNative, _DiscardDart>(
+        'veil_fs_folder_discard_saved',
+      ),
       publish = library.lookupFunction<_PublishNative, _PublishDart>(
         'veil_fs_folder_publish',
       ),
@@ -139,6 +159,7 @@ class _Api {
   final VeilFileReader reader;
   final _OpenSavedDart openSaved;
   final _UnchangedDart unchanged;
+  final _DiscardDart discard;
   final _PublishDart publish;
   final _CloseDart close;
   final _FreeDart free;
@@ -156,13 +177,18 @@ class _Api {
 }
 
 class SavedFolderFile {
-  SavedFolderFile._(this.version, this.source, this.unchanged);
+  SavedFolderFile._(this.version, this.source, this.unchanged, this.discard);
   final LocalFile version;
   final RangeSource source;
 
   /// Full-resolution native mtime/size on the same held object. Not a hash or
   /// an immutable snapshot; deliberately restored timestamps are not detected.
   final bool Function() unchanged;
+
+  /// Removes this selected object only, through an admitted folder. The caller
+  /// supplies a fresh protocol incoming capture in the same parent. The source
+  /// remains caller-owned and must be disposed after this synchronous operation.
+  final bool Function(NativeFolderSession, String, String) discard;
 }
 
 /// An admitted, pinned root. Every producer/scan uses this same native
@@ -376,6 +402,30 @@ class NativeFolderSession {
             }
             return result == 1;
           } finally {
+            calloc.free(err);
+          }
+        },
+        (scope, relative, quarantine) {
+          if (closed) throw StateError('Saved source is closed');
+          _validate(relative);
+          _validate(quarantine);
+          scope.checkRoot();
+          final path = relative.toNativeUtf8();
+          final spare = quarantine.toNativeUtf8();
+          final err = calloc<Pointer<Utf8>>();
+          try {
+            final result = _api.discard(scope._live, path, file, spare, err);
+            final busy = _api.freeError(err);
+            if (result < 0) {
+              throw FolderFsFailure(
+                busy ? FolderFsFailureKind.busy : FolderFsFailureKind.cleanup,
+              );
+            }
+            scope.checkRoot();
+            return result == 1;
+          } finally {
+            calloc.free(path);
+            calloc.free(spare);
             calloc.free(err);
           }
         },

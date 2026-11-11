@@ -55,7 +55,7 @@ enum DiagnosticEvent {
 /// Source-owned stages; never a device ID, label or native error string.
 enum CameraStartOrigin { callStart, toggle, deviceSelection, recovery }
 
-enum FolderSavedDiagnosticAction { listing, exporting }
+enum FolderSavedDiagnosticAction { listing, exporting, discarding }
 
 /// Append values to preserve diagnostic codes. No native text or paths.
 enum FolderSavedDiagnosticFailure {
@@ -72,6 +72,7 @@ enum FolderSavedDiagnosticFailure {
   destinationWrite,
   destinationFinish,
   other,
+  cleanup,
 }
 
 enum DiagnosticMetric {

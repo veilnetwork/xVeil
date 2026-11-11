@@ -3247,5 +3247,9 @@
   "folderSyncSavedChanged": "La copia cambió durante la lectura. Actualice la lista e intente guardarla de nuevo.",
   "folderSyncSavedSessionChanged": "La identidad cambió o se bloqueó. Abra esta lista de nuevo.",
   "folderSyncSavedRefresh": "Actualizar lista",
-  "folderSyncSavedNext": "Página siguiente"
+  "folderSyncSavedNext": "Página siguiente",
+  "folderSyncSavedRemove": "Eliminar copia guardada",
+  "folderSyncSavedRemoveConfirm": "La copia seleccionada se eliminará definitivamente. Guárdala en otro lugar si la necesitas. Se conserva el archivo sincronizado actual. Las copias necesarias para la recuperación no se pueden eliminar.",
+  "folderSyncSavedRemoved": "Copia guardada eliminada",
+  "folderSyncSavedRemoveFailed": "No se pudo eliminar esta copia. Puede ser necesaria para la recuperación. Actualiza la lista o guárdala en otro lugar."
 }
