@@ -265,7 +265,8 @@ pinned directory, Windows — открытый lockfile с запретом DELE
 платформах. Дополнительно проходят cross-check Linux musl и Android aarch64,
 armv7, i686; это компиляция, не физические Android-проверки.
 
-Граница этапа: **C ABI и Dart ещё не подключены**, header побайтно прежний.
+На этом native-этапе **C ABI и Dart ещё не были подключены**; header оставался
+побайтно прежним. Следующее подключение описано ниже.
 До закрытия R33-07 нужны recovery до scan, общий admission для scan/publication
 (чтобы другой проход не увидел временно отсутствующее имя), новая публикация
 вместо Dart rename, доступ пользователя к сохранённым версиям/явной очистке
@@ -274,6 +275,61 @@ armv7, i686; это компиляция, не физические Android-пр
 Windows flush-ит файлы, portable directory-fsync/power-loss гарантия не заявлена.
 Проверено завершение процесса, не отключение питания. Это не квалификация
 всего SDK/приложения и не устранение дефекта уже установленной сборки.
+
+### Общий root admission и проверенный Dart → C ABI
+
+Сессия теперь держит допуск **всей выбранной папки**, а не только родителя
+одного файла. Восстановление и host scan могут выполняться в одной сессии;
+новая публикация из другого процесса/вложенной папки получает busy. Дочерние
+пути проходят от уже закреплённого root handle. Подмена pathname корня
+выявляется отдельной проверкой identity; это не обещание атомарного snapshot
+внешних редакторов. Для одного handle также добавлен try-lock операций:
+параллельный recover не может отметить незавершённый publish settled.
+Снятие этой защиты даёт assertion-failure на обеих ОС.
+
+Добавлены `veil_fs_folder_open/matches_root/recover/publish/close`, сгенерированы
+C header и соответствующие ABI-константы Rust/Dart. Низкоуровневая Dart-сессия
+освобождает ошибки тем же native destructor, оставляет в исключениях только
+категории, отвергает NUL и некорректные UTF-16 строки до C-string marshalling.
+Последний guard проверен мутацией: без него unpaired surrogate выбирает реально
+существующее имя с U+FFFD и получает LocalChanged вместо отказа от некорректного
+имени. Полноценные surrogate pairs поддержаны. POSIX filename с двоеточием
+сохранён; Windows ADS остаются запрещены.
+
+**50 native passed на macOS / 40 на Windows 11**, без пропусков; точные
+production FS-модули, фактический Windows EXE с проверкой SHA-256 и удалением
+fixtures. Clippy `-D warnings` чист на обеих ОС; Linux musl и Android
+(aarch64/armv7/i686) проходят cross-check. Это не физическая Android/Win10
+квалификация и не сборка всего SDK.
+
+**10 Dart → native passed, 0 skipped** на macOS: реальная замена с receipt,
+сохранение прежних байтов, recovery до scan, замена root, ссылка-intent за пределы
+папки (валидная внешняя запись остаётся неизменной), ownership ошибок и admission.
+Вместе с соседними ABI gate проверками **15 passed / 3 skipped**: три пропуска
+относятся к полному SDK, который в этом прогоне не собирался; они не зелёные.
+
+Добавлен маленький `crates/veilclient-ffi/tests/fs_fixture` со standalone Cargo
+workspace и версиями libc/windows-sys/zeroize из SDK lock. Он компилирует ровно
+production FS-модули и извлекает production `veil_free_string`, без SDK ABI/version
+маркера. Проверка подтверждает, что production ABI gate отвергает fixture как
+полный SDK; тесты передают библиотеку явно. Он не является release-зависимостью.
+CI собирает его в отдельном target и задаёт `XVEIL_REQUIRE_FOLDER_FS=1`, поэтому
+отсутствующий fixture не превращается в незамеченные пропуски. Workflow pins
+проверены. Локальный пример (macOS, для Linux расширение `.so`):
+
+```bash
+CARGO_TARGET_DIR=/private/tmp/veil-fs-fixture-target cargo build --locked \
+  --manifest-path third_party/veil/crates/veilclient-ffi/tests/fs_fixture/Cargo.toml
+TMPDIR=/private/tmp/ \
+XVEIL_FS_TEST_DYLIB=/private/tmp/veil-fs-fixture-target/debug/libveil_fs_test_ffi.dylib \
+XVEIL_REQUIRE_FOLDER_FS=1 flutter test test/folder_publication_native_test.dart
+```
+
+**R33-07 остаётся открыт:** `LocalFolderSyncDisk` пока использует финальный Dart
+rename. Новая сессия проверена как компонент, ещё не встроена в адаптер. Следующий
+шаг — стадийная запись/публикация, recovery под тем же допуском до обычного scan,
+пользовательский доступ к сохранённым версиям и повтор исходного last-window
+теста через production-адаптер. Существующий default ABI gate не ослаблен.
 
 Активный остаток аудитов: R33-07. Отдельно до выпуска медиаправки
 требуется пересборка и pin движков, как указано выше.
