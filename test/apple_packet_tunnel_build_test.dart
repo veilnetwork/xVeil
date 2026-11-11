@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,7 +31,7 @@ void main() {
     // the network half is read from the rule rather than chosen here.
     expect(script, contains('source "\$ROOT/scripts/veil-network.sh"'));
     expect(script, contains('node-embedded,\$SEED_FEATURE,packet-tunnel'));
-    expect(script, contains('target/xveil-packet-tunnel-macos-'));
+    expect(script, contains('xveil-packet-tunnel-macos-\$arch'));
     expect(project, contains('Build PacketTunnel Rust FFI'));
     expect(
       project,
@@ -53,5 +54,55 @@ void main() {
 
     final syntax = await Process.run('bash', ['-n', scriptPath]);
     expect(syntax.exitCode, 0, reason: '${syntax.stdout}${syntax.stderr}');
+  });
+  test('Xcode tunnel build honors an isolated cache override', () async {
+    final root = await Directory.systemTemp.createTemp('xveil-tunnel-build-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/scripts').create();
+    for (final name in ['build-packet-tunnel-macos.sh', 'veil-network.sh']) {
+      await File('scripts/$name').copy('${root.path}/scripts/$name');
+    }
+    final bin = await Directory('${root.path}/bin').create();
+    final cargo = File('${bin.path}/cargo');
+    await cargo.writeAsString(r'''#!/usr/bin/env python3
+import os,sys,json
+from pathlib import Path
+args=sys.argv[1:]
+triple=args[args.index('--target')+1]
+dest=Path(os.environ['CARGO_TARGET_DIR'])/triple/'release'/'libveilclient_ffi.a'
+dest.parent.mkdir(parents=True,exist_ok=True)
+dest.write_text(json.dumps({'target':os.environ['CARGO_TARGET_DIR'],
+                           'features':args[args.index('--features')+1]}))
+''');
+    expect((await Process.run('chmod', ['+x', cargo.path])).exitCode, 0);
+    final isolated = '${root.path}/isolated cache';
+    final result = await Process.run(
+      'bash',
+      ['${root.path}/scripts/build-packet-tunnel-macos.sh', 'Release', 'arm64'],
+      environment: {
+        'PATH': '${bin.path}:${Platform.environment['PATH']}',
+        'CARGO_TARGET_DIR': '${root.path}/ordinary-ffi',
+        'XVEIL_PACKET_TUNNEL_TARGET_BASE': isolated,
+        'XVEIL_NETWORK': 'prod',
+      },
+    );
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    final accepted =
+        jsonDecode(
+              await File(
+                '${root.path}/build/apple-packet-tunnel/Release/libveilclient_ffi.a',
+              ).readAsString(),
+            )
+            as Map<String, dynamic>;
+    expect(accepted['target'], '$isolated/xveil-packet-tunnel-macos-arm64');
+    expect(
+      accepted['features'],
+      'node-embedded,production-seeds,packet-tunnel',
+    );
+    expect(Directory('${root.path}/ordinary-ffi').existsSync(), isFalse);
+    expect(
+      Directory('${root.path}/third_party/veil/target').existsSync(),
+      isFalse,
+    );
   });
 }

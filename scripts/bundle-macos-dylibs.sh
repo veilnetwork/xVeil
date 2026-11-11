@@ -116,26 +116,11 @@ cp -f "$HV" "$VC" "$APP/Contents/Frameworks/"
 # Call media engine (codec-stripped libwebrtc + the veil Transport shim) — an
 # OPTIONAL dylib built separately from a WebRTC checkout by
 # veil_media/macos/build_veil_media_dylib.sh. Bundle it if present; a build
-# without it simply has no calls-media capability (Dart guards the FFI).
+# without it simply has no calls-media capability (Dart guards the FFI). An
+# existing binary must match both its build record and the current source;
+# matching symbol names alone cannot distinguish yesterday's implementation.
 VM="$ROOT/third_party/veil/flutter/veil_media/macos/Frameworks/libveil_media.dylib"
-if [ -f "$VM" ]; then
-  # Checked before it is bundled, for the reason the check itself gives: the
-  # engine is a prebuilt delivered out of band, and a stale one is invisible —
-  # it links, it bundles, the app starts, and the first call fails at dlsym.
-  # CI checks the Linux and Android copies; this is the macOS one, which until
-  # the check learned to read Mach-O could not be checked at all.
-  #
-  # Not fatal: a build without calls-media is a supported build, and refusing
-  # to bundle is the same outcome the `else` branch below already produces.
-  if ! "$ROOT/scripts/check-media-symbols.sh" "$VM"; then
-    echo "WARNING: not bundling libveil_media.dylib — see the check above." >&2
-  else
-    cp -f "$VM" "$APP/Contents/Frameworks/"
-    echo "bundled libveil_media.dylib (calls media engine)"
-  fi
-else
-  echo "note: $VM absent — building without calls-media (run build_veil_media_dylib.sh to add it)"
-fi
+python3 "$ROOT/scripts/stage-macos-media.py" "$VM" "$APP/Contents/Frameworks"
 
 # On-device speech-to-text (whisper.cpp) — OPTIONAL, built by
 # native/whisper/build_veil_whisper_macos.sh. Absent = no voice transcription
