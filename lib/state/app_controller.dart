@@ -1499,11 +1499,28 @@ class AppController extends Notifier<AppState> {
           'compaction would wait forever on a lock we still hold',
         );
       }
-      await ref.read(containerCompactorProvider)(
-        path,
-        passwords,
-        dylibPath: _hvDylibPath(),
-      );
+      (hv.HvException, StackTrace)? appliedWarning;
+      try {
+        await ref.read(containerCompactorProvider)(
+          path,
+          passwords,
+          dylibPath: _hvDylibPath(),
+        );
+      } on hv.HvException catch (error, stack) {
+        // These outcomes have published and verified the replacement. The
+        // warning qualifies durability or surviving aliases, not its keys.
+        // Repair references before reporting it; never rerun the rewrite.
+        // `mayHaveApplied` is deliberately too broad here: in particular,
+        // RenameVisibleContentUnverified must not authorize metadata writes.
+        const verifiedVisibleRewrite = {
+          'RenameVisibleAliasesNotRevoked',
+          'RenameVisibleAliasesUnknown',
+          'RenameVisibleAliasesAndDurabilityUncertain',
+          'RenameVisibleDurabilityUncertain',
+        };
+        if (!verifiedVisibleRewrite.contains(error.kind)) rethrow;
+        appliedWarning = (error, stack);
+      }
       requireCurrentSession();
       // BEFORE the session comes back, while the container is closed and every
       // password is still here: a repack gave every space new keys, and the
@@ -1524,6 +1541,9 @@ class AppController extends Notifier<AppState> {
               '${stale.length}',
         );
         throw const CompactionRosterRepairIncomplete();
+      }
+      if (appliedWarning case final warning?) {
+        Error.throwWithStackTrace(warning.$1, warning.$2);
       }
     } finally {
       // A lock/wipe/switch can end the session while teardown or the native
