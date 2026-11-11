@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/folder_scan.dart';
+import 'package:xveil/data/folder_publication.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/device_sync.dart';
@@ -13,6 +14,7 @@ import 'package:xveil/state/cloud_service.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
 
+import 'support/folder_fs_fixture.dart';
 import 'support/range_source_util.dart';
 
 import 'support/fake_hv_container.dart';
@@ -50,32 +52,104 @@ Uint8List _bytes(String body) => Uint8List.fromList(body.codeUnits);
 void main() {
   group('the disk adapter', () {
     late Directory root;
-    const disk = LocalFolderSyncDisk();
+    final disk = folderDiskFixture();
 
     setUp(() => root = Directory.systemTemp.createTempSync('xveil-disk'));
     tearDown(() {
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
-    test('a completed write leaves the file and no debris beside it', () async {
-      await writeBytes(disk, root.path, 'nested/a.txt', _bytes('hello'));
+    test(
+      'a completed write leaves a settled intent and no partial file',
+      () async {
+        await writeBytes(disk, root.path, 'nested/a.txt', _bytes('hello'));
 
-      expect(File('${root.path}/nested/a.txt').readAsStringSync(), 'hello');
-      expect(
-        Directory('${root.path}/nested')
-            .listSync()
-            .map((e) => e.path.split('/').last),
-        ['a.txt'],
-      );
-    });
+        expect(File('${root.path}/nested/a.txt').readAsStringSync(), 'hello');
+        final names = Directory(
+          '${root.path}/nested',
+        ).listSync().map((e) => e.path.split('/').last).toList();
+        expect(names, hasLength(2));
+        expect(names, contains('a.txt'));
+        expect(
+          names.where(
+            (name) => RegExp(r'^\.xveil-[0-9a-f]{32}\.intent$').hasMatch(name),
+          ),
+          hasLength(1),
+        );
+        expect((await disk.scan(root.path)).files.map((f) => f.path), [
+          'nested/a.txt',
+        ]);
+      },
+    );
 
-    // NOTE ON WHAT IS AND IS NOT PROVEN HERE. The write goes through a sibling
-    // and a rename, so a crash cannot leave a truncated file visible under the
-    // real name. That property rests on rename(2) being atomic and cannot be
-    // asserted from a unit test — verified by breaking it: replacing the
-    // temp+rename with a direct write fails NOTHING below. What the two tests
-    // do pin is the debris such a crash leaves behind, which is the part that
-    // would otherwise be uploaded as if the user had created it.
+    // The native process-exit tests qualify each publication boundary. Here
+    // the real adapter must recover that state before returning an inventory.
+    test(
+      'scan recovers an interrupted publication before reporting absence',
+      () async {
+        await writeBytes(disk, root.path, 'nested/a.txt', _bytes('old'));
+        await writeBytes(disk, root.path, 'nested/a.txt', _bytes('new'));
+        final parent = Directory('${root.path}/nested');
+        final previous = parent.listSync().whereType<File>().singleWhere(
+          (f) => f.path.endsWith('.previous'),
+        );
+        final incoming = previous.path.replaceFirst(
+          RegExp(r'\.previous$'),
+          '.incoming',
+        );
+        File('${parent.path}/a.txt').renameSync(incoming);
+        final journal = File(
+          previous.path.replaceFirst(RegExp(r'\.previous$'), '.intent'),
+        );
+        final record = journal.readAsBytesSync();
+        expect(record[8], 1);
+        record[8] = 0;
+        journal.writeAsBytesSync(record, flush: true);
+        final scan = await disk.scan(root.path);
+        expect(scan.files.map((f) => f.path), ['nested/a.txt']);
+        expect(File('${parent.path}/a.txt').readAsStringSync(), 'old');
+        expect(File(incoming).readAsStringSync(), 'new');
+        expect(
+          previous.existsSync(),
+          isFalse,
+        ); // Recovery moved it back to a.txt.
+      },
+    );
+
+    test(
+      'network staging does not hold the folder admission or create target parents',
+      () async {
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final writing = disk.writeFrom(
+          root.path,
+          'not-yet/a.txt',
+          RangeSource(
+            size: 3,
+            read: (offset, length) async {
+              entered.complete();
+              await release.future;
+              return _bytes('new');
+            },
+          ),
+        );
+        try {
+          await entered.future;
+          final independent = NativeFolderSession.open(
+            root.path,
+            lib: disk.library,
+          );
+          independent.close();
+          expect(root.listSync(), isEmpty);
+          expect((await disk.scan(root.path)).files, isEmpty);
+        } finally {
+          release.complete();
+          expect(await writing, isTrue);
+        }
+        expect(File('${root.path}/not-yet/a.txt').readAsStringSync(), 'new');
+      },
+    );
+
     test('debris from a crashed write is invisible to the scan', () async {
       await writeBytes(disk, root.path, 'a.txt', _bytes('original'));
       File('${root.path}/a.txt$kPartialSuffix').writeAsStringSync('trunc');
@@ -86,27 +160,24 @@ void main() {
     });
 
     test('debris does not defeat the next write of the same file', () async {
-      // Scratch names are randomised now (audit XV-13), so a leftover no
-      // longer collides with the next attempt — which means it no longer gets
-      // reused and cleaned up either. The write sweeps its own leftovers for
-      // the target instead, or the directory would slowly fill with files the
-      // scanner deliberately ignores.
-      File('${root.path}/a.txt.deadbeef$kPartialSuffix')
-          .writeAsStringSync('stale');
+      // A legacy scratch-like name is not proof that these bytes are ours to
+      // erase. The new protocol neither adopts it nor sweeps it automatically.
+      File(
+        '${root.path}/a.txt.deadbeef$kPartialSuffix',
+      ).writeAsStringSync('stale');
 
       await writeBytes(disk, root.path, 'a.txt', _bytes('fresh'));
 
       expect(File('${root.path}/a.txt').readAsStringSync(), 'fresh');
       expect(
-        root.listSync().where((e) => e.path.endsWith(kPartialSuffix)),
-        isEmpty,
-        reason: 'stale scratch files must not accumulate',
+        File('${root.path}/a.txt.deadbeef$kPartialSuffix').readAsStringSync(),
+        'stale',
       );
+      expect((await disk.scan(root.path)).files.map((f) => f.path), ['a.txt']);
     });
 
     test('a user file that merely looks like scratch is left alone', () async {
-      // The sweep is scoped to `<target>.<hex>.xveil-part`. A real file the
-      // user happens to have must survive, or the fix would be deleting data.
+      // A scratch-like filename alone grants no authority to erase user data.
       final bystander = File('${root.path}/b.txt.deadbeef$kPartialSuffix')
         ..writeAsStringSync('mine');
 
@@ -116,19 +187,27 @@ void main() {
       expect(bystander.readAsStringSync(), 'mine');
     });
 
-    test('removing the last file prunes its folders but never the root',
-        () async {
-      await writeBytes(disk, root.path, 'a/b/c.txt', _bytes('x'));
+    test(
+      'removing the last file keeps publication recovery metadata',
+      () async {
+        await writeBytes(disk, root.path, 'a/b/c.txt', _bytes('x'));
 
-      await disk.remove(root.path, 'a/b/c.txt');
+        await disk.remove(root.path, 'a/b/c.txt');
 
-      expect(Directory('${root.path}/a').existsSync(), isFalse);
-      expect(
-        root.existsSync(),
-        isTrue,
-        reason: 'removing the folder the user chose looks like an uninstall',
-      );
-    });
+        expect(Directory('${root.path}/a').existsSync(), isTrue);
+        expect(File('${root.path}/a/b/c.txt').existsSync(), isFalse);
+        expect(
+          Directory('${root.path}/a/b').listSync().single.path,
+          endsWith('.intent'),
+        );
+        expect((await disk.scan(root.path)).files, isEmpty);
+        expect(
+          root.existsSync(),
+          isTrue,
+          reason: 'removing the folder the user chose looks like an uninstall',
+        );
+      },
+    );
 
     test('a folder with other files in it is kept', () async {
       await writeBytes(disk, root.path, 'a/one.txt', _bytes('1'));
@@ -296,7 +375,7 @@ void main() {
     });
 
     test('openRead serves slices without reading the file whole', () async {
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       await writeBytes(disk, root.path, 'a.bin', _bytes('abcdefghij'));
 
       final source = (await disk.openRead(root.path, 'a.bin'))!;
@@ -312,7 +391,7 @@ void main() {
     });
 
     test('openRead is null for a file that is not there', () async {
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       expect(await disk.openRead(root.path, 'nope.bin'), isNull);
     });
 
@@ -353,7 +432,7 @@ void main() {
       // (report27 X14). The native walk holds each directory open and follows
       // no link; where it is unavailable the weaker open stands, so this test
       // asserts what the platform can actually promise.
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       final outside = File('${root.parent.path}/secret.txt')
         ..writeAsStringSync('not yours');
       addTearDown(() {
@@ -380,7 +459,7 @@ void main() {
     });
 
     test('writeFrom pulls in bounded hops, never the whole file', () async {
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       final asked = <int>[];
       final size = kFolderSyncChunkBytes * 2 + 17;
       final source = RangeSource(
@@ -406,7 +485,7 @@ void main() {
       // The property that matters most here: renaming a short file into place
       // would make the next scan read the truncation as a deliberate user edit
       // and faithfully upload the damage over the good cloud copy.
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       var hops = 0;
       final source = RangeSource(
         size: kFolderSyncChunkBytes * 3,
@@ -426,7 +505,7 @@ void main() {
     });
 
     test('an existing file is replaced only once the write completes', () async {
-      const disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       await writeBytes(disk, root.path, 'keep.txt', _bytes('good'));
 
       var hops = 0;

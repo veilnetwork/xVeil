@@ -4,6 +4,12 @@
 Перед изменениями владельцу передана сводная таблица. После аудитов работа
 возвращается к lifecycle добавления личности в существующий master.
 
+**Текущее состояние R33-07:** disk adapter уже использует native publication,
+recovery перед scan и root admission; last-window регрессия проходит. Открытый
+релизный остаток — пользовательский доступ к сохранённым версиям и квалификация
+полного SDK/приложения. Абзацы ниже описывают последовательные этапы проверки;
+актуальное продолжение — в разделе «Интеграция root publisher в disk adapter».
+
 ## Архивы: R33-10, R33-11, R33-12, R34-01
 
 Все четыре механизма подтверждены регрессионными тестами на прежнем коде:
@@ -389,6 +395,75 @@ HiddenVolumeStorage с fake-контейнером: **8 passed**, анализа
 это не физическая Windows 10 проверка и не доказательство причины всех
 пользовательских пропусков обновления. Звук и камера требуют отдельной
 квалификации.
+
+## Интеграция root publisher в disk adapter
+
+`LocalFolderSyncDisk` больше не выполняет финальный Dart rename. Сетевой source
+читается порциями до 256 КиБ в отдельный приватный временный каталог, без root
+admission и создания папок назначения. Только полная копия переносится локально
+в `.xveil-<32 hex>.incoming` через уже закреплённый корень, flush/close, version
+guard и native recoverable publication. Scratch-путь не выбирается по имени
+пользовательского файла; старые `.xveil-part` не усыновляются и не удаляются по
+одному сходству имени. Предыдущие версии и intent не удаляются автоматически.
+
+Перед scan одна native-сессия держит recovery и всю enumeration; root substitution
+или повреждённый intent не превращаются в пустой инвентарь. Перед публикацией
+восстанавливается только родитель цели, чтобы не обходить всю историю/дерево на
+каждый скачанный файл. До создания incoming повторно проверяется исходная версия;
+последняя проверка Dart остаётся ранней диагностикой, авторитетной границей
+публикации служит native compare/move протокол. Stamp выдаётся от incoming,
+а не от пользовательского файла после публикации.
+
+Добавлен `veil_fs_folder_create_incoming`: exclusive create только protocol-имени,
+mkdir/open каждого родителя от pinned handle с no-follow/OBJ_DONT_REPARSE.
+Неверное имя проверяется до создания каталогов. Занятый файл не принимается
+как временный и не обнуляется. C header и обе ABI-константы перегенерированы;
+default SDK gate сохранён. Существующий descriptor writer используется и
+обычным create-beneath, и новым admitted create — не два варианта flush/close.
+
+**Проверки:**
+
+- **53 Rust passed на macOS / 43 на Windows 11**, 0 ignored. В том числе создание
+  вложенных папок, exclusive create, file-parent и symlink/junction refusal;
+  Windows EXE запущен на реальной ОС со сверкой source/binary SHA и cleanup.
+- **51 Dart/adapter/FFI passed, 0 skipped** с явно переданным FS-only fixture.
+  Сетевая задержка не держит admission; adapter восстанавливает прерванную
+  публикацию до инвентаризации. Baseline-test post-recovery исправлен: previous
+  перемещается обратно в target, второй дубликат старых байтов не обещается.
+- Last-window тест теперь внедряет правку **после последнего Dart stat**, когда
+  incoming уже подготовлен. Обязательный witness `edits == 1` сохранён;
+  локальные и входящие байты остаются, base не получает ложного ACK, report
+  содержит конфликт. Тест включён по умолчанию. На изолированном старом алгоритме
+  с единственной адаптацией library-injection seam тест теряет локальную правку
+  и даёт assertion-failure. Исходники/кэш baseline удалены после записи proof;
+  это не сравнение разных published SDK. Внутренние native compare/move окна
+  отдельно покрыты Rust hook/process-exit проверками.
+- Правка после публикации внедряется при закрытии remote source, до записи base;
+  следующий pass загружает её в cloud. Это больше не vacuous rename-hook,
+  который не мог бы сработать после переноса операции в native.
+- Clippy `-D warnings` и целевой Flutter analyzer чисты. Нативные библиотеки
+  проверены по provenance; FS fixture по-прежнему отвергается default SDK gate.
+- Полный набор `folder_sync*_test.dart` вместе с native binding:
+  **132 passed, 0 skipped**, включая identity switch, root gate, scheduler и UI.
+  Ранее приведённые 51 проверки входят в эти 132, не суммируются с ними.
+- Exact FS fixture cross-check: Linux musl и Android aarch64/armv7/i686 —
+  четыре успешные проверки компиляции. Это не физическая Android квалификация.
+
+CI уже собирает fixture перед всем Flutter suite. Локальные disk adapter тесты
+также требуют `XVEIL_FS_TEST_DYLIB`; отсутствующая зависимость не разрешает
+небезопасный pathname publisher. Пример запуска:
+
+```bash
+TMPDIR=/private/tmp/ \
+XVEIL_FS_TEST_DYLIB=/path/to/libveil_fs_test_ffi.dylib \
+XVEIL_REQUIRE_FOLDER_FS=1 flutter test test/folder_sync*_test.dart \
+  test/folder_publication_native_test.dart
+```
+
+**R33-07 ещё не закрыт для релиза:** сохранённые `.previous` и неприменённые
+incoming должны быть доступны человеку для просмотра/экспорта. Полный SDK
+с обновлённым ABI и приложение в этой итерации не собирались; данные
+пользовательских контейнеров и приложения стенда не менялись. Push/релиза нет.
 
 ### Отказ переключения десктопной камеры
 

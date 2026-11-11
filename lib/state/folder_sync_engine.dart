@@ -64,9 +64,9 @@ abstract class FolderSyncDisk {
   /// caller disposes it.
   Future<RangeSource?> openRead(String root, String path);
 
-  /// Write a local file by pulling [source] in ranges. Still atomic — the
-  /// bytes land in a sibling and are renamed into place — so a crash halfway
-  /// cannot leave a truncated file that the next scan reads as a user edit.
+  /// Write a local file by pulling [source] in ranges. Publication must be
+  /// recoverable: never expose a partial file, preserve the displaced version,
+  /// and recover unfinished namespace changes before accepting another scan.
   /// Write [source] to [path] under [root]. True ONLY when the bytes were
   /// published under the real name.
   ///
