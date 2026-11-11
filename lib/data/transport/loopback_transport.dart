@@ -17,7 +17,7 @@ class LoopbackTransport implements VeilTransport {
 
   final NodeId _local;
   final _inbound = StreamController<InboundMessage>.broadcast();
-  final _pending = <Timer>[];
+  final _pending = <Timer>{};
   bool _disposed = false;
 
   static NodeId _deterministicLocalId() {
@@ -35,7 +35,9 @@ class LoopbackTransport implements VeilTransport {
     if (_disposed) return;
     final text = utf8.decode(payload, allowMalformed: true);
     final reply = utf8.encode('↩︎ echo: $text');
-    final t = Timer(const Duration(milliseconds: 700), () {
+    late final Timer t;
+    t = Timer(const Duration(milliseconds: 700), () {
+      _pending.remove(t);
       if (_disposed) return;
       _inbound.add(InboundMessage(src: dst, payload: Uint8List.fromList(reply)));
     });
@@ -66,6 +68,7 @@ class LoopbackTransport implements VeilTransport {
     for (final t in _pending) {
       t.cancel();
     }
+    _pending.clear();
     await _inbound.close();
   }
 }

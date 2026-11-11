@@ -6,6 +6,30 @@ import 'package:xveil/data/storage/on_disk_blob_store.dart';
 
 Uint8List _seq(int n) => Uint8List.fromList(List.generate(n, (i) => i % 251));
 
+class _GrowingPiece implements File {
+  _GrowingPiece(this.file);
+  final File file;
+  int unboundedReads = 0;
+  @override
+  Future<bool> exists() => file.exists();
+  @override
+  Future<int> length() async {
+    final before = await file.length();
+    await file.writeAsBytes(Uint8List(4 * 1024 * 1024));
+    return before;
+  }
+  @override
+  Future<Uint8List> readAsBytes() {
+    unboundedReads++;
+    return file.readAsBytes();
+  }
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      file.open(mode: mode);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late Directory root;
   late OnDiskBlobStore store;
@@ -17,6 +41,16 @@ void main() {
   });
   tearDown(() async {
     if (await root.exists()) await root.delete(recursive: true);
+  });
+
+  test('growth after stat cannot enter the whole-file read path', () async {
+    await store.storePiece('growing', key, 0, _seq(32));
+    final piece = _GrowingPiece(File('${root.path}/growing/p0'));
+    await IOOverrides.runZoned(() async {
+      expect(await store.readPiece('growing', key, 0, maxPlaintextBytes: 64), isNull);
+    }, createFile: (_) => piece);
+    expect(piece.unboundedReads, 0,
+        reason: 'the actual read must be bounded even after a valid stat');
   });
 
   test('a stray high-index piece cannot stand in for a missing one', () async {

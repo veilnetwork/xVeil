@@ -100,7 +100,22 @@ class OnDiskBlobStore {
     final sealedLen = await f.length();
     if (sealedLen < _macLen) return null;
     if (sealedLen > maxPlaintextBytes + _macLen) return null;
-    final sealed = await f.readAsBytes();
+    // A writer may grow/replace the piece after length(). Bound the actual
+    // reads too, including one extra byte to detect an oversized ciphertext.
+    final cap = maxPlaintextBytes + _macLen;
+    final input = await f.open();
+    final chunks = BytesBuilder(copy: false);
+    try {
+      while (chunks.length <= cap) {
+        final chunk = await input.read(cap + 1 - chunks.length);
+        if (chunk.isEmpty) break;
+        chunks.add(chunk);
+      }
+    } finally {
+      await input.close();
+    }
+    if (chunks.length > cap) return null;
+    final sealed = chunks.takeBytes();
     if (sealed.length < _macLen) return null;
     final cut = sealed.length - _macLen;
     final box = SecretBox(
