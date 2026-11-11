@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -43,6 +44,7 @@ class _FakeCloud implements FolderSyncCloud {
   final Map<String, Uint8List> content = {};
   final List<String> calls = [];
   Object? failNextUpload;
+  Future<void> Function()? uploadGate;
 
   @override
   Future<List<RemoteFile>> list(String? folderId) async => files.values.toList();
@@ -56,6 +58,7 @@ class _FakeCloud implements FolderSyncCloud {
     required Future<Uint8List> Function(int offset, int length) readRange,
   }) async {
     calls.add('upload:$path:${existingItemId ?? "new"}');
+    await uploadGate?.call();
     final failure = failNextUpload;
     if (failure != null) {
       failNextUpload = null;
@@ -202,6 +205,74 @@ void main() {
     engine = FolderSyncEngine(cloud, disk, store, () => 7);
   });
   tearDown(() => storage.close());
+
+  test('conflict answered during upload survives the pass commit', () async {
+    disk.files['a.txt'] = 'same';
+    await engine.runOnce(pair);
+    disk.files['a.txt'] = 'local-edit';
+    cloud.seed('a.txt', 'remote-edit');
+    await engine.runOnce(pair);
+    disk.files['b.txt'] = 'neighbour';
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    cloud.uploadGate = () async {
+      entered.complete();
+      await release.future;
+    };
+    final pass = engine.runOnce(pair);
+    await entered.future;
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
+    release.complete();
+    await pass;
+    final after = await store.state('p1');
+    expect(after.resolutions, {'a.txt': true});
+    expect(after.pendingConflicts, isEmpty);
+    cloud.uploadGate = null;
+    final applied = await engine.runOnce(pair);
+    expect(applied.applied.map((a) => a.path), ['a.txt']);
+    expect((await store.state('p1')).resolutions, isEmpty);
+    expect((await engine.runOnce(pair)).applied, isEmpty);
+  });
+
+  test('concurrent answers merge rather than overwrite each other', () async {
+    await store.saveState('p1', const FolderSyncState(
+      base: [], pendingConflicts: {'a.txt', 'b.txt'}));
+    await Future.wait([
+      engine.resolveConflict('p1', 'a.txt', keepLocal: true),
+      engine.resolveConflict('p1', 'b.txt', keepLocal: false),
+    ]);
+    final after = await store.state('p1');
+    expect(after.resolutions, {'a.txt': true, 'b.txt': false});
+    expect(after.pendingConflicts, isEmpty);
+  });
+
+  test('same choice with a newer receipt is not consumed by an older pass', () async {
+    disk.files['a.txt'] = 'same';
+    await engine.runOnce(pair);
+    disk.files['a.txt'] = 'local-edit';
+    cloud.seed('a.txt', 'remote-edit');
+    await engine.runOnce(pair);
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    cloud.uploadGate = () async { entered.complete(); await release.future; };
+    final pass = engine.runOnce(pair);
+    await entered.future;
+    // Another observer has raised this conflict again while the old receipt
+    // is being acted on. The user gives the same choice, with a new receipt.
+    await store.updateState('p1', (current) => FolderSyncState(
+      base: current.base, pendingConflicts: {'a.txt'},
+      resolutions: current.resolutions, resolutionSerial: current.resolutionSerial,
+      resolutionRevisions: current.resolutionRevisions));
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
+    final before = await store.state('p1');
+    release.complete();
+    await pass;
+    final after = await FolderSyncStore(storage).state('p1');
+    expect(after.resolutions, {'a.txt': true});
+    expect(after.resolutionRevisions, before.resolutionRevisions);
+    expect(after.resolutionSerial, 2);
+  });
 
   test('a first pass moves files both ways and records what it did', () async {
     disk.files['mine.txt'] = 'local';
