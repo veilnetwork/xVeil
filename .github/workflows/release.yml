@@ -122,6 +122,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p test_verify_media_provenance.py
           python3 -m unittest discover -s scripts -p test_stage_macos_media.py
+          python3 -m unittest discover -s scripts -p test_media_build_paths.py
 
   android:
     name: android APKs
