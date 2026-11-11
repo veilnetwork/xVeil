@@ -44,7 +44,8 @@ curl -fsSL "https://github.com/veilnetwork/xVeil/releases/download/$TAG/veil-con
   bash -s -- --host node.example.org --port 8443
 ```
 
-1. Помощник проверит Python 3.8+, openssl, qrencode, sudo и iproute2. На Debian/
+1. Помощник проверит Python 3.8+, openssl, qrencode, sudo, iproute2, curl,
+   доверенные HTTPS-сертификаты и util-linux для блокировки установки. На Debian/
    Ubuntu установит недостающие зависимости через apt. Службу Veil он на этом
    шаге не устанавливает.
 2. В терминале появится QR. В xVeil откройте **Мои узлы → Добавить →

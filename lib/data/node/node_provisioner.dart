@@ -1423,6 +1423,8 @@ sudo chmod 0700 "\$critical"
 # somewhere in the middle of a deployment.
 command -v flock >/dev/null 2>&1 || { echo 'flock (util-linux) is required to deploy safely' >&2; exit 1; }
 sudo mkdir -p "\$(dirname '$kVeilUpdateLockPath')"
-sudo flock -w 600 '$kVeilUpdateLockPath' "\$critical" "\$XVEIL_TMP"
+# Read the root-owned script with the interpreter: hardened servers may mount
+# the staging filesystem noexec. The lock still covers the whole operation.
+sudo flock -w 600 '$kVeilUpdateLockPath' /bin/bash "\$critical" "\$XVEIL_TMP"
 ''';
 }

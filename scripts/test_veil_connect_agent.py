@@ -76,9 +76,56 @@ class ProtocolTest(unittest.TestCase):
         source = Path(agent.__file__).read_text()
         script = build(source)
         self.assertEqual(script.count(source), 1)
-        self.assertNotIn("curl", script)
-        self.assertNotIn("wget", script)
+        # curl can be installed as a deployment dependency; the bootstrap
+        # itself must never execute a secondary code download.
+        self.assertNotRegex(script, r"(?m)^\s*(?:sudo\s+)?(?:curl|wget)\s")
         subprocess.run(["bash", "-n"], input=script.encode(), check=True)
+
+    def test_bootstrap_installs_missing_deployment_dependencies(self):
+        # A server can already have every dependency of the QR helper while
+        # lacking curl/flock, which the accepted installation script needs.
+        # Execute the actual bootstrap prologue; only host facts and apt are
+        # substituted. --help prevents installing or starting the helper.
+        for missing, package in (("curl", "curl"), ("flock", "util-linux"),
+                                 ("trust-store", "ca-certificates")):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                bootstrap, calls = directory / "bootstrap", directory / "apt-calls"
+                bootstrap.write_text(build(Path(agent.__file__).read_text()))
+                shell = r'''
+uname() { printf 'Linux\n'; }
+id() { printf '0\n'; }
+command() {
+  if [ "$1" = -v ]; then
+    if [ "$2" = "$XVEIL_TEST_MISSING" ]; then return 1; fi
+    case "$2" in python3|openssl|qrencode|sudo|ip|curl|flock|apt-get) return 0;; esac
+  fi
+  builtin command "$@"
+}
+apt-get() { printf '%s\n' "$*" >> "$XVEIL_TEST_APT_CALLS"; }
+test() {
+  if [ "$1" = -s ]; then
+    case "$2" in /etc/ssl/certs/ca-certificates.crt|/etc/pki/tls/certs/ca-bundle.crt)
+      [ "$XVEIL_TEST_MISSING" != trust-store ]; return;;
+    esac
+  fi
+  builtin test "$@"
+}
+export -f uname id command apt-get test
+exec bash "$1" --help
+'''
+                result = subprocess.run(
+                    ["bash", "-c", shell, "_", str(bootstrap)],
+                    env={**os.environ, "XVEIL_TEST_MISSING": missing,
+                         "XVEIL_TEST_APT_CALLS": str(calls)},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                recorded = calls.read_text() if calls.exists() else ""
+                installs = [line.split() for line in recorded.splitlines()
+                            if line.startswith("install ")]
+                self.assertTrue(any(package in args for args in installs),
+                                "bootstrap skipped the missing deployment package")
 
 
 @unittest.skipUnless(sys.platform == "linux", "process-group execution requires Linux")

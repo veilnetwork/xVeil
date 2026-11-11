@@ -356,7 +356,7 @@ XVEIL_CRITICAL
 sudo chmod 0755 "\$critical"
 sudo mkdir -p "\$(dirname '$kVeilUpdateLockPath')"
 # Waiting, not skipping: a person is looking at this screen and pressed Apply.
-sudo flock -w 600 '$kVeilUpdateLockPath' "\$critical" "\$stage"
+sudo flock -w 600 '$kVeilUpdateLockPath' /bin/bash "\$critical" "\$stage"
 '''
       // Substituted after the template is built: the heredoc above is quoted,
       // so the shell expands nothing inside it, and the guard stays ONE shared
@@ -597,7 +597,7 @@ fi
 echo applied > "\$stage/outcome"
 XVEIL_APPLY
 sudo chmod 0700 "\$critical"
-sudo flock -w 300 '$kVeilConfigLockPath' "\$critical" "\$stage" "\$path" \\
+sudo flock -w 300 '$kVeilConfigLockPath' /bin/bash "\$critical" "\$stage" "\$path" \\
   "\$was_enabled" "\$was_active"
 if [ "\$(sudo cat "\$stage/outcome")" != applied ]; then
   echo 'CONFIG_ROLLED_BACK'
