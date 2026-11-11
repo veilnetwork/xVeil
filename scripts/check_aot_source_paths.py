@@ -4,6 +4,7 @@
 This is one artifact privacy check, not a general secret scanner. It deliberately
 reports counts only: printing a matched URI would itself disclose the builder.
 Inputs are never changed. ZIP members are read without extracting their paths.
+With --check-current-home, also check native path strings in UTF-8/UTF-16.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import sys
 import zipfile
+from urllib.parse import quote
 
 _HOME_URI = re.compile(
     rb"file:///(?:[a-z](?::|%3a)/users/|users/|home/)"
@@ -33,18 +35,50 @@ def source_home_uri_count(data: bytes) -> int:
     return sum(1 for _ in _HOME_URI.finditer(data))
 
 
-def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT) -> dict[str, int]:
+def current_home_path_count(data: bytes, home: str) -> int:
+    """Check the builder's actual path in native strings and two UTF-16 forms.
+
+    No string content is returned. URI syntax alone does not cover Rust panic
+    locations or native debug records. Explicit home input also allows tests of
+    Windows artifacts on other hosts; CLI uses only the current host's home.
+    """
+    if not home:
+        raise ValueError("empty home path")
+    normalized = home.replace("\\", "/")
+    variants = {home, normalized, quote(normalized, safe="/:")}
+    ranges = set()
+    for variant in variants:
+        for encoding in ("utf-8", "utf-16le", "utf-16be"):
+            needle = variant.encode(encoding)
+            start = 0
+            while (start := data.find(needle, start)) >= 0:
+                ranges.add((start, start + len(needle)))
+                start += len(needle)
+    # ASCII UTF-16 data may match the other byte order shifted by one byte.
+    # Count overlapping representations once rather than doubling the finding.
+    count = end = 0
+    for start, stop in sorted(ranges):
+        if start >= end:
+            count += 1
+        end = max(end, stop)
+    return count
+
+
+def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT,
+                  current_home: str | None = None) -> dict[str, int]:
     if byte_limit <= 0:
         raise ValueError("invalid scan budget")
-    total = members = matches = 0
+    total = members = matches = home_matches = 0
 
     def consume(data: bytes) -> None:
-        nonlocal total, members, matches
+        nonlocal total, members, matches, home_matches
         total += len(data)
         if total > byte_limit:
             raise ValueError("artifact scan budget exceeded")
         members += 1
         matches += source_home_uri_count(data)
+        if current_home is not None:
+            home_matches += current_home_path_count(data, current_home)
 
     def scan_file(file: Path) -> None:
         nonlocal total
@@ -91,24 +125,31 @@ def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT) -> dict[str, i
         scan_file(path)
     if not members:
         raise ValueError("no artifact members scanned")
-    return {"members_scanned": members, "bytes_scanned": total,
-            "source_home_uri_occurrences": matches}
+    result = {"members_scanned": members, "bytes_scanned": total,
+              "source_home_uri_occurrences": matches}
+    if current_home is not None:
+        result["current_home_path_occurrences"] = home_matches
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check-current-home", action="store_true",
+                        help="also check the current builder's native home paths")
     parser.add_argument("artifacts", nargs="+", type=Path)
     args = parser.parse_args(argv)
     results = []
     try:
         for path in args.artifacts:
-            results.append(scan_artifact(path))
+            results.append(scan_artifact(path, current_home=str(Path.home())
+                                         if args.check_current_home else None))
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as error:
         # Never echo filenames or error messages containing an input path.
         print(json.dumps({"complete": False, "error_type": type(error).__name__}))
         return 2
     print(json.dumps({"complete": True, "artifacts": results}))
-    return int(any(r["source_home_uri_occurrences"] for r in results))
+    return int(any(r["source_home_uri_occurrences"] or r.get("current_home_path_occurrences")
+                   for r in results))
 
 
 if __name__ == "__main__":

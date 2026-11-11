@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "aot_source_paths", Path(__file__).with_name("check_aot_source_paths.py"))
@@ -31,6 +32,31 @@ class AotSourcePathsTest(unittest.TestCase):
         data = (b"file:///build/src/lib/main.dart\0package:xveil/main.dart\0"
                 b"https://example.invalid/Users/public/docs\0dart:core")
         self.assertEqual(scanner.source_home_uri_count(data), 0)
+
+    def test_native_home_paths_and_encodings_require_the_additional_check(self):
+        for home, path in [
+            ("/Users/build alias", "/Users/build alias/.cargo/src/native.rs"),
+            ("/Users/build alias", "file:///Users/build%20alias/cache/native.cc"),
+            (r"C:\Users\build alias", r"C:\Users\build alias\AppData\native.cc"),
+            (r"C:\Users\build alias", "file:///C:/Users/build%20alias/cache/native.cc"),
+        ]:
+            for encoding in ("utf-8", "utf-16le", "utf-16be"):
+                with self.subTest(encoding=encoding, windows=home.startswith("C:")):
+                    self.assertEqual(scanner.current_home_path_count(path.encode(encoding), home), 1)
+        self.assertEqual(scanner.current_home_path_count(b"/build/src/main.rs", "/Users/build-alias"), 0)
+
+    def test_native_only_leak_fails_cli_without_printing_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "native.so"
+            path.write_bytes(b"panic at /Users/private-builder/.cargo/library.rs\0")
+            self.assertEqual(scanner.scan_artifact(path)["source_home_uri_occurrences"], 0)
+            with patch.object(scanner.Path, "home", return_value=Path("/Users/private-builder")):
+                with redirect_stdout(output := io.StringIO()):
+                    self.assertEqual(scanner.main(["--check-current-home", str(path)]), 1)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["artifacts"][0]["current_home_path_occurrences"], 1)
+            self.assertNotIn("private-builder", output.getvalue())
+            self.assertNotIn(tmp, output.getvalue())
 
     def test_compressed_members_are_scanned_and_never_extracted(self):
         with tempfile.TemporaryDirectory() as tmp:
