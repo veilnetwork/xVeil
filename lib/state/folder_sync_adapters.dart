@@ -170,8 +170,7 @@ class CloudServiceFolderSync implements FolderSyncCloud {
     if (!await _cloud.ensureLocal(target)) return null;
     return RangeSource(
       size: target.size,
-      read: (offset, length) =>
-          _cloud.readContentRange(target, offset, length),
+      read: (offset, length) => _cloud.readContentRange(target, offset, length),
     );
   }
 
@@ -296,14 +295,30 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   /// faithfully upload the damage over the good copy in the cloud. The rename
   /// is atomic on every platform this runs on.
   @override
-  Future<bool> writeFrom(String root, String path, RangeSource source) async {
+  Future<bool> writeFrom(String root, String path, RangeSource source) async =>
+      await writeChecked(
+        root,
+        path,
+        source,
+        expected: await stat(root, path),
+      ) !=
+      null;
+
+  @override
+  Future<LocalFile?> writeChecked(
+    String root,
+    String path,
+    RangeSource source, {
+    required LocalFile? expected,
+  }) async {
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) {
       // Refuse rather than throw: one hostile name must not stop the pass from
       // mirroring every other file, and a throw here would be reported to the
       // user as "sync failed" with nothing they can act on.
-      return false;
+      return null;
     }
+    await _requireVersion(root, path, expected);
     final file = File(resolved);
     await file.parent.create(recursive: true);
     // The ROOT goes with it: the scratch file is created through a descriptor
@@ -311,7 +326,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // `mirrorPathWithin` above and this open is refused rather than followed.
     // That is the residual this file has documented since it was written.
     final temp = await _openScratch(root, path, file);
-    if (temp == null) return false;
+    if (temp == null) return null;
     final sink = temp.sink;
     var written = 0;
     try {
@@ -331,7 +346,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
       // pass retries. Renaming a short file would publish a truncated one that
       // the following scan reads as a deliberate user edit and faithfully
       // uploads over the good copy.
-      return false;
+      return null;
     } finally {
       await sink.close();
     }
@@ -342,15 +357,38 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // path. Verified by weakening: dropping either alone keeps the tests green,
     // dropping both turns them red.
     if (written == source.size) {
+      final incoming = await temp.file.stat();
+      if (incoming.type != FileSystemEntityType.file ||
+          incoming.size != source.size) {
+        return null;
+      }
+      await _requireVersion(root, path, expected);
+      // These checks cover edits during preparation. They are NOT an atomic
+      // compare-and-publish: an external process can still edit after this
+      // check. Descriptor-relative publication with recovery remains needed.
       await temp.file.rename(file.path);
-      return true;
+      return LocalFile(
+        path: path,
+        size: incoming.size,
+        modifiedAtMs: incoming.modified.millisecondsSinceEpoch,
+      );
     } else {
       // Nothing will rename it now; do not leave a scratch file behind under a
       // name the scanner does not recognise.
       try {
         await temp.file.delete();
       } catch (_) {}
-      return false;
+      return null;
+    }
+  }
+
+  Future<void> _requireVersion(
+    String root,
+    String path,
+    LocalFile? expected,
+  ) async {
+    if (!sameFolderSyncVersion(expected, await stat(root, path))) {
+      throw const FolderSyncLocalChanged();
     }
   }
 
