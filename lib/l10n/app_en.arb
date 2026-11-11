@@ -1578,6 +1578,7 @@
   "settingsStorageBloatBody": "Most of this file is padding left over from earlier writes — normal for this storage, but it never shrinks on its own. Compact it when convenient.",
   "settingsStorageCompactDone": "Reclaimed",
   "settingsStorageCompactFailed": "Couldn't compact storage",
+  "settingsStorageCompactRepairIncomplete": "Storage was compacted, but checking identities and updating their list didn't finish. Try opening them with their own passwords.",
   "settingsStorageAutoCompact": "Auto-compact on unlock",
   "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Keeps only the identity you unlock with, so turn it on only while this is the only identity here — if another one is ever added, this turns itself off.",
   "settingsStorageAutoCompactConfirmTitle": "Only this identity lives here?",

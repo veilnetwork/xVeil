@@ -6404,6 +6404,12 @@ abstract class AppL10n {
   /// **'Couldn\'t compact storage'**
   String get settingsStorageCompactFailed;
 
+  /// No description provided for @settingsStorageCompactRepairIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage was compacted, but checking identities and updating their list didn\'t finish. Try opening them with their own passwords.'**
+  String get settingsStorageCompactRepairIncomplete;
+
   /// No description provided for @settingsStorageAutoCompact.
   ///
   /// In en, this message translates to:

@@ -234,6 +234,14 @@ class CompactionWouldDropIdentities implements Exception {
       '${labels.join(", ")}';
 }
 
+/// The rewrite applied, but repairing the masters' child references did not
+/// complete. Safe for anonymous diagnostics: no labels, keys or paths.
+class CompactionRosterRepairIncomplete implements Exception {
+  const CompactionRosterRepairIncomplete();
+  @override
+  String toString() => 'CompactionRosterRepairIncomplete';
+}
+
 class AppController extends Notifier<AppState> {
   /// Roster of the master unlocked this session — cached for the whole master
   /// session so identity switching needs no re-prompt. Holds child SpaceKeys;
@@ -1095,7 +1103,8 @@ class AppController extends Notifier<AppState> {
   /// the repack, which is the only thing that can say which roster label it
   /// belongs to.
   ///
-  /// Returns the labels it could not remap. Every space that carries a roster
+  /// Returns nonempty failure markers when repair is incomplete, never key
+  /// prefixes. Every space that carries a roster
   /// is repaired, not just the one being used: a decoy master names the same
   /// children and would break the same way.
   Future<List<String>> remapRostersAfterCompaction(
@@ -1125,7 +1134,7 @@ class AppController extends Notifier<AppState> {
         final opened = await storage.open(password: password);
         requireCurrentSession();
         if (!opened) {
-          failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
+          failed.add('space');
           continue;
         }
         final keys = await storage.exportSpaceKeys();
@@ -1138,7 +1147,7 @@ class AppController extends Notifier<AppState> {
         }
       } catch (e) {
         requireCurrentSession();
-        failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
+        failed.add('space');
         devLog(() => 'xVeil[storage]: remap probe failed: $e');
       } finally {
         try {
@@ -1147,29 +1156,49 @@ class AppController extends Notifier<AppState> {
       }
     }
 
+    // A failed read says nothing about whether that space survived. Do not
+    // publish a smaller roster from an incomplete old-to-new key map.
+    requireCurrentSession();
+    if (failed.isNotEmpty) return failed;
+    final currentKeys = moved.values.map(hex).toSet();
     for (final holder in rosterHolders) {
       requireCurrentSession();
       final password = utf8.decode(holder, allowMalformed: true);
       try {
         final opened = await storage.open(password: password);
         requireCurrentSession();
-        if (!opened) continue;
+        if (!opened) {
+          failed.add('roster');
+          continue;
+        }
         final roster = await storage.loadRoster();
         requireCurrentSession();
-        if (roster == null) continue;
+        if (roster == null) {
+          failed.add('roster');
+          continue;
+        }
         final repaired = <RosterEntry>[];
+        var complete = true;
+        var changed = false;
         for (final entry in roster) {
-          final next = moved[hex(entry.spaceKeys)];
+          final old = hex(entry.spaceKeys);
+          // Another holder may already have committed before a later write
+          // failed. A retry must recognize that completed repair rather than
+          // treating its current keys as a missing child.
+          final next =
+              moved[old] ??
+              (currentKeys.contains(old) ? entry.spaceKeys : null);
           if (next == null) {
-            // An identity whose password nobody typed cannot be remapped —
-            // and it is not in the compacted container either, because the
-            // compaction kept only what it was given. Dropping it from the
-            // roster is the honest record of what the container now holds.
-            failed.add(entry.label);
+            failed.add('roster');
+            complete = false;
             continue;
           }
+          changed |= !listEquals(next, entry.spaceKeys);
           repaired.add(entry.copyWith(spaceKeys: next));
         }
+        // Compaction is maintenance, not permission to delete an unresolved
+        // entry. Keep this entire holder unchanged so a later repair can retry.
+        if (!complete || !changed) continue;
         await storage.saveRoster(repaired);
         requireCurrentSession();
         devLog(
@@ -1292,14 +1321,22 @@ class AppController extends Notifier<AppState> {
       // BEFORE the session comes back, while the container is closed and every
       // password is still here: a repack gave every space new keys, and the
       // rosters that name them by keys are now pointing at nothing.
-      final stale = await remapRostersAfterCompaction(credentials);
+      var stale = await remapRostersAfterCompaction(credentials);
       requireCurrentSession();
+      if (stale.isNotEmpty) {
+        // Retry only metadata repair with the original old-to-new credentials.
+        // The native rewrite must never run again to recover a failed read or
+        // a later holder's write; earlier holders may already be repaired.
+        stale = await remapRostersAfterCompaction(credentials);
+        requireCurrentSession();
+      }
       if (stale.isNotEmpty) {
         devLog(
           () =>
               'xVeil[storage]: roster entries left stale after compaction: '
-              '${stale.join(", ")}',
+              '${stale.length}',
         );
+        throw const CompactionRosterRepairIncomplete();
       }
     } finally {
       // A lock/wipe/switch can end the session while teardown or the native

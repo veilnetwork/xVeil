@@ -1549,6 +1549,7 @@
   "settingsStorageBloatBody": "La mayor parte de este archivo es relleno que dejaron escrituras anteriores: es normal en este almacenamiento, pero nunca se encoge solo. Compáctalo cuando te venga bien.",
   "settingsStorageCompactDone": "Recuperado",
   "settingsStorageCompactFailed": "No se pudo compactar el almacenamiento",
+  "settingsStorageCompactRepairIncomplete": "El almacenamiento se compactó, pero no se pudieron verificar las identidades ni actualizar su lista. Intente abrirlas con sus propias contraseñas.",
   "settingsStorageAutoCompact": "Compactar automáticamente al desbloquear",
   "settingsStorageAutoCompactBody": "Compacta automáticamente cuando el contenedor se infla. Conserva solo la identidad con la que desbloqueas, así que actívalo solo mientras sea la única aquí: si se añade otra, esto se desactiva solo.",
   "settingsStorageAutoCompactConfirmTitle": "¿Vive aquí solo esta identidad?",
