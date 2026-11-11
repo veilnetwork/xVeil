@@ -321,6 +321,35 @@ class _OutputChoiceEngine extends _Engine {
   }
 }
 
+class _InputChoiceEngine extends _Engine {
+  _InputChoiceEngine({this.hasDefault = true})
+    : super(nativeStarted: true, capture: 1);
+  final bool hasDefault;
+  final selected = <String>[];
+  String? rejected;
+  String activeInput = '2'; // An index retained by the native ADM.
+
+  @override
+  List<MediaDevice> listAudioInputs() => [
+    const MediaDevice(id: '0', label: 'monitor input', kind: 'input'),
+    const MediaDevice(id: '2', label: 'chosen microphone', kind: 'input'),
+    if (hasDefault)
+      const MediaDevice(
+        id: 'system-default',
+        label: 'System default',
+        kind: 'input',
+      ),
+  ];
+
+  @override
+  bool selectAudioInput(String id) {
+    selected.add(id);
+    if (id == rejected) return false;
+    activeInput = id;
+    return true;
+  }
+}
+
 class _PreflightTransport extends _Transport {
   final identityEntered = Completer<void>();
   final identityReady = Completer<void>();
@@ -490,6 +519,105 @@ void main() {
       skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
     );
   }
+
+  for (final preference in [
+    null,
+    'chosen microphone',
+    'unplugged microphone',
+  ]) {
+    test(
+      'microphone restore resolves a role instead of a stale index: $preference',
+      () async {
+        final key = 'call.capture.microphone.${Platform.operatingSystem}';
+        SharedPreferences.setMockInitialValues({key: ?preference});
+        final engine = _InputChoiceEngine();
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+        );
+        try {
+          expect(await controller.start(_call()), isTrue);
+          final expected = preference == 'chosen microphone'
+              ? '2'
+              : 'system-default';
+          expect(engine.activeInput, expected);
+          expect(engine.selected, [expected]);
+          expect(
+            (await controller.listMicrophones())
+                .where((d) => d.selected)
+                .map((d) => d.id),
+            [expected],
+          );
+          expect(
+            (await SharedPreferences.getInstance()).getString(key),
+            preference,
+            reason: 'temporary absence must not forget the explicit preference',
+          );
+        } finally {
+          await controller.stop();
+        }
+      },
+    );
+  }
+
+  test(
+    'returning to the system microphone clears only an accepted choice',
+    () async {
+      final key = 'call.capture.microphone.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({key: 'chosen microphone'});
+      final engine = _InputChoiceEngine();
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call()), isTrue);
+        engine.rejected = 'system-default';
+        expect(await controller.selectMicrophone('system-default'), isFalse);
+        expect(
+          (await SharedPreferences.getInstance()).getString(key),
+          'chosen microphone',
+        );
+        expect(engine.activeInput, '2');
+        engine.rejected = null;
+        expect(await controller.selectMicrophone('system-default'), isTrue);
+        expect(
+          (await SharedPreferences.getInstance()).containsKey(key),
+          isFalse,
+        );
+        expect(
+          (await controller.listMicrophones())
+              .singleWhere((d) => d.selected)
+              .id,
+          'system-default',
+        );
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
+
+  test('an input without role metadata does not claim numeric zero', () async {
+    final engine = _InputChoiceEngine(hasDefault: false);
+    final controller = VeilCallMediaController(
+      _Transport(),
+      engineFactory: ({required veilChan, required localId, required peerId}) =>
+          engine,
+    );
+    try {
+      expect(await controller.start(_call()), isTrue);
+      expect(engine.selected, isEmpty);
+      expect(
+        (await controller.listMicrophones()).where((d) => d.selected),
+        isEmpty,
+      );
+    } finally {
+      await controller.stop();
+    }
+  });
 
   for (final preference in [null, 'chosen speaker', 'unplugged speaker']) {
     test('speaker restore uses the actual choice: $preference', () async {

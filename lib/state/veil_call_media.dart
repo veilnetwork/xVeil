@@ -2684,19 +2684,25 @@ class VeilCallMediaController implements CallMediaController {
     required bool Function() isCurrent,
   }) async {
     if (!isCurrent()) return;
+    _selectedMicrophoneId = null;
     final preferred = _preferredMicrophoneLabel;
-    if (preferred == null || preferred.isEmpty) return;
     final devices = await listMicrophones();
     if (!isCurrent()) return;
-    for (final device in devices) {
-      if (device.label != preferred) continue;
-      try {
-        if (engine.selectAudioInput(device.id)) {
-          _selectedMicrophoneId = device.id;
-        }
-      } catch (_) {}
-      return;
-    }
+    // The ADM remembers numeric indices across engines. If a saved microphone
+    // disappears, its former index may now identify a different input. Clear
+    // that stale selection through the native role, not guessed device zero.
+    // Retain the saved label so reconnecting the device can restore it later.
+    final chosen =
+        devices
+            .where((device) => preferred != null && device.label == preferred)
+            .firstOrNull ??
+        devices.where((device) => device.followsSystem).firstOrNull;
+    if (chosen == null) return;
+    try {
+      if (engine.selectAudioInput(chosen.id)) {
+        _selectedMicrophoneId = chosen.id;
+      }
+    } catch (_) {}
   }
 
   /// Re-select the output the user last chose, by LABEL.
@@ -2801,9 +2807,12 @@ class VeilCallMediaController implements CallMediaController {
               id: entry.$2.id,
               label: entry.$2.label,
               kind: CallMediaDeviceKind.microphone,
+              followsSystem: entry.$2.id == systemAudioInputDeviceId,
               selected:
                   entry.$2.id == _selectedMicrophoneId ||
-                  (_selectedMicrophoneId == null && entry.$1 == 0),
+                  (Platform.isAndroid &&
+                      _selectedMicrophoneId == null &&
+                      entry.$1 == 0),
             ),
           )
           .toList(growable: false);
@@ -2874,9 +2883,13 @@ class VeilCallMediaController implements CallMediaController {
     try {
       if (!engine.selectAudioInput(id)) return false;
       _selectedMicrophoneId = id;
-      _preferredMicrophoneLabel = chosen.label;
+      _preferredMicrophoneLabel = chosen.followsSystem ? null : chosen.label;
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_microphonePreferenceKey, chosen.label);
+      if (chosen.followsSystem) {
+        await prefs.remove(_microphonePreferenceKey);
+      } else {
+        await prefs.setString(_microphonePreferenceKey, chosen.label);
+      }
       return true;
     } catch (_) {
       return false;

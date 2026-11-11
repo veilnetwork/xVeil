@@ -292,7 +292,9 @@ class _DeviceTile extends StatelessWidget {
     }),
     title: Text(
       device.followsSystem
-          ? AppL10n.of(context).callSystemAudioOutput
+          ? device.kind == CallMediaDeviceKind.microphone
+                ? AppL10n.of(context).callSystemAudioInput
+                : AppL10n.of(context).callSystemAudioOutput
           : device.label,
     ),
     trailing: device.selected ? const Icon(Icons.check) : null,
