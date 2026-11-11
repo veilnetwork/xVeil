@@ -189,7 +189,7 @@ void main() {
 
       final dir = Directory.systemTemp.createTempSync('xveil-sync-identity');
       addTearDown(() => dir.deleteSync(recursive: true));
-      Process.runSync('chmod', ['0700', dir.path]);
+      if (!Platform.isWindows) Process.runSync('chmod', ['0700', dir.path]);
       final pair = FolderSyncPair(id: 'p1', localPath: dir.path);
       await FolderSyncStore(a).savePairs([pair]);
 

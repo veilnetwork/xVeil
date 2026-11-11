@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../data/folder_scan.dart';
+import '../data/folder_file_metadata.dart';
 import '../data/folder_publication.dart';
 import '../domain/cloud.dart';
 import '../domain/folder_sync.dart';
@@ -434,13 +435,6 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // operation, or the refusal is only as good as the least careful caller.
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) return null;
-    final file = File(resolved);
-    if (!file.existsSync()) return null;
-    final stat = file.statSync();
-    return LocalFile(
-      path: path,
-      size: stat.size,
-      modifiedAtMs: stat.modified.millisecondsSinceEpoch,
-    );
+    return readFolderFileMetadata(File(resolved), path);
   }
 }
