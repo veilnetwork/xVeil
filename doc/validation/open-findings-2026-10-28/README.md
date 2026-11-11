@@ -5269,3 +5269,19 @@ PacketTunnel можно явно разместить на подходящем 
 13 guard- и 5 Apple/network тестов прошли. GUI, реальный звонок и исходная
 Windows 10 жалоба этим не закрыты. Публичные media pins не менялись; остальные
 платформенные артефакты остаются до выпуска. [Доказательства и границы](../media-package-provenance-2026-11-11/README.md).
+
+
+## Windows AV: текущий native source и исправление build-path
+
+На доступной Windows 11 новый x64 engine прошёл native device selection,
+переключение input во время capture, noise/mute controls, camera preview и
+кодирование Opus/VP8 до локальной принимающей границы. Экспорты и source/binary
+record проверены. Исходный Win10-репорт, доставка собеседнику, слышимость и GUI
+аватаров остаются не квалифицированными.
+
+Подтверждён и исправлен source root с каталогом учётной записи в локальных
+Windows/macOS media artifacts. Пять compiler wrappers используют нейтральный
+prefix, после пересборки обнаруженные корни отсутствуют; имя файла сохранено.
+Все четыре Unix command-generator случая дали assertion-red до правки и прошли
+после. Новые public engine pins не публиковались, приложения пользователей
+не заменялись. [Доказательства и границы](../windows-source-media-2026-11-11/README.md).
