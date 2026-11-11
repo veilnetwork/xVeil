@@ -18,16 +18,21 @@ if [ "$(id -u)" != 0 ]; then
   exit 1
 fi
 missing=0
-for dependency in python3 openssl qrencode sudo ip; do
+for dependency in python3 openssl qrencode sudo ip curl flock; do
   command -v "$dependency" >/dev/null || missing=1
 done
+# HTTPS release downloads and the deployment lock are needed after pairing,
+# even when all dependencies of the helper itself were already installed.
+if ! test -s /etc/ssl/certs/ca-certificates.crt && ! test -s /etc/pki/tls/certs/ca-bundle.crt; then
+  missing=1
+fi
 if [ "$missing" = 1 ]; then
   if ! command -v apt-get >/dev/null; then
-    echo 'Install Python 3.8+, openssl, qrencode, sudo and iproute2; retry.' >&2
+    echo 'Install Python 3.8+, openssl, qrencode, sudo, iproute2, curl, ca-certificates and util-linux; retry.' >&2
     exit 1
   fi
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 openssl qrencode ca-certificates sudo iproute2
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 openssl qrencode ca-certificates sudo iproute2 curl util-linux
 fi
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' || {
   echo 'Python 3.8+ is required' >&2
