@@ -108,6 +108,46 @@ void main() {
     ),
   );
 
+  for (final mode in ['local update', 'mirrored update', 'clear']) {
+    test(
+      'new avatar bypasses only the previous value reply cooldown: $mode',
+      () async {
+        await storage.upsertContact(Contact(nodeId: peer));
+        final before = await messaging.setSelfAvatar(bytes);
+        await receive('?');
+        expect(transport.sent.map((frame) => frame.body), [before]);
+        await receive('?');
+        expect(
+          transport.sent,
+          hasLength(1),
+          reason: 'unchanged replies stay throttled',
+        );
+
+        late String after;
+        if (mode == 'mirrored update') {
+          after = ProfileAvatar(
+            ProfileAvatar.decode(before)!.updatedAt + 1,
+            bytes,
+          ).encode();
+          await messaging.applySelfAvatar(after);
+        } else {
+          after = await messaging.setSelfAvatar(mode == 'clear' ? null : bytes);
+        }
+        expect(after, isNot(before));
+        await receive('?');
+        expect(transport.sent.map((frame) => frame.body), [before, after]);
+        await receive('?');
+        await messaging.applySelfAvatar(after);
+        await receive('?');
+        expect(
+          transport.sent,
+          hasLength(2),
+          reason: 'repeat/no-op cannot reset cooldown',
+        );
+      },
+    );
+  }
+
   for (final mirrored in [false, true]) {
     testWidgets(
       'a mounted pending avatar refreshes after acceptance mirrored=$mirrored',
