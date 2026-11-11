@@ -61,6 +61,19 @@ class LocalFile {
   final String? contentId;
 }
 
+/// The local side changed after the pass selected its operation. Retry via
+/// the normal conflict decision rather than overwriting or certifying it.
+class FolderSyncLocalChanged implements Exception {
+  const FolderSyncLocalChanged();
+}
+
+bool sameFolderSyncVersion(LocalFile? expected, LocalFile? current) =>
+    expected == null
+    ? current == null
+    : current != null &&
+          expected.size == current.size &&
+          expected.modifiedAtMs == current.modifiedAtMs;
+
 /// One file as the cloud index currently presents it.
 class RemoteFile {
   const RemoteFile({
@@ -103,8 +116,10 @@ enum SyncActionKind {
   download,
   deleteLocal,
   deleteRemote,
+
   /// Both sides changed. Never resolved silently here — see [FolderSyncPlan].
   conflict,
+
   /// Same content, new path: a move, not a re-upload.
   renameRemote,
 }
