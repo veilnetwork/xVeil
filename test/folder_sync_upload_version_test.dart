@@ -72,7 +72,25 @@ void main() {
       final destination = replace ? File('${dir.path}/replacement') : file;
       await destination.writeAsString('new local bytes', flush: true);
       await destination.setLastModified(DateTime.utc(2026, 2, 1));
-      if (replace) await destination.rename(file.path);
+      if (replace) {
+        try {
+          await destination.rename(file.path);
+        } on PathAccessException catch (error) {
+          if (!Platform.isWindows || error.osError?.errorCode != 5) rethrow;
+          // The native Windows reader denies DELETE sharing while held. A
+          // refused replacement leaves the selected source unchanged; qualify
+          // that protection rather than pretending the edit took place.
+          expect(await file.readAsString(), 'old bytes');
+          expect(await destination.readAsString(), 'new local bytes');
+          await destination.delete();
+          cloud.reply.complete();
+          await pass;
+          expect(cloud.uploads.map(utf8.decode), ['old bytes']);
+          expect((await engine.runOnce(pair)).applied, isEmpty);
+          expect(await file.readAsString(), 'old bytes');
+          return;
+        }
+      }
       cloud.reply.complete();
       await pass;
       expect(utf8.decode(cloud.uploads.single), 'old bytes');

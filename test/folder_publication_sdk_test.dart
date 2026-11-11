@@ -8,12 +8,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/src/native.dart' show VeilAbiContractMismatch;
 import 'package:xveil/core/document_export.dart';
 import 'package:xveil/data/folder_saved_versions.dart';
+import 'package:xveil/data/folder_publication.dart';
 import 'package:xveil/data/node/veil_library.dart';
 import 'package:xveil/state/folder_saved_export.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
 
 import 'support/folder_fs_fixture.dart';
 import 'support/range_source_util.dart';
+import 'support/precise_file_time.dart';
 
 class _Destination implements ExportDocument {
   final bytes = BytesBuilder();
@@ -62,6 +64,37 @@ void main() {
     // A refused explicit check cannot poison the process default.
     expect(verifiedVeilLibrary().handle, library.handle);
   }, skip: skip);
+
+  test(
+    'scan and stat preserve the native publisher millisecond stamp',
+    () async {
+      const modifiedMs = 1700000000123;
+      final file = File('${root.path}/note.bin');
+      await file.writeAsBytes([1, 2, 3]);
+      await setPreciseFileTime(file, modifiedMs);
+      final stat = await disk.stat(root.path, 'note.bin');
+      final scan = await disk.scan(root.path);
+      // Read the same object through the native descriptor metadata API.
+      const saved = '.xveil-00000000000000000000000000000000.incoming';
+      await file.rename('${root.path}/$saved');
+      final scope = NativeFolderSession.open(root.path);
+      try {
+        final native = scope.openSaved(saved)!;
+        try {
+          expect(native.version.modifiedAtMs, modifiedMs);
+          expect(stat!.modifiedAtMs, native.version.modifiedAtMs);
+          expect(stat.size, native.version.size);
+          expect(scan.unreadable, isEmpty);
+          expect(scan.files.single.modifiedAtMs, native.version.modifiedAtMs);
+        } finally {
+          await native.source.dispose();
+        }
+      } finally {
+        scope.close();
+      }
+    },
+    skip: skip,
+  );
 
   test(
     'default SDK publishes, lists, exports and explicitly removes a copy',
