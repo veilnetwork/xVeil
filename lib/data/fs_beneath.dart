@@ -148,18 +148,14 @@ Future<VeilBeneathOpen> veilOpenBeneath(
     return unsupported;
   }
   final _OpenBeneathDart open;
-  final _ReadDart read;
-  final _CloseDart close;
+  final VeilFileReader reader;
   final _FreeStrDart freeStr;
   try {
     open = dl.lookupFunction<_OpenBeneathNative, _OpenBeneathDart>(
       'veil_fs_open_beneath',
     );
-    read = dl.lookupFunction<_ReadNative, _ReadDart>('veil_fs_read');
-    close = dl.lookupFunction<_CloseNative, _CloseDart>('veil_fs_close');
-    freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
-      'veil_free_string',
-    );
+    reader = VeilFileReader(dl);
+    freeStr = reader._freeStr;
   } catch (_) {
     // A library without these symbols is a host that cannot do the walk, not
     // one that refused this path.
@@ -199,44 +195,67 @@ Future<VeilBeneathOpen> veilOpenBeneath(
     calloc.free(errOut);
   }
 
-  var closed = false;
-  Future<void> gate = Future<void>.value();
+  return (source: reader.own(handle, size), supported: true);
+}
 
-  Future<Uint8List> readRange(int offset, int length) {
-    final r = gate.then((_) async {
-      if (closed) throw StateError('source closed');
-      final buf = calloc<Uint8>(length);
-      final err = calloc<Pointer<Utf8>>();
-      try {
-        final n = read(handle, offset, buf, length, err);
-        if (n < 0) {
-          final e = err.value;
-          final msg = e == nullptr ? 'read failed' : e.toDartString();
-          if (e != nullptr) freeStr(e);
-          throw FileSystemException(msg, '<descriptor>');
+/// Resolve before acquiring a descriptor so failed symbol lookup cannot leak
+/// an opened file. All reads remain positional and close drains queued reads.
+class VeilFileReader {
+  VeilFileReader(DynamicLibrary library)
+    : _read = library.lookupFunction<_ReadNative, _ReadDart>('veil_fs_read'),
+      _close = library.lookupFunction<_CloseNative, _CloseDart>(
+        'veil_fs_close',
+      ),
+      _freeStr = library.lookupFunction<_FreeStrNative, _FreeStrDart>(
+        'veil_free_string',
+      );
+
+  final _ReadDart _read;
+  final _CloseDart _close;
+  final _FreeStrDart _freeStr;
+
+  VeilOpenedSource own(Pointer<Void> handle, int size) {
+    if (handle == nullptr) throw ArgumentError('Missing native file');
+    if (size < 0) {
+      _close(handle);
+      throw ArgumentError('Invalid native file size');
+    }
+    var closed = false;
+    Future<void> gate = Future<void>.value();
+
+    Future<Uint8List> readRange(int offset, int length) {
+      final r = gate.then((_) async {
+        if (closed) throw StateError('source closed');
+        final buf = calloc<Uint8>(length);
+        final err = calloc<Pointer<Utf8>>();
+        try {
+          final n = _read(handle, offset, buf, length, err);
+          if (n < 0) {
+            final e = err.value;
+            final msg = e == nullptr ? 'read failed' : e.toDartString();
+            if (e != nullptr) _freeStr(e);
+            throw FileSystemException(msg, '<descriptor>');
+          }
+          return Uint8List.fromList(buf.asTypedList(n));
+        } finally {
+          calloc.free(buf);
+          calloc.free(err);
         }
-        return Uint8List.fromList(buf.asTypedList(n));
-      } finally {
-        calloc.free(buf);
-        calloc.free(err);
-      }
-    });
-    gate = r.then((_) {}, onError: (_) {});
-    return r;
-  }
+      });
+      gate = r.then((_) {}, onError: (_) {});
+      return r;
+    }
 
-  Future<void> closeIt() async {
-    if (closed) return;
-    closed = true;
-    // After whatever is in flight, so a read never touches a freed handle.
-    await gate.catchError((_) {});
-    close(handle);
-  }
+    Future<void> closeIt() async {
+      if (closed) return;
+      closed = true;
+      // After whatever is in flight, so a read never touches a freed handle.
+      await gate.catchError((_) {});
+      _close(handle);
+    }
 
-  return (
-    source: (size: size, read: readRange, close: closeIt),
-    supported: true,
-  );
+    return (size: size, read: readRange, close: closeIt);
+  }
 }
 
 /// A file being written through a descriptor: the same three calls a

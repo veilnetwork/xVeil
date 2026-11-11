@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 import '../domain/folder_sync.dart';
+import '../domain/range_source.dart';
 import 'fs_beneath.dart';
 import 'node/veil_library.dart';
 
@@ -13,6 +14,7 @@ enum FolderFsFailureKind {
   rootChanged,
   recovery,
   preparation,
+  reading,
   publication,
 }
 
@@ -75,6 +77,25 @@ typedef _PublishDart =
       Pointer<Pointer<Utf8>>,
     );
 typedef _CloseNative = Void Function(Pointer<Void>);
+typedef _OpenSavedNative =
+    Pointer<Void> Function(
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Uint64>,
+      Pointer<Int64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _OpenSavedDart =
+    Pointer<Void> Function(
+      Pointer<Void>,
+      Pointer<Utf8>,
+      Pointer<Uint64>,
+      Pointer<Int64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _UnchangedNative =
+    Int32 Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+typedef _UnchangedDart = int Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
 typedef _CloseDart = void Function(Pointer<Void>);
 typedef _FreeNative = Void Function(Pointer<Utf8>);
 typedef _FreeDart = void Function(Pointer<Utf8>);
@@ -95,6 +116,13 @@ class _Api {
             'veil_fs_folder_create_incoming',
           ),
       writer = VeilFileWriter(library),
+      reader = VeilFileReader(library),
+      openSaved = library.lookupFunction<_OpenSavedNative, _OpenSavedDart>(
+        'veil_fs_folder_open_saved',
+      ),
+      unchanged = library.lookupFunction<_UnchangedNative, _UnchangedDart>(
+        'veil_fs_saved_unchanged',
+      ),
       publish = library.lookupFunction<_PublishNative, _PublishDart>(
         'veil_fs_folder_publish',
       ),
@@ -108,6 +136,9 @@ class _Api {
   final _RecoverDart recover;
   final _CreateIncomingDart createIncoming;
   final VeilFileWriter writer;
+  final VeilFileReader reader;
+  final _OpenSavedDart openSaved;
+  final _UnchangedDart unchanged;
   final _PublishDart publish;
   final _CloseDart close;
   final _FreeDart free;
@@ -122,6 +153,16 @@ class _Api {
       error.value = nullptr;
     }
   }
+}
+
+class SavedFolderFile {
+  SavedFolderFile._(this.version, this.source, this.unchanged);
+  final LocalFile version;
+  final RangeSource source;
+
+  /// Full-resolution native mtime/size on the same held object. Not a hash or
+  /// an immutable snapshot; deliberately restored timestamps are not detected.
+  final bool Function() unchanged;
 }
 
 /// An admitted, pinned root. Every producer/scan uses this same native
@@ -286,6 +327,63 @@ class NativeFolderSession {
       return result == 1;
     } finally {
       calloc.free(path);
+      calloc.free(error);
+    }
+  }
+
+  SavedFolderFile? openSaved(String relative) {
+    _validate(relative);
+    final handle = _live;
+    final path = relative.toNativeUtf8();
+    final size = calloc<Uint64>();
+    final modified = calloc<Int64>();
+    final error = calloc<Pointer<Utf8>>();
+    try {
+      final file = _api.openSaved(handle, path, size, modified, error);
+      final hadError = error.value != nullptr;
+      final busy = _api.freeError(error);
+      if (file == nullptr) {
+        if (!hadError) return null;
+        throw FolderFsFailure(
+          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.reading,
+        );
+      }
+      final reader = _api.reader.own(file, size.value);
+      var closed = false;
+      return SavedFolderFile._(
+        LocalFile(
+          path: relative,
+          size: size.value,
+          modifiedAtMs: modified.value,
+        ),
+        RangeSource(
+          size: reader.size,
+          read: reader.read,
+          close: () async {
+            if (closed) return;
+            closed = true;
+            await reader.close();
+          },
+        ),
+        () {
+          if (closed) throw StateError('Saved source is closed');
+          final err = calloc<Pointer<Utf8>>();
+          try {
+            final result = _api.unchanged(file, err);
+            _api.freeError(err);
+            if (result < 0) {
+              throw const FolderFsFailure(FolderFsFailureKind.reading);
+            }
+            return result == 1;
+          } finally {
+            calloc.free(err);
+          }
+        },
+      );
+    } finally {
+      calloc.free(path);
+      calloc.free(size);
+      calloc.free(modified);
       calloc.free(error);
     }
   }
