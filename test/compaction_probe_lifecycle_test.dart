@@ -5,10 +5,14 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/whisper_model_store.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
@@ -39,6 +43,7 @@ class _Storage extends HiddenVolumeStorage {
   final release = Completer<void>();
   final calls = <String>[];
   bool failAfterOpen = false;
+  int closes = 0;
   bool blockFinalClose = false;
   final closeEntered = Completer<void>();
   final closeRelease = Completer<void>();
@@ -91,6 +96,7 @@ class _Storage extends HiddenVolumeStorage {
 
   @override
   Future<void> close() async {
+    closes++;
     if (blockFinalClose && !closeEntered.isCompleted) {
       closeEntered.complete();
       await closeRelease.future;
@@ -121,6 +127,21 @@ class _RecoveryController extends _Controller {
 class _Notifications extends NotificationService {
   @override
   Future<void> cancelAll() async {}
+}
+
+class _Node extends Fake implements NodeController {
+  final stopping = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<void> stop() async {
+    stopping.complete();
+    await release.future;
+  }
+}
+
+class _Transport extends Fake implements VeilTransport {
+  @override
+  Future<void> dispose() async {}
 }
 
 class _Vpn implements VpnBackend {
@@ -180,6 +201,36 @@ Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
   addTearDown(storage.close);
   container.read(appControllerProvider);
   return (container: container, storage: storage, file: file);
+}
+
+Future<
+  ({
+    ProviderContainer container,
+    _Storage storage,
+    File file,
+    _Node node,
+    Future<bool> collecting,
+  })
+>
+_parkCollection(_Controller controller) async {
+  final f = await _fixture(controller, _Stage.beforeOpen);
+  f.storage.release.complete();
+  await f.storage.open(password: 'fixture');
+  final node = _Node();
+  f.container.read(realStackProvider.notifier).state = RealVeilStack.overParts(
+    controller: node,
+    transport: _Transport(),
+    myInvite: BootstrapInvite(publicKey: Uint8List(32), nonce: Uint8List(8)),
+  );
+  final collecting = controller.beginCompactionCollection();
+  await node.stopping.future;
+  return (
+    container: f.container,
+    storage: f.storage,
+    file: f.file,
+    node: node,
+    collecting: collecting,
+  );
 }
 
 void main() {
@@ -481,4 +532,146 @@ void main() {
     expect(await f.file.exists(), isFalse);
     expect(f.storage.isOpen, isFalse);
   });
+
+  test('collection teardown cannot close a session after lock', () async {
+    final controller = _Controller();
+    final f = await _parkCollection(controller);
+    await controller.lock();
+    final callsAtLock = List<String>.of(f.storage.calls);
+    final closesAtLock = f.storage.closes;
+    try {
+      await controller.unlock('missing-fixture');
+      expect(
+        f.storage.calls,
+        callsAtLock,
+        reason: 'new unlock entered the unfinished collection teardown',
+      );
+    } finally {
+      f.node.release.complete();
+      await _settle(f.collecting);
+    }
+    expect(await f.collecting, isFalse);
+    expect(
+      f.storage.closes,
+      closesAtLock,
+      reason: 'old collection touched storage after its lease ended',
+    );
+    expect(f.container.read(appControllerProvider).phase, AppPhase.locked);
+    await controller.unlock('missing-fixture');
+    expect(f.storage.calls.length, callsAtLock.length + 1);
+  });
+
+  test(
+    'a second collection cannot close storage during the first teardown',
+    () async {
+      final controller = _Controller();
+      final f = await _parkCollection(controller);
+      try {
+        await expectLater(
+          controller.beginCompactionCollection(),
+          throwsStateError,
+        );
+        expect(f.storage.isOpen, isTrue);
+      } finally {
+        f.node.release.complete();
+        await _settle(f.collecting);
+      }
+      expect(await f.collecting, isTrue);
+      expect(f.storage.isOpen, isFalse);
+      expect(
+        (await controller.probeCompactionIdentity('fixture')).opened,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'probe cannot enter the revoked but unfinished collection teardown',
+    () async {
+      final controller = _Controller();
+      final f = await _parkCollection(controller);
+      await controller.lock();
+      try {
+        await expectLater(
+          controller.probeCompactionIdentity('fixture'),
+          throwsStateError,
+        );
+      } finally {
+        f.node.release.complete();
+        await _settle(f.collecting);
+      }
+      expect(await f.collecting, isFalse);
+      expect(
+        (await controller.probeCompactionIdentity('fixture')).opened,
+        isTrue,
+      );
+    },
+  );
+
+  for (final viaRoute in [false, true]) {
+    for (final lockDuringWait in [false, true]) {
+      test(
+        'collection recovery awaits teardown (route=$viaRoute, lock=$lockDuringWait)',
+        () async {
+          final controller = _RecoveryController();
+          final leaseContainer = await _parkCollection(controller);
+          final lease = controller.leaseIdentity();
+          final recovering = viaRoute
+              ? controller.recoverCompactionCollection(
+                  lease: lease,
+                  reopenWith: 'fixture',
+                )
+              : controller.cancelCompactionCollection('fixture');
+          try {
+            // Let an await of an absent probe complete too. A real collection
+            // barrier must remain pending until its node teardown settles.
+            await Future<void>.value();
+            await Future<void>.value();
+            expect(controller.unlocks, 0);
+            if (lockDuringWait) await controller.lock();
+          } finally {
+            leaseContainer.node.release.complete();
+            await _settle(leaseContainer.collecting);
+            await _settle(recovering);
+          }
+          expect(controller.unlocks, lockDuringWait ? 0 : 1);
+        },
+      );
+    }
+  }
+
+  test(
+    'wipe waits for collection teardown before deleting its container',
+    () async {
+      final controller = _Controller();
+      final f = await _parkCollection(controller);
+      final wiping = controller.wipeContainers();
+      try {
+        await Future.any<void>([
+          controller.waiting.future,
+          wiping.then(
+            (_) => throw StateError('wipe returned before collection'),
+          ),
+        ]);
+        var settled = false;
+        final barrier = controller.waitForCompaction().then(
+          (_) => settled = true,
+        );
+        await Future<void>.value();
+        await Future<void>.value();
+        expect(settled, isFalse);
+        expect(await f.file.exists(), isTrue);
+        f.node.release.complete();
+        await barrier;
+      } finally {
+        if (!f.node.release.isCompleted) f.node.release.complete();
+        await _settle(f.collecting);
+        await _settle(wiping);
+      }
+      expect(await f.collecting, isFalse);
+      expect(await wiping, isEmpty);
+      expect(await f.file.exists(), isFalse);
+      expect(f.storage.isOpen, isFalse);
+    },
+  );
 }
