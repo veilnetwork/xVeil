@@ -102,24 +102,46 @@ String? devLogFilePath;
 
 /// Where the logs go, in preference order.
 ///
-/// Beside the binary that is running, which is the one place a person can
+/// Beside the application that is running, which is the one place a person can
 /// describe over a chat window. `resolvedExecutable` and not the working
 /// directory: a shortcut, a file manager and a terminal all disagree about the
 /// latter. The temp directory is the fallback for an install under Program
 /// Files or on a read-only mount — a log somewhere is worth more than a
-/// permission error.
+/// permission error. A macOS bundle is sealed code: its logs sit BESIDE the
+/// .app, never in Contents/MacOS, where a write invalidates the signature.
 List<String> _logDirCandidates() {
   final override = devLogDirectoryOverride;
   if (override != null) return <String>[override];
-  return <String>[
-    io.File(io.Platform.resolvedExecutable).parent.path,
-    io.Directory.systemTemp.path,
-  ];
+  return devLogDirectoriesForExecutable(
+    executable: io.Platform.resolvedExecutable,
+    temporaryDirectory: io.Directory.systemTemp.path,
+    macOS: io.Platform.isMacOS,
+  );
+}
+
+/// Platform default without opening a sink, also used by packaging checks.
+List<String> devLogDirectoriesForExecutable({
+  required String executable,
+  required String temporaryDirectory,
+  required bool macOS,
+}) {
+  var directory = io.File(executable).parent;
+  String name(io.Directory dir) =>
+      dir.path.replaceAll(r'\', '/').split('/').last;
+  final contents = directory.parent;
+  final bundle = contents.parent;
+  if (macOS &&
+      name(directory) == 'MacOS' &&
+      name(contents) == 'Contents' &&
+      name(bundle).toLowerCase().endsWith('.app')) {
+    directory = bundle.parent;
+  }
+  return <String>[directory.path, temporaryDirectory];
 }
 
 /// Where the log goes instead, for tests and stands.
 ///
-/// The default answer is "beside the running binary", which is right for the
+/// The default answer is "beside the application", which is right for the
 /// app and wrong for a test suite: under `flutter test` the running binary is
 /// `flutter_tester`, so the suite wrote its log INTO the Flutter SDK's cache
 /// directory — and dozens of parallel test processes appended to one file
