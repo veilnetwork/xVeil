@@ -822,3 +822,14 @@ Wi-Fi не засчитаны; автоматическая смена сети 
 Стенд остановлен, Wi-Fi восстановлен, основные пакеты/исходные QA данные
 сохранены. Pins/push/релиз не выполнялись.
 [Доказательства, исправление и границы](../android-windows-current-2026-11-12/README.md).
+
+## Нейтральные source paths в Windows и Android AOT
+
+Новые настоящие profile-сборки дали ноль домашних Dart URI: Windows-комплект
+41 файл и Android APK 609 членов. Обфускация не нужна; отдельная AOT-проба
+сохранила читаемый stack frame. Helper package roots прошёл 9 проверок на
+macOS и Windows 11. Windows открыла отдельную холодную QA-копию до настоящего
+узла, Android прошёл startup/onboarding smoke; стенды восстановлены.
+macOS, полный release wrapper и packaging gate ещё открыты. Исходная
+Win10-жалоба этим не закрывается.
+[Подробности и границы](../aot-source-privacy-2026-11-12/README.md).
