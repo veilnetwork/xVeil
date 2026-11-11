@@ -96,6 +96,106 @@ Future<(ProviderContainer, StickerController)> _library({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  for (final change in ['mirror', 'rename', 'delete']) {
+    test('streamed import preserves concurrent $change publication', () async {
+      final (c, ctrl) = await _library();
+      addTearDown(c.dispose);
+      final target = await ctrl.createPack('Local');
+      final prepared = Completer<void>();
+      final release = Completer<void>();
+      Stream<Uint8List> images() async* {
+        yield _png1x1;
+        prepared.complete();
+        await release.future;
+      }
+      final pending = ctrl.importImageStream(images(), packId: target);
+      await prepared.future;
+      if (change == 'mirror') {
+        await ctrl.applyMirroredPack('sibling-pack', name: 'Sibling',
+          blob: encodeStickerPack('Sibling', [_png1x1]));
+      } else if (change == 'rename') {
+        await ctrl.renamePack(target, 'Renamed');
+      } else {
+        await ctrl.deletePack(target);
+      }
+      release.complete();
+      expect(await pending, change == 'delete' ? 0 : 1);
+      final cold = ProviderContainer(overrides: [
+        singleSpaceStorageProvider.overrideWithValue(c.read(storageProvider)),
+      ]);
+      addTearDown(cold.dispose);
+      final packs = await cold.read(stickerControllerProvider.future);
+      if (change == 'mirror') {
+        expect(packs.map((p) => p.id), containsAll([target, 'sibling-pack']));
+        final mirrored = packs.firstWhere((p) => p.id == 'sibling-pack');
+        expect(await c.read(storageProvider).loadFile(stickerFileKey(mirrored.items.single)), isNotNull);
+      } else if (change == 'rename') {
+        expect(packs.single.name, 'Renamed');
+        expect(packs.single.items, hasLength(1));
+      } else {
+        expect(packs, isEmpty, reason: 'a deleted target must not be resurrected');
+        final keys = await c.read(storageProvider).settingsKeys();
+        expect(keys.where((k) => k.startsWith('file:sticker:')), isEmpty,
+          reason: 'unpublished prepared image must be retired');
+      }
+    });
+  }
+
+  test('manifest edits are serialized across controllers sharing storage', () async {
+    final (a, first) = await _library();
+    addTearDown(a.dispose);
+    final b = ProviderContainer(overrides: [
+      singleSpaceStorageProvider.overrideWithValue(a.read(storageProvider)),
+    ]);
+    addTearDown(b.dispose);
+    await b.read(stickerControllerProvider.future);
+    final second = b.read(stickerControllerProvider.notifier);
+    final ids = await Future.wait([first.createPack('First'), second.createPack('Second')]);
+    final cold = ProviderContainer(overrides: [
+      singleSpaceStorageProvider.overrideWithValue(a.read(storageProvider)),
+    ]);
+    addTearDown(cold.dispose);
+    expect((await cold.read(stickerControllerProvider.future)).map((p) => p.id), containsAll(ids));
+  });
+
+  test('two imports append to the fresh contents of the same pack', () async {
+    final (c, ctrl) = await _library();
+    addTearDown(c.dispose);
+    final id = await ctrl.createPack('Target');
+    final prepared = Completer<void>();
+    final release = Completer<void>();
+    Stream<Uint8List> images() async* {
+      yield _png1x1;
+      prepared.complete();
+      await release.future;
+    }
+    final pending = ctrl.importImageStream(images(), packId: id);
+    await prepared.future;
+    expect(await ctrl.importImages([_png1x1], packId: id), 1);
+    release.complete();
+    expect(await pending, 1);
+    expect(c.read(stickerControllerProvider).value!.single.items.toSet(), hasLength(2));
+  });
+
+  test('initially absent default deleted during preparation stays deleted', () async {
+    final (c, ctrl) = await _library();
+    addTearDown(c.dispose);
+    final prepared = Completer<void>();
+    final release = Completer<void>();
+    Stream<Uint8List> images() async* {
+      yield _png1x1;
+      prepared.complete();
+      await release.future;
+    }
+    final pending = ctrl.importImageStream(images());
+    await prepared.future;
+    expect(await ctrl.importImages([_png1x1]), 1);
+    await ctrl.deletePack(await ctrl.defaultPackId());
+    release.complete();
+    expect(await pending, 0);
+    expect(c.read(stickerControllerProvider).value, isEmpty);
+  });
+
   test('StickerPack json round-trips; malformed decodes to null', () {
     const p = StickerPack(
       id: 'p',
