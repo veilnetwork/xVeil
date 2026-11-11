@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
 import 'package:xveil/core/ids.dart';
@@ -9,6 +11,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/profile_avatar.dart';
+import 'package:xveil/features/identity/profile_avatar.dart';
 import 'package:xveil/state/messaging.dart';
 
 import 'support/fake_hv_container.dart';
@@ -19,6 +22,7 @@ NodeId _id(int v) => NodeId(Uint8List.fromList(List.filled(32, v)));
 class _Transport extends LoopbackTransport {
   _Transport() : super(localNodeId: _id(1));
   final sent = <WireEnvelope>[];
+  final destinations = <NodeId>[];
   @override
   Future<void> send(
     NodeId dst,
@@ -26,6 +30,7 @@ class _Transport extends LoopbackTransport {
     bool anonymous = false,
   }) async {
     sent.add(WireEnvelope.decode(payload));
+    destinations.add(dst);
   }
 }
 
@@ -101,6 +106,212 @@ void main() {
       provenance: proof,
       payload: WireEnvelope(WireKind.profileAvatar, raw).encode(),
     ),
+  );
+
+  testWidgets(
+    'opening a new avatar view refreshes with a sidebar keeping the cache alive',
+    (tester) async {
+      await tester.runAsync(
+        () => storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingIncoming),
+        ),
+      );
+      final showHeader = ValueNotifier(false);
+      addTearDown(showHeader.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [messagingServiceProvider.overrideWithValue(messaging)],
+          child: MaterialApp(
+            home: ValueListenableBuilder<bool>(
+              valueListenable: showHeader,
+              builder: (context, visible, _) => Row(
+                children: [
+                  IdentityAvatar(
+                    key: const ValueKey('sidebar'),
+                    peerHex: peer.hex,
+                    fallback: const Text('sidebar'),
+                  ),
+                  if (visible)
+                    IdentityAvatar(
+                      key: const ValueKey('header'),
+                      peerHex: peer.hex,
+                      fallback: const Text('header'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pumpAndSettle();
+      expect(transport.sent, isEmpty); // No photo request before consent.
+      final sidebarState = tester.element(
+        find.byKey(const ValueKey('sidebar')),
+      );
+      await tester.runAsync(() => storage.upsertContact(Contact(nodeId: peer)));
+      showHeader.value = true;
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pumpAndSettle();
+      expect(
+        tester.element(find.byKey(const ValueKey('sidebar'))),
+        same(sidebarState),
+      );
+      expect(
+        transport.sent.where(
+          (f) => f.kind == WireKind.profileAvatar && f.body == '?',
+        ),
+        hasLength(1),
+      );
+      await tester.runAsync(() => receive(ProfileAvatar(10, bytes).encode()));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pumpAndSettle();
+      final circles = tester.widgetList<CircleAvatar>(
+        find.byType(CircleAvatar),
+      );
+      expect(circles, hasLength(2));
+      for (final circle in circles) {
+        expect(circle.backgroundImage, isA<MemoryImage>());
+        expect((circle.backgroundImage! as MemoryImage).bytes, bytes);
+      }
+      // Remounting the header must still respect the service's request limiter.
+      showHeader.value = false;
+      await tester.pumpAndSettle();
+      showHeader.value = true;
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pumpAndSettle();
+      expect(transport.sent, hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('a reused avatar view requests the new peer, never self', (
+    tester,
+  ) async {
+    final other = _id(3);
+    await tester.runAsync(() async {
+      await storage.upsertContact(Contact(nodeId: peer));
+      await storage.upsertContact(Contact(nodeId: other));
+    });
+    final shownPeer = ValueNotifier('');
+    addTearDown(shownPeer.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [messagingServiceProvider.overrideWithValue(messaging)],
+        child: MaterialApp(
+          home: ValueListenableBuilder<String>(
+            valueListenable: shownPeer,
+            builder: (_, hex, _) => IdentityAvatar(
+              key: const ValueKey('reused'),
+              peerHex: hex,
+              fallback: const Text('photo'),
+            ),
+          ),
+        ),
+      ),
+    );
+    Future<void> settle() async {
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pumpAndSettle();
+    }
+
+    await settle();
+    expect(transport.sent, isEmpty);
+    final element = tester.element(find.byKey(const ValueKey('reused')));
+    shownPeer.value = peer.hex;
+    await settle();
+    shownPeer.value = other.hex;
+    await settle();
+    expect(tester.element(find.byKey(const ValueKey('reused'))), same(element));
+    expect(transport.destinations, [peer, other]);
+    expect(
+      transport.sent.every(
+        (f) => f.kind == WireKind.profileAvatar && f.body == '?',
+      ),
+      isTrue,
+    );
+    shownPeer.value = '';
+    await settle();
+    expect(transport.destinations, [peer, other]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await settle();
+  });
+
+  testWidgets(
+    'a mounted avatar refreshes from the replacement identity service',
+    (tester) async {
+      late HiddenVolumeStorage secondStorage;
+      late _Transport secondTransport;
+      late MessagingService secondMessaging;
+      await tester.runAsync(() async {
+        final secondBacking = FakeHvContainer();
+        secondStorage = HiddenVolumeStorage(secondBacking.passwordOpener);
+        await storage.upsertContact(Contact(nodeId: peer));
+        await receive(ProfileAvatar(10, bytes).encode());
+        await secondStorage.open(password: 'second', createIfMissing: true);
+        await secondStorage.upsertContact(Contact(nodeId: peer));
+        secondTransport = _Transport();
+        secondMessaging = MessagingService(secondTransport, secondStorage);
+      });
+      final container = ProviderContainer(
+        overrides: [messagingServiceProvider.overrideWithValue(messaging)],
+      );
+      addTearDown(() async {
+        container.dispose();
+        await tester.runAsync(() async {
+          await secondMessaging.dispose();
+          await secondStorage.close();
+        });
+      });
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: IdentityAvatar(
+              key: const ValueKey('identity-view'),
+              peerHex: peer.hex,
+              fallback: const Text('no photo'),
+            ),
+          ),
+        ),
+      );
+      Future<void> settle() async {
+        await tester.pumpAndSettle();
+        await tester.runAsync(() => pumpEventQueue());
+        await tester.pumpAndSettle();
+      }
+
+      await settle();
+      expect(
+        tester.widget<CircleAvatar>(find.byType(CircleAvatar)).backgroundImage,
+        isA<MemoryImage>(),
+      );
+      expect(transport.destinations, [peer]);
+      final element = tester.element(
+        find.byKey(const ValueKey('identity-view')),
+      );
+      container.updateOverrides([
+        messagingServiceProvider.overrideWithValue(secondMessaging),
+      ]);
+      await settle();
+      expect(
+        tester.element(find.byKey(const ValueKey('identity-view'))),
+        same(element),
+      );
+      expect(secondTransport.destinations, [peer]);
+      expect(
+        tester.widget<CircleAvatar>(find.byType(CircleAvatar)).backgroundImage,
+        isNull,
+      ); // The previous identity's cached photo is no longer shown.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await settle();
+    },
   );
 
   test(
