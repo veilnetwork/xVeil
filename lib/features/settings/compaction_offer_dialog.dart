@@ -9,6 +9,19 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import 'storage_settings_screen.dart' show fmtBytes;
 
+typedef _CompactionResult = ({int before, int after});
+
+void _closeCompactionRoute(Route<dynamic>? route, Object? result) {
+  final navigator = route?.navigator;
+  if (route == null || navigator == null || !route.isActive) return;
+  if (route.isCurrent) {
+    navigator.pop(result);
+  } else {
+    // A permission offer can now be above us. Never pop somebody else's route.
+    navigator.removeRoute(route, result);
+  }
+}
+
 /// Collects one password per identity, then compacts keeping all of them.
 ///
 /// `compact_known` keeps exactly the spaces whose passwords it is given and
@@ -39,35 +52,66 @@ Future<({int before, int after})?> showCompactionOffer(
   // nothing, having never been shown the one dialog that collects the
   // passwords (report27 X28).
   //
-  // The root navigator outlives that redirect: the router replaces the page
-  // UNDER it, and a dialog pushed on it is unaffected. Taken here, before
-  // anything can move, so the collection does not depend on the screen that
-  // started it surviving.
+  // Capture the root navigator before the settings page is replaced. A later
+  // redirect back to home can still remove its pageless dialog; the operation
+  // itself must be awaited independently below.
   final navigator = Navigator.of(context, rootNavigator: true);
   final ctrl = ref.read(appControllerProvider.notifier);
+  final lease = ctrl.leaseIdentity();
   await ctrl.noteCompactionOffered();
+  if (!navigator.mounted || !ctrl.holdsIdentity(lease)) return null;
   final opened = await ctrl.beginCompactionCollection();
-  if (!navigator.mounted) {
-    // Nothing can report to a gone navigator, but the container still has to
-    // come back — this is the path that would otherwise strand it closed.
-    await ctrl.cancelCompactionCollection(currentPassword);
+  if (!opened || !navigator.mounted || !ctrl.holdsIdentity(lease)) {
+    await ctrl.recoverCompactionCollection(
+      lease: lease,
+      reopenWith: currentPassword,
+    );
     return null;
   }
-  if (!opened) {
-    await ctrl.cancelCompactionCollection(currentPassword);
+  // A fast teardown can finish before GoRouter has rendered /preparing. A
+  // dialog pushed now would belong to the old settings/home page and vanish
+  // with it, leaving the session closed without ever asking for passwords.
+  await WidgetsBinding.instance.endOfFrame;
+  if (!navigator.mounted || !ctrl.holdsIdentity(lease)) {
+    await ctrl.recoverCompactionCollection(
+      lease: lease,
+      reopenWith: currentPassword,
+    );
     return null;
   }
-  final result = await showDialog<({int before, int after})>(
-    context: navigator.context,
-    barrierDismissible: false,
-    builder: (_) => PopScope(
-      canPop: false,
-      child: _CompactionOfferDialog(
-        estimate: estimate,
-        currentPassword: currentPassword,
+  Future<_CompactionResult?>? operation;
+  _CompactionResult? result;
+  try {
+    await showDialog<_CompactionResult>(
+      context: navigator.context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: _CompactionOfferDialog(
+          estimate: estimate,
+          currentPassword: currentPassword,
+          onOperationStarted: (future) {
+            // The dialog reports failures itself. Keep a handled future even
+            // if its route disappears before rewriting/reopening has finished.
+            operation = future.then<_CompactionResult?>(
+              (value) => value,
+              onError: (Object _, StackTrace _) => null,
+            );
+          },
+        ),
       ),
-    ),
-  );
+    );
+  } finally {
+    final pending = operation;
+    if (pending == null) {
+      await ctrl.recoverCompactionCollection(
+        lease: lease,
+        reopenWith: currentPassword,
+      );
+    } else {
+      result = await pending;
+    }
+  }
   return result;
 }
 
@@ -75,10 +119,12 @@ class _CompactionOfferDialog extends ConsumerStatefulWidget {
   const _CompactionOfferDialog({
     required this.estimate,
     required this.currentPassword,
+    required this.onOperationStarted,
   });
 
   final CompactionEstimate estimate;
   final String currentPassword;
+  final ValueChanged<Future<_CompactionResult?>> onOperationStarted;
 
   @override
   ConsumerState<_CompactionOfferDialog> createState() => _OfferState();
@@ -187,15 +233,20 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   }
 
   Future<void> _run() async {
+    final route = ModalRoute.of(context);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final failure = AppL10n.of(context).settingsStorageCompactFailed;
     setState(() => _busy = true);
     try {
-      final sizes = await ref
+      final operation = ref
           .read(appControllerProvider.notifier)
           .compactStorageKeeping(
             roster: _roster,
             reopenWith: widget.currentPassword,
           );
-      if (mounted) Navigator.of(context).pop(sizes);
+      widget.onOperationStarted(operation);
+      final sizes = await operation;
+      _closeCompactionRoute(route, sizes);
     } catch (_, stack) {
       // The controller has already attempted to reopen the session in finally.
       // Do not probe or retry against that open handle. Close this offer and
@@ -206,11 +257,13 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
-      if (mounted) {
+      if (mounted && (route?.isActive ?? false)) {
         setState(() {
           _failedRun = true;
-          _error = AppL10n.of(context).settingsStorageCompactFailed;
+          _error = failure;
         });
+      } else if (messenger?.mounted ?? false) {
+        messenger!.showSnackBar(SnackBar(content: Text(failure)));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -218,13 +271,17 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   }
 
   Future<void> _cancel() async {
+    final route = ModalRoute.of(context);
     setState(() => _busy = true);
-    if (!_failedRun) {
-      await ref
-          .read(appControllerProvider.notifier)
-          .cancelCompactionCollection(widget.currentPassword);
-    }
-    if (mounted) Navigator.of(context).pop();
+    final operation = _failedRun
+        ? Future<_CompactionResult?>.value(null)
+        : ref
+              .read(appControllerProvider.notifier)
+              .cancelCompactionCollection(widget.currentPassword)
+              .then<_CompactionResult?>((_) => null);
+    widget.onOperationStarted(operation);
+    await operation;
+    _closeCompactionRoute(route, null);
   }
 
   @override
