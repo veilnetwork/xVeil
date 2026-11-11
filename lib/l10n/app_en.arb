@@ -60,6 +60,8 @@
   "lockWipeLeftFiles": "The large files kept beside the container could not be deleted and are still on this device.",
   "lockWipeLeftBoth": "Neither the container nor the large files kept beside it could be deleted, and both are still on this device.",
   "lockWipeLeftSpeechModel": "The downloaded speech model could not be deleted and is still on this device.",
+  "lockWipeLeftRewrite": "Temporary copies of the container could not be deleted.",
+  "lockWipeLeftRewriteUnknown": "Could not check whether temporary copies of the container remain.",
   "lockWipeLeftSpeechModelUnknown": "The speech model could not be checked — this device did not answer where it is stored.",
   "lockWipeLeftTranslationsUnknown": "The translation models could not be checked — this device did not answer where they are stored.",
   "lockWipeLeftNetwork": "The network side did not confirm it stopped — the tunnel or the node may still be running until this app is closed.",

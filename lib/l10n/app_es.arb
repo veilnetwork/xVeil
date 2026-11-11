@@ -60,6 +60,8 @@
   "lockWipeLeftFiles": "No se han podido borrar los archivos grandes guardados junto al contenedor y siguen en este dispositivo.",
   "lockWipeLeftBoth": "No se han podido borrar ni el contenedor ni los archivos grandes guardados junto a él, y ambos siguen en este dispositivo.",
   "lockWipeLeftSpeechModel": "No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.",
+  "lockWipeLeftRewrite": "No se pudieron borrar las copias temporales del contenedor.",
+  "lockWipeLeftRewriteUnknown": "No se pudo comprobar si quedan copias temporales del contenedor.",
   "lockWipeLeftSpeechModelUnknown": "No se pudo comprobar el modelo de voz: este dispositivo no indicó dónde se guarda.",
   "lockWipeLeftTranslationsUnknown": "No se pudieron comprobar los modelos de traducción: este dispositivo no indicó dónde se guardan.",
   "lockWipeLeftNetwork": "La parte de red no confirmó su parada: el túnel o el nodo podrían seguir activos hasta que se cierre la aplicación.",
