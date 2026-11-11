@@ -123,6 +123,21 @@ jobs:
       - run: python3 scripts/test_android_network_assets.py
       - run: python3 scripts/test_check_aot_source_paths.py
       - run: python3 -m unittest discover -s scripts -p test_aot_package_roots.py
+      - run: python3 -m unittest discover -s scripts -p test_aot_workspace.py
+      - run: python3 -m unittest discover -s scripts -p test_strip_macos_debug_info.py
       - run: python3 scripts/test-android-native-deps.py
       - run: python3 -m unittest discover -s scripts -p test_scan_artifacts.py
       - run: python3 -m unittest discover -s scripts -p test_veil_connect_agent.py -v
+
+  macos-packaging:
+    name: macOS packaging symbols
+    timeout-minutes: 10
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      # Real clang/dsymutil/strip/codesign and a loaded native function. The
+      # Linux job covers input guards but skips this platform-specific proof.
+      - run: python3 -m unittest discover -s scripts -p test_strip_macos_debug_info.py
