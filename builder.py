@@ -89,7 +89,7 @@ def _copy(source: str, destination_dir: str) -> None:
     print(f"    staged {os.path.basename(source)} -> {destination_dir}")
 
 
-def _path_remap_env() -> dict[str, str]:
+def _path_remap_env(*, msvc: bool = False) -> dict[str, str]:
     """Keep the builder's absolute paths out of the shipped binaries.
 
     rustc bakes the source path of every panic site into the library — for
@@ -117,14 +117,27 @@ def _path_remap_env() -> dict[str, str]:
     # compile C through cc-rs (aws-lc-sys is the big one) embed their own
     # __FILE__ strings, so the C and C++ compilers need the equivalent or the
     # account name simply moves from the Rust frames to the C ones.
-    cmap = f"-ffile-prefix-map={home}=/build"
+    # clang-cl silently ignores the GNU-driver spelling. Its /clang: escape
+    # forwards the option to clang's frontend, including CMake dependencies.
+    # Forward slashes also survive cc-rs's shell-style flag parsing on Windows.
+    prefix = home.replace("\\", "/") if msvc else home
+    cmap = f"{'/clang:' if msvc else ''}-ffile-prefix-map={prefix}=/build"
+    if any(char.isspace() for char in cmap):
+        cmap = '"' + cmap + '"'
     env = {"CARGO_BUILD_RUSTFLAGS": " ".join(filter(None, [existing, *remaps]))}
     for var in ("CFLAGS", "CXXFLAGS"):
         env[var] = " ".join(filter(None, [os.environ.get(var, "").strip(), cmap]))
+    if msvc:
+        # The workspace's generic CC/CXX defaults select GNU-driver clang.
+        # Use the same target-scoped MSVC driver as the SDK release workflow,
+        # leaving cross-platform builds (e.g. Android on Windows) unchanged.
+        for arch in ("x86_64", "aarch64"):
+            for var in ("CC", "CXX"):
+                env[f"{var}_{arch}_pc_windows_msvc"] = "clang-cl"
     return env
 
 
-def _build_env(**extra: str) -> dict[str, str]:
+def _build_env(*, msvc: bool = False, **extra: str) -> dict[str, str]:
     """The path remap, plus whatever else this particular step needs.
 
     Every step that compiles anything gets the remap; the platform variables
@@ -133,7 +146,7 @@ def _build_env(**extra: str) -> dict[str, str]:
     `env=_engine_policy_env(release)` and therefore carried no remap, and
     nothing about `env=` at a call site says which of the two was meant.
     """
-    return {**_path_remap_env(), **extra}
+    return {**_path_remap_env(msvc=msvc), **extra}
 
 
 def _diagnostic_log_define() -> list[str]:
@@ -1304,14 +1317,14 @@ def _windows(release: bool) -> list[Step]:
         cargo_hv.append(profile)
         cargo_veil.append(profile)
     return [
-        Step("hidden-volume FFI", argv=cargo_hv, env=_build_env()),
+        Step("hidden-volume FFI", argv=cargo_hv, env=_build_env(msvc=True)),
         # The plugin's CMake picks the DLL up from windows/lib; without this
         # the app builds and then cannot open its own container at runtime.
         Step(
             f"stage hidden_volume_ffi.dll -> {hv_stage}",
             call=lambda: _copy(hv_dll, hv_stage),
         ),
-        Step("veil client FFI", argv=cargo_veil, env=_build_env()),
+        Step("veil client FFI", argv=cargo_veil, env=_build_env(msvc=True)),
         # Optional like every other platform's: without it the app still
         # builds and runs, and `WhisperFfi.nativeReady()` reports transcription
         # as unavailable rather than offering a 57 MiB model download that

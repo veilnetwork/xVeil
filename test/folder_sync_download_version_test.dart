@@ -245,6 +245,9 @@ void main() {
           expect(report.applied, isEmpty);
         }
       },
+      skip: Platform.isWindows && stage == 'before-publish'
+          ? 'Windows metadata does not call the dart:io stat override; native publication race tests cover this boundary'
+          : false,
     );
   }
 }

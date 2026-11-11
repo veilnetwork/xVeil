@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../domain/folder_sync.dart';
+import 'folder_file_metadata.dart';
 
 export '../domain/folder_sync.dart' show kPartialSuffix;
 
@@ -99,18 +100,16 @@ Future<FolderScan> scanFolder(
       }
       if (entry is! File) continue;
       try {
-        final stat = entry.statSync();
+        final stamp = readFolderFileMetadata(entry, relative);
+        if (stamp == null) {
+          unreadable.add(relative);
+          continue;
+        }
         if (files.length >= maxFiles) {
           truncated = true;
           return;
         }
-        files.add(
-          LocalFile(
-            path: relative,
-            size: stat.size,
-            modifiedAtMs: stat.modified.millisecondsSinceEpoch,
-          ),
-        );
+        files.add(stamp);
       } catch (_) {
         unreadable.add(relative);
       }
@@ -118,11 +117,7 @@ Future<FolderScan> scanFolder(
   }
 
   await walk(root);
-  return FolderScan(
-    files: files,
-    unreadable: unreadable,
-    truncated: truncated,
-  );
+  return FolderScan(files: files, unreadable: unreadable, truncated: truncated);
 }
 
 String _relative(String rootPath, String path) {

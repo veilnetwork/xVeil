@@ -67,7 +67,7 @@ void main() {
         expect(File('${root.path}/nested/a.txt').readAsStringSync(), 'hello');
         final names = Directory(
           '${root.path}/nested',
-        ).listSync().map((e) => e.path.split('/').last).toList();
+        ).listSync().map((e) => e.path.replaceAll(r'\', '/').split('/').last).toList();
         expect(names, hasLength(2));
         expect(names, contains('a.txt'));
         expect(
@@ -140,7 +140,13 @@ void main() {
             lib: disk.library,
           );
           independent.close();
-          expect(root.listSync(), isEmpty);
+          final entries = root.listSync();
+          // Windows pins admission with a persistent no-delete-share lockfile;
+          // Unix locks the directory itself. Neither creates target parents.
+          expect(
+            entries.map((e) => e.path.replaceAll(r'\', '/').split('/').last),
+            Platform.isWindows ? ['.xveil-sync.lock'] : isEmpty,
+          );
           expect((await disk.scan(root.path)).files, isEmpty);
         } finally {
           release.complete();
