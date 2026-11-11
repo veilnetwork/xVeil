@@ -73,6 +73,7 @@ class _MessagingContacts {
       await _owner._outbox.retireRequests(peer);
       if (_owner._disposed) return;
     }
+    _owner._contactStatusChanges.add((peer: peer, status: status));
     _owner.onContactStatusChanged?.call(peer, status);
   }
 
@@ -128,6 +129,7 @@ class _MessagingContacts {
       await _owner._outbox.retireRequests(peer);
     }
     if (_owner._disposed) return false;
+    _owner._contactStatusChanges.add((peer: peer, status: status));
     _owner._signal();
     return true;
   }

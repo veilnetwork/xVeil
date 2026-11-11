@@ -132,6 +132,52 @@ void main() {
     if (Platform.environment['XVEIL_AVATAR_NATIVE'] == '1') true,
   ]) {
     group(native ? 'native worker' : 'controlled store', () {
+      test(
+        'relationship notices follow persistence without mirror echo',
+        () async {
+          final (storage, _, messaging) = await _fixture(native);
+          final local = <ContactStatus>[];
+          messaging.onContactStatusChanged = (_, status) => local.add(status);
+          final notices = StreamIterator(messaging.contactStatusChanges);
+          addTearDown(notices.cancel);
+
+          final blocked = notices.moveNext();
+          await messaging.blockContact(_id(2));
+          expect(await blocked, isTrue);
+          expect(notices.current, (
+            peer: _id(2),
+            status: ContactStatus.blocked,
+          ));
+          expect(
+            (await storage.getContact(_id(2)))?.status,
+            ContactStatus.blocked,
+          );
+
+          final accepted = notices.moveNext();
+          expect(
+            await messaging.applyMirroredContactStatus(
+              _id(2),
+              ContactStatus.accepted,
+            ),
+            isTrue,
+          );
+          expect(await accepted, isTrue);
+          expect(notices.current, (
+            peer: _id(2),
+            status: ContactStatus.accepted,
+          ));
+          expect(
+            (await storage.getContact(_id(2)))?.status,
+            ContactStatus.accepted,
+          );
+          expect(local, [ContactStatus.blocked]);
+
+          final ended = notices.moveNext();
+          await messaging.dispose();
+          expect(await ended, isFalse);
+        },
+      );
+
       test('a stale accepted read cannot request a blocked contact', () async {
         final (storage, wire, messaging) = await _fixture(native);
         storage.holdContact = true;
