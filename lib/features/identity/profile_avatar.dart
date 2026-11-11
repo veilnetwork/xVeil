@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -7,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ids.dart';
 import '../../domain/profile_avatar.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/device_settings_sync.dart';
@@ -15,7 +17,7 @@ import '../../state/messaging.dart';
 import '../../state/profile_avatar.dart';
 import '../../state/self_presentation.dart';
 
-class IdentityAvatar extends ConsumerWidget {
+class IdentityAvatar extends ConsumerStatefulWidget {
   const IdentityAvatar({
     super.key,
     this.peerHex = '',
@@ -26,16 +28,47 @@ class IdentityAvatar extends ConsumerWidget {
   final double radius;
   final Widget fallback;
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<IdentityAvatar> createState() => _IdentityAvatarState();
+}
+
+class _IdentityAvatarState extends ConsumerState<IdentityAvatar> {
+  void _refresh(MessagingService messaging) {
+    if (widget.peerHex.isEmpty) return;
+    unawaited(messaging.requestPeerAvatar(NodeId.fromHex(widget.peerHex)));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // A desktop sidebar can keep the shared cache alive while another view
+    // opens. Refresh on that view's lifetime, not only the cache's lifetime.
+    // The service retains its contact-consent gate and per-peer rate limit.
+    ref.listenManual(
+      messagingServiceProvider,
+      (_, next) => _refresh(next),
+      fireImmediately: true,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant IdentityAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peerHex != widget.peerHex) {
+      _refresh(ref.read(messagingServiceProvider));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final bytes = ref
-        .watch(profileAvatarProvider(peerHex))
+        .watch(profileAvatarProvider(widget.peerHex))
         .asData
         ?.value
         ?.bytes;
     return CircleAvatar(
-      radius: radius,
+      radius: widget.radius,
       backgroundImage: bytes == null ? null : MemoryImage(bytes),
-      child: bytes == null ? fallback : null,
+      child: bytes == null ? widget.fallback : null,
     );
   }
 }

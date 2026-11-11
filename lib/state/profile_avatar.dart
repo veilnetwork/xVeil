@@ -23,7 +23,6 @@ final profileAvatarProvider = StreamProvider.autoDispose
       }
 
       yield await load();
-      if (peer != null) unawaited(messaging.requestPeerAvatar(peer));
       await for (final _ in events.stream) {
         yield await load();
       }
