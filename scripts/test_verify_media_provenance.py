@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,45 @@ spec.loader.exec_module(media)
 
 
 class MediaProvenanceTest(unittest.TestCase):
+    def test_binary_digest_is_required_and_checked_for_local_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'src'
+            source.mkdir()
+            (source / 'engine.cc').write_bytes(b'int start();\n')
+            binary = Path(directory) / 'engine.dylib'
+            binary.write_bytes(b'current fixture binary')
+            provenance = binary.with_name(binary.name + '.provenance')
+            row = 'media-source-sha256: ' + media.source_digest(source) + '\n'
+            sha = 'sha256: ' + hashlib.sha256(binary.read_bytes()).hexdigest() + '\n'
+            for text in [row, row + 'sha256: bad\n', row + sha + sha]:
+                provenance.write_text(text)
+                with self.assertRaisesRegex(ValueError, 'binary sha256'):
+                    media.verify(source, provenance, binary)
+            provenance.write_text(row + sha)
+            media.verify(source, provenance, binary)
+            binary.write_bytes(b'an older engine with the same symbols')
+            with self.assertRaisesRegex(ValueError, 'binary differs'):
+                media.verify(source, provenance, binary)
+
+    def test_builder_refuses_source_changes_without_overwriting_its_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'src'
+            source.mkdir()
+            implementation = source / 'engine.cc'
+            implementation.write_bytes(b'int start();\n')
+            before = media.source_digest(source)
+            binary = Path(directory) / 'engine.dylib'
+            binary.write_bytes(b'fixture binary')
+            media._native.record_build(source, binary, before)
+            record = binary.with_name(binary.name + '.provenance')
+            original = record.read_bytes()
+            media.verify(source, record, binary)
+            implementation.write_bytes(b'int start_changed();\n')
+            with self.assertRaisesRegex(ValueError, 'source changed'):
+                media._native.record_build(source, binary, before)
+            self.assertEqual(record.read_bytes(), original)
+            self.assertEqual(list(Path(directory).glob('.media-provenance-*')), [])
+
     def test_path_ordering_is_independent_of_host_platform(self):
         # pathlib orders Windows paths case-insensitively. Reproduce that
         # ordering on this host rather than waiting for a Windows publisher.

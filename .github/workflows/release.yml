@@ -119,7 +119,9 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - name: Native media provenance guard regressions
-        run: python3 -m unittest discover -s scripts -p test_verify_media_provenance.py
+        run: |
+          python3 -m unittest discover -s scripts -p test_verify_media_provenance.py
+          python3 -m unittest discover -s scripts -p test_stage_macos_media.py
 
   android:
     name: android APKs

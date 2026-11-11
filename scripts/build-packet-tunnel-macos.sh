@@ -51,7 +51,10 @@ for arch in $ARCHS_VALUE; do
       ;;
   esac
 
-  target_dir="$VEIL/target/xveil-packet-tunnel-macos-$arch"
+  # Xcode also invokes this from ad-hoc builds. Let the caller place this
+  # isolated cache on a mounted disk with room; do not reuse a generic FFI
+  # CARGO_TARGET_DIR or assume the checkout's target symlink is suitable.
+  target_dir="${XVEIL_PACKET_TUNNEL_TARGET_BASE:-$VEIL/target}/xveil-packet-tunnel-macos-$arch"
   CARGO_TARGET_DIR="$target_dir" cargo build \
     --manifest-path "$VEIL/Cargo.toml" \
     --package veilclient-ffi \

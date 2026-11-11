@@ -728,6 +728,17 @@ WEBRTC_ROOT=~/Projects/veilnetwork/webrtc-checkout \
   third_party/veil/flutter/veil_media/ios/build_veil_media_ios.sh [--sim]
 ```
 
+The macOS builder also writes `libveil_media.dylib.provenance` beside the
+library. Keep them together: local app packaging checks the binary SHA, the
+current media-source digest and the exported symbols. An existing stale or
+unrecorded engine stops packaging; an absent optional engine removes an older
+copy from the app bundle. Rebuild the engine rather than generating a record
+for a previously downloaded binary.
+
+For an ad-hoc macOS build, `XVEIL_PACKET_TUNNEL_TARGET_BASE` can place the
+separate PacketTunnel Cargo cache on a disk with enough space. Architecture
+subdirectories remain isolated; the ordinary FFI `CARGO_TARGET_DIR` is not reused.
+
 Both need `WEBRTC_ROOT`/`WEBRTC_SRC` to name a checkout that has already been
 built with `gn`/`ninja`, plus `depot_tools` beside it — the iOS script uses
 `$WEBRTC_ROOT/depot_tools/gn` and the WebRTC checkout's own bundled clang, and
@@ -1716,6 +1727,17 @@ WEBRTC_SRC=~/Projects/veilnetwork/webrtc-checkout/src WEBRTC_OUT=out/mac-arm64 \
 WEBRTC_ROOT=~/Projects/veilnetwork/webrtc-checkout \
   third_party/veil/flutter/veil_media/ios/build_veil_media_ios.sh [--sim]
 ```
+
+Сборщик macOS создаёт рядом с библиотекой `libveil_media.dylib.provenance`.
+Сохраняйте оба файла: упаковка проверяет SHA бинарника, digest текущих исходников
+и экспортируемые функции. Старый движок или отсутствие записи о его сборке
+останавливает упаковку. Если необязательный движок отсутствует, его прежняя
+копия удаляется из app bundle. Нужно пересобрать движок, а не создавать запись
+для ранее скачанного бинарника.
+
+Для ad-hoc macOS-сборки `XVEIL_PACKET_TUNNEL_TARGET_BASE` задаёт каталог
+отдельного Cargo-кэша PacketTunnel на диске с достаточным местом. Подкаталоги
+архитектур остаются раздельными; обычный `CARGO_TARGET_DIR` FFI не используется.
 
 Обоим нужен уже собранный чекаут и `depot_tools` рядом с ним; iOS-скрипт берёт
 `$WEBRTC_ROOT/depot_tools/gn` и клang из самого чекаута и завершается сразу,
