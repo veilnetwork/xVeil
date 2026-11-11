@@ -108,6 +108,72 @@ void main() {
     ),
   );
 
+  for (final mirrored in [false, true]) {
+    testWidgets(
+      'a mounted pending avatar refreshes after acceptance mirrored=$mirrored',
+      (tester) async {
+        await tester.runAsync(
+          () => storage.upsertContact(
+            Contact(nodeId: peer, status: ContactStatus.pendingIncoming),
+          ),
+        );
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [messagingServiceProvider.overrideWithValue(messaging)],
+            child: MaterialApp(
+              home: IdentityAvatar(
+                key: const ValueKey('already-open'),
+                peerHex: peer.hex,
+                fallback: const Text('pending photo'),
+              ),
+            ),
+          ),
+        );
+        Future<void> settle() async {
+          await tester.pumpAndSettle();
+          await tester.runAsync(() => pumpEventQueue());
+          await tester.pumpAndSettle();
+        }
+
+        await settle();
+        expect(transport.sent, isEmpty);
+        final view = tester.element(find.byKey(const ValueKey('already-open')));
+        await tester.runAsync(() async {
+          if (mirrored) {
+            expect(
+              await messaging.applyMirroredContactStatus(
+                peer,
+                ContactStatus.accepted,
+              ),
+              isTrue,
+            );
+          } else {
+            await messaging.acceptContact(peer);
+          }
+        });
+        await settle();
+        expect(
+          tester.element(find.byKey(const ValueKey('already-open'))),
+          same(view),
+        );
+        expect(
+          transport.sent.where(
+            (frame) =>
+                frame.kind == WireKind.profileAvatar && frame.body == '?',
+          ),
+          hasLength(1),
+        );
+        await tester.runAsync(() => receive(ProfileAvatar(10, bytes).encode()));
+        await settle();
+        final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
+        expect(avatar.backgroundImage, isA<MemoryImage>());
+        expect((avatar.backgroundImage! as MemoryImage).bytes, bytes);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settle();
+      },
+    );
+  }
+
   testWidgets(
     'opening a new avatar view refreshes with a sidebar keeping the cache alive',
     (tester) async {
