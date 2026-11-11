@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -38,6 +39,19 @@ class _Notifications extends NotificationService {
   Future<void> cancelAll() async {}
 }
 
+class _Node implements NodeController {
+  @override
+  NodeStatus get current => const NodeStatus(phase: NodePhase.connected);
+  @override
+  Stream<NodeStatus> status() => const Stream.empty();
+  @override
+  Future<void> start() async {}
+  @override
+  Future<void> stop() async {}
+  @override
+  Future<void> setEconomyMode(bool economy) async {}
+}
+
 class _Vpn extends Fake implements VpnBackend {
   @override
   Future<VpnBackendState> probe() => status();
@@ -53,9 +67,22 @@ void main() {
   final library = Platform.environment['XVEIL_HV_DYLIB'];
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  for (final wipe in [false, true]) {
+  for (final scenario in [
+    (wipe: false, reopen: false, keep: false),
+    (wipe: true, reopen: false, keep: false),
+    (wipe: false, reopen: true, keep: false),
+    (wipe: true, reopen: true, keep: false),
+    (wipe: false, reopen: true, keep: true),
+  ]) {
+    final wipe = scenario.wipe;
+    final reopen = scenario.reopen;
+    final keep = scenario.keep;
     test(
-      'accepted native create settles after ${wipe ? 'wipe' : 'lock'}',
+      'accepted native ${reopen ? 'reopen' : 'create'} settles after ${keep
+          ? 'success'
+          : wipe
+          ? 'wipe'
+          : 'lock'}',
       () async {
         expect(ensureHiddenVolumeLoaded(), isTrue);
         final dir = await Directory.systemTemp.createTemp(
@@ -93,8 +120,8 @@ void main() {
         }) async {
           openCalls++;
           final handle = await nativeOpen(password: password, create: create);
-          // The real native worker owns the flock and has created the new space,
-          // but HiddenVolumeStorage has not adopted its response yet.
+          // The real native worker owns the flock, but the facade has not
+          // adopted its response. Create adds a space; reopen opens an existing one.
           opened.complete();
           await release.future;
           return handle;
@@ -104,6 +131,7 @@ void main() {
           overrides: [
             appControllerProvider.overrideWith(() => controller),
             singleSpaceStorageProvider.overrideWithValue(storage),
+            nodeControllerProvider.overrideWithValue(_Node()),
             notificationServiceProvider.overrideWithValue(_Notifications()),
             vpnBackendProvider.overrideWithValue(_Vpn()),
             whisperModelStoreProvider.overrideWithValue(
@@ -111,10 +139,12 @@ void main() {
             ),
             translationModelsRootProvider.overrideWithValue(() async => null),
             deniableBootProvider.overrideWithValue(
-              DeniableBootConfig(
-                runtimeDir: '${dir.path}/runtime',
-                storePath: path,
-              ),
+              keep
+                  ? null
+                  : DeniableBootConfig(
+                      runtimeDir: '${dir.path}/runtime',
+                      storePath: path,
+                    ),
             ),
           ],
         );
@@ -124,12 +154,17 @@ void main() {
         controller.debugDeniableStackStarter = (_) async {
           throw StateError('fixture forbids node boot');
         };
-        final creating = controller.completeOnboarding(
-          password: 'new-fixture',
-          mode: StorageMode.plain,
-          displayName: 'New native fixture',
+        final creating = reopen
+            ? controller.reopenExistingContainer(original)
+            : controller.completeOnboarding(
+                password: 'new-fixture',
+                mode: StorageMode.plain,
+                displayName: 'New native fixture',
+              );
+        final refused = expectLater(
+          creating,
+          reopen ? completion(keep) : throwsStateError,
         );
-        final refused = expectLater(creating, throwsStateError);
         await opened.future;
         expect(
           storage.isOpen,
@@ -138,7 +173,9 @@ void main() {
         );
         Future<List<String>>? wiping;
         try {
-          if (wipe) {
+          if (keep) {
+            release.complete();
+          } else if (wipe) {
             wiping = controller.wipeContainers();
             await Future.any<void>([
               controller.waiting.future,
@@ -169,6 +206,20 @@ void main() {
           await refused;
           if (wiping != null) expect(await wiping, isEmpty);
         }
+        if (keep) {
+          expect(storage.isOpen, isTrue);
+          expect(c.read(appControllerProvider).phase, AppPhase.ready);
+          expect(
+            (await c.read(prefsProvider.future)).getBool('onboarded'),
+            isTrue,
+          );
+          expect(
+            (await storage.loadProfile())!.displayName,
+            'Original native fixture',
+          );
+          expect(await storage.loadFile('fixture-body'), body);
+          await controller.lock();
+        }
         expect(storage.isOpen, isFalse);
         if (wipe) {
           expect(await File(path).exists(), isFalse);
@@ -185,8 +236,8 @@ void main() {
             await reader.close();
             // An accepted native create may persist an empty space; cancellation
             // prevents publishing a profile/session, not that already accepted IO.
-            expect(await reader.open(password: 'new-fixture'), isTrue);
-            expect(await reader.loadProfile(), isNull);
+            expect(await reader.open(password: 'new-fixture'), !reopen);
+            if (!reopen) expect(await reader.loadProfile(), isNull);
           } finally {
             await reader.close();
           }
