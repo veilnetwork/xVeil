@@ -33,6 +33,8 @@ enum _Stage {
   activation,
 }
 
+enum _SelectionStage { open, adopted, profile, close, notifications }
+
 class _Storage extends HiddenVolumeStorage {
   _Storage(super.opener, this.stage, {super.keysOpener});
   final _Stage stage;
@@ -46,6 +48,15 @@ class _Storage extends HiddenVolumeStorage {
   File? publishOnCreate;
   final io = <String>[];
   final keys = <Uint8List>[];
+  final receivedKeys = <Uint8List>[];
+  _SelectionStage? selectionStage;
+  bool throwSelectedOpenOnce = false;
+  Future<void> parkSelection(_SelectionStage at) async {
+    if (!armed || selectionStage != at || entered.isCompleted) return;
+    entered.complete();
+    await release.future;
+  }
+
   Future<void> park(_Stage at) async {
     if (!armed || at != stage || entered.isCompleted) return;
     entered.complete();
@@ -77,11 +88,20 @@ class _Storage extends HiddenVolumeStorage {
     try {
       if (armed) {
         io.add('open-keys');
-        if (++keyOpens == 4) await park(_Stage.activation);
+        receivedKeys.add(keys);
+        keyOpens++;
+        await parkSelection(_SelectionStage.open);
+        if (throwSelectedOpenOnce) {
+          throwSelectedOpenOnce = false;
+          throw StateError('fixture late selected-open refusal');
+        }
+        if (keyOpens == 4) await park(_Stage.activation);
         if (keyOpens == 4 && failActivation) return false;
       }
       owner = 'by-keys';
-      return await super.openWithKeys(owned);
+      final opened = await super.openWithKeys(owned);
+      await parkSelection(_SelectionStage.adopted);
+      return opened;
     } finally {
       owned.fillRange(0, owned.length, 0);
     }
@@ -132,11 +152,19 @@ class _Storage extends HiddenVolumeStorage {
 
   @override
   Future<void> close() async {
+    await parkSelection(_SelectionStage.close);
     if (armed && failCloseOnce) {
       failCloseOnce = false;
       throw StateError('fixture close refusal');
     }
     await super.close();
+  }
+
+  @override
+  Future<UserProfile?> loadProfile() async {
+    final result = await super.loadProfile();
+    await parkSelection(_SelectionStage.profile);
+    return result;
   }
 }
 
@@ -153,8 +181,11 @@ class _Options extends KeepAllOnlineController {
 }
 
 class _Notifications extends NotificationService {
+  _Notifications(this.storage);
+  final _Storage storage;
   @override
-  Future<void> cancelAll() async {}
+  Future<void> cancelAll() =>
+      storage.parkSelection(_SelectionStage.notifications);
 }
 
 class _Vpn extends Fake implements VpnBackend {
@@ -209,7 +240,7 @@ _fixture(_Stage stage) async {
       appControllerProvider.overrideWith(() => ctrl),
       singleSpaceStorageProvider.overrideWithValue(storage),
       keepAllOnlineProvider.overrideWith(_Options.new),
-      notificationServiceProvider.overrideWithValue(_Notifications()),
+      notificationServiceProvider.overrideWithValue(_Notifications(storage)),
       vpnBackendProvider.overrideWithValue(_Vpn()),
       whisperModelStoreProvider.overrideWithValue(
         WhisperModelStore(supportDirectory: () async => directory),
@@ -247,6 +278,219 @@ Future<bool> _add(_Controller ctrl) => ctrl.addIdentity(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final pick in [false, true]) {
+    for (final stage in _SelectionStage.values) {
+      if (pick && stage == _SelectionStage.notifications) continue;
+      for (final reset in [false, true]) {
+        test(
+          'ordinary ${pick ? 'pick' : 'switch'} stops after ${reset ? 'startOver' : 'lock'} at ${stage.name}',
+          () async {
+            final f = await _fixture(_Stage.childOpen);
+            f.storage.selectionStage = stage;
+            final choosing = pick
+                ? f.ctrl.pickIdentity('second-fixture')
+                : f.ctrl.switchIdentity('second-fixture');
+            await f.storage.entered.future;
+            if (reset) {
+              await f.ctrl.startOver();
+            } else {
+              await f.ctrl.lock();
+            }
+            final atStop = List.of(f.storage.io);
+            f.storage.release.complete();
+            await choosing;
+            expect(
+              f.c.read(appControllerProvider).phase,
+              reset ? AppPhase.onboarding : AppPhase.locked,
+            );
+            expect(f.storage.isOpen, isFalse);
+            expect(f.ctrl.debugRoster, isNull);
+            expect(f.ctrl.debugMasterKeys, isNull);
+            expect(f.storage.io, atStop);
+          },
+        );
+      }
+    }
+    test(
+      'ordinary ${pick ? 'pick' : 'switch'} control reaches the selected space and retires its borrowed keys',
+      () async {
+        final f = await _fixture(_Stage.childOpen);
+        f.storage.selectionStage = _SelectionStage.open;
+        final choosing = pick
+            ? f.ctrl.pickIdentity('second-fixture')
+            : f.ctrl.switchIdentity('second-fixture');
+        await f.storage.entered.future;
+        f.storage.release.complete();
+        await choosing;
+        expect(f.c.read(appControllerProvider).phase, AppPhase.ready);
+        expect(f.ctrl.activeIdentity, 'second-fixture');
+        expect((await f.storage.loadProfile())!.displayName, 'second-fixture');
+        expect(f.storage.receivedKeys, hasLength(1));
+        expect(
+          f.storage.receivedKeys.single.every((byte) => byte == 0),
+          isTrue,
+        );
+        expect(
+          f.ctrl.debugRoster!.every(
+            (e) => e.spaceKeys.any((byte) => byte != 0),
+          ),
+          isTrue,
+        );
+      },
+    );
+  }
+  test(
+    'identity leases cannot authorize the old view during a selected-open adoption',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      final old = f.ctrl.leaseIdentity();
+      f.storage.selectionStage = _SelectionStage.adopted;
+      final selecting = f.ctrl.switchIdentity('second-fixture');
+      await f.storage.entered.future;
+      final during = f.ctrl.leaseIdentity();
+      expect((await f.storage.loadProfile())!.displayName, 'second-fixture');
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(f.ctrl.holdsIdentity(old), isFalse);
+      expect(f.ctrl.holdsIdentity(during), isFalse);
+      f.storage.release.complete();
+      await selecting;
+      expect(f.ctrl.holdsIdentity(f.ctrl.leaseIdentity()), isTrue);
+      expect(f.ctrl.holdsIdentity(old), isFalse);
+      expect(f.ctrl.holdsIdentity(during), isFalse);
+    },
+  );
+  test(
+    'identity leases cannot authorize a transient master-edit facade',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      final old = f.ctrl.leaseIdentity();
+      final adding = _add(f.ctrl);
+      await f.storage.entered.future;
+      final during = f.ctrl.leaseIdentity();
+      expect(f.ctrl.holdsIdentity(old), isFalse);
+      expect(f.ctrl.holdsIdentity(during), isFalse);
+      f.storage.release.complete();
+      expect(await adding, isTrue);
+      expect(f.ctrl.holdsIdentity(f.ctrl.leaseIdentity()), isTrue);
+      expect(f.ctrl.holdsIdentity(old), isFalse);
+      expect(f.ctrl.holdsIdentity(during), isFalse);
+    },
+  );
+  test(
+    'a later one-active choice joins the first open and wins without facade overlap',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      f.storage.selectionStage = _SelectionStage.open;
+      final earlier = f.ctrl.switchIdentity('second-fixture');
+      await f.storage.entered.future;
+      final later = f.ctrl.pickIdentity('first-fixture');
+      await Future<void>.delayed(Duration.zero);
+      expect(f.storage.keyOpens, 1);
+      f.storage.release.complete();
+      await Future.wait([earlier, later]);
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(
+        f.c.read(appControllerProvider).identity!.displayName,
+        'first-fixture',
+      );
+      expect((await f.storage.loadProfile())!.displayName, 'first-fixture');
+    },
+  );
+  test(
+    'an obsolete selected-open error cannot close the newer selection',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      f.storage.selectionStage = _SelectionStage.open;
+      f.storage.throwSelectedOpenOnce = true;
+      final earlier = f.ctrl.switchIdentity('second-fixture');
+      await f.storage.entered.future;
+      final later = f.ctrl.pickIdentity('first-fixture');
+      f.storage.release.complete();
+      await Future.wait([earlier, later]);
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(f.c.read(appControllerProvider).phase, AppPhase.ready);
+      expect(f.storage.isOpen, isTrue);
+    },
+  );
+  for (final reset in [false, true]) {
+    test(
+      'session ending excludes new creators before its close finishes reset=$reset',
+      () async {
+        final f = await _fixture(_Stage.childOpen);
+        f.storage.selectionStage = _SelectionStage.close;
+        final ending = reset ? f.ctrl.startOver() : f.ctrl.lock();
+        await f.storage.entered.future;
+        final before = List.of(f.storage.io);
+        expect(
+          await f.ctrl.setIdentityAnonymous('first-fixture', true),
+          isFalse,
+        );
+        await f.ctrl.unlock('outside-fixture');
+        expect(
+          await f.ctrl.reopenExistingContainer('outside-fixture'),
+          isFalse,
+        );
+        await f.ctrl.pickIdentity('second-fixture');
+        expect(f.storage.io, before);
+        f.storage.release.complete();
+        await ending;
+        expect(f.storage.isOpen, isFalse);
+        expect(
+          f.c.read(appControllerProvider).phase,
+          reset ? AppPhase.onboarding : AppPhase.locked,
+        );
+      },
+    );
+  }
+  test(
+    'wipe joins a pending ordinary open before deleting its container',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      f.storage.selectionStage = _SelectionStage.open;
+      final choosing = f.ctrl.switchIdentity('second-fixture');
+      await f.storage.entered.future;
+      var quiescent = false;
+      final barrier = f.ctrl.waitForCompaction().then((_) => quiescent = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(quiescent, isFalse);
+      final wiping = f.ctrl.wipeContainers();
+      f.storage.release.complete();
+      await barrier;
+      await choosing;
+      expect(await wiping, isEmpty);
+      expect(f.storage.isOpen, isFalse);
+      expect(f.file.existsSync(), isFalse);
+      expect(f.c.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+  test(
+    'a queued choice superseded before work starts preserves a healthy current lease',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      final lease = f.ctrl.leaseIdentity();
+      final older = f.ctrl.switchIdentity('second-fixture');
+      final newer = f.ctrl.switchIdentity('first-fixture');
+      await Future.wait([older, newer]);
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(f.storage.isOpen, isTrue);
+      expect(f.ctrl.holdsIdentity(lease), isTrue);
+    },
+  );
+  test(
+    'selection arriving at edit completion still reenters after lifecycle invalidation',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      final noChange = f.ctrl.setIdentityAnonymous('first-fixture', false);
+      // The synchronous no-op result reaches its finally before this continuation.
+      await Future<void>.value();
+      final selecting = f.ctrl.switchIdentity('first-fixture');
+      await noChange;
+      await selecting;
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(f.storage.isOpen, isTrue);
+      expect(f.storage.keyOpens, 1);
+    },
+  );
   for (final stage in _Stage.values) {
     test('adding identity cannot resume after lock at ${stage.name}', () async {
       final f = await _fixture(stage);

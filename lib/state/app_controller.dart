@@ -253,6 +253,11 @@ class _IdentityEdit {
   final keys = <Uint8List>[];
   final storages = <Storage>{};
   bool interrupted = false;
+  // A native await may already have adopted a master or another child. UI
+  // leases need an explicit witness that the facade belongs to the active view.
+  bool viewReadable = false;
+  bool cancellationCleaned = false;
+  bool keepAllOnline = false;
   void check() {
     if (!current()) throw _IdentityEditEnded();
   }
@@ -458,7 +463,9 @@ class AppController extends Notifier<AppState> {
     /// needs a signer, which needs this identity.
     String? nodeConfigToml,
   }) async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _onboardingInFlight != null ||
         _unlockInFlight ||
         _wipeInFlight != null ||
@@ -711,13 +718,19 @@ class AppController extends Notifier<AppState> {
   Future<void>? _onboardingInFlight;
   Future<void>? _identityEditInFlight;
   _IdentityEdit? _identityEditOwner;
+  Future<void>? _identityViewInFlight;
+  _IdentityEdit? _identityViewOwner;
+  bool _identityViewKeepAllOnline = false;
+  int _endingSessions = 0;
   int _identitySelections = 0;
   int _identitySelectionRequest = 0;
 
   Future<bool> _withIdentityEdit(
     Future<bool> Function(_IdentityEdit) run,
   ) async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _identitySelections != 0 ||
         _onboardingInFlight != null ||
         _unlockInFlight ||
@@ -736,6 +749,8 @@ class AppController extends Notifier<AppState> {
     );
     _identityEditOwner = edit;
     try {
+      edit.keepAllOnline = ref.read(sessionProvider) != null;
+      edit.own(ref.read(storageProvider));
       return await run(edit);
     } on _IdentityEditEnded {
       return false;
@@ -761,41 +776,55 @@ class AppController extends Notifier<AppState> {
       }
       return false;
     } finally {
-      if (!edit.current() && (edit.interrupted || !ref.mounted)) {
-        // New sign-in/edit is excluded, and queued switches join this barrier.
-        // These handles cannot belong to a replacement session.
-        if (ref.mounted) {
-          try {
-            await _teardownSession();
-          } catch (_) {}
-          try {
-            await _teardownRealStack();
-          } catch (_) {}
-        }
-        for (final storage in edit.storages) {
-          try {
-            await storage.close();
-          } catch (_) {
-            errorJournal.record(
-              kind: 'identity-edit-close',
-              error: StateError('identity edit handle did not close'),
-              atMs: DateTime.now().millisecondsSinceEpoch,
-            );
-          }
-        }
-        _activeLabel = null;
+      try {
+        await _settleIdentityWork(edit);
+        if (_needsIdentityRetirement(edit)) await _settleIdentityWork(edit);
+      } finally {
+        _identityEditInFlight = null;
+        _identityEditOwner = null;
+        finished.complete();
       }
+    }
+  }
+
+  bool _needsIdentityRetirement(_IdentityEdit work) =>
+      !work.cancellationCleaned &&
+      !work.current() &&
+      (work.interrupted || !ref.mounted);
+
+  Future<void> _settleIdentityWork(_IdentityEdit edit) async {
+    if (_needsIdentityRetirement(edit)) {
+      // New sign-in/edit is excluded, and queued switches join this barrier.
+      // These handles cannot belong to a replacement session.
       if (ref.mounted) {
-        _releaseKeys(edit.keys);
-      } else {
-        _clearMasterSession();
-        for (final key in edit.keys) {
-          wipeSecretBytes(key);
+        try {
+          await _teardownSession();
+        } catch (_) {}
+        try {
+          await _teardownRealStack();
+        } catch (_) {}
+      }
+      for (final storage in edit.storages) {
+        try {
+          await storage.close();
+        } catch (_) {
+          errorJournal.record(
+            kind: 'identity-edit-close',
+            error: StateError('identity edit handle did not close'),
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
         }
       }
-      _identityEditInFlight = null;
-      _identityEditOwner = null;
-      finished.complete();
+      _activeLabel = null;
+      edit.cancellationCleaned = true;
+    }
+    if (ref.mounted) {
+      _releaseKeys(edit.keys);
+    } else {
+      _clearMasterSession();
+      for (final key in edit.keys) {
+        wipeSecretBytes(key);
+      }
     }
   }
 
@@ -880,9 +909,18 @@ class AppController extends Notifier<AppState> {
   /// label across a lock, so a lease taken in one space matched a completely
   /// different space unlocked afterwards.
   bool holdsIdentity(IdentityLease lease) =>
+      _endingSessions == 0 &&
+      _wipeInFlight == null &&
+      _identityOwnerReadable(_identityEditOwner) &&
+      _identityOwnerReadable(_identityViewOwner) &&
+      (_identityViewInFlight == null || _identityViewOwner != null) &&
       lease.lifecycle == _lifecycle &&
       lease.epoch == _identityEpoch &&
       lease.label == _activeLabel;
+
+  bool _identityOwnerReadable(_IdentityEdit? owner) =>
+      owner == null ||
+      (owner.current() && (!owner.interrupted || owner.viewReadable));
 
   /// Test seam for the one dependency of [_ensureRealStack] a unit test cannot
   /// provide: the static [RealVeilStack.startDeniable], which boots a real
@@ -903,7 +941,9 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _onboardingInFlight != null ||
         _manualCompactionBlocksUnlock ||
         _compactionCollectionInFlight != null ||
@@ -1220,7 +1260,9 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _onboardingInFlight != null ||
         _wipeInFlight != null ||
         _compactionInFlight != null ||
@@ -1327,7 +1369,9 @@ class AppController extends Notifier<AppState> {
       children: <({String label, List<int> keys})>[],
     );
     final storage = ref.read(storageProvider);
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _onboardingInFlight != null ||
         _compactionProbeInFlight != null ||
         _compactionCollectionInFlight != null ||
@@ -1563,7 +1607,9 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
   }) async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _onboardingInFlight != null ||
         _wipeInFlight != null ||
         _compactionInFlight != null ||
@@ -1595,6 +1641,7 @@ class AppController extends Notifier<AppState> {
     await _reopenInFlight;
     await _onboardingInFlight;
     await _identityEditInFlight;
+    await _identityViewInFlight;
     await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     await _compactionInFlight;
@@ -2384,6 +2431,11 @@ class AppController extends Notifier<AppState> {
       ref.read(bundledSeedsChoiceProvider.notifier).state = seedsAnswer;
     }
     final st = session.storageFor(label);
+    // Providers now resolve to this label's own hosted space. Internal session
+    // setup also takes leases, before the outer operation has returned.
+    for (final owner in [_identityEditOwner, _identityViewOwner]) {
+      if (owner != null && owner.current()) owner.viewReadable = true;
+    }
     // Same damaged-vs-absent split as the one-active path (audit XV-13), with
     // one honest difference: all-online has ALREADY booted every node by the
     // time we get here, so — unlike [_loadProfileOrHalt] on unlock — this
@@ -2429,33 +2481,121 @@ class AppController extends Notifier<AppState> {
   /// Master mode: open the chosen identity (by its stored keys) and enter its
   /// session. The active identity is the single open space; switching later is
   /// close-this-then-open-next (the exclusive lock allows only one at a time).
-  Future<void> pickIdentity(String label) async {
-    if (!ref.mounted ||
-        !(_pendingRoster?.any((e) => e.label == label) ?? false)) {
+  Future<void> pickIdentity(String label) => _selectIdentity(label);
+
+  bool get _selectionBlocked =>
+      _endingSessions != 0 ||
+      _wipeInFlight != null ||
+      _onboardingInFlight != null ||
+      _unlockInFlight ||
+      _compactionInFlight != null ||
+      _compactionCollectionInFlight != null ||
+      _compactionProbeInFlight != null;
+
+  Future<void> _selectIdentity(String label) async {
+    if (!ref.mounted || _selectionBlocked) return;
+    final session = ref.read(sessionProvider);
+    if (session?.storageFor(label) == null &&
+        !(_pendingRoster?.any((entry) => entry.label == label) ?? false)) {
       return;
     }
     final request = ++_identitySelectionRequest;
+    final previous = _identityViewInFlight;
+    final mutation = _identityEditInFlight;
+    final keepAllOnline =
+        session != null ||
+        (_identityEditOwner?.keepAllOnline ?? false) ||
+        (_identityViewOwner?.keepAllOnline ?? false) ||
+        (previous != null && _identityViewKeepAllOnline);
+    final concurrentActivation = _identitySelections != 0;
     _identitySelections++;
-    try {
-      final pending = _identityEditInFlight;
-      if (pending != null) {
-        _identityEditOwner?.interrupted = true;
-        _endLifecycle();
-        final lifecycle = _lifecycle;
-        await pending;
-        if (!ref.mounted ||
-            _supersededSince(lifecycle) ||
-            request != _identitySelectionRequest) {
-          return;
+    // Hosted spaces already own their handles. The existing activation epoch
+    // decides which view wins; no container-open queue is needed for this path.
+    if (previous == null && mutation == null && session != null) {
+      try {
+        if (label != _activeLabel || concurrentActivation) {
+          await _activateOnline(label, state.identities);
         }
+      } finally {
+        _identitySelections--;
       }
-      await _pickIdentityOwned(label);
+      return;
+    }
+    if (_identityEditOwner != null || _identityViewOwner != null) {
+      _identityEditOwner?.interrupted = true;
+      _identityViewOwner?.interrupted = true;
+      _endLifecycle();
+    }
+    final lifecycle = _lifecycle;
+    final finished = Completer<void>();
+    final pending = finished.future;
+    _identityViewInFlight = pending;
+    _identityViewKeepAllOnline = keepAllOnline;
+    final work = _IdentityEdit(
+      () =>
+          ref.mounted &&
+          !_supersededSince(lifecycle) &&
+          request == _identitySelectionRequest,
+    );
+    work.keepAllOnline = keepAllOnline;
+    try {
+      // A cancelled Future cannot release an accepted native opener. Join the
+      // old owner's complete cleanup before touching its shared storage facade.
+      await previous;
+      await mutation;
+      work.check();
+      _identityViewOwner = work;
+      work.interrupted = true;
+      final boot = ref.read(deniableBootProvider);
+      if (keepAllOnline &&
+          ref.read(sessionProvider) == null &&
+          _pendingRoster != null &&
+          boot?.storePath != null) {
+        final roster = work.copyRoster(_pendingRoster)!;
+        _setPendingRoster(roster); // Session and controller retain these keys.
+        await work.step(() => _enterAllOnline(roster, boot!));
+        await work.step(() => _switchIdentityOwned(label, edit: work));
+      } else if (_activeLabel != null || ref.read(realStackProvider) != null) {
+        await _switchIdentityOwned(label, edit: work);
+      } else {
+        await _pickIdentityOwned(label, edit: work);
+      }
+    } on _IdentityEditEnded {
+      // Lock/wipe or a newer valid choice owns the next visible state.
+    } catch (error) {
+      if (work.current()) {
+        errorJournal.record(
+          kind: 'identity-selection',
+          error: StateError('identity selection failed'),
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+        devLog(() => 'xVeil[identity]: selection failed: $error');
+        _endLifecycle();
+        _clearMasterSession();
+        state = const AppState(AppPhase.locked, unlockError: true);
+      }
     } finally {
-      _identitySelections--;
+      try {
+        await _settleIdentityWork(work);
+        if (_needsIdentityRetirement(work)) await _settleIdentityWork(work);
+      } finally {
+        _identitySelections--;
+        if (identical(_identityViewOwner, work)) _identityViewOwner = null;
+        if (identical(_identityViewInFlight, pending)) {
+          _identityViewInFlight = null;
+          _identityViewKeepAllOnline = false;
+        }
+        finished.complete();
+      }
     }
   }
 
-  Future<void> _pickIdentityOwned(String label, {_IdentityEdit? edit}) async {
+  Future<void> _pickIdentityOwned(
+    String label, {
+    required _IdentityEdit edit,
+  }) async {
+    edit.check();
+    edit.viewReadable = false;
     RosterEntry? entry;
     for (final e in _pendingRoster ?? const <RosterEntry>[]) {
       if (e.label == label) {
@@ -2464,11 +2604,10 @@ class AppController extends Notifier<AppState> {
       }
     }
     if (entry == null) return;
-    Future<T> step<T>(Future<T> Function() run) =>
-        edit == null ? run() : edit.step(run);
     final storage = ref.read(storageProvider);
-    edit?.own(storage);
-    if (!await step(() => storage.openWithKeys(entry!.spaceKeys))) {
+    edit.own(storage);
+    final selectedKeys = edit.copyKeys(entry.spaceKeys)!;
+    if (!await edit.step(() => storage.openWithKeys(selectedKeys))) {
       // The child keys no longer open a space — bounce back to locked.
       errorJournal.record(
         kind: 'identity',
@@ -2481,9 +2620,10 @@ class AppController extends Notifier<AppState> {
       return;
     }
     _activeLabel = label;
-    final profile = await step(() => _loadProfileOrHalt(storage));
+    edit.viewReadable = true;
+    final profile = await edit.step(() => _loadProfileOrHalt(storage));
     if (profile == null) return; // damaged record — parked, nothing written
-    await step(() => _enterSession(profile));
+    await edit.step(() => _enterSession(profile));
   }
 
   /// Switch to another identity in the same master session: stop the current
@@ -2491,111 +2631,62 @@ class AppController extends Notifier<AppState> {
   /// time), open the chosen child by its cached keys, and boot its node. No
   /// password — the roster is already in memory from unlock. No-op outside a
   /// master session or when already active.
-  Future<void> switchIdentity(String label) async {
-    if (!ref.mounted) return;
-    final session = ref.read(sessionProvider);
-    if (session?.storageFor(label) == null &&
-        !(_pendingRoster?.any((e) => e.label == label) ?? false)) {
-      return;
-    }
-    final request = ++_identitySelectionRequest;
-    _identitySelections++;
-    try {
-      final pending = _identityEditInFlight;
-      if (pending != null) {
-        _identityEditOwner?.interrupted = true;
-        _endLifecycle();
-        final lifecycle = _lifecycle;
-        await pending;
-        if (!ref.mounted ||
-            _supersededSince(lifecycle) ||
-            request != _identitySelectionRequest) {
-          return;
-        }
-      }
-      await _switchIdentityOwned(label);
-    } finally {
-      _identitySelections--;
-    }
-  }
+  Future<void> switchIdentity(String label) => _selectIdentity(label);
 
-  Future<void> _switchIdentityOwned(String label) async {
-    // All-online: every node is already up — just re-point the view, no
-    // teardown/reboot. Fast switch.
+  Future<void> _switchIdentityOwned(
+    String label, {
+    required _IdentityEdit edit,
+  }) async {
+    edit.check();
     final session = ref.read(sessionProvider);
     if (session != null) {
       if (label == _activeLabel || session.storageFor(label) == null) return;
-      await _activateOnline(label, state.identities);
+      await edit.step(() => _activateOnline(label, state.identities));
       return;
     }
     if (_pendingRoster == null || label == _activeLabel) return;
     RosterEntry? entry;
-    for (final e in _pendingRoster!) {
-      if (e.label == label) {
-        entry = e;
+    for (final row in _pendingRoster!) {
+      if (row.label == label) {
+        entry = row;
         break;
       }
     }
     if (entry == null) return;
-    // Same barrier as the all-online path above, for the same reason: the
-    // identity that posted the alerts on screen is about to go away.
+    edit.viewReadable = false;
+    final selectedKeys = edit.copyKeys(entry.spaceKeys)!;
     _stopMediaCapture();
-    await _dropPostedNotifications();
-    // Timestamped phases (like _unlockInner/lock): a switch that takes seconds
-    // names the step that stalled — teardown, lock release, space open, or the
-    // node boot inside _enterSession (whose own laps are in veil_stack).
-    final sw = Stopwatch()..start();
-    int lap0 = 0;
-    int lap() {
-      final t = sw.elapsedMilliseconds;
-      final d = t - lap0;
-      lap0 = t;
-      return d;
-    }
-
-    await _teardownRealStack(); // stop the current identity's node
-    final tTeardown = lap();
-    await ref.read(storageProvider).close(); // release the lock
-    final tClose = lap();
+    await edit.step(_dropPostedNotifications);
+    final watch = Stopwatch()..start();
+    await edit.step(_teardownRealStack);
+    final teardownMs = watch.elapsedMilliseconds;
+    final storage = edit.own(ref.read(storageProvider));
+    await edit.step(storage.close);
+    final closeMs = watch.elapsedMilliseconds - teardownMs;
     state = state.copyWith(phase: AppPhase.preparingNode);
-    try {
-      final storage = ref.read(storageProvider);
-      if (!await storage.openWithKeys(entry.spaceKeys)) {
-        errorJournal.record(
-          kind: 'identity',
-          error: 'stored keys no longer open this space',
-          atMs: DateTime.now().millisecondsSinceEpoch,
-        );
-        state = const AppState(AppPhase.locked, unlockError: true);
-        return;
-      }
-      final tOpen = lap();
-      _activeLabel = label;
-      final profile = await _loadProfileOrHalt(storage);
-      if (profile == null) return; // damaged record — parked, nothing written
-      await _enterSession(profile);
-      devLog(
-        () =>
-            'xVeil[identity]: switch done in ${sw.elapsedMilliseconds}ms '
-            '(teardown ${tTeardown}ms, close ${tClose}ms, open ${tOpen}ms, '
-            'session ${lap()}ms)',
-      );
-    } catch (e) {
-      // A throw here (FFI fault on close/open, corrupt identity blob) after the
-      // session was torn down would leave the UI wedged on the preparing
-      // screen. Bounce to the lock screen so the user re-unlocks into a clean
-      // session instead of a half-torn-down dead end.
-      devLog(() => 'xVeil[identity]: switchIdentity failed -> lock: $e');
+    if (!await edit.step(() => storage.openWithKeys(selectedKeys))) {
       errorJournal.record(
         kind: 'identity',
-        error: e,
+        error: 'stored keys no longer open this space',
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
-      try {
-        await ref.read(storageProvider).close();
-      } catch (_) {}
+      _endLifecycle();
+      _clearMasterSession();
       state = const AppState(AppPhase.locked, unlockError: true);
+      return;
     }
+    final openedAtMs = watch.elapsedMilliseconds;
+    _activeLabel = label;
+    edit.viewReadable = true;
+    final profile = await edit.step(() => _loadProfileOrHalt(storage));
+    if (profile == null) return;
+    await edit.step(() => _enterSession(profile));
+    devLog(
+      () =>
+          'xVeil[identity]: switch done in ${watch.elapsedMilliseconds}ms '
+          '(teardown ${teardownMs}ms, close ${closeMs}ms, '
+          'open ${openedAtMs - teardownMs - closeMs}ms, session ${watch.elapsedMilliseconds - openedAtMs}ms)',
+    );
   }
 
   /// The identity currently active in a master session, or null in single mode.
@@ -2675,6 +2766,7 @@ class AppController extends Notifier<AppState> {
     // boots with the new anonymity, then refreshes the home state + node id.
     edit.interrupted = true;
     await edit.step(() => _teardownRealStack());
+    edit.viewReadable = true; // This reboot keeps the active space open.
     final profile = await edit.step(() => _loadProfileOrHalt(storage));
     if (profile == null) return false; // damaged record — parked
     await edit.step(() => _enterSession(profile));
@@ -2728,22 +2820,57 @@ class AppController extends Notifier<AppState> {
   /// — and why the callers that do use it either have nothing live to lose or
   /// are changing the very thing the connections run over.
   Future<bool> rebootHostedNodes() async {
-    if (_identityEditInFlight != null) return false;
+    if (!ref.mounted) return false;
+    if (state.phase != AppPhase.ready ||
+        ref.read(deniableBootProvider) == null) {
+      return true;
+    }
+    if (_identitySelections != 0 ||
+        _selectionBlocked ||
+        _identityEditInFlight != null ||
+        _identityViewInFlight != null) {
+      return false;
+    }
+    final lifecycle = _lifecycle;
+    final work = _IdentityEdit(
+      () => ref.mounted && !_supersededSince(lifecycle),
+    );
+    work.interrupted = true;
+    work.keepAllOnline = ref.read(sessionProvider) != null;
+    final finished = Completer<void>();
+    final pending = finished.future;
+    _identityViewInFlight = pending;
+    _identityViewKeepAllOnline = work.keepAllOnline;
+    _identityViewOwner = work;
     _identitySelections++;
     try {
-      return await _rebootHostedNodesOwned();
+      return await _rebootHostedNodesOwned(work);
+    } on _IdentityEditEnded {
+      return false;
     } finally {
-      _identitySelections--;
+      try {
+        await _settleIdentityWork(work);
+        if (_needsIdentityRetirement(work)) await _settleIdentityWork(work);
+      } finally {
+        _identitySelections--;
+        if (identical(_identityViewOwner, work)) _identityViewOwner = null;
+        if (identical(_identityViewInFlight, pending)) {
+          _identityViewInFlight = null;
+          _identityViewKeepAllOnline = false;
+        }
+        finished.complete();
+      }
     }
   }
 
-  Future<bool> _rebootHostedNodesOwned() async {
+  Future<bool> _rebootHostedNodesOwned(_IdentityEdit edit) async {
+    edit.check();
     if (state.phase != AppPhase.ready ||
         ref.read(deniableBootProvider) == null) {
       return true;
     }
 
-    final roster = _pendingRoster;
+    final roster = edit.copyRoster(_pendingRoster);
     final active = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
     try {
@@ -2752,18 +2879,22 @@ class AppController extends Notifier<AppState> {
           phase: AppPhase.preparingNode,
           preparingReason: PreparingReason.node,
         );
-        await _teardownSession();
-        await _reEnterAfterRosterEdit(roster, active, true);
+        await edit.step(_teardownSession);
+        _setPendingRoster(roster);
+        await edit.step(
+          () => _reEnterAfterRosterEdit(roster, active, true, edit: edit),
+        );
         return state.phase == AppPhase.ready &&
             ref.read(realStackProvider) != null;
       }
 
-      await _teardownRealStack();
-      final storage = ref.read(storageProvider);
+      await edit.step(_teardownRealStack);
+      final storage = edit.own(ref.read(storageProvider));
       if (!storage.isOpen) return false;
-      final profile = await _loadProfileOrHalt(storage);
+      edit.viewReadable = true; // The one-active reboot does not switch spaces.
+      final profile = await edit.step(() => _loadProfileOrHalt(storage));
       if (profile == null) return false; // damaged record — parked
-      await _enterSession(profile);
+      await edit.step(() => _enterSession(profile));
       // _enterSession deliberately tolerates a failed node boot and can still
       // enter the UI. A device-link caller must not signal readiness in that
       // state: the source would send its one snapshot to a missing node.
@@ -2805,6 +2936,7 @@ class AppController extends Notifier<AppState> {
     // re-reads the setting and composes the boot config with it).
     edit.interrupted = true;
     await edit.step(() => _teardownRealStack());
+    edit.viewReadable = true; // This reboot keeps the active space open.
     final profile = await edit.step(() => _loadProfileOrHalt(storage));
     if (profile == null) return false; // damaged record — parked
     await edit.step(() => _enterSession(profile));
@@ -2902,11 +3034,10 @@ class AppController extends Notifier<AppState> {
     List<RosterEntry> updated,
     String? target,
     bool hadSession, {
-    _IdentityEdit? edit,
+    required _IdentityEdit edit,
   }) async {
-    edit?.check();
-    Future<T> step<T>(Future<T> Function() run) =>
-        edit == null ? run() : edit.step(run);
+    edit.check();
+    edit.viewReadable = false;
     final valid = target != null && updated.any((e) => e.label == target);
     if (hadSession) {
       // All-online: rebuild the whole session (every node re-boots), then
@@ -2914,15 +3045,17 @@ class AppController extends Notifier<AppState> {
       final boot = ref.read(deniableBootProvider);
       if (boot?.storePath != null) {
         try {
-          await step(() => _enterAllOnline(updated, boot!));
-          if (valid) await step(() => _switchIdentityOwned(target));
+          await edit.step(() => _enterAllOnline(updated, boot!));
+          if (valid) {
+            await edit.step(() => _switchIdentityOwned(target, edit: edit));
+          }
           return;
         } catch (e, st) {
           devLog(
             () =>
                 'xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st',
           );
-          await step(_teardownSession);
+          await edit.step(_teardownSession);
         }
       }
       _activeLabel = null;
@@ -2936,7 +3069,7 @@ class AppController extends Notifier<AppState> {
     // it is gone so the user re-selects.
     if (valid) {
       _activeLabel = null;
-      await step(() => _pickIdentityOwned(target, edit: edit));
+      await edit.step(() => _pickIdentityOwned(target, edit: edit));
     } else {
       _activeLabel = null;
       state = state.copyWith(
@@ -3500,6 +3633,7 @@ class AppController extends Notifier<AppState> {
   /// user is not stranded on a closed space.
   Future<void> _recoverToActive({required _IdentityEdit edit}) async {
     edit.check();
+    edit.viewReadable = false;
     final label = _activeLabel;
     if (_pendingRoster != null && label != null) {
       _activeLabel = null;
@@ -3870,6 +4004,15 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> lock() async {
+    _endingSessions++;
+    try {
+      await _lockOwned();
+    } finally {
+      _endingSessions--;
+    }
+  }
+
+  Future<void> _lockOwned() async {
     // FIRST, before any await and before anything is torn down: end the
     // lifecycle. What this teardown cannot see — a node or a hosted session
     // still mid-boot, published only after the await it is sitting in — now
@@ -4204,6 +4347,15 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    _endingSessions++;
+    try {
+      await _startOverOwned();
+    } finally {
+      _endingSessions--;
+    }
+  }
+
+  Future<void> _startOverOwned() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
     _stopMediaCapture();
     _incomplete.clear();
@@ -4261,7 +4413,9 @@ class AppController extends Notifier<AppState> {
   /// Returns true only for an admitted, authenticated reopening with its launch
   /// marker saved. A busy or wrong-password attempt writes no marker.
   Future<bool> reopenExistingContainer(String password) async {
-    if (_identityEditInFlight != null ||
+    if (_endingSessions != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
         _unlockInFlight ||
         _onboardingInFlight != null ||
         _manualCompactionBlocksUnlock ||

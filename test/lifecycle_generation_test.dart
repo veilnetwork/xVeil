@@ -240,7 +240,7 @@ typedef _AllOnline = ({
   _GatedNotifications notifications,
 });
 
-Future<_AllOnline> _allOnlineHarness() async {
+Future<_AllOnline> _allOnlineHarness({bool rebuildable = false}) async {
   SharedPreferences.setMockInitialValues({
     'onboarded': true,
     'keep_all_online': true,
@@ -270,7 +270,7 @@ Future<_AllOnline> _allOnlineHarness() async {
   final gate = Completer<void>();
   final disposedNodes = <String>[];
   var entered = false;
-  final session = MultiIdentitySession(
+  MultiIdentitySession newSession() => MultiIdentitySession(
     backing,
     runtimeDirBase: '/run',
     listenPortBase: 9000,
@@ -283,6 +283,8 @@ Future<_AllOnline> _allOnlineHarness() async {
       );
     },
   );
+
+  final session = newSession();
 
   final c = ProviderContainer(
     overrides: [
@@ -308,7 +310,7 @@ Future<_AllOnline> _allOnlineHarness() async {
           required lazyMining,
           required proxy,
           required paddingPreset,
-        }) => session,
+        }) => rebuildable ? newSession() : session,
       ),
     ],
   );
@@ -545,6 +547,83 @@ void main() {
     );
   });
 
+  test(
+    'all-online latest choice of the original identity supersedes a parked switch',
+    () async {
+      final h = await _allOnlineHarness();
+      h.gate.complete();
+      await h.controller.unlock('masterpw');
+      final first = h.container.read(appControllerProvider).activeIdentity!;
+      final other = first == 'alice' ? 'bob' : 'alice';
+      final parked = Completer<void>();
+      addTearDown(() {
+        if (!parked.isCompleted) parked.complete();
+      });
+      final before = h.notifications.cancelCalls;
+      h.notifications.gate = parked;
+      final earlier = h.controller.switchIdentity(other);
+      await _pumpUntil(
+        () => h.notifications.cancelCalls > before,
+        'the earlier switch dropping alerts',
+      );
+      await h.controller.switchIdentity(first);
+      parked.complete();
+      await earlier;
+      expect(h.container.read(appControllerProvider).activeIdentity, first);
+      expect(
+        (await h.container.read(storageProvider).loadProfile())!.displayName,
+        first == 'alice' ? 'Alice' : 'Bob',
+      );
+      await h.controller.lock();
+    },
+  );
+  test(
+    'all-online selection at edit finalization keeps every identity hosted',
+    () async {
+      final h = await _allOnlineHarness(rebuildable: true);
+      h.gate.complete();
+      await h.controller.unlock('masterpw');
+      final first = h.container.read(appControllerProvider).activeIdentity!;
+      final other = first == 'alice' ? 'bob' : 'alice';
+      final editing = h.controller.setIdentityAnonymous(first, false);
+      await Future<void>.value();
+      final selecting = h.controller.switchIdentity(other);
+      await editing;
+      await selecting;
+      expect(h.container.read(sessionProvider), isNotNull);
+      expect(h.container.read(sessionProvider)!.labels.toSet(), {
+        'alice',
+        'bob',
+      });
+      expect(h.container.read(appControllerProvider).activeIdentity, other);
+      expect(
+        (await h.container.read(storageProvider).loadProfile())!.displayName,
+        other == 'alice' ? 'Alice' : 'Bob',
+      );
+      expect(
+        h.controller.debugRoster!.every((e) => e.spaceKeys.any((b) => b != 0)),
+        isTrue,
+      );
+      await h.controller.lock();
+    },
+  );
+  test('all-online reboot retains the adopted roster keys', () async {
+    final h = await _allOnlineHarness(rebuildable: true);
+    h.gate.complete();
+    await h.controller.unlock('masterpw');
+    final previous = h.controller.debugRoster!.map((e) => e.spaceKeys).toList();
+    await h.controller.rebootHostedNodes();
+    expect(h.container.read(sessionProvider), isNotNull);
+    expect(h.container.read(sessionProvider)!.labels.toSet(), {'alice', 'bob'});
+    expect(
+      h.controller.debugRoster!.every((e) => e.spaceKeys.any((b) => b != 0)),
+      isTrue,
+    );
+    expect(previous.every((key) => key.every((b) => b == 0)), isTrue);
+    await h.controller.switchIdentity('bob');
+    expect(h.container.read(appControllerProvider).activeIdentity, 'bob');
+    await h.controller.lock();
+  });
   test('the switch takes its lifecycle token before it awaits anything', () {
     // The half the harness above cannot reach today. `lock()` clears the
     // session, so the stale switch stops at the null check before it can
@@ -567,22 +646,24 @@ void main() {
     );
   });
 
-  test('all-online CONTROL: with no lock the switch does re-point the view',
-      () async {
-    // The other way round, so the test above cannot pass on a switch that
-    // does nothing at all.
-    final h = await _allOnlineHarness();
-    final c = h.container;
-    h.gate.complete();
-    await h.controller.unlock('masterpw');
-    final first = c.read(appControllerProvider).activeIdentity;
-    final other = first == 'alice' ? 'bob' : 'alice';
+  test(
+    'all-online CONTROL: with no lock the switch does re-point the view',
+    () async {
+      // The other way round, so the test above cannot pass on a switch that
+      // does nothing at all.
+      final h = await _allOnlineHarness();
+      final c = h.container;
+      h.gate.complete();
+      await h.controller.unlock('masterpw');
+      final first = c.read(appControllerProvider).activeIdentity;
+      final other = first == 'alice' ? 'bob' : 'alice';
 
-    await h.controller.switchIdentity(other);
+      await h.controller.switchIdentity(other);
 
-    expect(c.read(appControllerProvider).phase, AppPhase.ready);
-    expect(c.read(appControllerProvider).activeIdentity, other);
-  });
+      expect(c.read(appControllerProvider).phase, AppPhase.ready);
+      expect(c.read(appControllerProvider).activeIdentity, other);
+    },
+  );
 
   test('all-online CONTROL: with no lock the same boot reaches ready and the '
       'session IS published', () async {
