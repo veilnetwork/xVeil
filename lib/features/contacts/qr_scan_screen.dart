@@ -12,7 +12,8 @@ import '../../l10n/app_localizations.dart';
 /// for an invite. The camera feed is never recorded or transmitted — frames are
 /// decoded on-device and discarded.
 class QrScanScreen extends StatefulWidget {
-  const QrScanScreen({super.key});
+  const QrScanScreen({super.key, this.nodeConnect = false});
+  final bool nodeConnect;
 
   @override
   State<QrScanScreen> createState() => _QrScanScreenState();
@@ -22,13 +23,14 @@ class QrScanScreen extends StatefulWidget {
 /// whole capture first avoids flashing a "not an invite" warning when the same
 /// frame also contains a valid xVeil QR code.
 ({String? invite, bool sawNonInvite}) classifyScannedInviteValues(
-  Iterable<String?> rawValues,
-) {
+  Iterable<String?> rawValues, {
+  bool nodeConnect = false,
+}) {
   var sawNonInvite = false;
   for (final raw in rawValues) {
     final value = raw?.trim() ?? '';
     if (value.isEmpty) continue;
-    if (value.startsWith('veil:')) {
+    if (value.startsWith(nodeConnect ? 'xveil:node?' : 'veil:')) {
       return (invite: value, sawNonInvite: sawNonInvite);
     }
     sawNonInvite = true;
@@ -99,6 +101,7 @@ class _QrScanScreenState extends State<QrScanScreen>
     if (_handled) return;
     final decision = classifyScannedInviteValues(
       capture.barcodes.map((code) => code.rawValue),
+      nodeConnect: widget.nodeConnect,
     );
     if (decision.invite case final invite?) {
       _handled = true;

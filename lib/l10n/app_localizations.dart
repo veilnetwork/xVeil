@@ -13895,6 +13895,66 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Why keep the certificate'**
   String get onboardRecoveryWhy;
+
+  /// No description provided for @nodeConnectTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect by QR'**
+  String get nodeConnectTitle;
+
+  /// No description provided for @nodeConnectHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Run veil-connect on the server, then scan its temporary QR. Keep the terminal open.'**
+  String get nodeConnectHint;
+
+  /// No description provided for @nodeConnectLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporary connection code'**
+  String get nodeConnectLink;
+
+  /// No description provided for @nodeConnectTrust.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect only to your server. This QR grants control with the permissions of the account running veil-connect. It expires when the helper closes.'**
+  String get nodeConnectTrust;
+
+  /// No description provided for @nodeConnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get nodeConnectAction;
+
+  /// No description provided for @nodeConnectTemporary.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporary HTTPS access'**
+  String get nodeConnectTemporary;
+
+  /// No description provided for @nodeConnectExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Access expired. Run veil-connect again and scan the new QR.'**
+  String get nodeConnectExpired;
+
+  /// No description provided for @nodeConnectError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not connect. Check the code, server address, port and certificate.'**
+  String get nodeConnectError;
+
+  /// No description provided for @nodeConnectRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Renew QR access'**
+  String get nodeConnectRefresh;
+
+  /// No description provided for @nodeConnectInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install or manage components'**
+  String get nodeConnectInstall;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

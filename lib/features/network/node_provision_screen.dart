@@ -7,6 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../common/shown_cause.dart';
 import 'ssh_host_confirm.dart';
+import 'node_connect_screen.dart' show nodeConnectError;
+import '../../data/node/node_connect.dart';
+import '../../state/node_connect.dart';
+import '../../state/identity_guard.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/proxy_routing.dart';
@@ -48,6 +52,9 @@ class NodeProvisionScreen extends ConsumerStatefulWidget {
 }
 
 class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
+  late final IdentityLease _lease;
+  bool get _current => mounted && ref.holdsIdentity(_lease);
+
   final _releaseUrl = TextEditingController();
   final _sha256 = TextEditingController();
   final _password = TextEditingController();
@@ -92,6 +99,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   @override
   void initState() {
     super.initState();
+    _lease = ref.leaseIdentity();
     _releaseResolver = widget.releaseResolver ?? VeilGithubReleaseResolver();
     _componentUrls = {
       for (final component in NodeComponent.values)
@@ -177,6 +185,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   }
 
   Future<void> _loadCredentials() async {
+    if (widget.node.hasConnect) {
+      setState(() => _credentialsLoaded = true);
+      return;
+    }
     final credentials =
         widget.initialCredentials ??
         await ref.read(sshCredentialsRepositoryProvider).load(widget.node.id);
@@ -279,10 +291,15 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   }
 
   Future<void> _run() async {
+    if (!_current) return;
     final cfg = _config;
     final l = AppL10n.of(context);
     if (cfg == null || !cfg.isValid) {
       setState(() => _error = l.provisionInvalidConfig);
+      return;
+    }
+    if (widget.node.hasConnect) {
+      await _runConnect(cfg);
       return;
     }
     final key = _key.text.trim().isNotEmpty
@@ -314,6 +331,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       port: widget.node.sshPort,
       pinned: widget.node.sshHostFingerprint,
     );
+    if (!_current) return;
     if (pin == null) {
       if (mounted) {
         setState(() {
@@ -337,6 +355,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         // Mining the identity (PoW) on first run can take minutes.
         timeout: const Duration(minutes: 6),
       );
+      if (!_current) return;
       final fpLine = r.hostFingerprint.isNotEmpty
           ? '\nhost key: ${r.hostFingerprint}'
           : '';
@@ -345,11 +364,53 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       if (mounted) {
         setState(() => _output = '$combined\n(exit ${r.exitCode})$fpLine');
       }
-      await _persistAfterRun(fingerprint: r.hostFingerprint, output: combined);
+      if (r.ok && !r.truncated) {
+        await _persistAfterRun(
+          fingerprint: r.hostFingerprint,
+          output: combined,
+        );
+      }
     } on SshException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _runConnect(NodeProvisionConfig cfg) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _output = null;
+    });
+    try {
+      final result = await runNodeConnect(
+        ref,
+        widget.node,
+        _lease,
+        buildProvisionScript(cfg),
+        timeout: const Duration(minutes: 6),
+        isMounted: () => mounted,
+      );
+      if (!_current) return;
+      final combined = '${result.stdout}\n${result.stderr}';
+      setState(() => _output = '$combined\n(exit ${result.exitCode})');
+      if (result.ok && !result.truncated) {
+        await _persistAfterRun(fingerprint: '', output: combined);
+      }
+      if (result.truncated && _current) {
+        setState(() => _error = AppL10n.of(context).nodeConnectError);
+      }
+    } on NodeConnectException catch (error) {
+      if (_current) {
+        setState(() => _error = nodeConnectError(AppL10n.of(context), error));
+      }
+    } catch (_) {
+      if (_current) {
+        setState(() => _error = AppL10n.of(context).nodeConnectError);
+      }
+    } finally {
+      if (_current) setState(() => _busy = false);
     }
   }
 
@@ -373,9 +434,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     required String fingerprint,
     required String output,
   }) async {
+    if (!_current) return;
     final report = parseProvisionReport(
       output,
-      reachableHost: widget.node.sshHost,
+      reachableHost: widget.node.controlHost,
     );
     var node = widget.node;
     var changed = false;
@@ -391,6 +453,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       // The server exists by now. A record that did not save leaves a
       // deployed node the app does not know about at the next launch.
       final failed = await ref.read(managedNodesProvider.notifier).upsert(node);
+      if (!_current) return;
       if (failed != null && mounted) {
         setState(() => _error = failed);
       }
@@ -407,6 +470,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       try {
         final invite = BootstrapInvite.parse(report.invite!);
         await ref.read(realStackProvider)?.addContact(invite);
+        if (!_current) return;
         done.add(l.provisionAddedPeer);
       } catch (e) {
         done.add(l.provisionPeerFailed(shownCause(e, kind: 'provision')));
@@ -418,6 +482,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     // app dials is veil's `[proxy.exit]` (see [routingWithDeployedExit]). The
     // catalog keys on node id, so a node that failed to report one cannot be
     // registered — say so rather than adding a blank entry.
+    if (!_current) return;
     if (_runExit && l != null) {
       final id = report.nodeId;
       if (id == null) {
@@ -429,16 +494,17 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
           nodeId: id,
           label: node.label.isNotEmpty
               ? node.label
-              : (node.sshHost ?? id.substring(0, 8)),
+              : (node.controlHost ?? id.substring(0, 8)),
         );
         if (updated != null) {
           await ref.read(proxyRoutingProvider.notifier).set(updated);
         }
+        if (!_current) return;
         done.add(l.provisionAddedProxy);
       }
     }
 
-    if (done.isNotEmpty && mounted) {
+    if (done.isNotEmpty && mounted && _current) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(done.join('\n'))));
@@ -952,7 +1018,9 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         ),
         children: [
           Text(
-            '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
+            widget.node.hasConnect
+                ? l.nodeConnectTemporary
+                : '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
             style: const TextStyle(fontFamily: 'monospace'),
           ),
           const SizedBox(height: 12),
@@ -976,58 +1044,60 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             const LinearProgressIndicator(),
             const SizedBox(height: 8),
           ],
-          SegmentedButton<bool>(
-            segments: [
-              ButtonSegment(value: false, label: Text(l.sshUsePassword)),
-              ButtonSegment(value: true, label: Text(l.sshUseKey)),
-            ],
-            selected: {_useKey},
-            onSelectionChanged: !_credentialsLoaded || _busy
-                ? null
-                : (s) => setState(() => _useKey = s.first),
-          ),
-          const SizedBox(height: 8),
-          if (!_useKey)
-            TextField(
-              controller: _password,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: l.sshPasswordLabel,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-            )
-          else ...[
-            if (_credentials.hasKey) ...[
-              SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
-              const SizedBox(height: 8),
-            ],
-            SshPrivateKeyField(
-              controller: _key,
-              maxLines: 4,
-              labelText: _credentials.hasKey
-                  ? l.sshOtherKeyLabel
-                  : l.sshKeyLabel,
-              helperText: _credentials.hasKey ? l.sshUseSavedKeyHint : null,
-              helperMaxLines: 2,
+          if (!widget.node.hasConnect) ...[
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(value: false, label: Text(l.sshUsePassword)),
+                ButtonSegment(value: true, label: Text(l.sshUseKey)),
+              ],
+              selected: {_useKey},
+              onSelectionChanged: !_credentialsLoaded || _busy
+                  ? null
+                  : (s) => setState(() => _useKey = s.first),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _passphrase,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: l.sshKeyPassphraseLabel,
-                border: const OutlineInputBorder(),
-                isDense: true,
+            if (!_useKey)
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: l.sshPasswordLabel,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              )
+            else ...[
+              if (_credentials.hasKey) ...[
+                SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
+                const SizedBox(height: 8),
+              ],
+              SshPrivateKeyField(
+                controller: _key,
+                maxLines: 4,
+                labelText: _credentials.hasKey
+                    ? l.sshOtherKeyLabel
+                    : l.sshKeyLabel,
+                helperText: _credentials.hasKey ? l.sshUseSavedKeyHint : null,
+                helperMaxLines: 2,
               ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _passphrase,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: l.sshKeyPassphraseLabel,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+            Text(
+              l.sshCredsNotSaved,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.outline),
             ),
           ],
-          Text(
-            l.sshCredsNotSaved,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: scheme.outline),
-          ),
           if (script != null) ...[
             const SizedBox(height: 16),
             Text(
