@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -10,6 +11,8 @@ class FolderSyncState {
     required this.base,
     required this.pendingConflicts,
     this.resolutions = const {},
+    this.resolutionSerial = 0,
+    this.resolutionRevisions = const {},
     this.lastPassAtMs,
     this.lastRefusal,
   });
@@ -30,6 +33,11 @@ class FolderSyncState {
   /// again, forever.
   final Map<String, bool> resolutions;
 
+  /// Receipt versions distinguish a newer answer, even to the same path and
+  /// with the same choice, from the answer an earlier pass consumed.
+  final int resolutionSerial;
+  final Map<String, int> resolutionRevisions;
+
   final int? lastPassAtMs;
 
   /// Why the last pass refused, if it did — kept so the reason can be shown
@@ -48,6 +56,33 @@ class FolderSyncStore {
   FolderSyncStore(this._storage);
 
   final Storage _storage;
+  static final _updates = Expando<Map<String, Future<void>>>();
+
+  Future<T> _serialized<T>(String pairId, Future<T> Function() run) async {
+    final lanes = _updates[_storage] ??= {};
+    final previous = lanes[pairId];
+    final done = Completer<void>();
+    lanes[pairId] = done.future;
+    try {
+      await previous;
+      return await run();
+    } finally {
+      done.complete();
+      if (identical(lanes[pairId], done.future)) lanes.remove(pairId);
+    }
+  }
+
+  /// Only the small read/merge/write transaction is serialized. A sync pass
+  /// must not hold this lane while it waits on disk or network transfers.
+  Future<FolderSyncState> updateState(
+    String pairId,
+    FolderSyncState Function(FolderSyncState current) change,
+  ) => _serialized(pairId, () async {
+    final current = await state(pairId);
+    final next = change(current);
+    if (!identical(next, current)) await _saveState(pairId, next);
+    return next;
+  });
 
   static const _pairsKey = 'foldersync.pairs.v1';
   static String _stateKey(String pairId) => 'foldersync.state.v1:$pairId';
@@ -106,10 +141,18 @@ class FolderSyncStore {
             if (path is String) path,
         },
         resolutions: {
-          for (final entry
-              in (decoded['resolved'] as Map? ?? const {}).entries)
+          for (final entry in (decoded['resolved'] as Map? ?? const {}).entries)
             if (entry.key is String && entry.value is bool)
               entry.key as String: entry.value as bool,
+        },
+        resolutionSerial: decoded['answerSerial'] is int
+            ? decoded['answerSerial'] as int
+            : 0,
+        resolutionRevisions: {
+          for (final entry
+              in (decoded['answerRevisions'] as Map? ?? const {}).entries)
+            if (entry.key is String && entry.value is int)
+              entry.key as String: entry.value as int,
         },
         lastPassAtMs: decoded['at'] is int ? decoded['at'] as int : null,
         lastRefusal: decoded['refused'] is String
@@ -121,7 +164,10 @@ class FolderSyncStore {
     }
   }
 
-  Future<void> saveState(String pairId, FolderSyncState state) => _write(
+  Future<void> saveState(String pairId, FolderSyncState state) =>
+      _serialized(pairId, () => _saveState(pairId, state));
+
+  Future<void> _saveState(String pairId, FolderSyncState state) => _write(
     _stateKey(pairId),
     jsonEncode({
       'base': [
@@ -135,12 +181,16 @@ class FolderSyncStore {
       ],
       'conflicts': state.pendingConflicts.toList()..sort(),
       if (state.resolutions.isNotEmpty) 'resolved': state.resolutions,
+      if (state.resolutionSerial != 0) 'answerSerial': state.resolutionSerial,
+      if (state.resolutionRevisions.isNotEmpty)
+        'answerRevisions': state.resolutionRevisions,
       if (state.lastPassAtMs != null) 'at': state.lastPassAtMs,
       if (state.lastRefusal != null) 'refused': state.lastRefusal,
     }),
   );
 
-  Future<void> forget(String pairId) => _write(_stateKey(pairId), '');
+  Future<void> forget(String pairId) =>
+      _serialized(pairId, () => _write(_stateKey(pairId), ''));
 
   Future<String?> _read(String key) async {
     final bytes = await _storage.loadFile(key);

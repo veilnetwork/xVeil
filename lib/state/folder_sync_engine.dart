@@ -138,8 +138,9 @@ class FolderSyncEngine {
     // an unmounted drive would otherwise be mirrored away entirely.
     if (scan.rootMissing && state.base.isNotEmpty) {
       const reason = 'the folder is not there — refusing to treat it as empty';
-      await _store.saveState(
+      final finished = await _finishPass(
         pair.id,
+        state,
         FolderSyncState(
           base: state.base,
           pendingConflicts: state.pendingConflicts,
@@ -147,11 +148,12 @@ class FolderSyncEngine {
           lastPassAtMs: _now(),
           lastRefusal: reason,
         ),
+        consumeAnswers: false,
       );
       return FolderSyncReport(
         applied: const [],
         failed: const [],
-        conflicts: state.pendingConflicts,
+        conflicts: finished.pendingConflicts,
         refusedReason: reason,
       );
     }
@@ -179,8 +181,9 @@ class FolderSyncEngine {
     );
 
     if (plan.isRefused) {
-      await _store.saveState(
+      final finished = await _finishPass(
         pair.id,
+        state,
         FolderSyncState(
           base: state.base,
           pendingConflicts: state.pendingConflicts,
@@ -193,11 +196,12 @@ class FolderSyncEngine {
           lastPassAtMs: _now(),
           lastRefusal: plan.refusedReason,
         ),
+        consumeAnswers: false,
       );
       return FolderSyncReport(
         applied: const [],
         failed: const [],
-        conflicts: state.pendingConflicts,
+        conflicts: finished.pendingConflicts,
         ambiguous: plan.ambiguous,
         refusedReason: plan.refusedReason,
       );
@@ -219,7 +223,9 @@ class FolderSyncEngine {
             conflicts.add(action.path);
           case SyncActionKind.upload:
             final source = await _disk.openRead(pair.localPath, action.path);
-            if (source == null) continue; // vanished mid-pass: next pass sees it
+            if (source == null) {
+              continue; // vanished mid-pass: next pass sees it
+            }
             final RemoteFile stored;
             try {
               stored = await _cloud.upload(
@@ -307,7 +313,9 @@ class FolderSyncEngine {
               contentId: was?.contentId ?? '',
               size: stat?.size ?? was?.size ?? 0,
               localModifiedAtMs:
-                  stat?.modifiedAtMs ?? localByPath[action.path]?.modifiedAtMs ?? _now(),
+                  stat?.modifiedAtMs ??
+                  localByPath[action.path]?.modifiedAtMs ??
+                  _now(),
             );
             applied.add(action);
         }
@@ -318,8 +326,9 @@ class FolderSyncEngine {
       }
     }
 
-    await _store.saveState(
+    final finished = await _finishPass(
       pair.id,
+      state,
       FolderSyncState(
         base: base.values.toList(),
         pendingConflicts: conflicts,
@@ -331,10 +340,38 @@ class FolderSyncEngine {
     return FolderSyncReport(
       applied: applied,
       failed: failed,
-      conflicts: conflicts,
+      conflicts: finished.pendingConflicts,
       ambiguous: plan.ambiguous,
     );
   }
+
+  Future<FolderSyncState> _finishPass(
+    String pairId,
+    FolderSyncState initial,
+    FolderSyncState result, {
+    bool consumeAnswers = true,
+  }) => _store.updateState(pairId, (current) {
+    final kept = <String, bool>{
+      for (final answer in current.resolutions.entries)
+        if (!consumeAnswers ||
+            initial.resolutions[answer.key] != answer.value ||
+            (initial.resolutionRevisions[answer.key] ?? 0) !=
+                (current.resolutionRevisions[answer.key] ?? 0))
+          answer.key: answer.value,
+    };
+    return FolderSyncState(
+      base: result.base,
+      pendingConflicts: {...result.pendingConflicts}..removeAll(kept.keys),
+      resolutions: kept,
+      resolutionSerial: current.resolutionSerial,
+      resolutionRevisions: {
+        for (final key in kept.keys)
+          key: ?current.resolutionRevisions[key],
+      },
+      lastPassAtMs: result.lastPassAtMs,
+      lastRefusal: result.lastRefusal,
+    );
+  });
 
   /// Rewrite the base rows for answers the user has given, so the ordinary
   /// rules act on them. Called at the start of a pass, where both sides are
@@ -380,17 +417,18 @@ class FolderSyncEngine {
     String path, {
     required bool keepLocal,
   }) async {
-    final state = await _store.state(pairId);
-    if (!state.pendingConflicts.contains(path)) return;
-    await _store.saveState(
-      pairId,
-      FolderSyncState(
+    await _store.updateState(pairId, (state) {
+      if (!state.pendingConflicts.contains(path)) return state;
+      final version = state.resolutionSerial + 1;
+      return FolderSyncState(
         base: state.base,
         pendingConflicts: {...state.pendingConflicts}..remove(path),
         resolutions: {...state.resolutions, path: keepLocal},
+        resolutionSerial: version,
+        resolutionRevisions: {...state.resolutionRevisions, path: version},
         lastPassAtMs: state.lastPassAtMs,
         lastRefusal: state.lastRefusal,
-      ),
-    );
+      );
+    });
   }
 }
