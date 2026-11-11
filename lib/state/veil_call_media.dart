@@ -2159,14 +2159,11 @@ class VeilCallMediaController implements CallMediaController {
             start: () => _startAndroidCam(engine, highQuality: highQuality),
           ));
         } else {
-          try {
-            engine.startCamera(
-              width: profile.cameraWidth,
-              height: profile.cameraHeight,
-              fps: profile.maxFps,
-              deviceId: _selectedCameraId,
-            );
-          } catch (_) {}
+          _startDesktopCamera(
+            engine,
+            origin: CameraStartOrigin.callStart,
+            deviceId: _selectedCameraId,
+          );
         }
       }
       _startFramePump(engine);
@@ -2946,9 +2943,46 @@ class VeilCallMediaController implements CallMediaController {
   Future<bool> selectCamera(String id) async {
     final engine = _engine;
     final call = _activeCall;
+    final epoch = _mediaEpoch;
     if (engine == null || call == null) return false;
     final devices = await listCameras();
+    if (_mediaEpoch != epoch ||
+        _engine != engine ||
+        _activeCall?.callId != call.callId) {
+      return false;
+    }
     if (!devices.any((device) => device.id == id)) return false;
+    final captureNow =
+        _cameraState.enabledForCall(call.callId) &&
+        _activeCall?.screenOn != true &&
+        !_screenSharing &&
+        _screenStarting == null;
+    if (!Platform.isAndroid && captureNow) {
+      final previous = _selectedCameraId;
+      var started = false;
+      try {
+        if (!engine.stopCamera()) return false;
+        started = _startDesktopCamera(
+          engine,
+          origin: CameraStartOrigin.deviceSelection,
+          deviceId: id,
+        );
+      } catch (_) {}
+      if (!started) {
+        // A rejected selection is not a new preference. Try the exact former
+        // choice once; never silently open a different camera as fallback.
+        try {
+          if (engine.stopCamera()) {
+            _startDesktopCamera(
+              engine,
+              origin: CameraStartOrigin.recovery,
+              deviceId: previous,
+            );
+          }
+        } catch (_) {}
+        return false;
+      }
+    }
     _selectedCameraId = id;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2956,8 +2990,13 @@ class VeilCallMediaController implements CallMediaController {
     } catch (_) {}
     // A screen share owns the video source; remember the choice and apply it
     // when sharing ends. Likewise an off camera needs no eager hardware open.
-    if (call.screenOn || !call.cameraOn) return true;
+    if (!captureNow) return true;
     if (Platform.isAndroid) {
+      if (_mediaEpoch != epoch ||
+          _engine != engine ||
+          _activeCall?.callId != call.callId) {
+        return false;
+      }
       final native = _androidNativeCam;
       _androidNativeCam = null;
       if (native != null) await native.stop();
@@ -2967,20 +3006,30 @@ class VeilCallMediaController implements CallMediaController {
       await _startAndroidCam(engine, highQuality: _highQualityRoute);
       return _androidNativeCam?.cameraId == id;
     }
+    return true;
+  }
+
+  bool _startDesktopCamera(
+    VeilMediaEngine engine, {
+    required CameraStartOrigin origin,
+    required String? deviceId,
+  }) {
+    final profile = _highQualityRoute
+        ? _directVideoProfile
+        : _anonymousVideoProfile;
+    var started = false;
     try {
-      engine.stopCamera();
-      final profile = _highQualityRoute
-          ? _directVideoProfile
-          : _anonymousVideoProfile;
-      return engine.startCamera(
+      started = engine.startCamera(
         width: profile.cameraWidth,
         height: profile.cameraHeight,
         fps: profile.maxFps,
-        deviceId: id,
+        deviceId: deviceId,
       );
     } catch (_) {
-      return false;
+      // The report retains a categorical result, never driver text or IDs.
     }
+    diagnosticJournal.recordCameraStart(success: started, origin: origin);
+    return started;
   }
 
   @override
@@ -3020,13 +3069,9 @@ class VeilCallMediaController implements CallMediaController {
     } else {
       try {
         if (enabled) {
-          final profile = _highQualityRoute
-              ? _directVideoProfile
-              : _anonymousVideoProfile;
-          engine.startCamera(
-            width: profile.cameraWidth,
-            height: profile.cameraHeight,
-            fps: profile.maxFps,
+          _startDesktopCamera(
+            engine,
+            origin: CameraStartOrigin.toggle,
             deviceId: _selectedCameraId,
           );
         } else {
@@ -3148,13 +3193,9 @@ class VeilCallMediaController implements CallMediaController {
               _chan == chan &&
               _cameraState.enabledForCall(callId),
           restoreCamera: () {
-            final profile = _highQualityRoute
-                ? _directVideoProfile
-                : _anonymousVideoProfile;
-            engine.startCamera(
-              width: profile.cameraWidth,
-              height: profile.cameraHeight,
-              fps: profile.maxFps,
+            _startDesktopCamera(
+              engine,
+              origin: CameraStartOrigin.recovery,
               deviceId: _selectedCameraId,
             );
           },

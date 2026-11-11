@@ -10,6 +10,33 @@ class _PrivateValue {
 }
 
 void main() {
+  test('camera start evidence retains only source stage and outcome', () {
+    for (final origin in CameraStartOrigin.values) {
+      final journal = DiagnosticJournal(enabled: true, capacity: 1);
+      journal.recordCameraStart(success: false, origin: origin);
+      journal.record(DiagnosticEvent.transportSent);
+      final evidence = journal.toJson()['last_evidence'] as Map;
+      expect((evidence['cameraStart'] as Map)['values'], {
+        'success': 0,
+        'origin': origin.index,
+      });
+      journal.recordCameraStart(success: true, origin: origin);
+      expect(
+        ((journal.toJson()['last_evidence'] as Map)['cameraStart']
+            as Map)['values'],
+        {'success': 1, 'origin': origin.index},
+      );
+    }
+    final disabled = DiagnosticJournal(enabled: false);
+    disabled.recordCameraStart(
+      success: false,
+      origin: CameraStartOrigin.callStart,
+    );
+    expect(disabled.toJson()['events'], isEmpty);
+    expect(disabled.toJson()['counts'], isEmpty);
+    expect(disabled.toJson()['last_evidence'], isEmpty);
+  });
+
   test('call phases survive busy media events until the report is copied', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 2);
     for (final phase in [1, 2, 3]) {

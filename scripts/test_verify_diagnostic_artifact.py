@@ -20,6 +20,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
                 '    DiagnosticMetric.state: 2, DiagnosticMetric.direction: 0});\n'
                 '  diagnosticJournal.record(DiagnosticEvent.microphoneControl, values: {\n'
@@ -100,6 +101,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'state': 2, 'direction': 0,
                         })
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['cameraStart']['values'], {
+                            'success': 0, 'origin': 2,
+                        })
                         self.assertEqual(evidence['microphoneControl']['values'], {
                             'enabled': 1, 'success': 0,
                         })
