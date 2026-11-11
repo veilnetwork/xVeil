@@ -7,6 +7,7 @@ import '../../routing/back_affordance.dart';
 import '../../state/identity_guard.dart';
 import '../../state/folder_sync_controller.dart';
 import '../common/relative_time.dart';
+import 'folder_saved_versions_dialog.dart';
 
 /// Configure which local folders mirror which Storage folders, and answer the
 /// conflicts a pass could not decide.
@@ -247,9 +248,20 @@ class _PairCard extends ConsumerWidget {
           ],
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
               children: [
+                TextButton.icon(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) =>
+                        FolderSavedVersionsDialog(root: view.pair.localPath),
+                  ),
+                  icon: const Icon(Icons.history),
+                  label: Text(l.folderSyncSavedTitle),
+                ),
                 if (view.busy)
                   Padding(
                     padding: const EdgeInsets.only(right: 12),

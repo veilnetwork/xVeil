@@ -8149,4 +8149,44 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get nodeConnectInstall => 'Instalar o administrar componentes';
+
+  @override
+  String get folderSyncSavedTitle => 'Copias guardadas';
+
+  @override
+  String get folderSyncSavedHint =>
+      'Guardar como crea un archivo separado. Una copia entrante puede estar incompleta si se interrumpió la transferencia.';
+
+  @override
+  String get folderSyncSavedPrevious => 'Versión anterior';
+
+  @override
+  String get folderSyncSavedIncoming => 'Copia entrante';
+
+  @override
+  String get folderSyncSavedUnknown => 'Copia sin nombre registrado';
+
+  @override
+  String get folderSyncSavedUnreadable => 'No se puede leer esta copia';
+
+  @override
+  String get folderSyncSavedEmpty => 'Aún no hay copias guardadas.';
+
+  @override
+  String get folderSyncSavedLoadFailed =>
+      'No se pudieron leer las copias. La carpeta puede estar ocupada; actualice la lista.';
+
+  @override
+  String get folderSyncSavedChanged =>
+      'La copia cambió durante la lectura. Actualice la lista e intente guardarla de nuevo.';
+
+  @override
+  String get folderSyncSavedSessionChanged =>
+      'La identidad cambió o se bloqueó. Abra esta lista de nuevo.';
+
+  @override
+  String get folderSyncSavedRefresh => 'Actualizar lista';
+
+  @override
+  String get folderSyncSavedNext => 'Página siguiente';
 }
