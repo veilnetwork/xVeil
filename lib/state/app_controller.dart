@@ -242,6 +242,53 @@ class CompactionRosterRepairIncomplete implements Exception {
   String toString() => 'CompactionRosterRepairIncomplete';
 }
 
+class _IdentityEditEnded implements Exception {}
+
+/// Owns asynchronous container work until it is quiescent, even after lock.
+/// Returned key buffers are registered before the cancellation check so a
+/// late native response cannot abandon them intact in the heap.
+class _IdentityEdit {
+  _IdentityEdit(this.current);
+  final bool Function() current;
+  final keys = <Uint8List>[];
+  final storages = <Storage>{};
+  bool interrupted = false;
+  void check() {
+    if (!current()) throw _IdentityEditEnded();
+  }
+
+  Storage own(Storage storage) {
+    check();
+    storages.add(storage);
+    return storage;
+  }
+
+  Uint8List? copyKeys(Uint8List? source) {
+    if (source == null) return null;
+    final copy = Uint8List.fromList(source);
+    keys.add(copy);
+    return copy;
+  }
+
+  List<RosterEntry>? copyRoster(List<RosterEntry>? source) => source == null
+      ? null
+      : [
+          for (final entry in source)
+            entry.copyWith(spaceKeys: copyKeys(entry.spaceKeys)!),
+        ];
+
+  Future<T> step<T>(Future<T> Function() run) async {
+    check();
+    final result = await run();
+    if (result is Uint8List) keys.add(result);
+    if (result is List<RosterEntry>) {
+      keys.addAll(result.map((e) => e.spaceKeys));
+    }
+    check();
+    return result;
+  }
+}
+
 class AppController extends Notifier<AppState> {
   /// Roster of the master unlocked this session — cached for the whole master
   /// session so identity switching needs no re-prompt. Holds child SpaceKeys;
@@ -411,7 +458,8 @@ class AppController extends Notifier<AppState> {
     /// needs a signer, which needs this identity.
     String? nodeConfigToml,
   }) async {
-    if (_onboardingInFlight != null ||
+    if (_identityEditInFlight != null ||
+        _onboardingInFlight != null ||
         _unlockInFlight ||
         _wipeInFlight != null ||
         _compactionInFlight != null ||
@@ -661,6 +709,95 @@ class AppController extends Notifier<AppState> {
   // Unlike a cancelled Future, this ownership survives an accepted native
   // create until its handle and any rollback have actually settled.
   Future<void>? _onboardingInFlight;
+  Future<void>? _identityEditInFlight;
+  _IdentityEdit? _identityEditOwner;
+  int _identitySelections = 0;
+  int _identitySelectionRequest = 0;
+
+  Future<bool> _withIdentityEdit(
+    Future<bool> Function(_IdentityEdit) run,
+  ) async {
+    if (_identityEditInFlight != null ||
+        _identitySelections != 0 ||
+        _onboardingInFlight != null ||
+        _unlockInFlight ||
+        _reopenInFlight != null ||
+        _wipeInFlight != null ||
+        _compactionInFlight != null ||
+        _compactionCollectionInFlight != null ||
+        _compactionProbeInFlight != null) {
+      return false;
+    }
+    final lifecycle = _lifecycle;
+    final finished = Completer<void>();
+    _identityEditInFlight = finished.future;
+    final edit = _IdentityEdit(
+      () => ref.mounted && !_supersededSince(lifecycle),
+    );
+    _identityEditOwner = edit;
+    try {
+      return await run(edit);
+    } on _IdentityEditEnded {
+      return false;
+    } catch (error) {
+      devLog(() => 'xVeil[identity]: edit failed: $error');
+      if (edit.current() && edit.interrupted) {
+        try {
+          await _recoverToActive(edit: edit);
+        } on _IdentityEditEnded {
+          // The recovery lost its authority while awaiting storage too.
+        } catch (_) {
+          for (final storage in edit.storages) {
+            try {
+              await storage.close();
+            } catch (_) {}
+          }
+          if (edit.current()) {
+            _endLifecycle();
+            _clearMasterSession();
+            state = const AppState(AppPhase.locked, unlockError: true);
+          }
+        }
+      }
+      return false;
+    } finally {
+      if (!edit.current() && (edit.interrupted || !ref.mounted)) {
+        // New sign-in/edit is excluded, and queued switches join this barrier.
+        // These handles cannot belong to a replacement session.
+        if (ref.mounted) {
+          try {
+            await _teardownSession();
+          } catch (_) {}
+          try {
+            await _teardownRealStack();
+          } catch (_) {}
+        }
+        for (final storage in edit.storages) {
+          try {
+            await storage.close();
+          } catch (_) {
+            errorJournal.record(
+              kind: 'identity-edit-close',
+              error: StateError('identity edit handle did not close'),
+              atMs: DateTime.now().millisecondsSinceEpoch,
+            );
+          }
+        }
+        _activeLabel = null;
+      }
+      if (ref.mounted) {
+        _releaseKeys(edit.keys);
+      } else {
+        _clearMasterSession();
+        for (final key in edit.keys) {
+          wipeSecretBytes(key);
+        }
+      }
+      _identityEditInFlight = null;
+      _identityEditOwner = null;
+      finished.complete();
+    }
+  }
 
   /// LIFECYCLE GENERATION — what makes "is the session I am building still the
   /// one the user wants?" a question with an answer (audit H-06).
@@ -766,7 +903,8 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_onboardingInFlight != null ||
+    if (_identityEditInFlight != null ||
+        _onboardingInFlight != null ||
         _manualCompactionBlocksUnlock ||
         _compactionCollectionInFlight != null ||
         _compactionProbeInFlight != null) {
@@ -1082,7 +1220,8 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
-    if (_onboardingInFlight != null ||
+    if (_identityEditInFlight != null ||
+        _onboardingInFlight != null ||
         _wipeInFlight != null ||
         _compactionInFlight != null ||
         _compactionCollectionInFlight != null ||
@@ -1188,7 +1327,8 @@ class AppController extends Notifier<AppState> {
       children: <({String label, List<int> keys})>[],
     );
     final storage = ref.read(storageProvider);
-    if (_onboardingInFlight != null ||
+    if (_identityEditInFlight != null ||
+        _onboardingInFlight != null ||
         _compactionProbeInFlight != null ||
         _compactionCollectionInFlight != null ||
         _compactionInFlight != null ||
@@ -1423,7 +1563,8 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
   }) async {
-    if (_onboardingInFlight != null ||
+    if (_identityEditInFlight != null ||
+        _onboardingInFlight != null ||
         _wipeInFlight != null ||
         _compactionInFlight != null ||
         _compactionCollectionInFlight != null ||
@@ -1447,12 +1588,13 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Wait for accepted creation/compaction work and its recovery before wipe.
+  /// Wait for accepted creation, identity edits and compaction before wipe.
   /// Forgetting a native Future does not cancel it: an opener can create the
   /// file, and a compactor can rename its replacement over the path afterwards.
   Future<void> waitForCompaction() async {
     await _reopenInFlight;
     await _onboardingInFlight;
+    await _identityEditInFlight;
     await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     await _compactionInFlight;
@@ -2288,6 +2430,32 @@ class AppController extends Notifier<AppState> {
   /// session. The active identity is the single open space; switching later is
   /// close-this-then-open-next (the exclusive lock allows only one at a time).
   Future<void> pickIdentity(String label) async {
+    if (!ref.mounted ||
+        !(_pendingRoster?.any((e) => e.label == label) ?? false)) {
+      return;
+    }
+    final request = ++_identitySelectionRequest;
+    _identitySelections++;
+    try {
+      final pending = _identityEditInFlight;
+      if (pending != null) {
+        _identityEditOwner?.interrupted = true;
+        _endLifecycle();
+        final lifecycle = _lifecycle;
+        await pending;
+        if (!ref.mounted ||
+            _supersededSince(lifecycle) ||
+            request != _identitySelectionRequest) {
+          return;
+        }
+      }
+      await _pickIdentityOwned(label);
+    } finally {
+      _identitySelections--;
+    }
+  }
+
+  Future<void> _pickIdentityOwned(String label, {_IdentityEdit? edit}) async {
     RosterEntry? entry;
     for (final e in _pendingRoster ?? const <RosterEntry>[]) {
       if (e.label == label) {
@@ -2296,21 +2464,26 @@ class AppController extends Notifier<AppState> {
       }
     }
     if (entry == null) return;
+    Future<T> step<T>(Future<T> Function() run) =>
+        edit == null ? run() : edit.step(run);
     final storage = ref.read(storageProvider);
-    if (!await storage.openWithKeys(entry.spaceKeys)) {
+    edit?.own(storage);
+    if (!await step(() => storage.openWithKeys(entry!.spaceKeys))) {
       // The child keys no longer open a space — bounce back to locked.
       errorJournal.record(
         kind: 'identity',
         error: 'stored keys no longer open this space',
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
+      _endLifecycle();
+      _clearMasterSession();
       state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
     _activeLabel = label;
-    final profile = await _loadProfileOrHalt(storage);
+    final profile = await step(() => _loadProfileOrHalt(storage));
     if (profile == null) return; // damaged record — parked, nothing written
-    await _enterSession(profile);
+    await step(() => _enterSession(profile));
   }
 
   /// Switch to another identity in the same master session: stop the current
@@ -2319,6 +2492,34 @@ class AppController extends Notifier<AppState> {
   /// password — the roster is already in memory from unlock. No-op outside a
   /// master session or when already active.
   Future<void> switchIdentity(String label) async {
+    if (!ref.mounted) return;
+    final session = ref.read(sessionProvider);
+    if (session?.storageFor(label) == null &&
+        !(_pendingRoster?.any((e) => e.label == label) ?? false)) {
+      return;
+    }
+    final request = ++_identitySelectionRequest;
+    _identitySelections++;
+    try {
+      final pending = _identityEditInFlight;
+      if (pending != null) {
+        _identityEditOwner?.interrupted = true;
+        _endLifecycle();
+        final lifecycle = _lifecycle;
+        await pending;
+        if (!ref.mounted ||
+            _supersededSince(lifecycle) ||
+            request != _identitySelectionRequest) {
+          return;
+        }
+      }
+      await _switchIdentityOwned(label);
+    } finally {
+      _identitySelections--;
+    }
+  }
+
+  Future<void> _switchIdentityOwned(String label) async {
     // All-online: every node is already up — just re-point the view, no
     // teardown/reboot. Fast switch.
     final session = ref.read(sessionProvider);
@@ -2449,23 +2650,34 @@ class AppController extends Notifier<AppState> {
   /// into the open space and reboot the node under it (anonymity is fixed at
   /// boot). No-op in master mode (that path is [setIdentityAnonymous]) or when
   /// the space isn't open. Returns false on those guards.
-  Future<bool> setSingleIdentityAnonymous(bool anonymous) async {
+  Future<bool> setSingleIdentityAnonymous(bool anonymous) => _withIdentityEdit(
+    (edit) => _setSingleIdentityAnonymousOwned(edit, anonymous),
+  );
+
+  Future<bool> _setSingleIdentityAnonymousOwned(
+    _IdentityEdit edit,
+    bool anonymous,
+  ) async {
     if (_pendingRoster != null) return false; // master mode has its own path
-    final storage = ref.read(storageProvider);
+    final storage = edit.own(ref.read(storageProvider));
     if (!storage.isOpen) return false;
     if (_singleAnonymous == anonymous) return true;
 
-    await storage.putSetting(_kAnonymousSetting, anonymous ? 'true' : 'false');
+    await edit.step(
+      () =>
+          storage.putSetting(_kAnonymousSetting, anonymous ? 'true' : 'false'),
+    );
     _singleAnonymous = anonymous;
     _bumpAnonymityRevision();
 
     // Reboot the node so the new routing takes effect. The space stays open
     // (teardown only stops the node); _enterSession re-reads the setting and
     // boots with the new anonymity, then refreshes the home state + node id.
-    await _teardownRealStack();
-    final profile = await _loadProfileOrHalt(storage);
+    edit.interrupted = true;
+    await edit.step(() => _teardownRealStack());
+    final profile = await edit.step(() => _loadProfileOrHalt(storage));
     if (profile == null) return false; // damaged record — parked
-    await _enterSession(profile);
+    await edit.step(() => _enterSession(profile));
     return true;
   }
 
@@ -2516,6 +2728,16 @@ class AppController extends Notifier<AppState> {
   /// — and why the callers that do use it either have nothing live to lose or
   /// are changing the very thing the connections run over.
   Future<bool> rebootHostedNodes() async {
+    if (_identityEditInFlight != null) return false;
+    _identitySelections++;
+    try {
+      return await _rebootHostedNodesOwned();
+    } finally {
+      _identitySelections--;
+    }
+  }
+
+  Future<bool> _rebootHostedNodesOwned() async {
     if (state.phase != AppPhase.ready ||
         ref.read(deniableBootProvider) == null) {
       return true;
@@ -2562,21 +2784,30 @@ class AppController extends Notifier<AppState> {
   /// fixed at boot, like anonymity). No-op in master mode or when the space isn't
   /// open. Returns false on those guards. Default OFF — enabling it raises the
   /// identity's anti-sybil difficulty at the cost of a CPU-heavy background grind.
-  Future<bool> setSingleLazyMining(bool enabled) async {
+  Future<bool> setSingleLazyMining(bool enabled) =>
+      _withIdentityEdit((edit) => _setSingleLazyMiningOwned(edit, enabled));
+
+  Future<bool> _setSingleLazyMiningOwned(
+    _IdentityEdit edit,
+    bool enabled,
+  ) async {
     if (_pendingRoster != null) return false; // master mode unsupported for now
-    final storage = ref.read(storageProvider);
+    final storage = edit.own(ref.read(storageProvider));
     if (!storage.isOpen) return false;
     if (_singleLazyMining == enabled) return true;
 
-    await storage.putSetting(_kLazyMiningSetting, enabled ? 'true' : 'false');
+    await edit.step(
+      () => storage.putSetting(_kLazyMiningSetting, enabled ? 'true' : 'false'),
+    );
     _singleLazyMining = enabled;
 
     // Reboot so the [Identity].lazy_mining change takes effect (_enterSession
     // re-reads the setting and composes the boot config with it).
-    await _teardownRealStack();
-    final profile = await _loadProfileOrHalt(storage);
+    edit.interrupted = true;
+    await edit.step(() => _teardownRealStack());
+    final profile = await edit.step(() => _loadProfileOrHalt(storage));
     if (profile == null) return false; // damaged record — parked
-    await _enterSession(profile);
+    await edit.step(() => _enterSession(profile));
     return true;
   }
 
@@ -2588,9 +2819,18 @@ class AppController extends Notifier<AppState> {
   /// (one-active) or re-point it (all-online) so it applies immediately; an
   /// inactive identity picks it up on its next boot. Returns false outside a
   /// master session or if the master could not be reopened.
-  Future<bool> setIdentityAnonymous(String label, bool anonymous) async {
-    final roster = _pendingRoster;
-    final masterKeys = _masterKeys;
+  Future<bool> setIdentityAnonymous(String label, bool anonymous) =>
+      _withIdentityEdit(
+        (edit) => _setIdentityAnonymousOwned(edit, label, anonymous),
+      );
+
+  Future<bool> _setIdentityAnonymousOwned(
+    _IdentityEdit edit,
+    String label,
+    bool anonymous,
+  ) async {
+    final roster = edit.copyRoster(_pendingRoster);
+    final masterKeys = edit.copyKeys(_masterKeys);
     if (roster == null || masterKeys == null) return false;
     if (!roster.any((e) => e.label == label)) return false;
     // No-op if already in the requested state.
@@ -2600,18 +2840,19 @@ class AppController extends Notifier<AppState> {
     final hadSession = ref.read(sessionProvider) != null;
 
     // Release any live session/node so we can open the master directly.
-    await _teardownSession();
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownSession());
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = ref.read(storageProvider);
-      if (!await storage.openWithKeys(masterKeys)) {
-        await _recoverToActive();
+      final storage = edit.own(ref.read(storageProvider));
+      if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
       // Edit the master's ON-DISK roster (source of truth), then mirror it.
-      final onDisk = await storage.loadRoster() ?? roster;
+      final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
       final updated = [
         for (final e in onDisk)
           if (e.label == label)
@@ -2623,14 +2864,21 @@ class AppController extends Notifier<AppState> {
           else
             e,
       ];
-      await storage.saveRoster(updated);
-      await storage.close();
+      await edit.step(() => storage.saveRoster(updated));
+      await edit.step(() => storage.close());
       _setPendingRoster(updated);
       _bumpAnonymityRevision();
 
       // Re-enter so the change takes effect (a node's anonymity is fixed at
       // its boot, so editing the roster requires the node to re-boot under it).
-      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      await edit.step(
+        () => _reEnterAfterRosterEdit(
+          updated,
+          prevActive,
+          hadSession,
+          edit: edit,
+        ),
+      );
       return true;
     } catch (e) {
       // A throwing FFI op (loadRoster on a corrupt blob, saveRoster HvException)
@@ -2639,7 +2887,7 @@ class AppController extends Notifier<AppState> {
       devLog(
         () => 'xVeil[identity]: setIdentityAnonymous failed -> recover: $e',
       );
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
       return false;
     }
   }
@@ -2653,8 +2901,12 @@ class AppController extends Notifier<AppState> {
   Future<void> _reEnterAfterRosterEdit(
     List<RosterEntry> updated,
     String? target,
-    bool hadSession,
-  ) async {
+    bool hadSession, {
+    _IdentityEdit? edit,
+  }) async {
+    edit?.check();
+    Future<T> step<T>(Future<T> Function() run) =>
+        edit == null ? run() : edit.step(run);
     final valid = target != null && updated.any((e) => e.label == target);
     if (hadSession) {
       // All-online: rebuild the whole session (every node re-boots), then
@@ -2662,15 +2914,15 @@ class AppController extends Notifier<AppState> {
       final boot = ref.read(deniableBootProvider);
       if (boot?.storePath != null) {
         try {
-          await _enterAllOnline(updated, boot!);
-          if (valid) await switchIdentity(target);
+          await step(() => _enterAllOnline(updated, boot!));
+          if (valid) await step(() => _switchIdentityOwned(target));
           return;
         } catch (e, st) {
           devLog(
             () =>
                 'xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st',
           );
-          await _teardownSession();
+          await step(_teardownSession);
         }
       }
       _activeLabel = null;
@@ -2684,7 +2936,7 @@ class AppController extends Notifier<AppState> {
     // it is gone so the user re-selects.
     if (valid) {
       _activeLabel = null;
-      await pickIdentity(target);
+      await step(() => _pickIdentityOwned(target, edit: edit));
     } else {
       _activeLabel = null;
       state = state.copyWith(
@@ -2699,9 +2951,12 @@ class AppController extends Notifier<AppState> {
   /// from any other master that lists it. Master-mode only; refuses to unbind
   /// the last identity (an empty-roster master is indistinguishable from a plain
   /// identity space at unlock). Returns false on those guards or a reopen fail.
-  Future<bool> unbindIdentity(String label) async {
-    final roster = _pendingRoster;
-    final masterKeys = _masterKeys;
+  Future<bool> unbindIdentity(String label) =>
+      _withIdentityEdit((edit) => _unbindIdentityOwned(edit, label));
+
+  Future<bool> _unbindIdentityOwned(_IdentityEdit edit, String label) async {
+    final roster = edit.copyRoster(_pendingRoster);
+    final masterKeys = edit.copyKeys(_masterKeys);
     if (roster == null || masterKeys == null) return false;
     if (!roster.any((e) => e.label == label)) return false;
     if (roster.length <= 1) return false; // keep >= 1 identity in a master
@@ -2709,32 +2964,40 @@ class AppController extends Notifier<AppState> {
     final prevActive = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
 
-    await _teardownSession();
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownSession());
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = ref.read(storageProvider);
-      if (!await storage.openWithKeys(masterKeys)) {
-        await _recoverToActive();
+      final storage = edit.own(ref.read(storageProvider));
+      if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      final onDisk = await storage.loadRoster() ?? roster;
+      final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
       final updated = [
         for (final e in onDisk)
           if (e.label != label) e,
       ];
-      await storage.saveRoster(updated);
-      await storage.close();
+      await edit.step(() => storage.saveRoster(updated));
+      await edit.step(() => storage.close());
       _setPendingRoster(updated);
 
       // If we just unbound the ACTIVE identity it is gone from [updated], so
       // the helper falls back to the picker; otherwise restores the view.
-      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      await edit.step(
+        () => _reEnterAfterRosterEdit(
+          updated,
+          prevActive,
+          hadSession,
+          edit: edit,
+        ),
+      );
       return true;
     } catch (e) {
       devLog(() => 'xVeil[identity]: unbindIdentity failed -> recover: $e');
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
       return false;
     }
   }
@@ -2746,9 +3009,12 @@ class AppController extends Notifier<AppState> {
   /// the last identity (use the lock-screen wipe to remove everything). NOTE: if
   /// the same identity is bound in OTHER masters, those rosters keep a now-stale
   /// entry (the space they point at is erased). Returns false on the guards.
-  Future<bool> deleteIdentity(String label) async {
-    final roster = _pendingRoster;
-    final masterKeys = _masterKeys;
+  Future<bool> deleteIdentity(String label) =>
+      _withIdentityEdit((edit) => _deleteIdentityOwned(edit, label));
+
+  Future<bool> _deleteIdentityOwned(_IdentityEdit edit, String label) async {
+    final roster = edit.copyRoster(_pendingRoster);
+    final masterKeys = edit.copyKeys(_masterKeys);
     if (roster == null || masterKeys == null) return false;
     RosterEntry? entry;
     for (final e in roster) {
@@ -2763,40 +3029,48 @@ class AppController extends Notifier<AppState> {
     final prevActive = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
 
-    await _teardownSession();
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownSession());
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = ref.read(storageProvider);
+      final storage = edit.own(ref.read(storageProvider));
       // Erase the identity's space (forensic) — open by its stored keys, wipe
       // every namespace, scrub. If the keys are stale we still drop the roster
       // entry below so the master view is consistent.
-      if (await storage.openWithKeys(entry.spaceKeys)) {
-        await storage.eraseSpace();
-        await storage.close();
+      if (await edit.step(() => storage.openWithKeys(entry!.spaceKeys))) {
+        await edit.step(() => storage.eraseSpace());
+        await edit.step(() => storage.close());
       }
 
-      if (!await storage.openWithKeys(masterKeys)) {
-        await _recoverToActive();
+      if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      final onDisk = await storage.loadRoster() ?? roster;
+      final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
       final updated = [
         for (final e in onDisk)
           if (e.label != label) e,
       ];
-      await storage.saveRoster(updated);
-      await storage.close();
+      await edit.step(() => storage.saveRoster(updated));
+      await edit.step(() => storage.close());
       _setPendingRoster(updated);
 
-      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      await edit.step(
+        () => _reEnterAfterRosterEdit(
+          updated,
+          prevActive,
+          hadSession,
+          edit: edit,
+        ),
+      );
       return true;
     } catch (e) {
       // A mid-erase / mid-save FFI throw must still re-enter a usable session
       // instead of stranding the user behind the manage-screen busy overlay.
       devLog(() => 'xVeil[identity]: deleteIdentity failed -> recover: $e');
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
       return false;
     }
   }
@@ -2811,24 +3085,37 @@ class AppController extends Notifier<AppState> {
   Future<bool> bindExistingIdentity({
     required String identityPassword,
     required String label,
+  }) => _withIdentityEdit(
+    (edit) => _bindExistingIdentityOwned(
+      edit,
+      identityPassword: identityPassword,
+      label: label,
+    ),
+  );
+
+  Future<bool> _bindExistingIdentityOwned(
+    _IdentityEdit edit, {
+    required String identityPassword,
+    required String label,
   }) async {
-    final roster = _pendingRoster;
-    final masterKeys = _masterKeys;
+    final roster = edit.copyRoster(_pendingRoster);
+    final masterKeys = edit.copyKeys(_masterKeys);
     if (roster == null || masterKeys == null) return false;
     if (roster.any((e) => e.label == label)) return false;
 
     final prevActive = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
 
-    await _teardownSession();
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownSession());
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = ref.read(storageProvider);
+      final storage = edit.own(ref.read(storageProvider));
       // Open the identity by its OWN password (must already exist — no create).
-      if (!await storage.open(password: identityPassword)) {
-        await _recoverToActive();
+      if (!await edit.step(() => storage.open(password: identityPassword))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
       // Only a PLAIN identity can be bound — a roster-bearing space is a master.
@@ -2837,46 +3124,55 @@ class AppController extends Notifier<AppState> {
       // read as `null`, i.e. "not an identity space", and binding proceeded on a
       // space nobody could read.
       final isPlainIdentity =
-          await storage.loadProfile() != null &&
-          await storage.loadRoster() == null;
-      final keys = isPlainIdentity ? await storage.exportSpaceKeys() : null;
-      await storage.close();
+          await edit.step(() => storage.loadProfile()) != null &&
+          await edit.step(() => storage.loadRoster()) == null;
+      final keys = isPlainIdentity
+          ? await edit.step(() => storage.exportSpaceKeys())
+          : null;
+      await edit.step(() => storage.close());
       if (keys == null) {
-        await _recoverToActive();
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
       // Append to the master's ON-DISK roster, re-checking label + keys there.
-      if (!await storage.openWithKeys(masterKeys)) {
-        await _recoverToActive();
+      if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      final onDisk = await storage.loadRoster() ?? roster;
+      final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
       if (onDisk.any(
         (e) => e.label == label || listEquals(e.spaceKeys, keys),
       )) {
-        await storage.close();
-        await _recoverToActive();
+        await edit.step(() => storage.close());
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
       final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
-      await storage.saveRoster(updated);
-      await storage.close();
+      await edit.step(() => storage.saveRoster(updated));
+      await edit.step(() => storage.close());
       // The identity just bound now shares its container with this master and
       // its siblings, so it may no longer claim to be alone here. THIS is the
       // path that adds a space to a container somebody else's attestation was
       // given for — an earlier version of this revocation landed in
       // `setIdentityAnonymous`, which adds nothing (report27 X26).
-      await revokeAutoCompactAcross(updated);
+      await edit.step(() => revokeAutoCompactAcross(updated));
       _setPendingRoster(updated);
 
-      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      await edit.step(
+        () => _reEnterAfterRosterEdit(
+          updated,
+          prevActive,
+          hadSession,
+          edit: edit,
+        ),
+      );
       return true;
     } catch (e) {
       devLog(
         () => 'xVeil[identity]: bindExistingIdentity failed -> recover: $e',
       );
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
       return false;
     }
   }
@@ -2908,58 +3204,73 @@ class AppController extends Notifier<AppState> {
     required String password,
     String existingLabel = 'Identity 1',
     bool anonymous = false,
+  }) => _withIdentityEdit(
+    (edit) => _addIdentityOwned(
+      edit,
+      masterPassword: masterPassword,
+      label: label,
+      password: password,
+      existingLabel: existingLabel,
+      anonymous: anonymous,
+    ),
+  );
+
+  Future<bool> _addIdentityOwned(
+    _IdentityEdit edit, {
+    required String masterPassword,
+    required String label,
+    required String password,
+    String existingLabel = 'Identity 1',
+    bool anonymous = false,
   }) async {
     // Snapshot the active identity's keys BEFORE any teardown — needed only for
     // the first conversion, where the active single identity becomes the first
     // child of the brand-new master.
-    final active = ref.read(storageProvider);
-    Uint8List? currentKeys;
-    try {
-      if (active.isOpen) currentKeys = await active.exportSpaceKeys();
-    } catch (_) {
-      // No open active space (e.g. between states) — only matters for the first
-      // conversion, which can't happen without an active identity anyway.
-    }
+    final active = edit.own(ref.read(storageProvider));
+    final currentKeys = active.isOpen
+        ? await edit.step(() => active.exportSpaceKeys())
+        : null;
 
     // Release EVERYTHING that holds the container: an all-online session keeps
     // the exclusive lock via its multi-space backing, and the active node keeps
     // a handle. Without this the direct open() below would hit a locked file (or
     // the session's no-op opener) and fail. After teardown, storageProvider
     // resolves to the single-space opener that can open the container directly.
-    await _teardownSession();
-    await _teardownRealStack();
-    await active.close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownSession());
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => active.close());
     try {
-      final storage = ref.read(storageProvider);
+      final storage = edit.own(ref.read(storageProvider));
 
       // Open/create the master and decide append-vs-convert from its ON-DISK
       // state — never from in-memory session state.
-      if (!await storage.open(
-        password: masterPassword,
-        createIfMissing: true,
+      if (!await edit.step(
+        () => storage.open(password: masterPassword, createIfMissing: true),
       )) {
-        await _recoverToActive();
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      final existingRoster = await storage.loadRoster();
+      final existingRoster = await edit.step(() => storage.loadRoster());
       // "Does this space already hold an identity?" — the guard that stops a
       // roster being written over a real identity space. A DAMAGED record throws
       // into the catch below and aborts the whole conversion (audit XV-13);
       // before, it answered `false`, the clash check at [masterHasIdentity]
       // below never fired, and `saveRoster` went straight over the damaged
       // identity — turning "unreadable" into "gone".
-      final masterHasIdentity = await storage.loadProfile() != null;
+      final masterHasIdentity =
+          await edit.step(() => storage.loadProfile()) != null;
       // Capture the master's own derived keys while it is open — the collision
       // check below needs them, and re-opening just to read them would be a
       // second password derivation for nothing.
-      final masterKeys = await storage.exportSpaceKeys();
-      await storage.close();
+      final masterKeys = await edit.step(() => storage.exportSpaceKeys());
+      await edit.step(() => storage.close());
 
       // Clash: the master password opened a real IDENTITY space (has an identity,
       // no roster). Writing a roster into it would clobber that identity — abort
       // with no side effects so the UI can ask for a different master password.
       if (masterHasIdentity && existingRoster == null) {
-        await _recoverToActive();
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
@@ -2968,7 +3279,7 @@ class AppController extends Notifier<AppState> {
       // open when we started) we'd write a roster of ONLY the new identity and
       // ORPHAN the existing one — abort instead of losing it.
       if (existingRoster == null && currentKeys == null) {
-        await _recoverToActive();
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
@@ -2992,14 +3303,16 @@ class AppController extends Notifier<AppState> {
       // Refuse a duplicate label — two roster entries with the same label would
       // break switching (it resolves an identity by label).
       if (base.any((e) => e.label == label)) {
-        await _recoverToActive();
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
       // Create + name the new identity space (its node config is mined lazily on
       // first boot, like onboarding).
-      if (!await storage.open(password: password, createIfMissing: true)) {
-        await _recoverToActive();
+      if (!await edit.step(
+        () => storage.open(password: password, createIfMissing: true),
+      )) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
@@ -3021,18 +3334,20 @@ class AppController extends Notifier<AppState> {
       // duplicate label already returned, so the caller learns nothing new
       // either. The comment this replaces said the design "can't deniably
       // dedupe passwords" — it can, within the roster it is editing.
-      final candidateKeys = await storage.exportSpaceKeys();
+      final candidateKeys = await edit.step(() => storage.exportSpaceKeys());
       if (identitySpaceCollides(
         masterKeys: masterKeys,
         roster: base,
         candidateKeys: candidateKeys,
       )) {
-        await storage.close();
-        await _recoverToActive();
+        await edit.step(() => storage.close());
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
 
-      await storage.saveProfile(UserProfile(displayName: label));
+      await edit.step(
+        () => storage.saveProfile(UserProfile(displayName: label)),
+      );
       final roster = <RosterEntry>[
         ...base,
         RosterEntry(
@@ -3041,33 +3356,35 @@ class AppController extends Notifier<AppState> {
           anonymous: anonymous,
         ),
       ];
-      await storage.close();
+      await edit.step(() => storage.close());
 
       // Persist the appended roster into the (now-existing) master.
-      if (!await storage.open(password: masterPassword)) {
-        await _recoverToActive();
+      if (!await edit.step(() => storage.open(password: masterPassword))) {
+        await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      await storage.saveRoster(roster);
+      await edit.step(() => storage.saveRoster(roster));
       // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
       // works without re-unlocking — same as the unlock path does.
-      _setMasterKeys(await storage.exportSpaceKeys());
-      await storage.close();
+      _setMasterKeys(await edit.step(() => storage.exportSpaceKeys()));
+      await edit.step(() => storage.close());
 
       // This container now holds more than one identity, so nothing in it may
       // keep an attestation that says otherwise — including the identity that
       // has just become a child of this master.
-      await revokeAutoCompactAcross(roster);
+      await edit.step(() => revokeAutoCompactAcross(roster));
 
       // Enter the new identity (one-active). If the user has keep-all-online on,
       // the next unlock brings every identity — including this one — back online.
       _setPendingRoster(roster);
       _activeLabel = null;
-      await pickIdentity(label);
-      return true;
+      await edit.step(() => _pickIdentityOwned(label, edit: edit));
+      return state.phase == AppPhase.ready &&
+          _activeLabel == label &&
+          storage.isOpen;
     } catch (e) {
       devLog(() => 'xVeil[identity]: addIdentity failed -> recover: $e');
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
       return false;
     }
   }
@@ -3085,8 +3402,20 @@ class AppController extends Notifier<AppState> {
   Future<bool> createDecoyMaster({
     required String duressPassword,
     required List<String> includeLabels,
+  }) => _withIdentityEdit(
+    (edit) => _createDecoyMasterOwned(
+      edit,
+      duressPassword: duressPassword,
+      includeLabels: includeLabels,
+    ),
+  );
+
+  Future<bool> _createDecoyMasterOwned(
+    _IdentityEdit edit, {
+    required String duressPassword,
+    required List<String> includeLabels,
   }) async {
-    final roster = _pendingRoster;
+    final roster = edit.copyRoster(_pendingRoster);
     if (roster == null) return false; // need a master session to share from
     final decoy = [
       for (final e in roster)
@@ -3103,13 +3432,16 @@ class AppController extends Notifier<AppState> {
     // Only one space open at a time: close the active identity, write the decoy
     // master, then restore the active identity.
     final activeLabel = _activeLabel;
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
+    edit.interrupted = true;
+    await edit.step(() => _teardownRealStack());
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     var ok = false;
     try {
-      final storage = ref.read(storageProvider);
-      if (await storage.open(password: duressPassword, createIfMissing: true)) {
+      final storage = edit.own(ref.read(storageProvider));
+      if (await edit.step(
+        () => storage.open(password: duressPassword, createIfMissing: true),
+      )) {
         // Refuse to write into anything that already exists — a clash means the
         // password opened a real identity (has an identity) or an existing
         // master (has a roster); the decoy roster would clobber it.
@@ -3120,19 +3452,19 @@ class AppController extends Notifier<AppState> {
         // decoy roster was written over a damaged but possibly recoverable
         // identity space.
         final clash =
-            await storage.loadProfile() != null ||
-            await storage.loadRoster() != null;
+            await edit.step(() => storage.loadProfile()) != null ||
+            await edit.step(() => storage.loadRoster()) != null;
         if (!clash) {
-          await storage.saveRoster(decoy);
+          await edit.step(() => storage.saveRoster(decoy));
           ok = true;
         }
-        await storage.close();
+        await edit.step(() => storage.close());
         // A decoy is one more space in this container, and every identity it
         // lists can be unlocked on its own. None of them may go on claiming to
         // be alone here: auto-compaction in any of them would take the decoy
         // with it, and a duress password that stops working is the one failure
         // this feature cannot afford.
-        if (ok) await revokeAutoCompactAcross(roster);
+        if (ok) await edit.step(() => revokeAutoCompactAcross(roster));
       }
     } catch (e) {
       devLog(() => 'xVeil[identity]: createDecoyMaster write failed: $e');
@@ -3142,7 +3474,7 @@ class AppController extends Notifier<AppState> {
       // lock — and the restore below would then fail to reopen the user's own
       // identity. Release it here.
       try {
-        await ref.read(storageProvider).close();
+        await edit.step(() => edit.own(ref.read(storageProvider)).close());
       } catch (_) {}
     }
 
@@ -3152,28 +3484,31 @@ class AppController extends Notifier<AppState> {
     try {
       if (activeLabel != null) {
         _activeLabel = null;
-        await pickIdentity(activeLabel);
+        await edit.step(() => _pickIdentityOwned(activeLabel, edit: edit));
       }
     } catch (e) {
       devLog(
         () =>
             'xVeil[identity]: createDecoyMaster restore failed -> recover: $e',
       );
-      await _recoverToActive();
+      await edit.step(() => _recoverToActive(edit: edit));
     }
     return ok;
   }
 
   /// Reopen whatever identity was active before a failed [addIdentity] so the
   /// user is not stranded on a closed space.
-  Future<void> _recoverToActive() async {
+  Future<void> _recoverToActive({required _IdentityEdit edit}) async {
+    edit.check();
     final label = _activeLabel;
     if (_pendingRoster != null && label != null) {
       _activeLabel = null;
-      await pickIdentity(label);
+      await _pickIdentityOwned(label, edit: edit);
     } else {
       // Single-identity mode: bounce to the lock screen to re-unlock cleanly.
-      await ref.read(storageProvider).close();
+      await edit.step(() => edit.own(ref.read(storageProvider)).close());
+      _endLifecycle();
+      _clearMasterSession();
       state = const AppState(AppPhase.locked, unlockError: true);
     }
   }
@@ -3926,7 +4261,8 @@ class AppController extends Notifier<AppState> {
   /// Returns true only for an admitted, authenticated reopening with its launch
   /// marker saved. A busy or wrong-password attempt writes no marker.
   Future<bool> reopenExistingContainer(String password) async {
-    if (_unlockInFlight ||
+    if (_identityEditInFlight != null ||
+        _unlockInFlight ||
         _onboardingInFlight != null ||
         _manualCompactionBlocksUnlock ||
         _compactionInFlight != null ||
