@@ -179,6 +179,33 @@ handle с запретом sharing приводит к отказу 1175; сим
 Контракт API также различает частично выполненные исходы — их нельзя считать
 доказательством rollback. [Документация Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
 
+### Native-подготовка безопасной публикации
+
+Добавлена внутренняя same-parent операция с удержанием directory handle и
+атомарным запретом заменить занятое имя: `renameatx_np(RENAME_EXCL)` на Apple,
+`renameat2(RENAME_NOREPLACE)` на Linux/Android и descriptor-relative
+`NtSetInformationFile` без `ReplaceIfExists` на Windows. Пути с разными parent,
+небезопасные компоненты и Windows ADS отвергаются. Подмена parent после
+подготовки не перенаправляет move; занятый leaf, включая link/junction,
+не заменяется. Отказ не запускает path-based fallback.
+
+Это **внутренний building block**, пока без C ABI и подключения к Dart.
+Он не обещает crash-transaction: для двух moves нужны журнал восстановления
+и его обработка до scan. R33-07 этим этапом **не закрыт**; opt-in воспроизводитель
+финального окна приложения остаётся красным.
+
+Проверки точного production FS-модуля в отдельном offline harness:
+**27 passed на macOS**, **18 passed на настоящей Windows 11**, без пропусков.
+Финальный Windows EXE проверен по SHA-256 на обоих концах. Временное снятие
+exclusion снова дало три assertion-failure на macOS и два на Windows,
+включая появление destination после подготовки; финальные исходники восстановлены
+и прогоны повторены. Дополнительный Windows boundary-тест сначала выявил
+ошибку нового кода: для однобуквенного имени буфер был короче полного NT header.
+Исправлен минимум размера; отдельно проходят ASCII, BMP и surrogate-pair имена.
+Все Windows fixtures и запущенные тестовые процессы завершены/удалены;
+пользовательское приложение и контейнеры не затрагивались. Это не сборка и
+квалификация всего SDK или Android. C header остался побайтно прежним.
+
 Активный остаток аудитов: R33-07. Отдельно до выпуска медиаправки
 требуется пересборка и pin движков, как указано выше.
 
