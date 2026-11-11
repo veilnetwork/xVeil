@@ -38,6 +38,29 @@ class _Storage extends HiddenVolumeStorage {
   bool armed = false;
   final entered = Completer<void>(), release = Completer<void>();
   List<RosterEntry>? returnedRoster;
+  int selectedOpens = 0;
+  @override
+  Future<bool> openWithKeys(Uint8List keys) async {
+    final owned = Uint8List.fromList(keys);
+    try {
+      if (armed && stage == 'selection') {
+        selectedOpens++;
+        if (!entered.isCompleted) {
+          entered.complete();
+          await release.future;
+        }
+      }
+      final opened = await super.openWithKeys(owned);
+      if (armed && stage == 'adopted' && !entered.isCompleted) {
+        entered.complete();
+        await release.future;
+      }
+      return opened;
+    } finally {
+      owned.fillRange(0, owned.length, 0);
+    }
+  }
+
   @override
   Future<bool> open({
     required String password,
@@ -197,6 +220,75 @@ void main() {
   setUp(
     () => SharedPreferences.setMockInitialValues({'keep_all_online': false}),
   );
+  test('native adopted selection refuses leases for the old view', () async {
+    final f = await _fixture('adopted');
+    final old = f.ctrl.leaseIdentity();
+    final choosing = f.ctrl.switchIdentity('second-fixture');
+    await f.storage.entered.future;
+    final during = f.ctrl.leaseIdentity();
+    expect((await f.storage.loadProfile())!.displayName, 'second-fixture');
+    expect(f.ctrl.activeIdentity, 'first-fixture');
+    expect(f.ctrl.holdsIdentity(old), isFalse);
+    expect(f.ctrl.holdsIdentity(during), isFalse);
+    f.storage.release.complete();
+    await choosing;
+    expect(f.ctrl.holdsIdentity(f.ctrl.leaseIdentity()), isTrue);
+    expect(f.ctrl.holdsIdentity(old), isFalse);
+    expect(f.ctrl.holdsIdentity(during), isFalse);
+    await f.ctrl.lock();
+    await _verifyStored(f.path, _names.take(2).toList());
+  }, skip: skip);
+  test('native ordinary selection cannot reopen after lock', () async {
+    final f = await _fixture('selection');
+    final choosing = f.ctrl.switchIdentity('second-fixture');
+    await f.storage.entered.future;
+    await f.ctrl.lock();
+    f.storage.release.complete();
+    await choosing;
+    expect(f.storage.isOpen, isFalse);
+    expect(f.c.read(appControllerProvider).phase, AppPhase.locked);
+    expect(f.ctrl.debugMasterKeys, isNull);
+    await _verifyStored(f.path, _names.take(2).toList());
+  }, skip: skip);
+  test(
+    'native queued choice opens only after its predecessor closes',
+    () async {
+      final f = await _fixture('selection');
+      final older = f.ctrl.switchIdentity('second-fixture');
+      await f.storage.entered.future;
+      final newer = f.ctrl.pickIdentity('first-fixture');
+      await Future<void>.delayed(Duration.zero);
+      expect(f.storage.selectedOpens, 1);
+      f.storage.release.complete();
+      await Future.wait([older, newer]);
+      expect(f.ctrl.activeIdentity, 'first-fixture');
+      expect(
+        f.c.read(appControllerProvider).identity!.displayName,
+        'first-fixture',
+      );
+      expect((await f.storage.loadProfile())!.displayName, 'first-fixture');
+      await f.ctrl.lock();
+      await _verifyStored(f.path, _names.take(2).toList());
+    },
+    skip: skip,
+  );
+  test('native wipe joins an accepted ordinary selected open', () async {
+    final f = await _fixture('selection');
+    final choosing = f.ctrl.pickIdentity('second-fixture');
+    await f.storage.entered.future;
+    final wiping = f.ctrl.wipeContainers();
+    var quiescent = false;
+    final joined = f.ctrl.waitForCompaction().then((_) => quiescent = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(quiescent, isFalse);
+    f.storage.release.complete();
+    await joined;
+    await choosing;
+    expect(await wiping, isEmpty);
+    expect(f.storage.isOpen, isFalse);
+    expect(File(f.path).existsSync(), isFalse);
+    expect(f.c.read(appControllerProvider).phase, AppPhase.onboarding);
+  }, skip: skip);
   test(
     'native roster cancellation retires returned keys without changing durable spaces',
     () async {
