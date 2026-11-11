@@ -1110,23 +1110,36 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// subscribes the live event feed. Publishing those from a request that
   /// began under another identity pointed B's feed at A's URL.
   Future<void> setWebhook(String? url, [bool Function()? moved]) async {
-    await ref.read(storageProvider).putSetting(_kWebhookKey, url ?? '');
-    if (moved?.call() ?? false) return;
+    final owner = _controlOwner();
+    await owner.storage.putSetting(_kWebhookKey, url ?? '');
+    if (!owner.current() || (moved?.call() ?? false)) return;
     state = state.withWebhook(url);
     _rewireWebhook();
   }
 
   String _mintId() => mintShortId();
 
-  Future<void> _persistTokens() => ref
-      .read(storageProvider)
-      .putSetting(
+  /// UI controls need the same identity boundary as HTTP handlers. Capture
+  /// both the storage and its activation before yielding; a returning A
+  /// operation must neither persist into B nor publish B's live config.
+  ({Storage storage, bool Function() current}) _controlOwner() {
+    final generation = _identityGeneration;
+    final storage = ref.read(storageProvider);
+    return (
+      storage: storage,
+      current: () => ref.mounted && generation == _identityGeneration &&
+          identical(ref.read(storageProvider), storage),
+    );
+  }
+
+  Future<void> _persistTokens(Storage storage) => storage.putSetting(
         _kTokensKey,
         jsonEncode(state.tokens.map((t) => t.toJson()).toList()),
       );
 
   /// Turn the API on: ensure at least one (full) token exists, persist, start.
   Future<void> enable() async {
+    final owner = _controlOwner();
     if (state.tokens.isEmpty) {
       state = state.copyWith(
         tokens: [
@@ -1138,16 +1151,20 @@ class ApiServerController extends Notifier<ApiConfig> {
           ),
         ],
       );
-      await _persistTokens();
+      await _persistTokens(owner.storage);
+      if (!owner.current()) return;
     }
-    await ref.read(storageProvider).putSetting(_kEnabledKey, '1');
+    await owner.storage.putSetting(_kEnabledKey, '1');
+    if (!owner.current()) return;
     state = state.copyWith(enabled: true);
     await _reconcile();
   }
 
   /// Turn the API off (keeps the tokens so re-enabling is one tap).
   Future<void> disable() async {
-    await ref.read(storageProvider).putSetting(_kEnabledKey, '0');
+    final owner = _controlOwner();
+    await owner.storage.putSetting(_kEnabledKey, '0');
+    if (!owner.current()) return;
     state = state.copyWith(enabled: false);
     await _reconcile();
   }
@@ -1162,6 +1179,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     bool readOnly = false,
     List<String> fileRoots = const <String>[],
   }) async {
+    final owner = _controlOwner();
     final tok = ApiToken(
       id: _mintId(),
       name: name.trim().isEmpty ? 'token' : name.trim(),
@@ -1170,8 +1188,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       fileRoots: List<String>.unmodifiable(fileRoots),
     );
     state = state.copyWith(tokens: [...state.tokens, tok]);
-    await _persistTokens();
-    if (state.enabled) await _reconcile();
+    await _persistTokens(owner.storage);
+    if (owner.current() && state.enabled) await _reconcile();
     return tok.token;
   }
 
@@ -1184,6 +1202,7 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// by granting a folder rather than by re-minting a secret the bot already
   /// has deployed.
   Future<void> setTokenFileRoots(String id, List<String> roots) async {
+    final owner = _controlOwner();
     final cleaned = <String>[
       for (final root in roots)
         if (root.trim().isNotEmpty) root.trim(),
@@ -1194,8 +1213,8 @@ class ApiServerController extends Notifier<ApiConfig> {
           if (t.id == id) t.withFileRoots(cleaned) else t,
       ],
     );
-    await _persistTokens();
-    if (state.enabled) await _reconcile();
+    await _persistTokens(owner.storage);
+    if (owner.current() && state.enabled) await _reconcile();
   }
 
   /// Revoke the token with [id] (that client immediately stops working).
@@ -1207,16 +1226,18 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// client kept its live feed across the restart below. Closed BY TOKEN, so
   /// revoking one bot does not disconnect the others.
   Future<void> revokeToken(String id) async {
+    final owner = _controlOwner();
     await _server?.closeLiveSockets(
       tokenId: id,
       code: 1008, // policy violation: this credential is no longer valid
       reason: 'token revoked',
     );
+    if (!owner.current()) return;
     state = state.copyWith(
       tokens: state.tokens.where((t) => t.id != id).toList(),
     );
-    await _persistTokens();
-    if (state.enabled) await _reconcile();
+    await _persistTokens(owner.storage);
+    if (owner.current() && state.enabled) await _reconcile();
   }
 
   bool get running => _server?.running ?? false;
