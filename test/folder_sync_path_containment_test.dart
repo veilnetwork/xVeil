@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/folder_scan.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
 
+import 'support/folder_fs_fixture.dart';
 import 'support/range_source_util.dart';
 
 /// Mirror paths are built from CLOUD ITEM NAMES, and any device linked to the
@@ -66,7 +67,7 @@ void main() {
     outside.writeAsStringSync('original');
 
     await writeBytes(
-      const LocalFolderSyncDisk(),
+      folderDiskFixture(),
       rootDir.path,
       '../victim',
       <int>[1, 2, 3],
@@ -155,7 +156,7 @@ void main() {
       // Exactly where the old code would have opened.
       Link('${root.path}/report.bin$kPartialSuffix').createSync(victim.path);
 
-      await LocalFolderSyncDisk().writeFrom(
+      await folderDiskFixture().writeFrom(
         root.path,
         'report.bin',
         bytesSource(const [9, 9, 9, 9]),
@@ -182,7 +183,7 @@ void main() {
         if (outside.existsSync()) outside.deleteSync();
       });
 
-      final disk = LocalFolderSyncDisk();
+      final disk = folderDiskFixture();
       expect(
         await disk.stat(root.path, '../xveil-outside-probe.txt'),
         isNull,

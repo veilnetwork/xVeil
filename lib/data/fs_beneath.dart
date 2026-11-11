@@ -71,9 +71,17 @@ typedef _ReadDart =
     );
 
 typedef _CreateNative =
-    Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+    Pointer<Void> Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _CreateDart =
-    Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+    Pointer<Void> Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
 
 typedef _WriteNative =
     IntPtr Function(
@@ -263,20 +271,14 @@ Future<VeilBeneathCreate> veilCreateBeneath(
     return unsupported;
   }
   final _CreateDart create;
-  final _WriteDart write;
-  final _SyncDart sync;
-  final _CloseDart close;
+  final VeilFileWriter writer;
   final _FreeStrDart freeStr;
   try {
     create = dl.lookupFunction<_CreateNative, _CreateDart>(
       'veil_fs_create_beneath',
     );
-    write = dl.lookupFunction<_WriteNative, _WriteDart>('veil_fs_write');
-    sync = dl.lookupFunction<_SyncNative, _SyncDart>('veil_fs_sync');
-    close = dl.lookupFunction<_CloseNative, _CloseDart>('veil_fs_close');
-    freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
-      'veil_free_string',
-    );
+    writer = VeilFileWriter(dl);
+    freeStr = writer._freeStr;
   } catch (_) {
     return unsupported;
   }
@@ -293,7 +295,9 @@ Future<VeilBeneathCreate> veilCreateBeneath(
       if (err != nullptr) {
         final msg = err.toDartString();
         supported = !msg.contains('POSIX-only');
-        devLog(() => 'xVeil[fs]: refused creating $relative beneath $root: $msg');
+        devLog(
+          () => 'xVeil[fs]: refused creating $relative beneath $root: $msg',
+        );
         freeStr(err);
       }
       return (sink: null, supported: supported);
@@ -304,76 +308,100 @@ Future<VeilBeneathCreate> veilCreateBeneath(
     calloc.free(errOut);
   }
 
-  var offset = 0;
-  var closed = false;
+  return (sink: writer.own(handle), supported: true);
+}
 
-  Future<void> writeChunk(List<int> chunk) async {
-    if (closed) throw StateError('sink closed');
-    if (chunk.isEmpty) return;
-    final buf = calloc<Uint8>(chunk.length);
-    final err = calloc<Pointer<Utf8>>();
-    try {
-      buf.asTypedList(chunk.length).setAll(0, chunk);
-      var done = 0;
-      while (done < chunk.length) {
-        final n = write(
-          handle,
-          offset + done,
-          buf + done,
-          chunk.length - done,
-          err,
-        );
-        if (n <= 0) {
-          final e = err.value;
-          final msg = e == nullptr ? 'write failed' : e.toDartString();
-          if (e != nullptr) freeStr(e);
-          throw FileSystemException(msg, '<descriptor>');
+/// Resolve the file ABI before taking ownership of a native descriptor. Both
+/// path-created files and admitted folder incoming files share this writer.
+class VeilFileWriter {
+  VeilFileWriter(DynamicLibrary library)
+    : _write = library.lookupFunction<_WriteNative, _WriteDart>(
+        'veil_fs_write',
+      ),
+      _sync = library.lookupFunction<_SyncNative, _SyncDart>('veil_fs_sync'),
+      _close = library.lookupFunction<_CloseNative, _CloseDart>(
+        'veil_fs_close',
+      ),
+      _freeStr = library.lookupFunction<_FreeStrNative, _FreeStrDart>(
+        'veil_free_string',
+      );
+
+  final _WriteDart _write;
+  final _SyncDart _sync;
+  final _CloseDart _close;
+  final _FreeStrDart _freeStr;
+
+  /// Transfers one unclosed file from this library; never pass a folder handle.
+  VeilCreatedSink own(Pointer<Void> handle) {
+    if (handle == nullptr) throw ArgumentError('Missing native file');
+    var offset = 0;
+    var closed = false;
+
+    Future<void> writeChunk(List<int> chunk) async {
+      if (closed) throw StateError('sink closed');
+      if (chunk.isEmpty) return;
+      final buf = calloc<Uint8>(chunk.length);
+      final err = calloc<Pointer<Utf8>>();
+      try {
+        buf.asTypedList(chunk.length).setAll(0, chunk);
+        var done = 0;
+        while (done < chunk.length) {
+          final n = _write(
+            handle,
+            offset + done,
+            buf + done,
+            chunk.length - done,
+            err,
+          );
+          if (n <= 0) {
+            final e = err.value;
+            final msg = e == nullptr ? 'write failed' : e.toDartString();
+            if (e != nullptr) _freeStr(e);
+            throw FileSystemException(msg, '<descriptor>');
+          }
+          done += n;
         }
-        done += n;
+        offset += chunk.length;
+      } finally {
+        calloc.free(buf);
+        calloc.free(err);
       }
-      offset += chunk.length;
-    } finally {
-      calloc.free(buf);
-      calloc.free(err);
     }
-  }
 
-  /// Put what was written on the DISK.
-  ///
-  /// This used to be empty, with a comment saying every write had already
-  /// reached the kernel — true, and not what a flush is for. The caller writes
-  /// a scratch file, flushes, and renames it over the real name; without a
-  /// barrier in between, a power loss can leave the new NAME pointing at
-  /// contents that were never written, which is exactly what the rename dance
-  /// exists to prevent. The Dart sink this replaced called
-  /// `RandomAccessFile.flush`, which does sync — so the barrier was not
-  /// missing by design, it was dropped in the move to descriptors
-  /// (report24 XV24-04).
-  Future<void> flushIt() async {
-    if (closed) return;
-    final err = calloc<Pointer<Utf8>>();
-    try {
-      if (sync(handle, err)) return;
-      final message = err.value == nullptr
-          ? 'sync refused'
-          : err.value.toDartString();
-      if (err.value != nullptr) freeStr(err.value);
-      // Raised, not swallowed: the caller renames after this, and a rename
-      // over unwritten contents is the failure being prevented.
-      throw FileSystemException('veil_fs_sync failed', message);
-    } finally {
-      calloc.free(err);
+    /// Put what was written on the DISK.
+    ///
+    /// This used to be empty, with a comment saying every write had already
+    /// reached the kernel — true, and not what a flush is for. The caller writes
+    /// a scratch file, flushes, and renames it over the real name; without a
+    /// barrier in between, a power loss can leave the new NAME pointing at
+    /// contents that were never written, which is exactly what the rename dance
+    /// exists to prevent. The Dart sink this replaced called
+    /// `RandomAccessFile.flush`, which does sync — so the barrier was not
+    /// missing by design, it was dropped in the move to descriptors
+    /// (report24 XV24-04).
+    Future<void> flushIt() async {
+      if (closed) return;
+      final err = calloc<Pointer<Utf8>>();
+      try {
+        if (_sync(handle, err)) return;
+        final message = err.value == nullptr
+            ? 'sync refused'
+            : err.value.toDartString();
+        if (err.value != nullptr) _freeStr(err.value);
+        // Raised, not swallowed: the caller renames after this, and a rename
+        // over unwritten contents is the failure being prevented.
+        throw FileSystemException('veil_fs_sync failed', message);
+      } finally {
+        calloc.free(err);
+      }
     }
-  }
 
-  Future<void> closeIt() async {
-    if (closed) return;
-    closed = true;
-    close(handle);
-  }
+    Future<void> closeIt() async {
+      if (closed) return;
+      closed = true;
+      _close(handle);
+    }
 
-  return (
-    sink: (writeFrom: writeChunk, flush: flushIt, close: closeIt),
-    supported: true,
-  );
+    return (writeFrom: writeChunk, flush: flushIt, close: closeIt);
+  }
 }
