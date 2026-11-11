@@ -80,8 +80,8 @@ abstract class FolderSyncDisk {
 
   Future<void> remove(String root, String path);
 
-  /// Size and mtime AFTER a write, so the base records what is actually on
-  /// disk rather than what we intended to put there.
+  /// Current size and mtime. Upload captures this BEFORE opening its source:
+  /// a stamp taken after a network await could certify an unuploaded edit.
   Future<LocalFile?> stat(String root, String path);
 }
 
@@ -222,6 +222,8 @@ class FolderSyncEngine {
             // the differ leaves this path alone.
             conflicts.add(action.path);
           case SyncActionKind.upload:
+            final version = await _disk.stat(pair.localPath, action.path);
+            if (version == null) continue;
             final source = await _disk.openRead(pair.localPath, action.path);
             if (source == null) {
               continue; // vanished mid-pass: next pass sees it
@@ -248,12 +250,14 @@ class FolderSyncEngine {
             } finally {
               await source.dispose();
             }
-            final stat = await _disk.stat(pair.localPath, action.path);
+            // Never certify a later local edit with the content id of bytes
+            // read earlier. If the file changed during upload (or between
+            // this pre-read stamp and open), it stays dirty for the next pass.
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: stored.contentId,
-              size: stat?.size ?? source.size,
-              localModifiedAtMs: stat?.modifiedAtMs ?? _now(),
+              size: version.size,
+              localModifiedAtMs: version.modifiedAtMs,
             );
             applied.add(action);
           case SyncActionKind.download:
