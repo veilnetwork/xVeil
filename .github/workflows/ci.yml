@@ -122,6 +122,7 @@ jobs:
       - run: python scripts/test-build-support.py
       - run: python3 scripts/test_android_network_assets.py
       - run: python3 scripts/test_check_aot_source_paths.py
+      - run: python3 -m unittest discover -s scripts -p test_aot_package_roots.py
       - run: python3 scripts/test-android-native-deps.py
       - run: python3 -m unittest discover -s scripts -p test_scan_artifacts.py
       - run: python3 -m unittest discover -s scripts -p test_veil_connect_agent.py -v
