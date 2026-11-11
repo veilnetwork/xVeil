@@ -5459,3 +5459,19 @@ Android прошёл отдельный startup/onboarding smoke. Свои эк�
 release wrapper, macOS-квалификация и packaging gate ещё нужны. Пункт
 приватности релиза целиком не закрыт; прежние приватные QA-сборки не публикуются.
 [Метод, происхождение библиотек и границы](../aot-source-privacy-2026-11-12/README.md).
+
+## 2026-11-12: macOS и native home paths
+
+Нейтральная macOS AOT прошла URI scan, но native check выявил пути в сохранённой
+Rust FFI и plugin debug records. Rust пересобрана с Rust/C/C++ prefix maps;
+release bundler теперь удаляет только native debug records перед подписью,
+с проверкой сохранности exported symbols. Реальная `.app` после подписи/запуска
+прошла полный scan: 124 члена, URI 0 и путь текущего сборщика 0. Два холодных
+QA-открытия до настоящего узла прошли; загруженные SDK/HV взяты из этой `.app`.
+
+Добавлена автоматическая подготовка физической workspace: 5 проверок на macOS
+и Windows. Checker расширен до native paths/UTF-16: 9 проверок. Native helper
+проверен настоящей библиотекой, сохранёнными exports/UUID/dSYM и FFI-вызовом.
+Полная интеграция workspace в builder, обязательный packaging gate и новые media
+pins ещё нужны. Исходная Win10-жалоба остаётся открытой.
+[Доказательства, восстановление и границы](../macos-native-source-privacy-2026-11-12/README.md).

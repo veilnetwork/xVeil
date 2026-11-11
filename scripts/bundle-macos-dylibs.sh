@@ -192,6 +192,12 @@ ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient|veil_medi
 # release behaviour unchanged unless the caller explicitly supplies the real
 # distribution identity.
 SIGN_IDENTITY="${XVEIL_CODESIGN_IDENTITY:--}"
+if [[ "$PROFILE" == "release" ]]; then
+  # The linker can retain the builder's source/toolchain paths in native SO/
+  # OSO records even with compiler prefix maps. Keep ordinary symbols and the
+  # external dSYMs; remove only native debug records before signing all leaves.
+  python3 "$ROOT/scripts/strip_macos_debug_info.py" "$APP"
+fi
 if [[ "$PROFILE" == "debug" && -z "${XVEIL_CODESIGN_IDENTITY:-}" ]]; then
   DEV_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
     | sed -n 's/.*\([0-9A-F]\{40\}\) "Apple Development:.*/\1/p' \
