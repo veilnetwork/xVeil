@@ -48,7 +48,11 @@ enum DiagnosticEvent {
   callSignalDecision,
   callHistoryRestore,
   callReplayRejected,
+  cameraStart,
 }
+
+/// Source-owned stages; never a device ID, label or native error string.
+enum CameraStartOrigin { callStart, toggle, deviceSelection, recovery }
 
 enum DiagnosticMetric {
   code,
@@ -390,12 +394,26 @@ class DiagnosticJournal {
     );
   }
 
+  void recordCameraStart({
+    required bool success,
+    required CameraStartOrigin origin,
+  }) {
+    record(
+      DiagnosticEvent.cameraStart,
+      values: {
+        DiagnosticMetric.success: success ? 1 : 0,
+        DiagnosticMetric.origin: origin.index,
+      },
+    );
+  }
+
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
     DiagnosticEvent.callHistoryRestore,
     DiagnosticEvent.mediaSample,
     DiagnosticEvent.audioStart,
+    DiagnosticEvent.cameraStart,
     DiagnosticEvent.audioRoute,
     DiagnosticEvent.backgroundSnapshot,
     DiagnosticEvent.backgroundService,
