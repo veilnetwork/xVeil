@@ -42,6 +42,33 @@ void main() {
     expect(selected, same(system));
   });
 
+  testWidgets('system microphone is localized as an input choice', (
+    tester,
+  ) async {
+    const system = CallMediaDevice(
+      id: 'system-default',
+      label: 'System default',
+      kind: CallMediaDeviceKind.microphone,
+      followsSystem: true,
+    );
+    CallMediaDevice? selected;
+    await tester.pumpWidget(
+      _host(
+        CallDevicePickerPanel(
+          devices: const [system],
+          onDismiss: () {},
+          onSelect: (d) => selected = d,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('System output'), findsNothing);
+    final label = find.text('System microphone');
+    expect(label, findsOneWidget);
+    await tester.tap(label);
+    expect(selected, same(system));
+  });
+
   testWidgets('shared settings sheet has matching audio and video tabs', (
     tester,
   ) async {
