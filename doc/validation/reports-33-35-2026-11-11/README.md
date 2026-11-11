@@ -773,3 +773,16 @@ avatar request до accept отклоняется, но принятый кон�
 Это app-level квалификация на контролируемом transport, не физическая Windows
 10/Android или native-network проверка. Новые AOT/pins ещё нужны.
 [Доказательства и границы](../profile-avatar-exchange-2026-11-11/README.md).
+
+## Профильный avatar API после закрытия владельца
+
+Управляемый native/fake стенд с двумя пространствами подтвердил запись
+отложенного set/apply в уже переиспользованный Storage facade и чтение нового
+пространства закрытым сервисом. Добавлены owner guards; cache read при закрытии
+завершается мягко, mutation — явным отказом. Native commit/drain не менялся.
+
+22 assertion-red и два контрольных успеха на baseline обеих платформ; после
+правки 115 related Mac и 115 Windows 11 tests без skips, включая background
+shutdown и сохранность обоих пространств. Новая AOT-упаковка, физическая Windows
+10/Android и полная master/all-online матрица остаются до квалификации.
+[Доказательства и границы](../profile-avatar-owner-2026-11-11/README.md).

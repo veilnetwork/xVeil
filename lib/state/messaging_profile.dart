@@ -1,6 +1,10 @@
 part of 'messaging_core.dart';
 
 extension MessagingProfiles on MessagingService {
+  void _requireProfileOwner() {
+    if (_disposed) throw StateError('profile session is closed');
+  }
+
   /// No mailbox, outbox, presence subscription or third-party image host.
   /// Cached profile is refreshed when a conversation/avatar is opened again.
   Future<void> requestPeerAvatar(NodeId peer) async {
@@ -27,12 +31,20 @@ extension MessagingProfiles on MessagingService {
     }
   }
 
-  Future<String?> loadAvatar({NodeId? peer}) => _storage.getSetting(
-    peer == null ? kSelfAvatarSetting : peerAvatarSetting(peer.hex),
-  );
+  Future<String?> loadAvatar({NodeId? peer}) async {
+    // Cache/backfill reads are best effort during teardown. They must neither
+    // access a replacement identity nor turn ordinary shutdown into a failure.
+    if (_disposed) return null;
+    final raw = await _storage.getSetting(
+      peer == null ? kSelfAvatarSetting : peerAvatarSetting(peer.hex),
+    );
+    return _disposed ? null : raw;
+  }
 
   Future<String> setSelfAvatar(Uint8List? bytes) async {
+    _requireProfileOwner();
     final old = await loadAvatar();
+    _requireProfileOwner();
     final previous = old == null ? null : ProfileAvatar.decode(old);
     final now = DateTime.now().millisecondsSinceEpoch;
     final stamp = previous != null && previous.updatedAt >= now
@@ -47,9 +59,13 @@ extension MessagingProfiles on MessagingService {
   }
 
   Future<void> applySelfAvatar(String raw) async {
+    _requireProfileOwner();
     final value = ProfileAvatar.decode(raw);
     if (value == null) return;
     final old = await loadAvatar();
+    // The shared Storage facade may already name another space after lock.
+    // Refuse before both the no-op decision and the next write admission.
+    _requireProfileOwner();
     if (old == raw) return;
     // The device journal's LWW fold decides sibling conflicts, as it does for
     // nicknames; do not replace that ordering with an independent local clock.
