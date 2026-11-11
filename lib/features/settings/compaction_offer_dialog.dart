@@ -88,6 +88,7 @@ Future<({int before, int after})?> showCompactionOffer(
       builder: (_) => PopScope(
         canPop: false,
         child: _CompactionOfferDialog(
+          lease: lease,
           estimate: estimate,
           currentPassword: currentPassword,
           onOperationStarted: (future) {
@@ -117,12 +118,14 @@ Future<({int before, int after})?> showCompactionOffer(
 
 class _CompactionOfferDialog extends ConsumerStatefulWidget {
   const _CompactionOfferDialog({
+    required this.lease,
     required this.estimate,
     required this.currentPassword,
     required this.onOperationStarted,
   });
 
   final CompactionEstimate estimate;
+  final IdentityLease lease;
   final String currentPassword;
   final ValueChanged<Future<_CompactionResult?>> onOperationStarted;
 
@@ -141,6 +144,9 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   String? _error;
   bool _busy = false;
   bool _failedRun = false;
+  bool get _current =>
+      mounted &&
+      ref.read(appControllerProvider.notifier).holdsIdentity(widget.lease);
 
   @override
   void initState() {
@@ -163,8 +169,8 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     super.dispose();
   }
 
-  Future<void> _accept(String password, {bool silent = false}) async {
-    if (password.isEmpty) return;
+  Future<bool> _accept(String password, {bool silent = false}) async {
+    if (password.isEmpty || _busy || !_current) return false;
     setState(() {
       _busy = true;
       _error = null;
@@ -173,7 +179,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       final probe = await ref
           .read(appControllerProvider.notifier)
           .probeCompactionIdentity(password);
-      if (!mounted) return;
+      if (!_current) return false;
       if (!probe.opened) {
         setState(() {
           _busy = false;
@@ -181,7 +187,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
           // and going looking for one is what used to break it.
           if (!silent) _error = AppL10n.of(context).compactOfferUnknown;
         });
-        return;
+        return false;
       }
       final name = probe.username ?? probe.displayName ?? '—';
       // What a master knows: every identity under it, by the keys that name its
@@ -215,6 +221,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
           _error = AppL10n.of(context).compactOfferAlready;
         }
       });
+      return added;
     } catch (_, stack) {
       errorJournal.record(
         kind: 'storage-compaction-probe',
@@ -222,17 +229,26 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
-      if (mounted) {
+      if (_current) {
         setState(
           () => _error = AppL10n.of(context).settingsStorageCompactFailed,
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _run() async {
+    if (_busy || _failedRun || !_current) return;
+    // A typed password is an instruction to keep that space, even if the
+    // separate Add button was obscured by the mobile keyboard. Never silently
+    // discard it and compact only the already collected spaces.
+    if (_password.text.isNotEmpty && !await _accept(_password.text)) return;
+    if (!mounted || !_current || _roster.length == 0 || !_roster.isComplete) {
+      return;
+    }
     final route = ModalRoute.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
     final l = AppL10n.of(context);
@@ -276,6 +292,10 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
 
   Future<void> _cancel() async {
     final route = ModalRoute.of(context);
+    if (!_current) {
+      _closeCompactionRoute(route, null);
+      return;
+    }
     setState(() => _busy = true);
     final operation = _failedRun
         ? Future<_CompactionResult?>.value(null)
@@ -321,12 +341,12 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
               controller: _password,
               obscureText: true,
               autofocus: true,
-              enabled: !_busy && !_failedRun,
+              enabled: !_busy && !_failedRun && _current,
               decoration: InputDecoration(
                 labelText: l.compactOfferPassword,
                 errorText: _failedRun ? null : _error,
               ),
-              onSubmitted: _busy || _failedRun ? null : _accept,
+              onSubmitted: _busy || _failedRun || !_current ? null : _accept,
             ),
             if (_failedRun && _error != null)
               Padding(
@@ -340,7 +360,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: _busy || _failedRun
+                onPressed: _busy || _failedRun || !_current
                     ? null
                     : () => _accept(_password.text),
                 child: Text(l.compactOfferAdd),
@@ -403,7 +423,11 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
           // Not "some passwords were typed" — every identity the app can see
           // has to be on the list, or the button is not a compaction.
           onPressed:
-              _busy || _failedRun || _roster.length == 0 || missing.isNotEmpty
+              _busy ||
+                  _failedRun ||
+                  !_current ||
+                  _roster.length == 0 ||
+                  missing.isNotEmpty
               ? null
               : _run,
           child: Text(l.compactOfferRun),
