@@ -64,6 +64,19 @@ class _Access implements FolderSavedVersionAccess {
     opened.add(file);
     return _ObservedFile(file, readSizes);
   }
+
+  @override
+  Future<bool> discard(
+    String root,
+    FolderSavedVersion version, {
+    required Future<bool> Function() confirm,
+    required bool Function() stillCurrent,
+  }) => inner.discard(
+    root,
+    version,
+    confirm: confirm,
+    stillCurrent: stillCurrent,
+  );
 }
 
 class _ObservedFile implements SavedFolderFile {
@@ -83,6 +96,9 @@ class _ObservedFile implements SavedFolderFile {
   LocalFile get version => file.version;
   @override
   bool Function() get unchanged => file.unchanged;
+  @override
+  bool Function(NativeFolderSession, String, String) get discard =>
+      file.discard;
 }
 
 void main() {
@@ -118,6 +134,155 @@ void main() {
   }
 
   test(
+    'confirmed discard uses the real native transaction and keeps the current file',
+    () async {
+      final version = await saved();
+      var prompts = 0;
+      expect(
+        await access.discard(
+          root.path,
+          version,
+          stillCurrent: () => true,
+          confirm: () async {
+            prompts++;
+            // No admission is held across interaction.
+            final scope = NativeFolderSession.open(
+              root.path,
+              lib: disk.library,
+            );
+            scope.close();
+            expect(
+              File('${root.path}/${version.relativePath}').readAsStringSync(),
+              'previous',
+            );
+            return true;
+          },
+        ),
+        isTrue,
+      );
+      expect(prompts, 1);
+      expect(
+        File('${root.path}/nested/note.txt').readAsStringSync(),
+        'current',
+      );
+      expect(
+        File('${root.path}/${version.relativePath}').existsSync(),
+        isFalse,
+      );
+      expect((await access.list(root.path)).entries, isEmpty);
+    },
+  );
+
+  test('cancelled confirmation keeps all copy bytes', () async {
+    final version = await saved();
+    expect(
+      await access.discard(
+        root.path,
+        version,
+        stillCurrent: () => true,
+        confirm: () async => false,
+      ),
+      isFalse,
+    );
+    expect(
+      File('${root.path}/${version.relativePath}').readAsStringSync(),
+      'previous',
+    );
+  });
+
+  test(
+    'identity invalidation while confirming cannot remove the old copy',
+    () async {
+      final version = await saved();
+      var current = true;
+      await expectLater(
+        access.discard(
+          root.path,
+          version,
+          stillCurrent: () => current,
+          confirm: () async {
+            current = false;
+            return true;
+          },
+        ),
+        throwsA(isA<FolderSavedOperationCancelled>()),
+      );
+      expect(
+        File('${root.path}/${version.relativePath}').readAsStringSync(),
+        'previous',
+      );
+    },
+  );
+
+  test(
+    'replacing the saved pathname while confirming preserves both objects',
+    () async {
+      final version = await saved();
+      final path = '${root.path}/${version.relativePath}';
+      await expectLater(
+        access.discard(
+          root.path,
+          version,
+          stillCurrent: () => true,
+          confirm: () async {
+            File(path).renameSync('${root.path}/keep.txt');
+            File(path).writeAsStringSync('newer replacement');
+            return true;
+          },
+        ),
+        throwsA(isA<FolderSavedVersionChanged>()),
+      );
+      expect(File(path).readAsStringSync(), 'newer replacement');
+      expect(File('${root.path}/keep.txt').readAsStringSync(), 'previous');
+      expect(
+        File('${root.path}/nested/note.txt').readAsStringSync(),
+        'current',
+      );
+    },
+  );
+
+  test('cleanup refuses pending recovery but export remains available', () async {
+    final version = await saved();
+    final intent = File(
+      '${root.path}/${version.relativePath.replaceFirst('.previous', '.intent')}',
+    );
+    final bytes = intent.readAsBytesSync();
+    bytes[8] = 0;
+    intent.writeAsBytesSync(bytes, flush: true);
+    await expectLater(
+      access.discard(
+        root.path,
+        version,
+        stillCurrent: () => true,
+        confirm: () async => true,
+      ),
+      throwsA(
+        isA<FolderFsFailure>().having(
+          (e) => e.kind,
+          'kind',
+          FolderFsFailureKind.cleanup,
+        ),
+      ),
+    );
+    expect(
+      File('${root.path}/${version.relativePath}').readAsStringSync(),
+      'previous',
+    );
+    final doc = _Document();
+    expect(
+      await exportFolderSavedVersion(
+        access: access,
+        root: root.path,
+        version: version,
+        stillCurrent: () => true,
+        pick: (_) async => doc,
+      ),
+      isTrue,
+    );
+    expect(utf8.decode(doc.bytes.toBytes()), 'previous');
+  });
+
+  test(
     'failure evidence uses only source categories and never exception data',
     () {
       final errors = <(Object, FolderSavedDiagnosticFailure)>[
@@ -128,6 +293,10 @@ void main() {
         (
           const FolderFsFailure(FolderFsFailureKind.unavailable),
           FolderSavedDiagnosticFailure.unavailable,
+        ),
+        (
+          const FolderFsFailure(FolderFsFailureKind.cleanup),
+          FolderSavedDiagnosticFailure.cleanup,
         ),
         (
           const FolderSavedVersionChanged(),

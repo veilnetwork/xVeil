@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math';
 
 import '../domain/file_names.dart';
 import '../domain/folder_sync.dart';
@@ -43,6 +44,12 @@ abstract interface class FolderSavedVersionAccess {
     bool Function()? stillCurrent,
   });
   Future<SavedFolderFile> open(String root, FolderSavedVersion version);
+  Future<bool> discard(
+    String root,
+    FolderSavedVersion version, {
+    required Future<bool> Function() confirm,
+    required bool Function() stillCurrent,
+  });
 }
 
 /// Lists protocol copies only. Intent contents supply a display/export name,
@@ -215,6 +222,54 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
       } finally {
         scope.close();
       }
+    }
+  }
+
+  @override
+  Future<bool> discard(
+    String root,
+    FolderSavedVersion version, {
+    required Future<bool> Function() confirm,
+    required bool Function() stillCurrent,
+  }) async {
+    void check() {
+      if (!stillCurrent()) throw const FolderSavedOperationCancelled();
+    }
+
+    check();
+    // Pin the selected object before confirmation, without holding admission
+    // across user interaction. A replacement while the dialog is open must
+    // never turn confirmation into deletion of that newer object.
+    final selected = await open(root, version);
+    try {
+      check();
+      if (!await confirm()) return false;
+      check();
+      final random = Random.secure();
+      final tag = List.generate(
+        16,
+        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      final separator = version.relativePath.lastIndexOf('/');
+      final prefix = separator < 0
+          ? ''
+          : version.relativePath.substring(0, separator + 1);
+      final scope = NativeFolderSession.open(root, lib: library);
+      try {
+        check();
+        if (!selected.discard(
+          scope,
+          version.relativePath,
+          '$prefix.xveil-$tag.incoming',
+        )) {
+          throw const FolderSavedVersionChanged();
+        }
+        return true;
+      } finally {
+        scope.close();
+      }
+    } finally {
+      await selected.source.dispose();
     }
   }
 }

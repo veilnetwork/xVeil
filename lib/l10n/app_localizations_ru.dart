@@ -8157,4 +8157,18 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get folderSyncSavedNext => 'Следующая страница';
+
+  @override
+  String get folderSyncSavedRemove => 'Удалить сохранённую копию';
+
+  @override
+  String get folderSyncSavedRemoveConfirm =>
+      'Выбранная копия будет удалена безвозвратно. Если она нужна, сначала сохраните её в другом месте. Текущий синхронизируемый файл останется. Копии, нужные для восстановления, удалить нельзя.';
+
+  @override
+  String get folderSyncSavedRemoved => 'Сохранённая копия удалена';
+
+  @override
+  String get folderSyncSavedRemoveFailed =>
+      'Не удалось удалить копию. Возможно, она ещё нужна для восстановления. Обновите список или сохраните её в другом месте.';
 }
