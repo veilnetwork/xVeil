@@ -8189,4 +8189,18 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get folderSyncSavedNext => 'Página siguiente';
+
+  @override
+  String get folderSyncSavedRemove => 'Eliminar copia guardada';
+
+  @override
+  String get folderSyncSavedRemoveConfirm =>
+      'La copia seleccionada se eliminará definitivamente. Guárdala en otro lugar si la necesitas. Se conserva el archivo sincronizado actual. Las copias necesarias para la recuperación no se pueden eliminar.';
+
+  @override
+  String get folderSyncSavedRemoved => 'Copia guardada eliminada';
+
+  @override
+  String get folderSyncSavedRemoveFailed =>
+      'No se pudo eliminar esta copia. Puede ser necesaria para la recuperación. Actualiza la lista o guárdala en otro lugar.';
 }

@@ -14033,6 +14033,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Next page'**
   String get folderSyncSavedNext;
+
+  /// No description provided for @folderSyncSavedRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove saved copy'**
+  String get folderSyncSavedRemove;
+
+  /// No description provided for @folderSyncSavedRemoveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently removes the selected copy. Save it elsewhere first if you need it. The current synced file is kept. Copies still needed for recovery cannot be removed.'**
+  String get folderSyncSavedRemoveConfirm;
+
+  /// No description provided for @folderSyncSavedRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved copy removed'**
+  String get folderSyncSavedRemoved;
+
+  /// No description provided for @folderSyncSavedRemoveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere.'**
+  String get folderSyncSavedRemoveFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
