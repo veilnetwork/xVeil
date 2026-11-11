@@ -70,6 +70,10 @@ extension MessagingProfiles on MessagingService {
     // The device journal's LWW fold decides sibling conflicts, as it does for
     // nicknames; do not replace that ordering with an independent local clock.
     await _storage.putSetting(kSelfAvatarSetting, raw);
+    // A recent answer described the previous value. If its live update was
+    // lost, a newly opened peer must still be able to ask for this revision.
+    // Clear only after a changed value commits; repeats/no-ops stay limited.
+    _avatarRepliedAt.clear();
     _signal();
   }
 
