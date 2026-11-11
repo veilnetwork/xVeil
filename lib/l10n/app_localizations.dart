@@ -13961,6 +13961,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Install or manage components'**
   String get nodeConnectInstall;
+
+  /// No description provided for @folderSyncSavedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved copies'**
+  String get folderSyncSavedTitle;
+
+  /// No description provided for @folderSyncSavedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as creates a separate file. An incoming copy may be incomplete if the transfer was interrupted.'**
+  String get folderSyncSavedHint;
+
+  /// No description provided for @folderSyncSavedPrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous version'**
+  String get folderSyncSavedPrevious;
+
+  /// No description provided for @folderSyncSavedIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming copy'**
+  String get folderSyncSavedIncoming;
+
+  /// No description provided for @folderSyncSavedUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy without a recorded filename'**
+  String get folderSyncSavedUnknown;
+
+  /// No description provided for @folderSyncSavedUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot read this copy'**
+  String get folderSyncSavedUnreadable;
+
+  /// No description provided for @folderSyncSavedEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved copies yet.'**
+  String get folderSyncSavedEmpty;
+
+  /// No description provided for @folderSyncSavedLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read saved copies. The folder may be busy; try refreshing the list.'**
+  String get folderSyncSavedLoadFailed;
+
+  /// No description provided for @folderSyncSavedChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The copy changed while it was being read. Refresh the list and try saving again.'**
+  String get folderSyncSavedChanged;
+
+  /// No description provided for @folderSyncSavedSessionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The identity changed or was locked. Open this list again.'**
+  String get folderSyncSavedSessionChanged;
+
+  /// No description provided for @folderSyncSavedRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh list'**
+  String get folderSyncSavedRefresh;
+
+  /// No description provided for @folderSyncSavedNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next page'**
+  String get folderSyncSavedNext;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -8117,4 +8117,44 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get nodeConnectInstall => 'Установить или настроить компоненты';
+
+  @override
+  String get folderSyncSavedTitle => 'Сохранённые копии';
+
+  @override
+  String get folderSyncSavedHint =>
+      '«Сохранить как» создаёт отдельный файл. Входящая копия могла остаться неполной, если передача прервалась.';
+
+  @override
+  String get folderSyncSavedPrevious => 'Предыдущая версия';
+
+  @override
+  String get folderSyncSavedIncoming => 'Входящая копия';
+
+  @override
+  String get folderSyncSavedUnknown => 'Копия без сохранённого имени';
+
+  @override
+  String get folderSyncSavedUnreadable => 'Недоступна для чтения';
+
+  @override
+  String get folderSyncSavedEmpty => 'Сохранённых копий пока нет.';
+
+  @override
+  String get folderSyncSavedLoadFailed =>
+      'Не удалось прочитать копии. Папка может быть занята; попробуйте обновить список.';
+
+  @override
+  String get folderSyncSavedChanged =>
+      'Копия изменилась во время чтения. Обновите список и попробуйте сохранить ещё раз.';
+
+  @override
+  String get folderSyncSavedSessionChanged =>
+      'Личность сменилась или заблокирована. Откройте список заново.';
+
+  @override
+  String get folderSyncSavedRefresh => 'Обновить список';
+
+  @override
+  String get folderSyncSavedNext => 'Следующая страница';
 }

@@ -82,6 +82,66 @@ void main() {
   }, skip: skip);
 
   test(
+    'saved descriptor survives root admission release and a replaced filename',
+    () async {
+      final scope = open();
+      final path = '${root.path}/$_stem.previous';
+      File(path).writeAsStringSync('saved bytes');
+      final source = scope.openSaved('$_stem.previous')!;
+      scope.close();
+      open().close(); // A user chooser must not retain the folder admission.
+      File(path).renameSync('${root.path}/moved');
+      File(path).writeAsStringSync('substituted bytes');
+      try {
+        expect(source.unchanged(), isTrue);
+        expect(
+          String.fromCharCodes((await source.source.read(0, 20))!),
+          'saved bytes',
+        );
+      } finally {
+        await source.source.dispose();
+      }
+      await source.source.dispose();
+      expect(source.unchanged, throwsStateError);
+    },
+    skip: skip,
+  );
+
+  test(
+    'saved change witness notices in-place edits and refuses nonprotocol names',
+    () async {
+      final scope = open();
+      final path = '${root.path}/$_stem.previous';
+      final file = File(path)..writeAsStringSync('before');
+      final stamp = DateTime.utc(
+        2026,
+        1,
+        1,
+      ).add(const Duration(microseconds: 100));
+      file.setLastModifiedSync(stamp);
+      final source = scope.openSaved('$_stem.previous')!;
+      try {
+        file.writeAsStringSync('after!');
+        file.setLastModifiedSync(stamp.add(const Duration(seconds: 1)));
+        expect(
+          file.statSync().modified.millisecondsSinceEpoch,
+          source.version.modifiedAtMs + 1000,
+        );
+        expect(file.lengthSync(), source.version.size);
+        expect(source.unchanged(), isFalse);
+        expect(scope.openSaved('$_second.incoming'), isNull);
+        expect(
+          () => scope.openSaved('user-file.txt'),
+          throwsA(failure(FolderFsFailureKind.reading)),
+        );
+      } finally {
+        await source.source.dispose();
+      }
+    },
+    skip: skip,
+  );
+
+  test(
     'incoming preparation makes parents under the admission and keeps exclusions',
     () async {
       final scope = open();

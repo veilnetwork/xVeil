@@ -3217,5 +3217,17 @@
   "nodeConnectExpired": "Доступ истёк. Запустите veil-connect снова и отсканируйте новый QR.",
   "nodeConnectError": "Не удалось подключиться. Проверьте код, адрес сервера, порт и сертификат.",
   "nodeConnectRefresh": "Обновить доступ по QR",
-  "nodeConnectInstall": "Установить или настроить компоненты"
+  "nodeConnectInstall": "Установить или настроить компоненты",
+  "folderSyncSavedTitle": "Сохранённые копии",
+  "folderSyncSavedHint": "«Сохранить как» создаёт отдельный файл. Входящая копия могла остаться неполной, если передача прервалась.",
+  "folderSyncSavedPrevious": "Предыдущая версия",
+  "folderSyncSavedIncoming": "Входящая копия",
+  "folderSyncSavedUnknown": "Копия без сохранённого имени",
+  "folderSyncSavedUnreadable": "Недоступна для чтения",
+  "folderSyncSavedEmpty": "Сохранённых копий пока нет.",
+  "folderSyncSavedLoadFailed": "Не удалось прочитать копии. Папка может быть занята; попробуйте обновить список.",
+  "folderSyncSavedChanged": "Копия изменилась во время чтения. Обновите список и попробуйте сохранить ещё раз.",
+  "folderSyncSavedSessionChanged": "Личность сменилась или заблокирована. Откройте список заново.",
+  "folderSyncSavedRefresh": "Обновить список",
+  "folderSyncSavedNext": "Следующая страница"
 }

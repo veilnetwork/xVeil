@@ -21,6 +21,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
                 '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
+                '  diagnosticJournal.recordFolderSavedFailure(action: FolderSavedDiagnosticAction.listing, failure: FolderSavedDiagnosticFailure.reading);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
                 '    DiagnosticMetric.state: 2, DiagnosticMetric.direction: 0});\n'
                 '  diagnosticJournal.record(DiagnosticEvent.microphoneControl, values: {\n'
@@ -101,6 +102,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'state': 2, 'direction': 0,
                         })
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['folderSavedFailure']['values'], {
+                            'origin': 0, 'code': 5, 'success': 0,
+                        })
                         self.assertEqual(evidence['cameraStart']['values'], {
                             'success': 0, 'origin': 2,
                         })

@@ -49,10 +49,30 @@ enum DiagnosticEvent {
   callHistoryRestore,
   callReplayRejected,
   cameraStart,
+  folderSavedFailure,
 }
 
 /// Source-owned stages; never a device ID, label or native error string.
 enum CameraStartOrigin { callStart, toggle, deviceSelection, recovery }
+
+enum FolderSavedDiagnosticAction { listing, exporting }
+
+/// Append values to preserve diagnostic codes. No native text or paths.
+enum FolderSavedDiagnosticFailure {
+  unavailable,
+  busy,
+  rootChanged,
+  recovery,
+  preparation,
+  reading,
+  publication,
+  changed,
+  destinationPermission,
+  destinationOpen,
+  destinationWrite,
+  destinationFinish,
+  other,
+}
 
 enum DiagnosticMetric {
   code,
@@ -407,6 +427,20 @@ class DiagnosticJournal {
     );
   }
 
+  void recordFolderSavedFailure({
+    required FolderSavedDiagnosticAction action,
+    required FolderSavedDiagnosticFailure failure,
+  }) {
+    record(
+      DiagnosticEvent.folderSavedFailure,
+      values: {
+        DiagnosticMetric.origin: action.index,
+        DiagnosticMetric.code: failure.index,
+        DiagnosticMetric.success: 0,
+      },
+    );
+  }
+
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
@@ -414,6 +448,7 @@ class DiagnosticJournal {
     DiagnosticEvent.mediaSample,
     DiagnosticEvent.audioStart,
     DiagnosticEvent.cameraStart,
+    DiagnosticEvent.folderSavedFailure,
     DiagnosticEvent.audioRoute,
     DiagnosticEvent.backgroundSnapshot,
     DiagnosticEvent.backgroundService,

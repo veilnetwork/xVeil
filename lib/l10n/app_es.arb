@@ -3235,5 +3235,17 @@
   "nodeConnectExpired": "El acceso caducó. Ejecute veil-connect de nuevo y escanee el nuevo QR.",
   "nodeConnectError": "No se pudo conectar. Compruebe el código, la dirección, el puerto y el certificado.",
   "nodeConnectRefresh": "Renovar acceso por QR",
-  "nodeConnectInstall": "Instalar o administrar componentes"
+  "nodeConnectInstall": "Instalar o administrar componentes",
+  "folderSyncSavedTitle": "Copias guardadas",
+  "folderSyncSavedHint": "Guardar como crea un archivo separado. Una copia entrante puede estar incompleta si se interrumpió la transferencia.",
+  "folderSyncSavedPrevious": "Versión anterior",
+  "folderSyncSavedIncoming": "Copia entrante",
+  "folderSyncSavedUnknown": "Copia sin nombre registrado",
+  "folderSyncSavedUnreadable": "No se puede leer esta copia",
+  "folderSyncSavedEmpty": "Aún no hay copias guardadas.",
+  "folderSyncSavedLoadFailed": "No se pudieron leer las copias. La carpeta puede estar ocupada; actualice la lista.",
+  "folderSyncSavedChanged": "La copia cambió durante la lectura. Actualice la lista e intente guardarla de nuevo.",
+  "folderSyncSavedSessionChanged": "La identidad cambió o se bloqueó. Abra esta lista de nuevo.",
+  "folderSyncSavedRefresh": "Actualizar lista",
+  "folderSyncSavedNext": "Página siguiente"
 }

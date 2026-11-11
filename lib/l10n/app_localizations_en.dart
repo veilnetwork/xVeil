@@ -8049,4 +8049,44 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nodeConnectInstall => 'Install or manage components';
+
+  @override
+  String get folderSyncSavedTitle => 'Saved copies';
+
+  @override
+  String get folderSyncSavedHint =>
+      'Save as creates a separate file. An incoming copy may be incomplete if the transfer was interrupted.';
+
+  @override
+  String get folderSyncSavedPrevious => 'Previous version';
+
+  @override
+  String get folderSyncSavedIncoming => 'Incoming copy';
+
+  @override
+  String get folderSyncSavedUnknown => 'Copy without a recorded filename';
+
+  @override
+  String get folderSyncSavedUnreadable => 'Cannot read this copy';
+
+  @override
+  String get folderSyncSavedEmpty => 'No saved copies yet.';
+
+  @override
+  String get folderSyncSavedLoadFailed =>
+      'Could not read saved copies. The folder may be busy; try refreshing the list.';
+
+  @override
+  String get folderSyncSavedChanged =>
+      'The copy changed while it was being read. Refresh the list and try saving again.';
+
+  @override
+  String get folderSyncSavedSessionChanged =>
+      'The identity changed or was locked. Open this list again.';
+
+  @override
+  String get folderSyncSavedRefresh => 'Refresh list';
+
+  @override
+  String get folderSyncSavedNext => 'Next page';
 }
