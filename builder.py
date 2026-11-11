@@ -632,6 +632,41 @@ def _android_native_dependency_problems(*, bundle_path: str, abi: str) -> list[s
     return problems
 
 
+def _android_network_asset_problems(*, bundle_path: str, network: str) -> list[str]:
+    """Compare selected deployment inputs with the APK, without printing them.
+
+    A cached Flutter asset target can omit a newly staged ignored PSK or retain
+    an earlier deployment's bytes. Successful native builds cannot detect it.
+    An intentionally absent asset is supported, but must also be absent in the
+    artifact; never inherit network material from a previous package.
+    """
+    import zipfile
+
+    if network not in ("prod", "testnet"):
+        raise ValueError("unknown Android deployment network")
+    problems: list[str] = []
+    with zipfile.ZipFile(bundle_path) as bundle:
+        names = set(bundle.namelist())
+        for filename in ("seeds.json", "obfs4_psk.b64"):
+            relative = f"assets/{network}/{filename}"
+            source = os.path.join(ROOT, "assets", network, filename)
+            entry = "assets/flutter_assets/" + relative
+            configured = os.path.isfile(source)
+            present = entry in names
+            if not configured:
+                if present:
+                    problems.append(f"unconfigured network asset remains in APK: {relative}")
+                continue
+            if not present:
+                problems.append(f"configured network asset missing from APK: {relative}")
+                continue
+            with open(source, "rb") as handle:
+                expected = handle.read()
+            if bundle.read(entry) != expected:
+                problems.append(f"network asset differs from configured input: {relative}")
+    return problems
+
+
 def _check_android_native_libs() -> None:
     """Verify the ARTIFACT, not the exit status.
 
@@ -665,6 +700,13 @@ def _check_android_native_libs() -> None:
         if not os.path.isfile(apk):
             problems.append(f"{abi}: no APK at {apk}")
             continue
+        network = os.environ.get("XVEIL_NETWORK", "").strip() or "prod"
+        problems.extend(
+            f"{abi}: {problem}"
+            for problem in _android_network_asset_problems(
+                bundle_path=apk, network=network
+            )
+        )
         with zipfile.ZipFile(apk) as bundle:
             names = {
                 entry.rsplit("/", 1)[-1]
