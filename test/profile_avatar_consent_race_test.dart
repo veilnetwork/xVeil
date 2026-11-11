@@ -200,6 +200,29 @@ void main() {
         expect(wire.avatars, isEmpty);
       });
 
+      test('an acceptance share rechecks consent after avatar load', () async {
+        final (storage, wire, messaging) = await _fixture(native);
+        await storage.setContactStatus(_id(2), ContactStatus.pendingOutgoing);
+        storage.holdSetting = kSelfAvatarSetting;
+        final acceptance = messaging.deliverInbound(
+          InboundMessage(
+            src: _id(2),
+            provenance: SenderProvenance.sessionPeer,
+            payload: const WireEnvelope.accept().encode(),
+          ),
+        );
+        await storage.entered.future;
+        await messaging.blockContact(_id(2));
+        storage.release.complete();
+        await acceptance;
+        await pumpEventQueue();
+        expect(wire.avatars, isEmpty);
+        expect(
+          (await storage.getContact(_id(2)))?.status,
+          ContactStatus.blocked,
+        );
+      });
+
       test('an announcement rechecks a stale contact list', () async {
         final (storage, wire, messaging) = await _fixture(native);
         storage.holdConversations = true;

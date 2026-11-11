@@ -543,6 +543,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // Only honour an accept for a request we actually sent.
         if (existing?.status == ContactStatus.pendingOutgoing) {
           await _setStatus(m.src, ContactStatus.accepted);
+          unawaited(_shareAvatarAfterAcceptance(m.src));
           // Acceptance is proof that the request reached this peer, including
           // when its mailbox deposit failed and the live copy arrived later.
           for (final greeting in await _storage.loadMessages(m.src.hex)) {

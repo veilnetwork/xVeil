@@ -759,3 +759,17 @@ Android, слышимость человеком или GUI-аватары.
 tests без skips, включая native worker notification contract. Новая AOT-
 упаковка и фактическая Windows 10 network/GUI квалификация ещё нужны.
 [Доказательства и границы](../profile-avatar-acceptance-2026-11-11/README.md).
+
+## Paired avatar exchange после accept
+
+Подтверждён и исправлен обходившийся прошлым component-тестом сценарий:
+avatar request до accept отклоняется, но принятый контакт затем не получает
+картинку. Полностью доставленный FIFO проходил, reordered контроль падал.
+Теперь получатель accept также делится своим текущим аватаром с этим контактом,
+с consent guards и без ожидания сети в ingress.
+
+79 related Mac и те же 79 Windows 11 tests без skips включают оба порядка,
+объявление замены, передачу очистки, MemoryImage и native block-during-read.
+Это app-level квалификация на контролируемом transport, не физическая Windows
+10/Android или native-network проверка. Новые AOT/pins ещё нужны.
+[Доказательства и границы](../profile-avatar-exchange-2026-11-11/README.md).
