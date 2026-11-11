@@ -99,6 +99,10 @@ part 'messaging_content_receive.dart';
 part 'messaging_inbound_dispatch.dart';
 part 'messaging_large_frames.dart';
 
+/// A stored relationship transition, local or mirrored. This is a UI refresh
+/// hint; callers must still check current consent before network admission.
+typedef ContactStatusChange = ({NodeId peer, ContactStatus status});
+
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
 /// refresh. Intentionally Riverpod-free (no Ref) — it owns a plain broadcast
@@ -1351,6 +1355,8 @@ class MessagingService {
   Future<void> debugAckTo(InboundMessage m, String id) => _ackTo(m, id);
 
   final _changes = StreamController<void>.broadcast();
+  final _contactStatusChanges =
+      StreamController<ContactStatusChange>.broadcast();
   // Genuinely-new incoming messages (post-dedup), for the notification layer.
   final _incoming = StreamController<IncomingNotice>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
@@ -1654,6 +1660,12 @@ class MessagingService {
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
+
+  /// Relationship-only notifications for mounted views, without rereading all
+  /// contacts on every chat/history change. Mirrored decisions do not invoke
+  /// [onContactStatusChanged], which is reserved for local journal emission.
+  Stream<ContactStatusChange> get contactStatusChanges =>
+      _contactStatusChanges.stream;
 
   /// Fires once per genuinely-new incoming message (after the consent gate +
   /// dedup), so the notification layer can alert without re-alerting on a
@@ -4746,6 +4758,7 @@ class MessagingService {
     _groupContent.clear();
     await _contentFetching.clear();
     await _contentAvailability.clearSession();
+    await _contactStatusChanges.close();
     await _changes.close();
     await _incoming.close();
     await _attestation.dispose();

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../domain/chat.dart';
 import '../../domain/profile_avatar.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/device_settings_sync.dart';
@@ -32,9 +33,26 @@ class IdentityAvatar extends ConsumerStatefulWidget {
 }
 
 class _IdentityAvatarState extends ConsumerState<IdentityAvatar> {
+  MessagingService? _messaging;
+  StreamSubscription<ContactStatusChange>? _statusSubscription;
+
   void _refresh(MessagingService messaging) {
     if (widget.peerHex.isEmpty) return;
     unawaited(messaging.requestPeerAvatar(NodeId.fromHex(widget.peerHex)));
+  }
+
+  void _bind(MessagingService messaging) {
+    final previous = _statusSubscription;
+    if (previous != null) unawaited(previous.cancel());
+    _messaging = messaging;
+    _statusSubscription = messaging.contactStatusChanges.listen((change) {
+      if (identical(_messaging, messaging) &&
+          change.peer.hex == widget.peerHex &&
+          change.status == ContactStatus.accepted) {
+        _refresh(messaging);
+      }
+    });
+    _refresh(messaging);
   }
 
   @override
@@ -45,7 +63,7 @@ class _IdentityAvatarState extends ConsumerState<IdentityAvatar> {
     // The service retains its contact-consent gate and per-peer rate limit.
     ref.listenManual(
       messagingServiceProvider,
-      (_, next) => _refresh(next),
+      (_, next) => _bind(next),
       fireImmediately: true,
     );
   }
@@ -56,6 +74,15 @@ class _IdentityAvatarState extends ConsumerState<IdentityAvatar> {
     if (oldWidget.peerHex != widget.peerHex) {
       _refresh(ref.read(messagingServiceProvider));
     }
+  }
+
+  @override
+  void dispose() {
+    _messaging = null;
+    final subscription = _statusSubscription;
+    _statusSubscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    super.dispose();
   }
 
   @override
