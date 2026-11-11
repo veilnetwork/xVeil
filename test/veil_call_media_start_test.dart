@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -190,6 +192,48 @@ class _RepairingTransport extends _Transport {
   }
 }
 
+class _CameraChoiceEngine extends _UpgradeEngine {
+  final cameraStarts = <String?>[];
+  String? activeCamera;
+  String? rejected;
+  bool throwOnRejected = false;
+  bool stopAccepted = true;
+  bool rejectAll = false;
+  @override
+  List<MediaDevice> listVideoInputs() => const [
+    MediaDevice(id: 'old-camera', label: 'Previous camera', kind: 'camera'),
+    MediaDevice(id: 'new-camera', label: 'New camera', kind: 'camera'),
+  ];
+  @override
+  bool startCamera({
+    int width = 352,
+    int height = 198,
+    int fps = 15,
+    String? deviceId,
+  }) {
+    cameraStarts.add(deviceId);
+    if (rejectAll || deviceId == rejected) {
+      if (throwOnRejected) throw StateError('fixture camera unavailable');
+      return false;
+    }
+    activeCamera = deviceId;
+    return true;
+  }
+
+  @override
+  bool stopCamera() {
+    if (!stopAccepted) return false;
+    activeCamera = null;
+    return true;
+  }
+
+  @override
+  void dispose() {
+    activeCamera = null;
+    super.dispose();
+  }
+}
+
 class _RestoreStageEngine extends _Engine {
   _RestoreStageEngine(this.stage, this.label)
     : super(nativeStarted: true, capture: 1);
@@ -331,7 +375,121 @@ class _PreflightPreferences extends InMemorySharedPreferencesStore {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    diagnosticJournal.clear();
+  });
+
+  for (final refusal in ['stop', 'start', 'throw']) {
+    test(
+      'failed desktop camera switch ($refusal) preserves the previous choice',
+      () async {
+        final key = 'call.capture.camera.${Platform.operatingSystem}';
+        SharedPreferences.setMockInitialValues({key: 'old-camera'});
+        final engine = _CameraChoiceEngine();
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+        );
+        try {
+          expect(await controller.start(_call(video: true)), isTrue);
+          expect(engine.activeCamera, 'old-camera');
+          final starts = engine.cameraStarts.length;
+          engine.stopAccepted = refusal != 'stop';
+          engine.rejected = 'new-camera';
+          engine.throwOnRejected = refusal == 'throw';
+          expect(await controller.selectCamera('new-camera'), isFalse);
+          expect(engine.activeCamera, 'old-camera');
+          expect(
+            (await SharedPreferences.getInstance()).getString(key),
+            'old-camera',
+          );
+          expect(
+            (await controller.listCameras()).singleWhere((d) => d.selected).id,
+            'old-camera',
+          );
+          if (refusal == 'stop') expect(engine.cameraStarts.length, starts);
+          if (kDiagnosticReportEnabled && refusal != 'stop') {
+            final events = diagnosticJournal.toJson()['events'] as List;
+            final camera = events
+                .where((e) => (e as Map)['event'] == 'cameraStart')
+                .toList();
+            expect(camera.map((e) => (e as Map)['values']), [
+              {'success': 1, 'origin': CameraStartOrigin.callStart.index},
+              {'success': 0, 'origin': CameraStartOrigin.deviceSelection.index},
+              {'success': 1, 'origin': CameraStartOrigin.recovery.index},
+            ]);
+            final report = jsonEncode(diagnosticJournal.toJson());
+            for (final private in [
+              'old-camera',
+              'new-camera',
+              'fixture camera unavailable',
+            ]) {
+              expect(report, isNot(contains(private)));
+            }
+          }
+        } finally {
+          engine.stopAccepted = true;
+          await controller.stop();
+        }
+      },
+      skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
+    );
+  }
+
+  for (final mode in [
+    'success',
+    'camera-off',
+    'rollback-unavailable',
+    'stopped-call',
+  ]) {
+    test(
+      'desktop camera selection handles $mode',
+      () async {
+        final key = 'call.capture.camera.${Platform.operatingSystem}';
+        SharedPreferences.setMockInitialValues({key: 'old-camera'});
+        final engine = _CameraChoiceEngine();
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+        );
+        try {
+          expect(await controller.start(_call(video: true)), isTrue);
+          expect(engine.activeCamera, 'old-camera');
+          if (mode == 'camera-off') await controller.setCameraEnabled(false);
+          if (mode == 'rollback-unavailable') engine.rejectAll = true;
+          final starts = engine.cameraStarts.length;
+          final selecting = controller.selectCamera('new-camera');
+          if (mode == 'stopped-call') await controller.stop();
+          final success = mode == 'success' || mode == 'camera-off';
+          expect(await selecting, success);
+          expect(
+            (await SharedPreferences.getInstance()).getString(key),
+            success ? 'new-camera' : 'old-camera',
+          );
+          if (mode == 'success') expect(engine.activeCamera, 'new-camera');
+          if (mode == 'camera-off' || mode == 'stopped-call') {
+            expect(engine.cameraStarts.length, starts);
+            expect(engine.activeCamera, isNull);
+          }
+          if (mode == 'rollback-unavailable') {
+            expect(engine.cameraStarts.skip(starts), [
+              'new-camera',
+              'old-camera',
+            ]);
+            expect(engine.activeCamera, isNull);
+          }
+        } finally {
+          await controller.stop();
+        }
+      },
+      skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
+    );
+  }
 
   for (final preference in [null, 'chosen speaker', 'unplugged speaker']) {
     test('speaker restore uses the actual choice: $preference', () async {
