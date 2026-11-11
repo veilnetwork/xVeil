@@ -11,6 +11,8 @@ import '../../state/app_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import 'node_config_screen.dart';
+import 'node_connect_screen.dart';
+import '../../state/identity_guard.dart';
 import 'node_provision_screen.dart';
 import 'share_link_sheet.dart';
 import 'ssh_command_dialog.dart';
@@ -62,6 +64,7 @@ class NodeManagementScreen extends ConsumerWidget {
     ManagedNode node,
     SshResult result,
   ) async {
+    final lease = ref.leaseIdentity();
     final report = parseProvisionReport(result.stdout);
     // The id is adopted only into a BLANK record (see nodeWithAdoptedId); the
     // version is refreshed every time, because that is the whole point of
@@ -70,18 +73,22 @@ class NodeManagementScreen extends ConsumerWidget {
     // was handed: the dialog pins a host key just before calling it, and
     // writing back the earlier object wiped the pin.
     ManagedNode? written;
-    final failed = await ref
-        .read(managedNodesProvider.notifier)
-        .updateById(node.id, (cur) {
-      var next = nodeWithAdoptedId(cur, result.stdout) ?? cur;
-      if (report.veilVersion != null) {
-        next = next.copyWith(veilVersion: report.veilVersion);
-      }
-      return written = next;
-    });
+    final failed = await ref.read(managedNodesProvider.notifier).updateById(
+      node.id,
+      (cur) {
+        var next = nodeWithAdoptedId(cur, result.stdout) ?? cur;
+        if (report.veilVersion != null) {
+          next = next.copyWith(veilVersion: report.veilVersion);
+        }
+        return written = next;
+      },
+    );
+    if (!context.mounted || !ref.holdsIdentity(lease)) return;
     if (failed != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).nodeRegistrySaveFailed(failed))),
+        SnackBar(
+          content: Text(AppL10n.of(context).nodeRegistrySaveFailed(failed)),
+        ),
       );
     }
     // What was actually stored, so the routing below reads the same record —
@@ -104,6 +111,7 @@ class NodeManagementScreen extends ConsumerWidget {
     // refuses every stream, and the only trace is one line in the node's log.
     // Said here, where the operator is looking at that server and has its
     // config in front of them.
+    if (!context.mounted || !ref.holdsIdentity(lease)) return;
     final self = ref.read(appControllerProvider).identity?.nodeId.hex;
     if (exitAdmitsSelf(result.stdout, self) == false && context.mounted) {
       final l = AppL10n.of(context);
@@ -145,7 +153,9 @@ class NodeManagementScreen extends ConsumerWidget {
       if (failed != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppL10n.of(context).nodeRemoteChangedLocalNot(failed)),
+            content: Text(
+              AppL10n.of(context).nodeRemoteChangedLocalNot(failed),
+            ),
           ),
         );
       }
@@ -173,7 +183,7 @@ class NodeManagementScreen extends ConsumerWidget {
       final l = AppL10n.of(context);
       final uri = nodeEntryPointShareUri(
         inventoryOutput: result.stdout,
-        reachableHost: node.sshHost,
+        reachableHost: node.controlHost,
       );
       if (uri == null) {
         ScaffoldMessenger.of(
@@ -204,13 +214,25 @@ class NodeManagementScreen extends ConsumerWidget {
         body: Center(child: Text(l.nodesEmpty)),
       );
     }
-    final endpoint = node.hasSsh
+    final endpoint = node.hasConnect
+        ? l.nodeConnectTemporary
+        : node.hasSsh
         ? '${node.sshUser}@${node.sshHost}:${node.sshPort}'
         : l.nodeSshHostLabel;
     return Scaffold(
       appBar: AppBar(title: Text(node.label)),
       body: ListView(
         children: [
+          if (node.hasConnect)
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: Text(l.nodeConnectRefresh),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NodeConnectScreen(existing: node),
+                ),
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
             title: Text(
@@ -220,7 +242,7 @@ class NodeManagementScreen extends ConsumerWidget {
           ),
           const Divider(),
           ListTile(
-            enabled: node.hasSsh && node.sshUser != null,
+            enabled: node.hasManagement,
             leading: const Icon(Icons.monitor_heart_outlined),
             title: Text(l.nodeInventory),
             trailing: const Icon(Icons.chevron_right),
@@ -242,12 +264,12 @@ class NodeManagementScreen extends ConsumerWidget {
             subtitle: Text(l.nodeAutoUpdateHint),
             isThreeLine: true,
             value: node.autoUpdate,
-            onChanged: node.hasSsh && node.sshUser != null
+            onChanged: node.hasManagement
                 ? (value) => _setAutoUpdate(context, ref, node, value)
                 : null,
           ),
           ListTile(
-            enabled: node.hasSsh && node.sshUser != null,
+            enabled: node.hasManagement,
             leading: const Icon(Icons.share_outlined),
             title: Text(l.nodeShareEntry),
             subtitle: Text(l.nodeShareEntryHint),
@@ -256,7 +278,7 @@ class NodeManagementScreen extends ConsumerWidget {
             onTap: () => _shareEntryPoint(context, ref, node),
           ),
           ListTile(
-            enabled: node.hasSsh && node.sshUser != null,
+            enabled: node.hasManagement,
             leading: const Icon(Icons.system_update_alt),
             title: Text(l.nodeInstallUpdate),
             trailing: const Icon(Icons.chevron_right),
@@ -271,7 +293,7 @@ class NodeManagementScreen extends ConsumerWidget {
           for (final service in NodeManagedService.values)
             _ServiceTile(
               service: service,
-              enabled: node.hasSsh && node.sshUser != null,
+              enabled: node.hasManagement,
               onAction: (action) => _run(
                 context,
                 node,
@@ -283,7 +305,7 @@ class NodeManagementScreen extends ConsumerWidget {
           _SectionHeader(l.nodeAdvancedConfig),
           for (final target in NodeConfigTarget.values)
             ListTile(
-              enabled: node.hasSsh && node.sshUser != null,
+              enabled: node.hasManagement,
               leading: const Icon(Icons.tune),
               title: Text(_configLabel(target)),
               subtitle: Text(target.path),
@@ -296,13 +318,13 @@ class NodeManagementScreen extends ConsumerWidget {
             ),
           const Divider(),
           ListTile(
-            enabled: node.hasSsh && node.sshUser != null,
+            enabled: node.hasManagement,
             leading: const Icon(Icons.delete_sweep_outlined),
             title: Text(l.nodeUninstallSoftware),
             onTap: () => _chooseUninstall(context, node),
           ),
           ListTile(
-            enabled: node.hasSsh && node.sshUser != null,
+            enabled: node.hasManagement,
             leading: Icon(
               Icons.warning_amber_rounded,
               color: Theme.of(context).colorScheme.error,

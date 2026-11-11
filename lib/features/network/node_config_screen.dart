@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ssh_host_confirm.dart';
+import 'node_connect_screen.dart' show nodeConnectError;
+import '../../data/node/node_connect.dart';
+import '../../state/node_connect.dart';
+import '../../state/identity_guard.dart';
+import '../../state/app_controller.dart' show IdentityLease;
 
 import '../../data/node/managed_node.dart';
 import '../../data/node/exit_allowlist.dart';
@@ -26,6 +31,9 @@ class NodeConfigScreen extends ConsumerStatefulWidget {
 }
 
 class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
+  late final IdentityLease _lease;
+  bool get _current => mounted && ref.holdsIdentity(_lease);
+
   final _password = TextEditingController();
   final _key = TextEditingController();
   final _passphrase = TextEditingController();
@@ -36,6 +44,12 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
   bool _loaded = false;
   String? _output;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _lease = ref.leaseIdentity();
+  }
 
   @override
   void dispose() {
@@ -55,6 +69,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       : SshAuth.password(_password.text);
 
   Future<SshResult?> _run(String command) async {
+    if (!_current) return null;
     final node = widget.node;
     setState(() {
       _busy = true;
@@ -62,6 +77,23 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       _output = null;
     });
     try {
+      if (node.hasConnect) {
+        final result = await runNodeConnect(
+          ref,
+          node,
+          _lease,
+          command,
+          isMounted: () => mounted,
+        );
+        if (!_current) return null;
+        if (result.truncated) {
+          if (mounted) {
+            setState(() => _error = AppL10n.of(context).nodeConnectError);
+          }
+          return null;
+        }
+        return result;
+      }
       // Identity before credentials — see confirmSshHost.
       final pin = await confirmSshHost(
         context,
@@ -69,6 +101,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
         port: node.sshPort,
         pinned: node.sshHostFingerprint,
       );
+      if (!_current) return null;
       if (pin == null) {
         if (mounted) {
           setState(() => _error = AppL10n.of(context).sshHostNotConfirmed);
@@ -84,6 +117,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
         expectedHostFingerprint: pin,
         timeout: const Duration(minutes: 2),
       );
+      if (!_current) return null;
       if (result.hostFingerprint.isNotEmpty &&
           node.sshHostFingerprint == null) {
         final failed = await ref
@@ -98,6 +132,11 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
         }
       }
       return result;
+    } on NodeConnectException catch (error) {
+      if (mounted && _current) {
+        setState(() => _error = nodeConnectError(AppL10n.of(context), error));
+      }
+      return null;
     } on SshException catch (e) {
       if (mounted) setState(() => _error = e.message);
       return null;
@@ -111,7 +150,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
 
   Future<void> _load() async {
     final result = await _run(buildReadNodeConfigScript(widget.target));
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || !_current) return;
     final parsed = parseReadNodeConfig(result.stdout);
     if (parsed == null) {
       final l = AppL10n.of(context);
@@ -142,7 +181,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
         expectedSha256: _loadedSha256,
       ),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || !_current) return;
     setState(() {
       _output = [
         result.stdout,
@@ -222,7 +261,10 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(l.exitAdmissionTitle, style: Theme.of(context).textTheme.titleSmall),
+            Text(
+              l.exitAdmissionTitle,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
             // The state that costs people their traffic, said plainly rather
             // than left to be inferred from an empty list.
             if (admission.admitsNobody)
@@ -253,7 +295,9 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 ),
                 trailing: IconButton(
-                  tooltip: MaterialLocalizations.of(context).deleteButtonTooltip,
+                  tooltip: MaterialLocalizations.of(
+                    context,
+                  ).deleteButtonTooltip,
                   onPressed: _busy
                       ? null
                       : () => _setAdmission(
@@ -289,9 +333,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
                   onPressed: _busy || !canAdd
                       ? null
                       : () {
-                          _setAdmission(
-                            ids: [...admission.allowedNodeIds, id],
-                          );
+                          _setAdmission(ids: [...admission.allowedNodeIds, id]);
                           _admit.clear();
                         },
                   child: Text(l.exitAdmissionAdd),
@@ -322,54 +364,57 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SegmentedButton<bool>(
-                segments: [
-                  ButtonSegment(value: false, label: Text(l.sshUsePassword)),
-                  ButtonSegment(value: true, label: Text(l.sshUseKey)),
-                ],
-                selected: {_useKey},
-                onSelectionChanged: _busy
-                    ? null
-                    : (selection) => setState(() => _useKey = selection.first),
-              ),
-              const SizedBox(height: 8),
-              if (!_useKey)
-                TextField(
-                  controller: _password,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: l.sshPasswordLabel,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                )
-              else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: SshPrivateKeyField(
-                        controller: _key,
-                        maxLines: 4,
-                        labelText: l.sshKeyLabel,
-                      ),
+              if (!widget.node.hasConnect) ...[
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(value: false, label: Text(l.sshUsePassword)),
+                    ButtonSegment(value: true, label: Text(l.sshUseKey)),
+                  ],
+                  selected: {_useKey},
+                  onSelectionChanged: _busy
+                      ? null
+                      : (selection) =>
+                            setState(() => _useKey = selection.first),
+                ),
+                const SizedBox(height: 8),
+                if (!_useKey)
+                  TextField(
+                    controller: _password,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: l.sshPasswordLabel,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _passphrase,
-                        obscureText: true,
-                        decoration: InputDecoration(
-                          labelText: l.sshKeyPassphraseLabel,
-                          border: const OutlineInputBorder(),
-                          isDense: true,
+                  )
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: SshPrivateKeyField(
+                          controller: _key,
+                          maxLines: 4,
+                          labelText: l.sshKeyLabel,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 8),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _passphrase,
+                          obscureText: true,
+                          decoration: InputDecoration(
+                            labelText: l.sshKeyPassphraseLabel,
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 8),
+              ],
               Row(
                 children: [
                   OutlinedButton.icon(

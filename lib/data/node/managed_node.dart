@@ -21,6 +21,7 @@ class ManagedNode {
     this.sshHostFingerprint,
     this.autoUpdate = false,
     this.veilVersion,
+    this.connectEndpoint,
   });
 
   /// Local stable id (uuid) — identifies the entry across edits.
@@ -65,6 +66,14 @@ class ManagedNode {
   /// installs anything.
   final String? veilVersion;
 
+  /// Temporary HTTPS control endpoint. Its credential is stored separately
+  /// inside this identity; the public peer invitation never contains it.
+  final String? connectEndpoint;
+  bool get hasConnect => connectEndpoint != null && connectEndpoint!.isNotEmpty;
+  bool get hasManagement => hasConnect || (hasSsh && sshUser != null);
+  String? get controlHost =>
+      hasConnect ? Uri.tryParse(connectEndpoint!)?.host : sshHost;
+
   bool get hasNodeId => nodeId != null && _isHex64(nodeId!);
   bool get hasSsh => sshHost != null && sshHost!.isNotEmpty;
 
@@ -81,43 +90,45 @@ class ManagedNode {
     String? sshHostFingerprint,
     bool? autoUpdate,
     String? veilVersion,
-  }) =>
-      ManagedNode(
-        id: id,
-        label: label ?? this.label,
-        nodeId: clearNodeId ? null : (nodeId ?? this.nodeId),
-        sshHost: sshHost ?? this.sshHost,
-        sshPort: sshPort ?? this.sshPort,
-        sshUser: sshUser ?? this.sshUser,
-        sshHostFingerprint: sshHostFingerprint ?? this.sshHostFingerprint,
-        autoUpdate: autoUpdate ?? this.autoUpdate,
-        veilVersion: veilVersion ?? this.veilVersion,
-      );
+    String? connectEndpoint,
+  }) => ManagedNode(
+    id: id,
+    label: label ?? this.label,
+    nodeId: clearNodeId ? null : (nodeId ?? this.nodeId),
+    sshHost: sshHost ?? this.sshHost,
+    sshPort: sshPort ?? this.sshPort,
+    sshUser: sshUser ?? this.sshUser,
+    sshHostFingerprint: sshHostFingerprint ?? this.sshHostFingerprint,
+    autoUpdate: autoUpdate ?? this.autoUpdate,
+    veilVersion: veilVersion ?? this.veilVersion,
+    connectEndpoint: connectEndpoint ?? this.connectEndpoint,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'label': label,
-        if (nodeId != null) 'nodeId': nodeId,
-        if (sshHost != null) 'sshHost': sshHost,
-        'sshPort': sshPort,
-        if (sshUser != null) 'sshUser': sshUser,
-        if (sshHostFingerprint != null)
-          'sshHostFingerprint': sshHostFingerprint,
-        'autoUpdate': autoUpdate,
-        if (veilVersion != null) 'veilVersion': veilVersion,
-      };
+    'id': id,
+    'label': label,
+    if (nodeId != null) 'nodeId': nodeId,
+    if (sshHost != null) 'sshHost': sshHost,
+    'sshPort': sshPort,
+    if (sshUser != null) 'sshUser': sshUser,
+    if (sshHostFingerprint != null) 'sshHostFingerprint': sshHostFingerprint,
+    'autoUpdate': autoUpdate,
+    if (veilVersion != null) 'veilVersion': veilVersion,
+    if (connectEndpoint != null) 'connectEndpoint': connectEndpoint,
+  };
 
   factory ManagedNode.fromJson(Map<String, dynamic> j) => ManagedNode(
-        id: j['id'] as String,
-        label: j['label'] as String? ?? '',
-        nodeId: j['nodeId'] as String?,
-        sshHost: j['sshHost'] as String?,
-        sshPort: (j['sshPort'] as num?)?.toInt() ?? 22,
-        sshUser: j['sshUser'] as String?,
-        sshHostFingerprint: j['sshHostFingerprint'] as String?,
-        autoUpdate: j['autoUpdate'] as bool? ?? false,
-        veilVersion: j['veilVersion'] as String?,
-      );
+    id: j['id'] as String,
+    label: j['label'] as String? ?? '',
+    nodeId: j['nodeId'] as String?,
+    sshHost: j['sshHost'] as String?,
+    sshPort: (j['sshPort'] as num?)?.toInt() ?? 22,
+    sshUser: j['sshUser'] as String?,
+    sshHostFingerprint: j['sshHostFingerprint'] as String?,
+    autoUpdate: j['autoUpdate'] as bool? ?? false,
+    veilVersion: j['veilVersion'] as String?,
+    connectEndpoint: j['connectEndpoint'] as String?,
+  );
 
   /// Encode/decode a whole registry to/from the single JSON string persisted
   /// under the encrypted-storage setting key.

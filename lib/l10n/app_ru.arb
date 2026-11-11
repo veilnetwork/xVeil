@@ -3206,5 +3206,15 @@
   "storagePaddingBrief": "Меньше расход места; слабее маскировка размера. После переоткрытия.",
   "seedsSwitchOnBrief": "Поиск включён. Указатель узнаёт ваш сетевой адрес.",
   "seedsSwitchOffBrief": "Поиск выключен. Добавьте узел вручную.",
-  "onboardRecoveryWhy": "Зачем сохранять сертификат"
+  "onboardRecoveryWhy": "Зачем сохранять сертификат",
+  "nodeConnectTitle": "Подключить по QR",
+  "nodeConnectHint": "Запустите veil-connect на сервере и отсканируйте временный QR. Терминал оставьте открытым.",
+  "nodeConnectLink": "Временный код подключения",
+  "nodeConnectTrust": "Подключайте только свой сервер. Этот QR даёт управление с правами учётной записи, запустившей veil-connect. При закрытии скрипта доступ прекращается.",
+  "nodeConnectAction": "Подключить",
+  "nodeConnectTemporary": "Временный доступ по HTTPS",
+  "nodeConnectExpired": "Доступ истёк. Запустите veil-connect снова и отсканируйте новый QR.",
+  "nodeConnectError": "Не удалось подключиться. Проверьте код, адрес сервера, порт и сертификат.",
+  "nodeConnectRefresh": "Обновить доступ по QR",
+  "nodeConnectInstall": "Установить или настроить компоненты"
 }

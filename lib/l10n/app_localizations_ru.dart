@@ -8079,4 +8079,38 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get onboardRecoveryWhy => 'Зачем сохранять сертификат';
+
+  @override
+  String get nodeConnectTitle => 'Подключить по QR';
+
+  @override
+  String get nodeConnectHint =>
+      'Запустите veil-connect на сервере и отсканируйте временный QR. Терминал оставьте открытым.';
+
+  @override
+  String get nodeConnectLink => 'Временный код подключения';
+
+  @override
+  String get nodeConnectTrust =>
+      'Подключайте только свой сервер. Этот QR даёт управление с правами учётной записи, запустившей veil-connect. При закрытии скрипта доступ прекращается.';
+
+  @override
+  String get nodeConnectAction => 'Подключить';
+
+  @override
+  String get nodeConnectTemporary => 'Временный доступ по HTTPS';
+
+  @override
+  String get nodeConnectExpired =>
+      'Доступ истёк. Запустите veil-connect снова и отсканируйте новый QR.';
+
+  @override
+  String get nodeConnectError =>
+      'Не удалось подключиться. Проверьте код, адрес сервера, порт и сертификат.';
+
+  @override
+  String get nodeConnectRefresh => 'Обновить доступ по QR';
+
+  @override
+  String get nodeConnectInstall => 'Установить или настроить компоненты';
 }
