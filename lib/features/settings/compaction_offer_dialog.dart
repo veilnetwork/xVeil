@@ -235,7 +235,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   Future<void> _run() async {
     final route = ModalRoute.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final failure = AppL10n.of(context).settingsStorageCompactFailed;
+    final l = AppL10n.of(context);
     setState(() => _busy = true);
     try {
       final operation = ref
@@ -247,13 +247,17 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       widget.onOperationStarted(operation);
       final sizes = await operation;
       _closeCompactionRoute(route, sizes);
-    } catch (_, stack) {
+    } catch (error, stack) {
+      final incomplete = error is CompactionRosterRepairIncomplete;
+      final failure = incomplete
+          ? l.settingsStorageCompactRepairIncomplete
+          : l.settingsStorageCompactFailed;
       // The controller has already attempted to reopen the session in finally.
       // Do not probe or retry against that open handle. Close this offer and
       // start a new collection if the person wants another attempt.
       errorJournal.record(
         kind: 'storage-compaction',
-        error: StateError('compaction failed'),
+        error: incomplete ? error : StateError('compaction failed'),
         stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
@@ -320,10 +324,18 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
               enabled: !_busy && !_failedRun,
               decoration: InputDecoration(
                 labelText: l.compactOfferPassword,
-                errorText: _error,
+                errorText: _failedRun ? null : _error,
               ),
               onSubmitted: _busy || _failedRun ? null : _accept,
             ),
+            if (_failedRun && _error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,

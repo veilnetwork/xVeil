@@ -3679,6 +3679,10 @@ class AppL10nRu extends AppL10n {
   String get settingsStorageCompactFailed => 'Не удалось сжать хранилище';
 
   @override
+  String get settingsStorageCompactRepairIncomplete =>
+      'Хранилище сжато, но проверить личности и обновить их список не удалось. Попробуйте войти их собственными паролями.';
+
+  @override
   String get settingsStorageAutoCompact => 'Авто-сжатие при разблокировке';
 
   @override
