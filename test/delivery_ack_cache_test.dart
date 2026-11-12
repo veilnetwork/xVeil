@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/delivery_ack_cache.dart';
 
 void main() {
+  test('failed effects release only the matching peer receipt', () {
+    final cache = DeliveryAckCache();
+    cache.remember('one', 'same-id');
+    cache.remember('two', 'same-id');
+    cache.forget('one', 'same-id');
+    expect(cache.contains('two', 'same-id'), isTrue);
+    expect(cache.remember('one', 'same-id'), isTrue);
+    expect(cache.remember('two', 'same-id'), isFalse);
+  });
+
   test('receipts are scoped to the authenticated peer', () {
     final cache = DeliveryAckCache();
     expect(cache.remember('one', 'same-id'), isTrue);

@@ -795,10 +795,9 @@ extension _MessagingInboundDispatch on MessagingService {
             );
             // Scope by the sender's conversation (m.src.hex) so the status can
             // only land on a message that lives in THIS peer's chat.
-            final moved = await _storage.markMessageStatus(
+            final moved = await _messageDelivery.persistAckStatus(
               m.src.hex,
               ackId,
-              MessageStatus.delivered,
             );
             // MY OTHER DEVICES CANNOT LEARN THIS ANY OTHER WAY. The peer sends
             // its acknowledgement to whoever it was talking to, and that is

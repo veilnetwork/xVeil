@@ -10,6 +10,10 @@ class DeliveryAckCache {
 
   bool contains(String peer, String id) => _receipts.contains((peer, id));
 
+  /// A failed durable effect must let a later receipt try again. Keep removal
+  /// scoped just like admission: another peer's same id owns a different slot.
+  void forget(String peer, String id) => _receipts.remove((peer, id));
+
   bool remember(String peer, String id) {
     final key = (peer, id);
     final first = !_receipts.remove(key);
