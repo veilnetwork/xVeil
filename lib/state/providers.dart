@@ -19,6 +19,7 @@ import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/fake_kv_log_store.dart';
+import '../data/storage/async_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/kv_log_store.dart';
@@ -54,6 +55,29 @@ typedef ContainerCompactor =
 
 final containerCompactorProvider = Provider<ContainerCompactor>(
   (ref) => hv.compactKnownAsync,
+);
+
+/// Manual compaction repairs encrypted key references before publication.
+typedef PreparedContainerCompactor =
+    Future<void> Function(
+      String path,
+      List<Uint8List> passwords, {
+      required Future<void> Function(String stagedPath) repairMetadata,
+      String? dylibPath,
+    });
+
+final preparedContainerCompactorProvider = Provider<PreparedContainerCompactor>(
+  (ref) => hv.compactKnownPreparedAsync,
+);
+
+/// Independent facade: the main container stays closed and exclusively locked
+/// by native preparation while metadata in its replacement is repaired.
+final compactionStagedStorageProvider = Provider<Storage Function(String)>(
+  (ref) =>
+      (path) => HiddenVolumeStorage.async(
+        workerSpaceOpener(path),
+        keysOpener: workerKeysSpaceOpener(path),
+      ),
 );
 
 /// The SINGLE-identity storage (one space open at a time) — the default path.

@@ -66,9 +66,10 @@ void main() {
       storageProvider.overrideWithValue(storage),
       deniableBootProvider.overrideWithValue(DeniableBootConfig(
         runtimeDir: '${dir.path}/runtime', storePath: path)),
-      containerCompactorProvider.overrideWithValue((path, passwords, {dylibPath}) async {
+      preparedContainerCompactorProvider.overrideWithValue((path, passwords, {required repairMetadata, dylibPath}) async {
         nativeCalls++;
-        await hv.compactKnownAsync(path, passwords,
+        await hv.compactKnownPreparedAsync(path, passwords,
+          repairMetadata: repairMetadata,
           dylibPath: Platform.environment['XVEIL_HV_DYLIB']);
       }),
     ]);

@@ -234,8 +234,8 @@ class CompactionWouldDropIdentities implements Exception {
       '${labels.join(", ")}';
 }
 
-/// The rewrite applied, but repairing the masters' child references did not
-/// complete. Safe for anonymous diagnostics: no labels, keys or paths.
+/// Preparing masters' child references failed; publication was refused and
+/// the source is retained. Safe for anonymous diagnostics: no labels or keys.
 class CompactionRosterRepairIncomplete implements Exception {
   const CompactionRosterRepairIncomplete();
   @override
@@ -1458,19 +1458,21 @@ class AppController extends Notifier<AppState> {
   /// they stay reachable by their own passwords, but the master that names
   /// them stops working.
   ///
-  /// This runs in the ONE window where the repair is possible: the container is
-  /// closed, and every password is in hand because the compaction just used
-  /// them. [credentials] pairs each password with the keys it derived BEFORE
-  /// the repack, which is the only thing that can say which roster label it
-  /// belongs to.
+  /// During manual compaction [storageOverride] is an independent facade over
+  /// the unpublished replacement. Every password is still in hand and the
+  /// source remains unchanged under its native lock. [credentials] pairs each
+  /// password with the keys it derived BEFORE repacking, identifying the roster
+  /// label it belongs to. The default facade also supports explicit repair of
+  /// a previously completed rewrite.
   ///
   /// Returns nonempty failure markers when repair is incomplete, never key
   /// prefixes. Every space that carries a roster
   /// is repaired, not just the one being used: a decoy master names the same
   /// children and would break the same way.
   Future<List<String>> remapRostersAfterCompaction(
-    List<({List<int> password, List<int> oldSpaceKeys})> credentials,
-  ) async {
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials, {
+    Storage? storageOverride,
+  }) async {
     if (credentials.isEmpty) return const [];
     final lease = leaseIdentity();
     void requireCurrentSession() {
@@ -1479,7 +1481,7 @@ class AppController extends Notifier<AppState> {
       }
     }
 
-    final storage = ref.read(storageProvider);
+    final Storage storage = storageOverride ?? ref.read<Storage>(storageProvider);
     String hex(List<int> b) =>
         b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
@@ -1688,52 +1690,42 @@ class AppController extends Notifier<AppState> {
           'compaction would wait forever on a lock we still hold',
         );
       }
-      (hv.HvException, StackTrace)? appliedWarning;
-      try {
-        await ref.read(containerCompactorProvider)(
-          path,
-          passwords,
-          dylibPath: _hvDylibPath(),
-        );
-      } on hv.HvException catch (error, stack) {
-        // These outcomes have published and verified the replacement. The
-        // warning qualifies durability or surviving aliases, not its keys.
-        // Repair references before reporting it; never rerun the rewrite.
-        // `mayHaveApplied` is deliberately too broad here: in particular,
-        // RenameVisibleContentUnverified must not authorize metadata writes.
-        const verifiedVisibleRewrite = {
-          'RenameVisibleAliasesNotRevoked',
-          'RenameVisibleAliasesUnknown',
-          'RenameVisibleAliasesAndDurabilityUncertain',
-          'RenameVisibleDurabilityUncertain',
-        };
-        if (!verifiedVisibleRewrite.contains(error.kind)) rethrow;
-        appliedWarning = (error, stack);
-      }
+      await ref.read(preparedContainerCompactorProvider)(
+        path,
+        passwords,
+        dylibPath: _hvDylibPath(),
+        repairMetadata: (stagedPath) async {
+          requireCurrentSession();
+          final staged = ref.read(compactionStagedStorageProvider)(stagedPath);
+          try {
+            var stale = await remapRostersAfterCompaction(
+              credentials,
+              storageOverride: staged,
+            );
+            requireCurrentSession();
+            if (stale.isNotEmpty) {
+              // Retry metadata only. The replacement has not been published
+              // and must never be copied/rekeyed again to recover this read.
+              stale = await remapRostersAfterCompaction(
+                credentials,
+                storageOverride: staged,
+              );
+              requireCurrentSession();
+            }
+            if (stale.isNotEmpty) {
+              throw const CompactionRosterRepairIncomplete();
+            }
+          } finally {
+            // A close failure must refuse publication too. The native
+            // publisher independently rejects any surviving staged handle.
+            await staged.close();
+          }
+          // Returning grants publication. Lock/wipe/switch before this
+          // point aborts the replacement, leaving original bytes intact.
+          requireCurrentSession();
+        },
+      );
       requireCurrentSession();
-      // BEFORE the session comes back, while the container is closed and every
-      // password is still here: a repack gave every space new keys, and the
-      // rosters that name them by keys are now pointing at nothing.
-      var stale = await remapRostersAfterCompaction(credentials);
-      requireCurrentSession();
-      if (stale.isNotEmpty) {
-        // Retry only metadata repair with the original old-to-new credentials.
-        // The native rewrite must never run again to recover a failed read or
-        // a later holder's write; earlier holders may already be repaired.
-        stale = await remapRostersAfterCompaction(credentials);
-        requireCurrentSession();
-      }
-      if (stale.isNotEmpty) {
-        devLog(
-          () =>
-              'xVeil[storage]: roster entries left stale after compaction: '
-              '${stale.length}',
-        );
-        throw const CompactionRosterRepairIncomplete();
-      }
-      if (appliedWarning case final warning?) {
-        Error.throwWithStackTrace(warning.$1, warning.$2);
-      }
     } finally {
       // A lock/wipe/switch can end the session while teardown or the native
       // rewrite is pending. Never turn that explicit boundary into a fresh

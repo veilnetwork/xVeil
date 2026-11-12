@@ -3685,7 +3685,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get settingsStorageCompactRepairIncomplete =>
-      'El almacenamiento se compactó, pero no se pudieron verificar las identidades ni actualizar su lista. Intente abrirlas con sus propias contraseñas.';
+      'El almacenamiento no se compactó porque no se pudieron verificar las identidades ni actualizar su lista. El almacenamiento original no ha cambiado. Inténtelo de nuevo.';
 
   @override
   String get settingsStorageAutoCompact =>

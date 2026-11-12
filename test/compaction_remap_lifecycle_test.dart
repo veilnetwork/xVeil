@@ -123,6 +123,7 @@ void main() {
             overrides: [
               appControllerProvider.overrideWith(() => controller),
               singleSpaceStorageProvider.overrideWithValue(storage),
+              compactionStagedStorageProvider.overrideWithValue((_) => storage),
               notificationServiceProvider.overrideWithValue(_Notifications()),
               deniableBootProvider.overrideWithValue(
                 DeniableBootConfig(
@@ -130,13 +131,15 @@ void main() {
                   storePath: path,
                 ),
               ),
-              containerCompactorProvider.overrideWithValue((
+              preparedContainerCompactorProvider.overrideWithValue((
                 path,
                 passwords, {
+                required repairMetadata,
                 dylibPath,
               }) async {
                 await storage.park(_Stage.native);
                 fake.rotateSalt();
+                await repairMetadata(path);
               }),
             ],
           );
