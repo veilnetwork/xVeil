@@ -144,8 +144,10 @@ def remap_workspace(source: Path, staged: Path, aliases: Path) -> dict[str, int]
     mapped, links = plan_package_roots(
         config, config_uri=config_path.as_uri(), source_uri=source.as_uri() + "/",
         staged_uri=staged.as_uri() + "/", aliases_uri=aliases.absolute().as_uri() + "/")
-    for alias, target in links:
+    for index, (alias, target) in enumerate(links, start=1):
         _directory_alias(_uri_path(alias), _uri_path(target))
+        if index % 25 == 0 or index == len(links):
+            print(f"neutral AOT: package aliases {index}/{len(links)}", flush=True)
     if not all(_uri_path(p["rootUri"]).is_dir() for p in mapped["packages"]):
         raise ValueError("staged package source directory unavailable")
     # Replacement is atomic; a failed plan/link cannot leave a partial config.
