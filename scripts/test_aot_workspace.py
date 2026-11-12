@@ -51,7 +51,9 @@ class AotWorkspaceTest(unittest.TestCase):
         else:
             from aot_package_roots import _ps_literal
             script = (
-                "$acl=Get-Acl -LiteralPath " + _ps_literal(first["workspace"]) + "; "
+                "$sections=[Security.AccessControl.AccessControlSections]::Access -bor "
+                "[Security.AccessControl.AccessControlSections]::Owner; "
+                "$acl=[IO.Directory]::GetAccessControl(" + _ps_literal(first["workspace"]) + ", $sections); "
                 "$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; "
                 "@{Protected=$acl.AreAccessRulesProtected;Owner=$acl.GetOwner("
                 "[Security.Principal.SecurityIdentifier]).Value -eq $sid; "
