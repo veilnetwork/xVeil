@@ -60,6 +60,12 @@ on:
         required: false
         type: boolean
         default: false
+      platform:
+        description: 'Build one platform for investigation, or all for a complete release.'
+        required: false
+        type: choice
+        default: all
+        options: [all, android, linux, windows, helper]
 
 # LEAST PRIVILEGE, per job (audit X-08). This used to be a workflow-wide
 # `contents: write`, so every job held a token that can push to the repository
@@ -137,7 +143,7 @@ jobs:
     # deliberate manual skip through (a skipped `checks` is not a failed one)
     # while a RED `checks` still stops the build dead.
     needs: checks
-    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    if: ${{ !cancelled() && needs.checks.result != 'failure' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android') }}
     timeout-minutes: 75
     runs-on: ubuntu-latest
     steps:
@@ -540,7 +546,7 @@ jobs:
   linux:
     name: linux bundle (${{ matrix.arch }})
     needs: checks
-    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    if: ${{ !cancelled() && needs.checks.result != 'failure' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux') }}
     timeout-minutes: 60
     # One job per architecture rather than two copies of a hundred and eighty
     # lines: the only differences are the runner, which engine asset to fetch,
@@ -848,7 +854,7 @@ jobs:
   windows:
     name: windows bundle (${{ matrix.arch }})
     needs: checks
-    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    if: ${{ !cancelled() && needs.checks.result != 'failure' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows') }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -1493,7 +1499,7 @@ jobs:
   node-connect:
     name: node-connect helper
     needs: checks
-    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    if: ${{ !cancelled() && needs.checks.result != 'failure' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'helper') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1542,7 +1548,7 @@ jobs:
   publish:
     name: publish release
     needs: [checks, scan]
-    if: startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success'
+    if: startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success' && needs.scan.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all')
     timeout-minutes: 20
     runs-on: ubuntu-latest
     # The ONE job that needs to write: it uploads the artifacts and publishes.

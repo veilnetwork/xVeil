@@ -63,9 +63,15 @@ def _check_macos_native_load(artifact: Path) -> None:
 
 
 def _check_paths(artifact: Path) -> dict:
-    result = scan_artifact(artifact, current_home=str(Path.home()))
+    result = scan_artifact(artifact, current_home=str(Path.home()), include_roles=True)
     if result["source_home_uri_occurrences"] or result["current_home_path_occurrences"]:
-        raise ValueError("artifact contains source home paths")
+        # Counts and fixed categories identify the producer without reflecting
+        # the protected strings or even artifact-controlled filenames in CI.
+        raise ValueError("artifact contains source home paths: " + json.dumps({
+            "source_home_uris": result["source_home_uri_occurrences"],
+            "current_home_paths": result["current_home_path_occurrences"],
+            "roles": result["path_roles"],
+        }, sort_keys=True))
     return result
 
 
