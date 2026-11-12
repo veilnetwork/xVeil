@@ -1101,33 +1101,32 @@ class AppL10nEn extends AppL10n {
   String get spaceJoinAction => 'Join with link';
 
   @override
-  String get spaceJoinDialogTitle => 'Request to join a community';
+  String get spaceJoinDialogTitle => 'Join a community';
 
   @override
   String get spaceJoinCodeHint => 'Paste an xveil://space link';
 
   @override
   String get spaceJoinSafetyHint =>
-      'The link sends only a membership request. Channels, members and keys stay unavailable until an administrator approves it with a signed grant.';
+      'Public communities do not require approval. A community administrator must be online to complete the connection.';
 
   @override
   String get spaceJoinRequestSent =>
-      'Request sent. The community will appear after signed approval.';
+      'Connecting to the community. It will appear in your list automatically.';
 
   @override
-  String get spaceJoinRequestsTitle => 'Join requests';
+  String get spaceJoinRequestsTitle => 'Community connections';
 
   @override
   String spaceJoinRequestFrom(String peer) {
-    return 'Request from $peer';
+    return '$peer is connecting';
   }
 
   @override
-  String get spaceJoinRequestPending => 'Waiting for approval';
+  String get spaceJoinRequestPending => 'Connecting to the community';
 
   @override
-  String get spaceJoinRequestApproved =>
-      'Approved · receiving verified membership';
+  String get spaceJoinRequestApproved => 'Receiving community data';
 
   @override
   String get spaceJoinRequestDeclined => 'Declined';
@@ -1162,6 +1161,9 @@ class AppL10nEn extends AppL10n {
   String get spaceJoinApprove => 'Approve';
 
   @override
+  String get spaceJoinRetry => 'Retry connection';
+
+  @override
   String get spaceJoinDecline => 'Decline';
 
   @override
@@ -1169,7 +1171,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceJoinLinkHint =>
-      'Anyone with this revocable link may request membership. The link never grants access by itself.';
+      'Anyone with this link can join without approval. You can revoke it. An administrator must be online to complete the connection.';
 
   @override
   String get spaceJoinLinkCreate => 'Create link';

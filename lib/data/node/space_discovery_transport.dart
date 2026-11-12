@@ -17,6 +17,8 @@ abstract interface class SpaceDiscoveryTransport {
 }
 
 final class NativeSpaceDiscoveryTransport implements SpaceDiscoveryTransport {
+  /// [selfId] must be the local transport/device id, not the logical identity
+  /// address carried by a sovereign document. FFI selects that exact runtime.
   const NativeSpaceDiscoveryTransport(this.selfId);
 
   final NodeId selfId;

@@ -213,6 +213,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       json,
       awaitInitialSend: false,
     ),
+    sendRequiredSnapshot: (peer, groupId, json) => messaging.sendGroupSnapshot(
+      peer,
+      groupId.hex,
+      json,
+      awaitInitialSend: false,
+      requireEnqueue: true,
+    ),
     sendSpaceInvite: messaging.sendSpaceInvite,
     sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
     sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
@@ -253,7 +260,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       for (final peer in await transport.peers())
         if (peer.isActive) peer.nodeId,
     },
-    spaceDiscoveryTransport: NativeSpaceDiscoveryTransport(signer.selfId),
+    // The FFI registry is keyed by the running device, while the signer names
+    // the logical identity (different after sovereign provisioning/linking).
+    // Never fall back to another identity's most recently started node.
+    spaceDiscoveryTransport: transport is VeilFlutterTransport
+        ? NativeSpaceDiscoveryTransport(transport.deviceNodeId)
+        : null,
   );
   // Member content hosting: give every device of this identity its own
   // provider slot. The host seed and alias come from documentId + epochKey, so
@@ -310,6 +322,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     () => service.receiveGroupFrame(peer, bundleJson, fromStranger: true),
   );
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
+  messaging.allowStrangerGroupReassembly = service.allowStrangerGroupReassembly;
   // isMyDeviceOrMaster: a LINKED device's master is not a member of the device
   // group — it is the owner — so `isMyDevice` says no about it, and every lane
   // this answer opens (content serving, ack dedup, call signals, endpoint
@@ -968,6 +981,7 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onGroupCallSignal = null;
   messaging.onGroupEntryFromStranger = null;
   messaging.allowStrangerGroupSync = null;
+  messaging.allowStrangerGroupReassembly = null;
   messaging.isOwnDevice = null;
   messaging.isSovereignAuthority = null;
   messaging.onMessageStored = null;

@@ -87,6 +87,19 @@ void main() {
     expect(await ids(peer), unorderedEquals(before));
   });
 
+  test('required first snapshot reports refusal and retries after drain', () async {
+    final before = await ids(peer);
+    await expectLater(messaging.sendGroupSnapshot(peer, 'ab' * 32, 'first-snapshot',
+      awaitInitialSend: false, requireEnqueue: true), throwsStateError);
+    expect(await ids(peer), unorderedEquals(before));
+    messaging.debugRetireOutboxFrame(peer.hex, before.first);
+    await pumpEventQueue();
+    await messaging.sendGroupSnapshot(peer, 'ab' * 32, 'first-snapshot',
+      awaitInitialSend: false, requireEnqueue: true);
+    expect(await ids(peer), hasLength(256));
+    expect((await ids(peer)).where((id) => !before.contains(id)), hasLength(1));
+  });
+
   test(
     'one full peer does not discard its frames or stop another peer',
     () async {

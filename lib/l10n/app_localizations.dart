@@ -1992,7 +1992,7 @@ abstract class AppL10n {
   /// No description provided for @spaceJoinDialogTitle.
   ///
   /// In en, this message translates to:
-  /// **'Request to join a community'**
+  /// **'Join a community'**
   String get spaceJoinDialogTitle;
 
   /// No description provided for @spaceJoinCodeHint.
@@ -2004,37 +2004,37 @@ abstract class AppL10n {
   /// No description provided for @spaceJoinSafetyHint.
   ///
   /// In en, this message translates to:
-  /// **'The link sends only a membership request. Channels, members and keys stay unavailable until an administrator approves it with a signed grant.'**
+  /// **'Public communities do not require approval. A community administrator must be online to complete the connection.'**
   String get spaceJoinSafetyHint;
 
   /// No description provided for @spaceJoinRequestSent.
   ///
   /// In en, this message translates to:
-  /// **'Request sent. The community will appear after signed approval.'**
+  /// **'Connecting to the community. It will appear in your list automatically.'**
   String get spaceJoinRequestSent;
 
   /// No description provided for @spaceJoinRequestsTitle.
   ///
   /// In en, this message translates to:
-  /// **'Join requests'**
+  /// **'Community connections'**
   String get spaceJoinRequestsTitle;
 
   /// No description provided for @spaceJoinRequestFrom.
   ///
   /// In en, this message translates to:
-  /// **'Request from {peer}'**
+  /// **'{peer} is connecting'**
   String spaceJoinRequestFrom(String peer);
 
   /// No description provided for @spaceJoinRequestPending.
   ///
   /// In en, this message translates to:
-  /// **'Waiting for approval'**
+  /// **'Connecting to the community'**
   String get spaceJoinRequestPending;
 
   /// No description provided for @spaceJoinRequestApproved.
   ///
   /// In en, this message translates to:
-  /// **'Approved · receiving verified membership'**
+  /// **'Receiving community data'**
   String get spaceJoinRequestApproved;
 
   /// No description provided for @spaceJoinRequestDeclined.
@@ -2097,6 +2097,12 @@ abstract class AppL10n {
   /// **'Approve'**
   String get spaceJoinApprove;
 
+  /// No description provided for @spaceJoinRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry connection'**
+  String get spaceJoinRetry;
+
   /// No description provided for @spaceJoinDecline.
   ///
   /// In en, this message translates to:
@@ -2112,7 +2118,7 @@ abstract class AppL10n {
   /// No description provided for @spaceJoinLinkHint.
   ///
   /// In en, this message translates to:
-  /// **'Anyone with this revocable link may request membership. The link never grants access by itself.'**
+  /// **'Anyone with this link can join without approval. You can revoke it. An administrator must be online to complete the connection.'**
   String get spaceJoinLinkHint;
 
   /// No description provided for @spaceJoinLinkCreate.

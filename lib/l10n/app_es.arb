@@ -371,12 +371,12 @@
   "spaceInviteDecline": "Rechazar",
   "spaceInviteJoining": "Aceptada · esperando la pertenencia verificada",
   "spaceJoinAction": "Unirse con un enlace",
-  "spaceJoinDialogTitle": "Solicitar entrar en una comunidad",
+  "spaceJoinDialogTitle": "Unirse a una comunidad",
   "spaceJoinCodeHint": "Pega un enlace xveil://space",
-  "spaceJoinSafetyHint": "El enlace solo envía una solicitud de pertenencia. Los canales, los miembros y las claves siguen sin estar disponibles hasta que un administrador la apruebe con una concesión firmada.",
-  "spaceJoinRequestSent": "Solicitud enviada. La comunidad aparecerá tras la aprobación firmada.",
-  "spaceJoinRequestsTitle": "Solicitudes de entrada",
-  "spaceJoinRequestFrom": "Solicitud de {peer}",
+  "spaceJoinSafetyHint": "Las comunidades públicas no requieren aprobación. Un administrador debe estar conectado para completar la conexión.",
+  "spaceJoinRequestSent": "Conectando con la comunidad. Aparecerá automáticamente en tu lista.",
+  "spaceJoinRequestsTitle": "Conexiones a la comunidad",
+  "spaceJoinRequestFrom": "{peer} se está conectando",
   "@spaceJoinRequestFrom": {
     "placeholders": {
       "peer": {
@@ -384,8 +384,8 @@
       }
     }
   },
-  "spaceJoinRequestPending": "Esperando aprobación",
-  "spaceJoinRequestApproved": "Aprobada · recibiendo la pertenencia verificada",
+  "spaceJoinRequestPending": "Conectando con la comunidad",
+  "spaceJoinRequestApproved": "Recibiendo datos de la comunidad",
   "spaceJoinRequestDeclined": "Rechazada",
   "spaceMembershipStatusTitle": "Estado de la pertenencia",
   "spaceMembershipPending": "Pertenencia pendiente",
@@ -403,9 +403,10 @@
   "spaceMembershipBanned": "Pertenencia vetada",
   "spaceJoinDismiss": "Descartar",
   "spaceJoinApprove": "Aprobar",
+  "spaceJoinRetry": "Reintentar conexión",
   "spaceJoinDecline": "Rechazar",
   "spaceJoinLinkTitle": "Enlace público para unirse",
-  "spaceJoinLinkHint": "Cualquiera que tenga este enlace revocable puede solicitar la pertenencia. El enlace nunca concede acceso por sí solo.",
+  "spaceJoinLinkHint": "Cualquiera con este enlace puede unirse sin aprobación. Puedes revocarlo. Un administrador debe estar conectado para completar la conexión.",
   "spaceJoinLinkCreate": "Crear enlace",
   "spaceJoinLinkCopy": "Copiar enlace",
   "spaceJoinLinkRevoke": "Revocar enlace",

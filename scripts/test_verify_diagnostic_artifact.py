@@ -20,6 +20,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                '  diagnosticJournal.recordSpaceDiscoveryFailure(stage: SpaceDiscoveryFailureStage.routeResolve, failure: SpaceDiscoveryFailureKind.nodeUnavailable);\n'
                 '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.cameraStopped, values: {DiagnosticMetric.cameraCapturing: 0});\n'
                 '  diagnosticJournal.recordFolderSavedFailure(action: FolderSavedDiagnosticAction.discarding, failure: FolderSavedDiagnosticFailure.cleanup);\n'
@@ -112,6 +113,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'success': 0, 'origin': 2,
                         })
                         self.assertEqual(evidence['cameraStopped']['values'], {'cameraCapturing': 0})
+                        self.assertEqual(evidence['spaceDiscoveryFailed']['values'], {
+                            'state': 1, 'code': 1, 'success': 0,
+                        })
                         self.assertEqual(evidence['microphoneControl']['values'], {
                             'enabled': 1, 'success': 0,
                         })

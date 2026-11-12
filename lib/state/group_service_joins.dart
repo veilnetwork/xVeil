@@ -22,6 +22,47 @@ class _SpaceJoins {
   static const String _spaceJoinRequestsSetting = 'spaces.join_requests.v1';
   static const int _maxSpaceJoinRecords = 256;
   Future<void> _spaceJoinMutationTail = Future<void>.value();
+  Timer? _retryTimer;
+  bool _retrying = false;
+
+  void startMaintenance() {
+    if (_retryTimer != null || _owner._disposed) return;
+    void run() => _owner._backgroundTasks.start(retryPending);
+    run();
+    _retryTimer = Timer.periodic(const Duration(seconds: 30), (_) => run());
+  }
+
+  void stopMaintenance() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  Future<void> retryPending() async {
+    if (_retrying || _owner._disposed) return;
+    _retrying = true;
+    try {
+      final entries = await _serializeSpaceJoins(
+        () async => (await _loadSpaceJoins()).incoming
+            .where((entry) => !entry.decisionEnqueued)
+            .toList(),
+      );
+      for (final entry in entries) {
+        if (_owner._disposed) break;
+        try {
+          await decideSpaceJoinRequest(
+            entry.request.requestId,
+            accept: entry.decision?.accepted ?? true,
+          );
+        } catch (_) {
+          // Durable intent remains; never expose capability/identity/error text.
+        }
+      }
+    } catch (_) {
+      // A closing/temporarily unavailable container is retried on the next pass.
+    } finally {
+      _retrying = false;
+    }
+  }
 
   Future<T> _serializeSpaceJoins<T>(Future<T> Function() action) async {
     final previous = _spaceJoinMutationTail;
@@ -243,6 +284,9 @@ class _SpaceJoins {
       final store = await _loadSpaceJoins();
       for (final existing in store.outgoing) {
         if (existing.ticket.spaceId == ticket.spaceId &&
+            existing.ticket.ticketId == ticket.ticketId &&
+            spaceJoinTicketHash(existing.ticket) ==
+                spaceJoinTicketHash(ticket) &&
             !existing.declined &&
             !existing.ticket.isExpiredAt(now)) {
           return existing;
@@ -289,6 +333,7 @@ class _SpaceJoins {
       final now = _owner._now();
       final store = await _loadSpaceJoins();
       final outgoing = <SpaceJoinOutboxEntry>[];
+      final retained = <SpaceJoinOutboxEntry>[];
       for (final entry in store.outgoing) {
         if (entry.ticket.isExpiredAt(now) ||
             (await _owner._storage.getContact(
@@ -302,6 +347,14 @@ class _SpaceJoins {
             (!_owner._validSpaceBundle(bundle) ||
                 _owner._spaceMembershipForBundle(bundle, now).status !=
                     SpaceMembershipStatus.left)) {
+          // The signed snapshot may beat the decision frame. Keep its exact
+          // request as a private receipt until that frame can be acknowledged,
+          // without continuing to show a pending join in the UI.
+          if (_owner._validSpaceBundle(bundle) &&
+              _owner._spaceMembershipForBundle(bundle, now).isMember &&
+              entry.decision == null) {
+            retained.add(entry);
+          }
           continue;
         }
         if (entry.declined &&
@@ -310,12 +363,13 @@ class _SpaceJoins {
           continue;
         }
         outgoing.add(entry);
+        retained.add(entry);
       }
-      if (outgoing.length != store.outgoing.length) {
+      if (retained.length != store.outgoing.length) {
         await _saveSpaceJoins(
           tickets: store.tickets,
           incoming: store.incoming,
-          outgoing: outgoing,
+          outgoing: retained,
         );
         _owner.changes.value++;
       }
@@ -376,17 +430,16 @@ class _SpaceJoins {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (state.isMember(peer) ||
-        !SpaceAcl(state).allowsControl(
-          _owner.selfId,
-          ControlOp.addMember,
-          target: peer,
-          newRole: GroupRole.member,
-        )) {
+    if (!SpaceAcl(state).allowsControl(
+      _owner.selfId,
+      ControlOp.addMember,
+      target: peer,
+      newRole: GroupRole.member,
+    )) {
       return false;
     }
     final acceptedRequest = request;
-    return _serializeSpaceJoins(() async {
+    final persisted = await _serializeSpaceJoins(() async {
       final store = await _loadSpaceJoins();
       if (_liveTicketForSpaceJoinRequest(store.tickets, acceptedRequest, now) ==
           null) {
@@ -394,8 +447,8 @@ class _SpaceJoins {
       }
       for (final old in store.incoming) {
         if (old.request.requestId == acceptedRequest.requestId) {
-          return old.request.requester == peer &&
-              old.request.spaceId == acceptedRequest.spaceId;
+          return jsonEncode(old.request.toJson()) ==
+              jsonEncode(acceptedRequest.toJson());
         }
         if (old.request.requester == peer &&
             old.request.spaceId == acceptedRequest.spaceId &&
@@ -405,6 +458,9 @@ class _SpaceJoins {
           return false;
         }
       }
+      // An old link must not silently re-admit a removed member, or create
+      // another grant for someone who has already joined by another request.
+      if (state.isMember(peer)) return false;
       final entry = SpaceJoinInboxEntry(
         request: acceptedRequest,
         receivedAtMs: now < acceptedRequest.createdAtMs
@@ -425,6 +481,16 @@ class _SpaceJoins {
       _owner.changes.value++;
       return true;
     });
+    if (!persisted) return false;
+    // Public membership is free: the capability is checked above, but only the
+    // normal signed control mutation can grant membership. Keep the durable
+    // request for retry if sealing/admission is temporarily unavailable.
+    try {
+      await decideSpaceJoinRequest(acceptedRequest.requestId, accept: true);
+    } catch (_) {
+      // The durable inbox is the retry obligation, not the transport ACK.
+    }
+    return true;
   }
 
   SpaceJoinTicket? _liveTicketForSpaceJoinRequest(
@@ -502,12 +568,16 @@ class _SpaceJoins {
           final store = await _loadSpaceJoins();
           SpaceJoinInboxEntry? pending;
           for (final candidate in store.incoming) {
-            if (candidate.request.requestId == requestId && candidate.pending) {
+            if (candidate.request.requestId == requestId) {
               pending = candidate;
               break;
             }
           }
           if (pending == null) return null;
+          if (pending.decision != null &&
+              pending.decision!.accepted != accept) {
+            return null;
+          }
           final now = _owner._now();
           if ((await _owner._storage.getContact(
                     pending.request.requester,
@@ -531,12 +601,55 @@ class _SpaceJoins {
             return null;
           }
           if (accept) {
-            final added = await _owner._addMemberFromConsent(
-              pending.request.spaceId,
-              pending.request.requester,
-              GroupRole.member,
-              requireAcceptedContact: false,
+            final bundle = await _owner.load(pending.request.spaceId);
+            if (bundle == null ||
+                !bundle.manifest.isSpace ||
+                bundle.manifest.visibility != SpaceVisibility.public) {
+              return null;
+            }
+            final folded = foldControlLog(
+              owner: bundle.manifest.owner,
+              entries: bundle.control,
+              verify: (entry) =>
+                  _owner._validControlFor(bundle.manifest, entry),
             );
+            if (!SpaceAcl(folded.state).allowsControl(
+              _owner.selfId,
+              ControlOp.addMember,
+              target: pending.request.requester,
+              newRole: GroupRole.member,
+            )) {
+              return null;
+            }
+            final grantExists = folded.accepted.any(
+              (entry) =>
+                  entry.op == ControlOp.addMember &&
+                  entry.author == _owner.selfId &&
+                  entry.target == pending!.request.requester &&
+                  (entry.role ?? GroupRole.member) == GroupRole.member &&
+                  entry.createdAtMs >= pending.request.createdAtMs &&
+                  entry.createdAtMs <= now,
+            );
+            final isMember = folded.state.isMember(pending.request.requester);
+            // A retry after a crash may resend the same signed grant. It must
+            // never re-grant membership after a later removal/ban/withdrawal.
+            if (grantExists && !isMember) return null;
+            if (isMember && !grantExists) return null;
+            final added =
+                grantExists ||
+                await _owner._addMemberFromConsent(
+                  pending.request.spaceId,
+                  pending.request.requester,
+                  GroupRole.member,
+                  requireAcceptedContact: false,
+                  waitForBroadcast: true,
+                );
+            if (grantExists) {
+              await _owner._broadcastJoinSnapshot(
+                pending.request.spaceId,
+                pending.request.requester,
+              );
+            }
             if (!added) {
               if ((await _owner._storage.getContact(
                     pending.request.requester,
@@ -555,14 +668,16 @@ class _SpaceJoins {
               return null;
             }
           }
-          final decision = SpaceJoinDecision(
-            requestId: requestId,
-            spaceId: pending.request.spaceId,
-            accepted: accept,
-            decidedAtMs: now < pending.receivedAtMs
-                ? pending.receivedAtMs
-                : now,
-          );
+          final decision =
+              pending.decision ??
+              SpaceJoinDecision(
+                requestId: requestId,
+                spaceId: pending.request.spaceId,
+                accepted: accept,
+                decidedAtMs: now < pending.receivedAtMs
+                    ? pending.receivedAtMs
+                    : now,
+              );
           await _saveSpaceJoins(
             tickets: store.tickets,
             incoming: [
@@ -588,6 +703,25 @@ class _SpaceJoins {
         prepared.request.requestId,
         jsonEncode(prepared.decision.toJson()),
       );
+      await _serializeSpaceJoins(() async {
+        final store = await _loadSpaceJoins();
+        await _saveSpaceJoins(
+          tickets: store.tickets,
+          outgoing: store.outgoing,
+          incoming: [
+            for (final entry in store.incoming)
+              if (entry.request.requestId == requestId)
+                SpaceJoinInboxEntry(
+                  request: entry.request,
+                  receivedAtMs: entry.receivedAtMs,
+                  decision: entry.decision,
+                  decisionEnqueued: true,
+                )
+              else
+                entry,
+          ],
+        );
+      });
       return true;
     } catch (_) {
       return false;

@@ -70,6 +70,7 @@ class _MessagingReplication {
   Object? _groupHandlerIdentity;
   Object? _strangerHandlerIdentity;
   Object? _groupAdmissionIdentity;
+  Object? _groupReassemblyAdmissionIdentity;
   int _groupEpoch = 0;
   static const _maxGroupReceipts = 4096;
   static const _maxCompletedGroupTransfers = 128;
@@ -139,8 +140,14 @@ class _MessagingReplication {
     String groupIdHex,
     String bundleJson, {
     bool awaitInitialSend = true,
+    bool requireEnqueue = false,
   }) async {
-    if (await _backedUp(dst, 'group snapshot')) return;
+    if (await _backedUp(dst, 'group snapshot')) {
+      // A first-join reply cannot rely on the recipient's future frontier:
+      // it has no group to ask about yet. Keep its durable admission pending.
+      if (requireEnqueue) throw StateError('group snapshot queue is full');
+      return;
+    }
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));
     if (bytes.length > _kMaxGroupReasmBytes) {
       throw ArgumentError(
@@ -360,7 +367,11 @@ class _MessagingReplication {
   void _refreshGroupHandlers() {
     if (identical(_groupHandlerIdentity, _owner.onGroupEntry) &&
         identical(_strangerHandlerIdentity, _owner.onGroupEntryFromStranger) &&
-        identical(_groupAdmissionIdentity, _owner.allowStrangerGroupSync)) {
+        identical(_groupAdmissionIdentity, _owner.allowStrangerGroupSync) &&
+        identical(
+          _groupReassemblyAdmissionIdentity,
+          _owner.allowStrangerGroupReassembly,
+        )) {
       return;
     }
     // A rebuilt provider may own a different store/identity. Its receipts
@@ -371,6 +382,7 @@ class _MessagingReplication {
     _groupHandlerIdentity = _owner.onGroupEntry;
     _strangerHandlerIdentity = _owner.onGroupEntryFromStranger;
     _groupAdmissionIdentity = _owner.allowStrangerGroupSync;
+    _groupReassemblyAdmissionIdentity = _owner.allowStrangerGroupReassembly;
     _groupEpoch++;
   }
 
@@ -551,7 +563,8 @@ class _MessagingReplication {
       final parts = f.transferId.split(':');
       if (parts.length < 3 || parts[0] != 'grp') return false;
       final allowed =
-          await _owner.allowStrangerGroupSync?.call(m.src, parts[1]) ?? false;
+          await (_owner.allowStrangerGroupReassembly ??
+                  _owner.allowStrangerGroupSync)?.call(m.src, parts[1]) ?? false;
       return _currentGroupEpoch(epoch) && allowed;
     }
 

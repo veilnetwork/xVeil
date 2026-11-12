@@ -51,6 +51,72 @@ Future<List<Uint8List>> _chunks(String body) async {
 
 void main() {
   test(
+    'a stranger reassembly lease cannot ACK a rejected complete snapshot',
+    () async {
+      final body = jsonEncode({'fixture': 'x' * 7000});
+      final chunks = await _chunks(body);
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      final link = _Capture(1);
+      final receiver = MessagingService(link, storage);
+      var lease = true;
+      var accepted = false;
+      var applies = 0;
+      receiver.allowStrangerGroupSync = (_, _) async => false;
+      receiver.allowStrangerGroupReassembly = (peer, group) async =>
+          lease && peer == _id(2) && group == 'ab' * 32;
+      receiver.onGroupEntryFromStranger = (_, json) async {
+        expect(json, body);
+        applies++;
+        return accepted;
+      };
+      Future<void> deliver() async {
+        for (final chunk in chunks) {
+          await receiver.deliverInbound(
+            InboundMessage(
+              src: _id(2),
+              provenance: SenderProvenance.sessionPeer,
+              payload: chunk,
+            ),
+          );
+        }
+      }
+
+      try {
+        await deliver();
+        expect(applies, 1);
+        expect(
+          link.sent,
+          isEmpty,
+          reason: 'partial RAM is not a durable apply',
+        );
+        lease = false;
+        await deliver();
+        expect(
+          applies,
+          1,
+          reason: 'revoked consent cannot allocate another assembly',
+        );
+        expect(link.sent, isEmpty);
+        lease = true;
+        accepted = true;
+        await deliver();
+        expect(applies, 2);
+        expect(
+          link.sent
+              .map(WireEnvelope.decode)
+              .where((e) => e.kind == WireKind.ack),
+          hasLength(1),
+        );
+      } finally {
+        await receiver.dispose();
+        await link.dispose();
+        await storage.close();
+      }
+    },
+  );
+
+  test(
     'chunked catch-up progresses while an earlier ordinary apply is held',
     () async {
       final body = jsonEncode({'history': 'x' * 7000});
