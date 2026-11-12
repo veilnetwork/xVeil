@@ -1,0 +1,53 @@
+{
+  "schema": "xveil-revocation-retry-publication/1",
+  "application_baseline": "92d1630c84aea3ae3ef64dac4e64960d419f57ce",
+  "published_0_13_98_contains_both_bad_guards": true,
+  "sdk_commit": "e963fbdb8e4ee7d233e2747d59615925568461ca",
+  "hidden_volume_commit": "293792d7acb815accf44f91a0f3cc11c067b9bd2",
+  "regression_before": {
+    "failed": 1,
+    "stage": "live_node_publication_after_successful_retry"
+  },
+  "exposure_witness_before": {
+    "firstWriteDurableButCompletionLost": true,
+    "retryReportedSuccess": true,
+    "alreadyTombstonedRetry": true,
+    "liveDocumentStillStale": true,
+    "oldBMessageAcceptedByContact": true
+  },
+  "regression_after": {
+    "passed": 1,
+    "skipped": 0,
+    "suite_with_flutter_seconds": 67.407,
+    "observations": {
+      "firstWriteDurableButCompletionLost": true,
+      "firstCallerFailed": true,
+      "alreadyTombstonedRetrySucceeded": true,
+      "liveDocumentMatchedDurableDocument": true,
+      "noAuthorRestart": true,
+      "contactLearnedRepairedDocument": true,
+      "oldDeviceRejected": true,
+      "negativeObservationMs": 30029,
+      "authorizedBidirectionalMessages": true
+    }
+  },
+  "unit_widget": {
+    "passed": 81,
+    "skipped": 0
+  },
+  "inputs_unchanged": true,
+  "source_input_count": 1560,
+  "cleanup": {
+    "trackedPidsAndGroupsExited": 9,
+    "registeredPortsFree": 8,
+    "testVms": 0
+  },
+  "limits": [
+    "completion_loss_injected_after_real_storage_API_success",
+    "native_debug_caller_GUI_diff_reviewed_and_analyzed",
+    "macOS_arm64_JIT",
+    "call_signaling_only",
+    "not_global_instant_revocation_in_partition",
+    "not_entire_multi_device_matrix"
+  ]
+}
