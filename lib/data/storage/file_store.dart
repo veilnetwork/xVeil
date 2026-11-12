@@ -41,6 +41,18 @@ abstract interface class StoredFilePairWriter {
   });
 }
 
+/// A bounded file and one setting become authoritative in the same commit.
+/// Failure may leave unreferenced staged chunks; a lost reply may already have
+/// published BOTH values. No sequential fallback is permitted.
+abstract interface class StoredFileSettingWriter {
+  static const maxBytes = 16 * 1024;
+  Future<void> storeFileWithSetting(
+    StoredFileWrite file, {
+    required String settingKey,
+    required String settingValue,
+  });
+}
+
 class StoredFileWrite {
   const StoredFileWrite(this.id, this.bytes, {this.name});
   final String id;
@@ -832,7 +844,15 @@ class AsyncFileStore {
     Uint8List bytes, {
     String? name,
     List<String> retireHints = const [],
+    ({String key, String value})? publicationSetting,
   }) async {
+    if (publicationSetting != null &&
+        (bytes.isEmpty ||
+            bytes.length > StoredFileSettingWriter.maxBytes ||
+            utf8.encode(publicationSetting.key).length > 128 ||
+            utf8.encode(publicationSetting.value).length > 1024)) {
+      throw ArgumentError('file and setting publication exceeds its bound');
+    }
     if (retireHints.contains(fileId)) {
       throw ArgumentError('a file cannot retire itself');
     }
@@ -859,7 +879,29 @@ class AsyncFileStore {
     final prior = metadata != null && metadata['size'] == bytes.length
         ? await _loadFileFromMetadata(fileId, metadata)
         : null;
-    if (prior != null && _sameBytes(prior, bytes)) return fileId;
+    if (prior != null && _sameBytes(prior, bytes)) {
+      if (publicationSetting != null) {
+        final key = _k('set:${publicationSetting.key}');
+        final value = _k(publicationSetting.value);
+        final previous = await _store.get(Ns.settings, key);
+        if (previous == null || !_sameBytes(previous, value)) {
+          await _store.commit([PutOp(Ns.settings, key, value)]);
+        }
+      }
+      return fileId;
+    }
+    if (publicationSetting != null && metadata != null) {
+      var oldCount = 0;
+      if (metadata['streamed'] == true) {
+        throw StateError('atomic publication cannot replace a streamed file');
+      }
+      for (final run in _fileSegments(metadata)) {
+        if (run.count > 48 - oldCount) {
+          throw StateError('atomic publication has too many old chunks');
+        }
+        oldCount += run.count;
+      }
+    }
     var priorPurge = const <KvLogOp>[];
     if (metadata?['streamed'] == true) {
       priorPurge = await _deleteFileOpsFromMetadata(fileId, metadata!);
@@ -880,6 +922,12 @@ class AsyncFileStore {
               nextBase + offset,
           ];
     final publication = <KvLogOp>[
+      if (publicationSetting != null)
+        PutOp(
+          Ns.settings,
+          _k('set:${publicationSetting.key}'),
+          _k(publicationSetting.value),
+        ),
       ...priorPurge,
       for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
@@ -931,6 +979,8 @@ class AsyncFileStore {
       await _store.commit([
         for (var i = start; i < end; i++)
           AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        if (publicationSetting != null && nextBase != null)
+          PutOp(Ns.settings, _k('file_next_log'), _k('${nextBase + end}')),
         PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
       ]);
     }
