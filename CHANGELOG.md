@@ -8,6 +8,48 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.99] - 2026-11-12
+
+### Fixed
+
+- Join public communities by link without manual approval. Retain the signed
+  membership checks and retry interrupted joins; accept fragmented initial
+  snapshots only from the exact pending join authority.
+- Query public-community discovery through the active transport device rather
+  than the logical identity. Keep device-signed carriers bound to authorized
+  identity attestations and count independent identities for discovery quorum.
+- Preserve master-to-child references before atomically publishing compacted
+  storage. Keep the source intact when preparation is interrupted or aborted.
+- Recover delivery status after local persistence failures, including ACKs that
+  arrive during writes. Refresh the chat after reading back the saved status.
+- Persist device-group credentials, recovery certificates and the active group
+  pointer atomically. Retry linking and revocation from durable device state.
+- Preserve camera ownership and preview state across asynchronous switches.
+  Negotiate supported Windows formats, reflect capture failures/stops honestly,
+  and retain Apple camera state until deferred startup/teardown has completed.
+- Preserve camera access in exported Windows bundles while keeping private
+  configuration and container permissions restricted.
+
+### Dependencies
+
+- Use Veil 0.11.51, hidden-volume 2.7.2 and freshly rebuilt media engines.
+  The storage format is unchanged.
+
+### Known limits
+
+- Audio interruptions during ongoing-call network handover remain under
+  investigation. Carrier allowlists can independently prevent node reachability.
+- The original Windows 10 camera report and camera-switch mirroring need
+  qualification on the affected devices. Windows 11 controls do not close them.
+- The reported compaction failure affecting both passwords has not been
+  reproduced. The confirmed interrupted master-reference defect is fixed;
+  power-loss safety and the full multi-device matrix are not fully qualified.
+- Large-history latency remains in the backlog. Own-device synchronization
+  requires an online source and does not use relay mailboxes.
+- Public discovery from previously unknown sovereign publishers and Android
+  cross-device public joining have not been fully qualified end to end.
+  Existing unrecoverable legacy group-transfer fragments are unchanged.
+
 ## [0.13.98] - 2026-11-12
 
 ### Fixed
