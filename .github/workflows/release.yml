@@ -39,7 +39,7 @@ name: release
 # the producer. An unchanged ABI is not evidence that a prebuilt carries the
 # current microphone or device-module fixes; rebuild and repin when it changes.
 #
-# Current pin: engine-2026.11.12, including the Windows system microphone role.
+# Current pin: engine-2026.11.12.2, including current camera format and lifetime fixes.
 # All seven binaries passed SHA, native-source digest, architecture and export
 # checks. The source digest uses POSIX case-sensitive ordering on every host.
 #
@@ -431,7 +431,7 @@ jobs:
           # onto one tag — so no platform silently falls back to an older
           # engine. Provenance checked, not assumed: the arm64 sidecar records
           # veil-submodule 9596342f, the commit that carries the Opus change.
-          ENGINE_RELEASE: 'engine-2026.11.12'
+          ENGINE_RELEASE: 'engine-2026.11.12.2'
           # webrtc-linux run 31609030118 (12 August), the FIRST run whose
           # engine-android job ever finished. Every earlier run carried
           # libveil_media-linux-x64 and nothing else, so there was no android
@@ -734,7 +734,7 @@ jobs:
           # and windows pins. Same principle the `.9` note states above -- one
           # engine set from one veil pointer -- and this time the pointer also
           # carries the Opus settings for a lossy link (mono, inband FEC, DTX).
-          ENGINE_RELEASE: 'engine-2026.11.12'
+          ENGINE_RELEASE: 'engine-2026.11.12.2'
           # Kept as the fallback route and as the record of where this came
           # from. EXPIRES 2026-11-10; the release above does not.
           ENGINE_RUN: '31609030118'
@@ -1017,7 +1017,7 @@ jobs:
           # and windows pins. Same principle the `.9` note states above -- one
           # engine set from one veil pointer -- and this time the pointer also
           # carries the Opus settings for a lossy link (mono, inband FEC, DTX).
-          ENGINE_RELEASE: 'engine-2026.11.12'
+          ENGINE_RELEASE: 'engine-2026.11.12.2'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
