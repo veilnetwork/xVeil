@@ -663,34 +663,34 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         );
         keyStillCertified = !revocation.keyIsRetired;
         if (!keyStillCertified) {
-          if (revocation == DocumentRevocation.tombstoned) {
-            final stack = ref.read(realStackProvider);
-            if (stack != null) {
-              await stack.refreshSovereignIdentity(storage);
-            }
-            final raw = await readSovereignMaterial(storage);
-            final doc = raw == null
-                ? null
-                : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
-            if (doc != null && doc.isNotEmpty) {
-              // Keyed by DEVICE id, not selfId: a phrase-restored sibling
-              // SHARES our selfId and would drop the event as its own echo.
-              final meDevice = await svc.resolveMyDevice();
-              // The owner mark travels on EVERY announcement of this row, not
-              // just the one at start-up. The fold keeps the newest event per
-              // (kind, key), so an unmarked re-announcement from the master
-              // would retire its own mark and drop every linked device back to
-              // addressing the identity — silently, and until the next boot.
-              final ownsGroup = await svc.ownsDeviceGroup();
-              await svc.postDeviceEvent(
-                DeviceSyncEvent(
-                  kind: DeviceSyncKind.identityDoc,
-                  key: (meDevice ?? svc.selfId).hex,
-                  tsMs: DateTime.now().millisecondsSinceEpoch,
-                  payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
-                ),
-              );
-            }
+          // A durable write may have lost its completion before publication.
+          // An already-tombstoned retry must refresh and announce it too.
+          final stack = ref.read(realStackProvider);
+          if (stack != null) {
+            await stack.refreshSovereignIdentity(storage);
+          }
+          final raw = await readSovereignMaterial(storage);
+          final doc = raw == null
+              ? null
+              : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+          if (doc != null && doc.isNotEmpty) {
+            // Keyed by DEVICE id, not selfId: a phrase-restored sibling
+            // SHARES our selfId and would drop the event as its own echo.
+            final meDevice = await svc.resolveMyDevice();
+            // The owner mark travels on EVERY announcement of this row, not
+            // just the one at start-up. The fold keeps the newest event per
+            // (kind, key), so an unmarked re-announcement from the master
+            // would retire its own mark and drop every linked device back to
+            // addressing the identity — silently, and until the next boot.
+            final ownsGroup = await svc.ownsDeviceGroup();
+            await svc.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.identityDoc,
+                key: (meDevice ?? svc.selfId).hex,
+                tsMs: DateTime.now().millisecondsSinceEpoch,
+                payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
+              ),
+            );
           }
           ok = await svc.revokeDevice(device, sovereign: signer);
         }

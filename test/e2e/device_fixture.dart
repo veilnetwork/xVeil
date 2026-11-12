@@ -82,6 +82,7 @@ import '../support/private_history_work_probe.dart';
 import '../support/private_history_gate.dart';
 import '../support/private_message_append_gate.dart';
 import '../support/private_message_status_gate.dart';
+import '../support/private_sovereign_write_fault.dart';
 import 'convergence_oracle.dart';
 import 'crash_retention_oracle.dart';
 import 'e2e_env.dart';
@@ -437,11 +438,17 @@ class E2eDevice {
                 }
               }
               if (expectedWitness?['expectedCursors'] case final Map cursors) {
-                if (cursors.isEmpty || cursors.length > 32 ||
-                    cursors.entries.any((entry) =>
-                        entry.key is! String ||
-                        !RegExp(r'^[0-9a-f]{64}$').hasMatch(entry.key as String) ||
-                        entry.value is! String || (entry.value as String).isEmpty)) {
+                if (cursors.isEmpty ||
+                    cursors.length > 32 ||
+                    cursors.entries.any(
+                      (entry) =>
+                          entry.key is! String ||
+                          !RegExp(
+                            r'^[0-9a-f]{64}$',
+                          ).hasMatch(entry.key as String) ||
+                          entry.value is! String ||
+                          (entry.value as String).isEmpty,
+                    )) {
                   _fail('invalid synthetic cursor witness');
                 }
                 final actualCursors = <CrashRetentionRow>[];
@@ -450,17 +457,26 @@ class E2eDevice {
                     'device.history.cursor.v2:${entry.key}',
                   );
                   if (raw != null) {
-                    actualCursors.add(CrashRetentionRow(
-                      id: entry.key as String, delivered: true, bodyTag: raw,
-                    ));
+                    actualCursors.add(
+                      CrashRetentionRow(
+                        id: entry.key as String,
+                        delivered: true,
+                        bodyTag: raw,
+                      ),
+                    );
                   }
                 }
                 // Reuse the count-only exact-content oracle; raw cursor
                 // strings stay in memory/private witness, never in its result.
                 cursorRetention = crashRetentionOf(
-                  expected: [for (final entry in cursors.entries)
-                    CrashRetentionRow(id: entry.key as String,
-                        delivered: true, bodyTag: entry.value as String)],
+                  expected: [
+                    for (final entry in cursors.entries)
+                      CrashRetentionRow(
+                        id: entry.key as String,
+                        delivered: true,
+                        bodyTag: entry.value as String,
+                      ),
+                  ],
                   actual: actualCursors,
                   allowedIds: cursors.keys.cast<String>().toSet(),
                 );
@@ -519,8 +535,12 @@ class E2eDevice {
         final storage =
             (census == null
                   ? (label == 'A' &&
-                            Platform.environment['XVEIL_E2E_STATUS_PUBLICATION_CRASH'] ==
+                            Platform.environment['XVEIL_E2E_SOVEREIGN_WRITE_FAULT'] ==
                                 '1'
+                        ? PrivateSovereignWriteFault(opener, directory: dir)
+                        : label == 'A' &&
+                              Platform.environment['XVEIL_E2E_STATUS_PUBLICATION_CRASH'] ==
+                                  '1'
                         ? PrivateMessageStatusGate(
                             opener,
                             directory: dir,
@@ -669,8 +689,10 @@ class E2eDevice {
         final partialHistoryGate = crashRow == null
             ? null
             : PrivateHistoryGate(
-                dir, 'native-overlap-',
-                rowIndex: crashRow, filePrefix: 'history-midpoint',
+                dir,
+                'native-overlap-',
+                rowIndex: crashRow,
+                filePrefix: 'history-midpoint',
               );
         _partialHistoryGate = partialHistoryGate;
         if (census != null) {
@@ -714,7 +736,8 @@ class E2eDevice {
                           kind: HistoryGateKind.apply,
                           id: event.key,
                           body: event.payload['body'] as String? ?? '',
-                          isActive: () => boot.alive &&
+                          isActive: () =>
+                              boot.alive &&
                               identical(binding, messaging.groupBindingsOwner),
                         );
                       });
