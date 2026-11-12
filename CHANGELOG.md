@@ -8,8 +8,23 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.97] - 2026-11-12
+
 ### Fixed
 
+- Preserve compaction ownership through cancellation, route changes, identity
+  switching and teardown. Keep typed passwords, retained rosters and recovery
+  copies available after interrupted repair instead of applying late work to a
+  different session.
+- Restore system microphone capture when a saved input is unavailable; retain
+  the previous working camera or audio device after rejected switches. Improve
+  avatar refresh and complete authorized avatar exchange after contact approval.
+- Keep onboarding, unlock, identity edits and API mutations within their
+  original container session. Bound imports and preserve folder publication
+  conflicts, saved copies and recovery across interruption.
+- Reject native macOS artifacts that cannot actually load, even if signing and
+  privacy checks pass. Build release packages in neutral workspaces and check
+  embedded source paths and native-library provenance before publication.
 - Skip repeated ordering lookups when an own-device mirror already matches the
   stored effective position. Keep fresh checks for delivery changes and actual
   ordering corrections.
@@ -21,6 +36,28 @@ bumps may change behaviour a user notices.
   Refresh a cache whose recorded wall time is in the future after clock rollback.
 - Avoid repeating a fresh message lookup just to check an existing mirror's
   delivery status. Keep the later fresh read for ordering adoption.
+
+### Added and changed
+
+- Add optional QR-paired server management scripts without requiring SSH or
+  adding the installer to the main node executable.
+- Shorten long setup/settings explanations, keep details behind expandable
+  sections, and emphasize saving the one-time recovery code.
+- Use Veil 0.11.50, hidden-volume 2.7.1 and verified media engines from
+  `engine-2026.11.12`.
+
+### Known limits
+
+- Remaining history latency is in the backlog. The extended multi-device matrix
+  is not fully qualified; own-device synchronization still requires an online
+  source and does not use relay mailboxes.
+- The reported Windows 10 outgoing audio/video and avatar behavior still needs
+  reproduction on that OS. Windows 11 checks do not close that report.
+- Ongoing-call network handover remains under investigation. A carrier website
+  allowlist may prevent reaching overlay nodes independently of the application.
+- Historical call/file reports deferred until recurrence are not claimed fixed;
+  old incomplete group transfers can remain unrecoverable. Update devices
+  together; mixed-version compatibility is not a release requirement.
 
 ## [0.13.96] - 2026-11-10
 
