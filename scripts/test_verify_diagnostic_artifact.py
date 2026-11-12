@@ -21,6 +21,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
                 '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
+                '  diagnosticJournal.record(DiagnosticEvent.cameraStopped, values: {DiagnosticMetric.cameraCapturing: 0});\n'
                 '  diagnosticJournal.recordFolderSavedFailure(action: FolderSavedDiagnosticAction.discarding, failure: FolderSavedDiagnosticFailure.cleanup);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
                 '    DiagnosticMetric.state: 2, DiagnosticMetric.direction: 0});\n'
@@ -32,6 +33,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
                 "'audio_jb_target_ms': 260, "
+                "'camera_capturing': 0, 'camera_device_id': 'PRIVATE_CANARY', "
+                "'camera_driver_path': 'PRIVATE_CANARY', "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
                 "'tcp_handshake_trace': 'PRIVATE_CANARY', 'tcp_trace': 'PRIVATE_CANARY', "
@@ -108,6 +111,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         self.assertEqual(evidence['cameraStart']['values'], {
                             'success': 0, 'origin': 2,
                         })
+                        self.assertEqual(evidence['cameraStopped']['values'], {'cameraCapturing': 0})
                         self.assertEqual(evidence['microphoneControl']['values'], {
                             'enabled': 1, 'success': 0,
                         })
@@ -127,6 +131,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
                             'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
                             'audioTargetDelayMs': 260,
+                            'cameraCapturing': 0,
                         })
                         self.assertEqual(evidence['backgroundSnapshot']['values'], {
                             'supported': 1, 'success': 1,
