@@ -167,6 +167,11 @@ abstract class CallMediaController {
   /// and current unavailable state so an old event cannot undo a working retry.
   Stream<String> get microphoneUnavailable => const Stream<String>.empty();
 
+  /// A requested camera source failed to start. Audio/receive can stay live;
+  /// the local and advertised capture posture must stop claiming a camera.
+  bool get startedWithoutCamera => false;
+  Stream<String> get cameraUnavailable => const Stream<String>.empty();
+
   /// The route the media engine actually opened. It must equal the negotiated
   /// route, except for the explicitly permitted direct P2P → non-onion relay
   /// fallback. Null until a channel is open.
@@ -488,6 +493,8 @@ class CallService {
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
+  StreamSubscription<String>? _cameraUnavailableSub;
+  int _cameraOperationEpoch = 0;
   StreamSubscription<CallSignal>? _peerHealthSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
@@ -839,6 +846,21 @@ class CallService {
       // says off: a later false result must not restore an obsolete mic-on.
       ++_microphoneOperationEpoch;
       _set(call.copyWith(micOn: false));
+      unawaited(_announceCapture());
+    });
+    _cameraUnavailableSub = _media?.cameraUnavailable.listen((callId) {
+      final call = _current;
+      if (_disposed ||
+          call == null ||
+          !call.isLive ||
+          call.callId != callId ||
+          !call.cameraOn ||
+          !_media.startedWithoutCamera) {
+        return;
+      }
+      ++_cameraOperationEpoch;
+      _media.updateCameraIntent(false);
+      _set(call.copyWith(cameraOn: false));
       unawaited(_announceCapture());
     });
   }
@@ -1325,24 +1347,71 @@ class CallService {
   Future<void> setCameraEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive) return;
+    if (c.media.video && c.cameraOn == on) return;
+    // OFF must cancel an earlier permission/video-mount await even while the
+    // published call still has audio-only media. Never resurrect older intent.
+    final operation = ++_cameraOperationEpoch;
     if (!c.media.video) {
-      if (!on) return; // nothing to turn off in an audio-only call
-      final ok = await _media?.setVideoEnabled(true) ?? false;
+      if (!on) {
+        _media?.updateCameraIntent(false);
+        return;
+      }
+      final bool ok;
+      try {
+        ok = await _media?.setVideoEnabled(true) ?? false;
+      } catch (_) {
+        return;
+      }
       if (!ok) return; // no video backend — stay an audio call
       final cur = _current;
-      if (cur == null || !cur.isLive || cur.callId != c.callId) return;
+      if (_disposed ||
+          cur == null ||
+          !cur.isLive ||
+          cur.callId != c.callId ||
+          operation != _cameraOperationEpoch) {
+        return;
+      }
       _set(
         cur.copyWith(media: cur.media.copyWith(video: true), cameraOn: true),
       );
       _media?.updateCameraIntent(true);
-      await _media?.setCameraEnabled(true);
+      await _applyCameraIntent(c.callId, on, operation);
+      if (_disposed ||
+          _current?.callId != c.callId ||
+          _current?.isLive != true) {
+        return;
+      }
+      // Video receive was mounted successfully even if camera capture failed
+      // or a newer OFF won meanwhile. Advertise the current media set, so a
+      // later retry does not remain invisible to the peer's audio-only engine.
       await _announceMediaSet();
       return;
     }
-    if (c.cameraOn == on) return;
     _set(c.copyWith(cameraOn: on));
     _media?.updateCameraIntent(on);
-    if (!c.screenOn) await _media?.setCameraEnabled(on);
+    if (!c.screenOn) await _applyCameraIntent(c.callId, on, operation);
+  }
+
+  Future<void> _applyCameraIntent(String callId, bool on, int operation) async {
+    var failed = false;
+    try {
+      await _media?.setCameraEnabled(on);
+      failed = on && _media?.startedWithoutCamera == true;
+    } catch (_) {
+      failed = on;
+    }
+    final current = _current;
+    if (!failed ||
+        _disposed ||
+        current == null ||
+        !current.isLive ||
+        current.callId != callId ||
+        operation != _cameraOperationEpoch) {
+      return;
+    }
+    _media?.updateCameraIntent(false);
+    _set(current.copyWith(cameraOn: false));
+    await _announceCapture();
   }
 
   /// Toggle sharing the local screen as the call's video source (screen
@@ -3054,6 +3123,8 @@ class CallService {
     }
     if (ok) {
       final micOn = cur.micOn && !media.startedWithoutMicrophone;
+      final cameraOn = cur.cameraOn && !media.startedWithoutCamera;
+      if (!cameraOn && cur.cameraOn) media.updateCameraIntent(false);
       final actualTransport = media.activeTransport;
       if (actualTransport != null && actualTransport != cur.transport) {
         if (cur.transport == CallTransportKind.p2p &&
@@ -3064,9 +3135,14 @@ class CallService {
             status: CallStatus.active,
             transport: CallTransportKind.relay,
             micOn: micOn,
+            cameraOn: cameraOn,
           );
           _set(relayed);
-          if (micOn != cur.micOn) unawaited(_announceCapture());
+          if (micOn != cur.micOn ||
+              cameraOn != cur.cameraOn ||
+              media.startedWithoutCamera) {
+            unawaited(_announceCapture());
+          }
           unawaited(_announceRelayFallback(relayed));
           unawaited(_checkLateP2P());
           return;
@@ -3088,8 +3164,14 @@ class CallService {
         _end(CallEndReason.error, origin: CallEndOrigin.routeMismatch);
         return;
       }
-      _set(cur.copyWith(status: CallStatus.active, micOn: micOn));
-      if (micOn != cur.micOn) unawaited(_announceCapture());
+      _set(cur.copyWith(
+        status: CallStatus.active, micOn: micOn, cameraOn: cameraOn,
+      ));
+      if (micOn != cur.micOn ||
+          cameraOn != cur.cameraOn ||
+          media.startedWithoutCamera) {
+        unawaited(_announceCapture());
+      }
       unawaited(_checkLateP2P());
       return;
     }
@@ -3234,6 +3316,8 @@ class CallService {
     _screenShareStoppedSub = null;
     unawaited(_microphoneUnavailableSub?.cancel());
     _microphoneUnavailableSub = null;
+    unawaited(_cameraUnavailableSub?.cancel());
+    _cameraUnavailableSub = null;
     unawaited(_peerHealthSub?.cancel());
     _peerHealthSub = null;
     unawaited(_overlaySessionsSub?.cancel());
