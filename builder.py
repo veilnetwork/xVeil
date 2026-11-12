@@ -1476,7 +1476,10 @@ def _release_aot_plan(steps: list[Step], target: str) -> list[Step]:
         result = run_neutral_build(Path(ROOT), target, native_versions=versions)
         print(f"    neutral AOT artifact verified ({result['privacy']['members_scanned']} members)")
 
-    return steps[:start] + [Step("neutral AOT build, packaging and artifact privacy", call=build)]
+    return steps[:start] + [Step(
+        "neutral AOT build, packaging and artifact privacy", call=build,
+        preview=steps[start:],
+    )]
 
 
 def plan(target: str, *, release: bool) -> list[Step]:

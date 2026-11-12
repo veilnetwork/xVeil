@@ -82,13 +82,15 @@ def _protect_workspace(path: Path) -> None:
         path.chmod(0o700)
         return
     # Protect before copying signing keys or local network configuration.
+    # Apply exactly this descriptor through .NET, without provider-specific
+    # owner/audit processing by Set-Acl under the runner's restricted token.
     command = (
         "$ErrorActionPreference='Stop'; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User; "
         "$acl=[Security.AccessControl.DirectorySecurity]::new(); $acl.SetOwner($sid); "
         "$acl.SetAccessRuleProtection($true,$false); "
         "$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new("
         "$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')); "
-        "Set-Acl -LiteralPath " + _ps_literal(str(path)) + " -AclObject $acl"
+        "[IO.Directory]::SetAccessControl(" + _ps_literal(str(path)) + ", $acl)"
     )
     encoded = base64.b64encode(command.encode("utf-16le")).decode("ascii")
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",

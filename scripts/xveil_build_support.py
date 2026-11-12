@@ -71,6 +71,9 @@ class Step:
     optional: bool = False
     env: dict[str, str] = field(default_factory=dict)
     skip_if: str = ""
+    # A callable may delegate compilation to a child workspace. Show that
+    # command during a dry run without turning it into an executable step.
+    preview: list[Step] = field(default_factory=list)
 
 
 def host() -> str:
@@ -265,6 +268,9 @@ def run(steps: list[Step], *, dry_run: bool) -> None:
         print(f"{prefix} {step.title}")
         if step.argv:
             print(f"{' ' * (len(prefix) + 1)}$ {' '.join(step.argv)}")
+        if dry_run and step.preview:
+            print("    child workspace plan:")
+            run(step.preview, dry_run=True)
         if dry_run:
             continue
         try:
