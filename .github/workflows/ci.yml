@@ -47,6 +47,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s scripts -p test_builder_path_remap.py
+      - run: python -m unittest discover -s scripts -p test_aot_workspace.py
       - run: python -m unittest discover -s scripts -p test_aot_build.py
 
   reachable:

@@ -154,6 +154,7 @@ Future<void> _showManagedNodeCreateChooser(BuildContext context) async {
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (sheetContext) => SafeArea(
       child: SingleChildScrollView(
         child: Column(

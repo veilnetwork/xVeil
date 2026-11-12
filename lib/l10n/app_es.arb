@@ -3236,7 +3236,6 @@
   "nodeConnectExpired": "El acceso caducó. Ejecute veil-connect de nuevo y escanee el nuevo QR.",
   "nodeConnectError": "No se pudo conectar. Compruebe el código, la dirección, el puerto y el certificado.",
   "nodeConnectRefresh": "Renovar acceso por QR",
-  "nodeConnectInstall": "Instalar o administrar componentes",
   "folderSyncSavedTitle": "Copias guardadas",
   "folderSyncSavedHint": "Guardar como crea un archivo separado. Una copia entrante puede estar incompleta si se interrumpió la transferencia.",
   "folderSyncSavedPrevious": "Versión anterior",

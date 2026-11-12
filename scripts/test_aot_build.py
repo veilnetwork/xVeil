@@ -1,4 +1,6 @@
 import json
+import contextlib
+import io
 import os
 from pathlib import Path
 import shutil
@@ -224,6 +226,17 @@ class BuilderAotPlanTest(unittest.TestCase):
             steps = self.plan(target, False)
             self.assertTrue(any(builder._is_aot_flutter_step(step) for step in steps))
             self.assertFalse(any(step.title.startswith("neutral AOT") for step in steps))
+
+    def test_release_preview_shows_child_checks_without_executing_them(self):
+        from xveil_build_support import run
+        steps = self.plan("android", True)
+        output = io.StringIO()
+        with patch("subprocess.run", side_effect=AssertionError("dry run executed a command")), \
+             patch("aot_build.run_neutral_build", side_effect=AssertionError("dry run built")), \
+             contextlib.redirect_stdout(output):
+            run(steps, dry_run=True)
+        self.assertIn("flutter build apk --release --split-per-abi", output.getvalue())
+        self.assertIn("signing check", output.getvalue())
 
 
 if __name__ == "__main__":

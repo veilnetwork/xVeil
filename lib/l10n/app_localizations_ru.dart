@@ -8119,9 +8119,6 @@ class AppL10nRu extends AppL10n {
   String get nodeConnectRefresh => 'Обновить доступ по QR';
 
   @override
-  String get nodeConnectInstall => 'Установить или настроить компоненты';
-
-  @override
   String get folderSyncSavedTitle => 'Сохранённые копии';
 
   @override
