@@ -23054,7 +23054,9 @@ class GroupService implements ArchiveGroups {
     try {
       await Future.wait<void>([
         ?_devicePostDrain,
-        _devicePublicationTail,
+        // Only admitted publications need draining; an idle ordering tail is
+        // not unfinished work and may belong to a caller's scheduling zone.
+        ?_devicePublicationPending,
         ..._mutationTails.values,
         ..._bundleWrites.values,
         _backgroundTasks.close(),
