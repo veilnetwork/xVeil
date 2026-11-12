@@ -1,0 +1,64 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "fixed-locally",
+  "finding": "desktop-capture-ended-retained-camera-on-posture",
+  "baseline": {
+    "passed": 5,
+    "failed": 1,
+    "harnessSetupFailuresExcluded": true
+  },
+  "normal": {
+    "passed": 419,
+    "skipped": 0
+  },
+  "diagnosticsEnabled": {
+    "passed": 419,
+    "skipped": 0,
+    "sameSuiteAsNormal": true
+  },
+  "nativeCameraControl": {
+    "passed": true,
+    "states": {
+      "before_camera": {
+        "cameraCapturing": -1,
+        "videoFrames": 0,
+        "videoSendPaused": 0
+      },
+      "stats": {
+        "cameraCapturing": 1,
+        "videoFrames": 47,
+        "videoSendPaused": 0
+      },
+      "paused_camera": {
+        "cameraCapturing": 1,
+        "videoFrames": 47,
+        "videoSendPaused": 1
+      },
+      "stopped_camera": {
+        "cameraCapturing": -1,
+        "videoFrames": 47,
+        "videoSendPaused": 0
+      },
+      "restarted_camera": {
+        "cameraCapturing": 1,
+        "videoFrames": 47,
+        "videoSendPaused": 0
+      }
+    },
+    "previewFrames": 47,
+    "sha": "1b03f17b4e4e37fb3f275e42e398ac437a8fe1958e20afb60f92fd1b4de06b76",
+    "rawFramesStored": false,
+    "networkCall": false,
+    "asynchronousDeviceRemovalQualified": false
+  },
+  "nativeSourceDigest": "2bb485cfca4f665fe9c03d30f4dc434e4407b38c7cd11a7d9438fa8d84364dfe",
+  "nativeProductionBuildPassed": true,
+  "nativeSourceFiles": 78,
+  "diagnosticArtifactTestPassed": true,
+  "nativeProvenanceTestsPassed": 6,
+  "analyzeIssues": 0,
+  "originalWindows10CaseClosed": false,
+  "physicalCameraUnplugQualified": false,
+  "newFullAppNetworkCallQualified": false,
+  "published": false
+}

@@ -1752,6 +1752,7 @@ class VeilCallMediaController implements CallMediaController {
         final stats = engine.getStats();
         final now = DateTime.now();
         _mediaReceiveActivity.observe(stats, now);
+        _observeDesktopCameraCapture(engine, stats);
         diagnosticJournal.recordMediaStats(stats);
         unawaited(
           diagnosticAudioOutput.sample(
@@ -3057,6 +3058,32 @@ class VeilCallMediaController implements CallMediaController {
     diagnosticJournal.recordCameraStart(success: started, origin: origin);
     _reportCameraStartOutcome(engine, started);
     return started;
+  }
+
+  void _observeDesktopCameraCapture(
+    VeilMediaEngine engine,
+    Map<String, dynamic> stats,
+  ) {
+    // An explicit terminal state from the owned capturer, never a frame-rate
+    // timeout: paused encoding and a slow network do not mean capture failed.
+    final capture = stats['camera_capturing'];
+    final call = _activeCall;
+    if (Platform.isAndroid ||
+        _engine != engine ||
+        call == null ||
+        _startedWithoutCamera ||
+        _screenSharing ||
+        _screenStarting != null ||
+        !_cameraState.enabledForCall(call.callId) ||
+        capture is! int ||
+        capture != 0) {
+      return;
+    }
+    diagnosticJournal.record(
+      DiagnosticEvent.cameraStopped,
+      values: {DiagnosticMetric.cameraCapturing: 0},
+    );
+    _reportCameraStartOutcome(engine, false);
   }
 
   void _reportCameraStartOutcome(VeilMediaEngine engine, bool started) {

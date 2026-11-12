@@ -257,6 +257,33 @@ class _CameraChoiceEngine extends _UpgradeEngine {
   }
 }
 
+class _CaptureStateEngine extends _CameraChoiceEngine {
+  Object? captureState = 1;
+
+  @override
+  Map<String, dynamic> getStats() => {
+    ...super.getStats(),
+    if (captureState != null) 'camera_capturing': captureState,
+  };
+
+  @override
+  bool startCamera({
+    int width = 352,
+    int height = 198,
+    int fps = 15,
+    String? deviceId,
+  }) {
+    final ok = super.startCamera(
+      width: width,
+      height: height,
+      fps: fps,
+      deviceId: deviceId,
+    );
+    if (ok) captureState = 1;
+    return ok;
+  }
+}
+
 class _CameraCallWire implements MessagingService {
   @override
   bool backgroundStashPaused = false;
@@ -472,6 +499,110 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     diagnosticJournal.clear();
   });
+
+  for (final state in <Object?>[0, -1, 1, null, 0.0, '0']) {
+    test(
+      'desktop capture end posture: ${state.runtimeType}/$state',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'call.capture.camera.${Platform.operatingSystem}': 'old-camera',
+        });
+        final polls = <void Function()>[];
+        await runZoned(
+          () async {
+            final wire = _CameraCallWire();
+            final engine = _CaptureStateEngine();
+            final controller = VeilCallMediaController(
+              _Transport(),
+              engineFactory:
+                  ({required veilChan, required localId, required peerId}) =>
+                      engine,
+            );
+            final service = CallService(wire, media: controller)..start();
+            var failures = 0;
+            final subscription = controller.cameraUnavailable.listen(
+              (_) => failures++,
+            );
+            try {
+              await _connectCameraCall(service, wire);
+              expect(service.current?.status, CallStatus.active);
+              expect(engine.cameraStarts, isNotEmpty);
+              expect(service.current?.cameraOn, isTrue);
+              final callId = service.current!.callId;
+              engine.captureState = state;
+              expect(polls, isNotEmpty);
+              for (var tick = 0; tick < 2; tick++) {
+                for (final poll in polls.toList()) {
+                  poll();
+                }
+                await pumpEventQueue();
+              }
+              final ended = state is int && state == 0;
+              expect(service.current?.callId, callId);
+              expect(service.current?.status, CallStatus.active);
+              expect(service.current?.cameraOn, !ended);
+              expect(failures, ended ? 1 : 0);
+              expect(controller.startedWithoutCamera, ended);
+              if (ended) {
+                expect(wire.sent.last.capture?.video, isFalse);
+                if (kDiagnosticReportEnabled) {
+                  final report = diagnosticJournal.toJson();
+                  final evidence = report['last_evidence'] as Map;
+                  expect((evidence['cameraStopped'] as Map)['values'], {
+                    'cameraCapturing': 0,
+                  });
+                  final encoded = jsonEncode(report);
+                  expect(encoded, isNot(contains('old-camera')));
+                  expect(encoded, isNot(contains(callId)));
+                  expect(encoded, isNot(contains(_id(2).hex)));
+                }
+                await service.setCameraEnabled(true);
+                for (final poll in polls.toList()) {
+                  poll();
+                }
+                await pumpEventQueue();
+                expect(service.current?.cameraOn, isTrue);
+                expect(controller.startedWithoutCamera, isFalse);
+                expect(failures, 1);
+                expect(engine.disposed, isFalse);
+                await service.setCameraEnabled(false);
+                engine.captureState = 0;
+                for (final poll in polls.toList()) {
+                  poll();
+                }
+                await pumpEventQueue();
+                expect(service.current?.cameraOn, isFalse);
+                expect(
+                  failures,
+                  1,
+                  reason: 'intentional OFF is not a new failure',
+                );
+              }
+            } finally {
+              service.dispose();
+              await subscription.cancel();
+              await controller.stop();
+            }
+          },
+          zoneSpecification: ZoneSpecification(
+            createPeriodicTimer: (self, parent, zone, interval, callback) {
+              final timer = parent.createPeriodicTimer(
+                zone,
+                interval,
+                callback,
+              );
+              if (interval == const Duration(seconds: 1)) {
+                timer.cancel();
+                polls.add(() => zone.runUnary(callback, timer));
+              }
+              return timer;
+            },
+          ),
+        );
+      },
+      skip: Platform.isAndroid ? 'Desktop capture state' : false,
+    );
+  }
 
   for (final phase in ['initial', 'toggle']) {
     for (final throws in [false, true]) {

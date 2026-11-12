@@ -50,6 +50,7 @@ enum DiagnosticEvent {
   callReplayRejected,
   cameraStart,
   folderSavedFailure,
+  cameraStopped,
 }
 
 /// Source-owned stages; never a device ID, label or native error string.
@@ -169,6 +170,7 @@ enum DiagnosticMetric {
   networkValidated,
   networkNotSuspended,
   restrictBackgroundStatus,
+  cameraCapturing,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -242,7 +244,7 @@ class DiagnosticJournal {
       values: {
         for (final entry in _mediaFields.entries)
           if (stats[entry.key] case final num number) entry.value: number,
-        for (final entry in _audioDiscreteFields.entries)
+        for (final entry in _mediaDiscreteFields.entries)
           if (stats[entry.key] case final int number)
             if (number >= entry.value.$2 && number <= entry.value.$3)
               entry.value.$1: number,
@@ -388,13 +390,14 @@ class DiagnosticJournal {
     ),
   };
 
-  static const _audioDiscreteFields = {
+  static const _mediaDiscreteFields = {
     ..._audioStartFields,
     // Receiver reserve, not network RTT or a user-selected send interval.
     'audio_jb_target_ms': (DiagnosticMetric.audioTargetDelayMs, -1, 60000),
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
+    'camera_capturing': (DiagnosticMetric.cameraCapturing, -1, 1),
   };
 
   /// A failed start can end before the periodic media sample. Keep the two
@@ -449,6 +452,7 @@ class DiagnosticJournal {
     DiagnosticEvent.mediaSample,
     DiagnosticEvent.audioStart,
     DiagnosticEvent.cameraStart,
+    DiagnosticEvent.cameraStopped,
     DiagnosticEvent.folderSavedFailure,
     DiagnosticEvent.audioRoute,
     DiagnosticEvent.backgroundSnapshot,

@@ -10,6 +10,36 @@ class _PrivateValue {
 }
 
 void main() {
+  test('camera capture evidence accepts only bounded native state', () {
+    for (final state in <Object?>[-1, 0, 1, 2, -2, 0.0, '0', _PrivateValue()]) {
+      final journal = DiagnosticJournal(enabled: true);
+      journal.recordMediaStats({
+        'camera_capturing': state,
+        'camera_device_id': _PrivateValue(),
+        'camera_driver_path': _PrivateValue(),
+      });
+      final evidence = journal.toJson()['last_evidence'] as Map;
+      final values = (evidence['mediaSample'] as Map)['values'] as Map;
+      expect(
+        values,
+        state is int && state >= -1 && state <= 1
+            ? {'cameraCapturing': state}
+            : isEmpty,
+      );
+    }
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    journal.record(
+      DiagnosticEvent.cameraStopped,
+      values: {DiagnosticMetric.cameraCapturing: 0},
+    );
+    journal.record(DiagnosticEvent.transportSent);
+    expect(
+      ((journal.toJson()['last_evidence'] as Map)['cameraStopped']
+          as Map)['values'],
+      {'cameraCapturing': 0},
+    );
+  });
+
   test('camera start evidence retains only source stage and outcome', () {
     for (final origin in CameraStartOrigin.values) {
       final journal = DiagnosticJournal(enabled: true, capacity: 1);
