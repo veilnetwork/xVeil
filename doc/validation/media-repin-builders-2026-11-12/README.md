@@ -42,6 +42,14 @@ known triggering layout; it does not update production dependencies. Earlier
 small fixtures that passed the old profile were not counted as reproductions.
 Full automatic macOS application qualification with this fix is pending.
 
+A subsequent full build, including native producers from an empty Cargo cache,
+found the same malformed host macro in hidden-volume before compiling its FFI.
+Its profile also needs an explicit host `strip = "none"`. Storage commit
+`3b8c302` adds that setting; the same isolated profile probe failed before it and
+passed after it. The probe now accepts a workspace path so CI exercises both
+profiles. No production dependency versions or storage format changed. A new
+full application build with both fixes remains pending.
+
 ## ARM64 PE symbol-reader correction
 
 The ARM64 DLL contains the required exports. On the validation host, x64 GNU
