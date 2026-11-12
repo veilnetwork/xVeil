@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -13,6 +15,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/providers.dart';
 
 NodeId _id(int n) => NodeId(Uint8List.fromList(List.filled(32, n)));
 
@@ -100,6 +103,88 @@ void main() {
           payload: WireEnvelope.ack(id).encode(),
         ),
       );
+
+  testWidgets(
+    'open chat observes recovery after a lost status commit response',
+    (tester) async {
+      final backing = _CommitFault();
+      final storage = _ReadFault(
+        ({required password, required bool create}) => backing,
+      );
+      await storage.open(password: 'fixture', createIfMissing: true);
+      await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+      final link = _Link();
+      final service = MessagingService(link, storage);
+      try {
+        await service.sendText(peer, 'visible receipt recovery');
+        final id = (await storage.loadMessages(peer.hex)).single.id;
+        var mirrored = 0;
+        service.onMessageStatusChanged = (_, _, _) => mirrored++;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              messagingServiceProvider.overrideWithValue(service),
+              storageProvider.overrideWithValue(storage),
+              chatWindowProvider(peer.hex).overrideWith((ref) => 10),
+            ],
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: Consumer(
+                builder: (context, ref, child) => Text(
+                  ref
+                      .watch(messagesProvider(peer.hex))
+                      .when(
+                        data: (rows) => rows.single.status.name,
+                        loading: () => 'loading',
+                        error: (_, _) => 'provider-error',
+                      ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('sent'), findsOneWidget);
+        backing.refuseStatus = true;
+        backing.afterCommit = true;
+        await ack(service, id);
+        expect(backing.refusals, 1);
+        expect(
+          (await storage.loadMessageById(peer.hex, id))!.status,
+          MessageStatus.delivered,
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(
+          find.text('sent'),
+          findsOneWidget,
+          reason: 'the failed writer did not signal success',
+        );
+        backing.refuseStatus = false;
+        link.posts.clear();
+        await service.flushOutbox();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(
+          find.text('delivered'),
+          findsOneWidget,
+          reason: 'the real chat provider must observe read-back recovery',
+        );
+        expect(link.posts, isEmpty);
+        expect(
+          mirrored,
+          0,
+          reason: 'read-back recovery is not a second delivery transition',
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        await service.dispose();
+        await storage.close();
+      }
+    },
+  );
 
   test(
     'blocked status retry does not stop later delivery timer ticks',
@@ -344,10 +429,19 @@ void main() {
       backing.refuseStatus = false;
       var published = 0;
       service.onMessageStatusChanged = (_, _, _) => published++;
+      var refreshes = 0;
+      final subscription = service.changes.listen((_) => refreshes++);
+      addTearDown(subscription.cancel);
       await service.flushOutbox();
+      await Future<void>.delayed(Duration.zero);
       expect(await storage.loadMessages(peer.hex), isEmpty);
       expect(await storage.isMessageDeleted(peer.hex, id), isTrue);
       expect(published, 0);
+      expect(
+        refreshes,
+        0,
+        reason: 'an absent target does not refresh the chat',
+      );
     },
   );
 
