@@ -141,6 +141,7 @@ class HiddenVolumeStorage
         StoredFileBatchReader,
         StoredFilePresenceReader,
         StoredFilePairWriter,
+        StoredFileSettingWriter,
         PreparedMessageBatchStore,
         PreparedOrderingBatchStore,
         MessageRowsReader,
@@ -1838,6 +1839,49 @@ class HiddenVolumeStorage
       await AsyncFileStore(
         _as,
       ).storeFile(fileId, bytes, name: name, retireHints: inVolume);
+    });
+  }
+
+  @override
+  Future<void> storeFileWithSetting(
+    StoredFileWrite file, {
+    required String settingKey,
+    required String settingValue,
+  }) {
+    if (file.bytes.isEmpty ||
+        file.bytes.length > StoredFileSettingWriter.maxBytes ||
+        utf8.encode(settingKey).length > 128 ||
+        utf8.encode(settingValue).length > 1024) {
+      return Future.error(
+        ArgumentError('file and setting publication exceeds its bound'),
+      );
+    }
+    final bytes = Uint8List.fromList(file.bytes);
+    return _trackLogWrite((store) {
+      final key = 'set:$settingKey';
+      final previous = _metadataTails[key] ?? Future<void>.value();
+      // Admit both gates synchronously, before close/erase can begin. The
+      // accepted operation keeps this exact space throughout staging/commit.
+      final result = _fileSerialized(() async {
+        await previous;
+        if (await store.get(Ns.settings, _sk('ondisk:${file.id}')) != null) {
+          throw StateError(
+            'atomic file publication cannot replace a tiered file',
+          );
+        }
+        await AsyncFileStore(store).storeFile(
+          file.id,
+          bytes,
+          name: file.name,
+          publicationSetting: (key: settingKey, value: settingValue),
+        );
+      });
+      late final Future<void> tail;
+      tail = result.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+        if (identical(_metadataTails[key], tail)) _metadataTails.remove(key);
+      });
+      _metadataTails[key] = tail;
+      return result;
     });
   }
 
