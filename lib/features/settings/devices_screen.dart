@@ -1694,7 +1694,6 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         // Reported 2026-08-18; the delegation's `false` used to be ignored.
         throw const _DocumentNotAmended();
       }
-      final delegatedTarget = targetDelegation == DeviceDelegation.delegated;
       signer = await widget.service.openLocalSovereign(words);
       await widget.service.renewOwnDelegationQuietly(words);
       final linked = await widget.service.linkDevice(
@@ -1703,22 +1702,18 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         broadcastSnapshot: false,
       );
       if (!linked) throw StateError('membership rejected');
-      var delegated = delegatedTarget;
       // RETRO-delegation of members the group admitted before the document
       // learned to grow at link time — see the stand hook's twin for the
       // measurement that forced this.
       for (final entry in (await widget.service.deviceWriterKeys()).entries) {
         if (entry.key == target.nodeId) continue;
         try {
-          delegated =
-              await RealVeilStack.delegateDeviceIntoDocument(
-                    widget.service.storage,
-                    secret: words,
-                    devicePubkey: entry.value,
-                    stagingBase: Directory.systemTemp.path,
-                  ) ==
-                  DeviceDelegation.delegated ||
-              delegated;
+          await RealVeilStack.delegateDeviceIntoDocument(
+            widget.service.storage,
+            secret: words,
+            devicePubkey: entry.value,
+            stagingBase: Directory.systemTemp.path,
+          );
         } on _DocumentNotAmended {
           if (mounted) setState(() => _error = l.devicesDocumentNotAmended);
         } on TombstonedDeviceException {
@@ -1726,9 +1721,9 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           // cleanup, not this ceremony's failure.
         }
       }
-      if (delegated) {
-        await widget.stack.refreshSovereignIdentity(widget.service.storage);
-      }
+      // A previous store may have succeeded without returning completion.
+      // Refresh even when this retry found the target already certified.
+      await widget.stack.refreshSovereignIdentity(widget.service.storage);
       // The MERGED document — read after the merge above, so it names both
       // devices. The return leg of the exchange the invite opened: without it
       // the other device finishes the ceremony still holding a document that

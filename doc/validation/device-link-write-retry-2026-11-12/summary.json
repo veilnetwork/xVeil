@@ -1,0 +1,58 @@
+{
+  "schema": "xveil-device-link-write-retry/1",
+  "application_baseline": "bf8a40a2c57e33d03f5d205ed13bb91d25fff2e2",
+  "sdk_commit": "e963fbdb8e4ee7d233e2747d59615925568461ca",
+  "hidden_volume_commit": "293792d7acb815accf44f91a0f3cc11c067b9bd2",
+  "published_0_13_98_contains_bad_guards": true,
+  "qualified_red_failed": 2,
+  "qualified_green_passed": 2,
+  "qualified_green_skipped": 0,
+  "unit_widget_passed": 108,
+  "unit_widget_skipped": 0,
+  "production_and_unit_sources_match_unit_run": true,
+  "final_fixture_doc_presence_checked": true,
+  "public_invite_doc_prepared_by_real_native_signing_on_isolated_copy": true,
+  "source_inputs": 1562,
+  "source_native_unchanged": true,
+  "native_with_flutter_seconds": 59.9,
+  "scenarios": [
+    {
+      "inviteIncludedDocument": false,
+      "firstWriteDurableButCompletionLost": true,
+      "firstCallerFailedWithoutGroupAdmission": true,
+      "retryPublishedSavedDocument": true,
+      "noSourceRestart": true,
+      "targetKeptPhysicalDeviceId": true,
+      "historyReachedTargetExactlyOnce": true,
+      "targetToContactDelivered": true,
+      "contactToBothDevicesDelivered": true
+    },
+    {
+      "inviteIncludedDocument": true,
+      "firstWriteDurableButCompletionLost": true,
+      "firstCallerFailedWithoutGroupAdmission": true,
+      "retryPublishedSavedDocument": true,
+      "noSourceRestart": true,
+      "targetKeptPhysicalDeviceId": true,
+      "historyReachedTargetExactlyOnce": true,
+      "targetToContactDelivered": true,
+      "contactToBothDevicesDelivered": true
+    }
+  ],
+  "cleanup": {
+    "trackedPidsAndGroupsExited": 15,
+    "registeredPortsFree": 14,
+    "testVms": 0
+  },
+  "excluded_early_qualification": [
+    "both_invites_were_actually_documentless",
+    "nonmatching_document_rejected_before_storage_fault"
+  ],
+  "limits": [
+    "native_debug_caller_UI_review_and_widget_regressions",
+    "macOS_arm64_JIT",
+    "storage_API_completion_loss_not_power_failure",
+    "no_claim_of_message_loss_after_link_on_baseline",
+    "not_all_multi_device_crash_boundaries"
+  ]
+}
