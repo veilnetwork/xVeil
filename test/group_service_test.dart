@@ -495,6 +495,8 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
   bool rejectGroupPointer = false;
   Uint8List? credentialAfterAtomicPublication;
   bool loseAtomicReply = false;
+  bool loseCredentialReply = false;
+  Completer<void>? credentialEntered, releaseCredential;
 
   @override
   Future<void> storeFileWithSetting(
@@ -529,7 +531,16 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
     if (rejectCredential && fileId == GroupService.kSovereignBundleSetting) {
       throw StateError('fixture credential store refused');
     }
+    if (fileId == GroupService.kSovereignBundleSetting) {
+      credentialEntered?.complete();
+      credentialEntered = null;
+      await releaseCredential?.future;
+    }
     await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
+    if (fileId == GroupService.kSovereignBundleSetting && loseCredentialReply) {
+      loseCredentialReply = false;
+      throw StateError('fixture credential completion lost');
+    }
   }
 
   @override
@@ -1130,6 +1141,67 @@ class _DeviceTtlFaultStorage extends HiddenVolumeStorage {
     }
     return super.scrubDeleted();
   }
+}
+
+Future<
+  ({
+    GroupService service,
+    HiddenVolumeStorage storage,
+    SpaceManifest manifest,
+    Uint8List encrypted,
+    String secret,
+  })
+>
+_missingCredentialFixture(
+  NodeId self,
+  NodeId sibling, {
+  bool certificate = false,
+  HiddenVolumeStorage? targetStorage,
+}) async {
+  final phrase = veil.generateMasterPhrase();
+  final xvsb = veil.createHybrid512SovereignBundle(phrase);
+  final secret = certificate ? veil.generateSovereignRecoveryCode() : phrase;
+  final encrypted = certificate
+      ? veil.exportSovereignRecoveryCertificate(xvsb, phrase, secret)
+      : xvsb;
+  final storage = targetStorage ?? FakeHvContainer().storage();
+  await storage.open(password: 'pw', createIfMissing: true);
+  final source = GroupService(storage, _NativeSovereignVerifier(self));
+  await storage.storeFile(GroupService.kSovereignBundleSetting, encrypted);
+  final signer = certificate
+      ? NativeSovereignGroupSigner.openRecoveryCertificate(encrypted, secret)
+      : NativeSovereignGroupSigner.openBundle(encrypted, secret);
+  late final SpaceManifest manifest;
+  try {
+    expect(
+      await source.linkDevice(
+        sibling,
+        sovereign: signer,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+    final group = (await source.load(gid))!;
+    expect(group.sovereignBundle, encrypted);
+    manifest = group.manifest;
+  } finally {
+    signer.close();
+    await source.dispose();
+  }
+  await storage.deleteStoredFile(GroupService.kSovereignBundleSetting);
+  final service = GroupService(storage, _NativeSovereignVerifier(self));
+  addTearDown(() async {
+    await service.dispose();
+    await storage.close();
+  });
+  return (
+    service: service,
+    storage: storage,
+    manifest: manifest,
+    encrypted: encrypted,
+    secret: secret,
+  );
 }
 
 void main() {
@@ -7776,6 +7848,506 @@ void main() {
       skip: hasVeilFfi
           ? false
           : 'set VEIL_FFI_DYLIB to test hybrid adoption publication',
+    );
+  }
+
+  for (final certificate in [false, true]) {
+    final kind = certificate ? 'XVRC' : 'XVSB';
+    for (final readOnly in [false, true]) {
+      test(
+        'missing credential recovery $kind readOnly=$readOnly preserves owner',
+        () async {
+          final fixture = await _missingCredentialFixture(
+            owner,
+            bob,
+            certificate: certificate,
+          );
+          final reopened = await fixture.service.openLocalSovereign(
+            fixture.secret,
+            createIfMissing: !readOnly,
+          );
+          try {
+            expect(reopened.nodeId, fixture.manifest.owner);
+            expect(reopened.publicKey, fixture.manifest.genesisPubKey);
+            expect(
+              await fixture.storage.getSetting('devices.gid'),
+              fixture.manifest.groupId.hex,
+            );
+            expect(
+              await fixture.storage.loadFile(
+                GroupService.kSovereignBundleSetting,
+              ),
+              readOnly ? isNull : fixture.encrypted,
+            );
+            expect(
+              await fixture.service.localSovereignBundle(),
+              fixture.encrypted,
+            );
+            expect(
+              await fixture.service.sovereignCredentialKind(),
+              certificate ? 'certificate' : 'phrase',
+            );
+          } finally {
+            reopened.close();
+          }
+        },
+        skip: hasVeilFfi ? false : 'native sovereign crypto required',
+      );
+    }
+    test(
+      'missing credential recovery $kind wrong secret never creates a key',
+      () async {
+        final fixture = await _missingCredentialFixture(
+          owner,
+          bob,
+          certificate: certificate,
+        );
+        final wrongSecret = certificate
+            ? veil.generateSovereignRecoveryCode()
+            : veil.generateMasterPhrase();
+        NativeSovereignGroupSigner? unexpected;
+        try {
+          await expectLater(() async {
+            unexpected = await fixture.service.openLocalSovereign(wrongSecret);
+          }, throwsA(anything));
+          expect(
+            await fixture.storage.loadFile(
+              GroupService.kSovereignBundleSetting,
+            ),
+            isNull,
+          );
+          expect(
+            await fixture.storage.getSetting('devices.gid'),
+            fixture.manifest.groupId.hex,
+          );
+        } finally {
+          unexpected?.close();
+        }
+      },
+      skip: hasVeilFfi ? false : 'native sovereign crypto required',
+    );
+    test(
+      'missing credential recovery $kind existing invalid copy is not replaced',
+      () async {
+        final fixture = await _missingCredentialFixture(
+          owner,
+          bob,
+          certificate: certificate,
+        );
+        final corrupt = Uint8List.fromList([1, 2, 3, 4]);
+        await fixture.storage.storeFile(
+          GroupService.kSovereignBundleSetting,
+          corrupt,
+        );
+        await expectLater(
+          fixture.service.openLocalSovereign(fixture.secret),
+          throwsA(anything),
+        );
+        expect(
+          await fixture.storage.loadFile(GroupService.kSovereignBundleSetting),
+          corrupt,
+        );
+      },
+      skip: hasVeilFfi ? false : 'native sovereign crypto required',
+    );
+  }
+
+  test(
+    'missing credential recovery refuses a dangling active family',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(owner));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      await storage.putSetting('devices.gid', _id(75).hex);
+      NativeSovereignGroupSigner? unexpected;
+      try {
+        await expectLater(() async {
+          unexpected = await service.openLocalSovereign(
+            veil.generateMasterPhrase(),
+          );
+        }, throwsA(isA<StateError>()));
+        expect(
+          await storage.loadFile(GroupService.kSovereignBundleSetting),
+          isNull,
+        );
+        expect(await storage.getSetting('devices.gid'), _id(75).hex);
+      } finally {
+        unexpected?.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'missing credential recovery rejects a different owner in dedicated copy',
+    () async {
+      final fixture = await _missingCredentialFixture(owner, bob);
+      final otherPhrase = veil.generateMasterPhrase();
+      final other = veil.createHybrid512SovereignBundle(otherPhrase);
+      await fixture.storage.storeFile(
+        GroupService.kSovereignBundleSetting,
+        other,
+      );
+      NativeSovereignGroupSigner? unexpected;
+      try {
+        await expectLater(() async {
+          unexpected = await fixture.service.openLocalSovereign(otherPhrase);
+        }, throwsA(isA<StateError>()));
+        expect(
+          await fixture.storage.loadFile(GroupService.kSovereignBundleSetting),
+          other,
+        );
+        expect(
+          await fixture.storage.getSetting('devices.gid'),
+          fixture.manifest.groupId.hex,
+        );
+      } finally {
+        unexpected?.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'missing credential recovery retains the supported Ed25519 upgrade',
+    () async {
+      final phrase = veil.generateMasterPhrase();
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(owner));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      final classic = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      final oldPublicKey = classic.publicKey;
+      try {
+        expect(
+          await service.linkDevice(
+            bob,
+            sovereign: classic,
+            broadcastSnapshot: false,
+          ),
+          isTrue,
+        );
+      } finally {
+        classic.close();
+      }
+      final oldGid = await service.deviceGroupIdHex();
+      expect(
+        (await service.load(
+          NodeId.fromHex(oldGid!),
+        ))!.manifest.signatureAlgorithm,
+        'ed25519',
+      );
+      NativeSovereignGroupSigner? unexpected;
+      try {
+        await expectLater(() async {
+          unexpected = await service.openLocalSovereign(
+            veil.generateMasterPhrase(),
+          );
+        }, throwsStateError);
+      } finally {
+        unexpected?.close();
+      }
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        isNull,
+      );
+      final upgraded = await service.openLocalSovereign(phrase);
+      try {
+        expect(upgraded.publicKey.sublist(0, 32), oldPublicKey);
+        expect(
+          await service.linkDevice(
+            _id(93),
+            sovereign: upgraded,
+            broadcastSnapshot: false,
+          ),
+          isTrue,
+        );
+        final group = (await service.load(
+          NodeId.fromHex((await service.deviceGroupIdHex())!),
+        ))!;
+        expect(group.manifest.groupId.hex, isNot(oldGid));
+        expect(group.manifest.owner, upgraded.nodeId);
+        expect(group.manifest.signatureAlgorithm, 'ed25519+falcon512');
+      } finally {
+        upgraded.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'missing credential recovery concurrent first opens share one owner',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(owner));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      final phrase = veil.generateMasterPhrase();
+      final signers = await Future.wait([
+        service.openLocalSovereign(phrase),
+        service.openLocalSovereign(phrase),
+      ]);
+      try {
+        expect(signers.last.nodeId, signers.first.nodeId);
+        final cold = await service.openLocalSovereign(
+          phrase,
+          createIfMissing: false,
+        );
+        try {
+          expect(cold.nodeId, signers.first.nodeId);
+        } finally {
+          cold.close();
+        }
+      } finally {
+        for (final signer in signers) {
+          signer.close();
+        }
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  for (final lostReply in [false, true]) {
+    test(
+      'missing credential recovery preserves retry after write failure lostReply=$lostReply',
+      () async {
+        final storage = _AdoptionCredentialWriteFault(
+          FakeHvContainer().passwordOpener,
+        );
+        final fixture = await _missingCredentialFixture(
+          owner,
+          bob,
+          targetStorage: storage,
+        );
+        storage.rejectCredential = !lostReply;
+        storage.loseCredentialReply = lostReply;
+        await expectLater(
+          fixture.service.openLocalSovereign(fixture.secret),
+          throwsStateError,
+        );
+        expect(
+          await storage.loadFile(GroupService.kSovereignBundleSetting),
+          lostReply ? fixture.encrypted : isNull,
+        );
+        expect(
+          await storage.getSetting('devices.gid'),
+          fixture.manifest.groupId.hex,
+        );
+        storage.rejectCredential = false;
+        final retry = await fixture.service.openLocalSovereign(fixture.secret);
+        try {
+          expect(retry.nodeId, fixture.manifest.owner);
+          expect(
+            await storage.loadFile(GroupService.kSovereignBundleSetting),
+            fixture.encrypted,
+          );
+        } finally {
+          retry.close();
+        }
+      },
+      skip: hasVeilFfi ? false : 'native sovereign crypto required',
+    );
+  }
+
+  test(
+    'missing credential recovery shutdown drains an admitted repair',
+    () async {
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      final fixture = await _missingCredentialFixture(
+        owner,
+        bob,
+        targetStorage: storage,
+      );
+      final entered = Completer<void>(), release = Completer<void>();
+      storage.credentialEntered = entered;
+      storage.releaseCredential = release;
+      final opening = fixture.service.openLocalSovereign(fixture.secret);
+      final refused = expectLater(opening, throwsStateError);
+      await entered.future;
+      var disposed = false;
+      final closing = fixture.service.dispose().then((_) {
+        disposed = true;
+      });
+      await pumpEventQueue();
+      expect(
+        disposed,
+        isFalse,
+        reason: 'accepted storage write must finish before close',
+      );
+      release.complete();
+      await refused;
+      await closing;
+      expect(disposed, isTrue);
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        fixture.encrypted,
+      );
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'missing credential recovery cannot overwrite a concurrent adoption',
+    () async {
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      final old = await _missingCredentialFixture(
+        owner,
+        bob,
+        targetStorage: storage,
+      );
+      final next = await _missingCredentialFixture(
+        owner,
+        bob,
+        certificate: true,
+      );
+      final nextBundle = (await next.service.load(next.manifest.groupId))!;
+      expect(
+        await old.service.ingestSnapshot(next.service.snapshotJson(nextBundle)),
+        isTrue,
+      );
+      final entered = Completer<void>(), release = Completer<void>();
+      storage.credentialEntered = entered;
+      storage.releaseCredential = release;
+      final opening = old.service.openLocalSovereign(old.secret);
+      await entered.future;
+      final adoption = old.service.adoptDeviceGroup(next.manifest.groupId);
+      final reading = old.service.localSovereignBundle();
+      var readCompleted = false;
+      final readResult = reading.then((value) {
+        readCompleted = true;
+        return value;
+      });
+      try {
+        await pumpEventQueue();
+        expect(
+          readCompleted,
+          isFalse,
+          reason: 'reader waits out credential publication',
+        );
+      } finally {
+        release.complete();
+      }
+      final previous = await opening;
+      try {
+        expect(previous.nodeId, old.manifest.owner);
+      } finally {
+        previous.close();
+      }
+      expect(await adoption, isTrue);
+      expect(await readResult, next.encrypted);
+      expect(
+        await storage.getSetting('devices.gid'),
+        next.manifest.groupId.hex,
+      );
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        next.encrypted,
+      );
+      final current = await old.service.openLocalSovereign(next.secret);
+      try {
+        expect(current.nodeId, next.manifest.owner);
+      } finally {
+        current.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  for (final certificate in [false, true]) {
+    test(
+      'missing credential recovery cold native container certificate=$certificate',
+      () async {
+        expect(
+          ensureHiddenVolumeLoaded(
+            dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+          ),
+          isTrue,
+        );
+        final dir = await Directory.systemTemp.createTemp(
+          'xveil-owner-repair-',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        final path = '${dir.path}/store.hv';
+        HvKvLogStore(
+          hv.HvSpace.create(
+            path: path,
+            password: Uint8List.fromList(utf8.encode('pw')),
+            argon: hv.ArgonPreset.light,
+          ),
+        ).close();
+        final storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        final fixture = await _missingCredentialFixture(
+          owner,
+          bob,
+          certificate: certificate,
+          targetStorage: storage,
+        );
+        await fixture.service.dispose();
+        await storage.close();
+        // No service, worker, file-store cache or open native space survives.
+        final coldStorage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        expect(await coldStorage.open(password: 'pw'), isTrue);
+        final cold = GroupService(coldStorage, _NativeSovereignVerifier(owner));
+        try {
+          expect(
+            await coldStorage.loadFile(GroupService.kSovereignBundleSetting),
+            isNull,
+          );
+          expect(await cold.localSovereignBundle(), fixture.encrypted);
+          final recovered = await cold.openLocalSovereign(fixture.secret);
+          try {
+            expect(recovered.nodeId, fixture.manifest.owner);
+            expect(recovered.publicKey, fixture.manifest.genesisPubKey);
+            expect(
+              await cold.linkDevice(
+                _id(94),
+                sovereign: recovered,
+                broadcastSnapshot: false,
+              ),
+              isTrue,
+            );
+            expect(await cold.isMyDevice(_id(94)), isTrue);
+          } finally {
+            recovered.close();
+          }
+        } finally {
+          await cold.dispose();
+          await coldStorage.close();
+        }
+        final again = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        try {
+          expect(await again.open(password: 'pw'), isTrue);
+          expect(
+            await again.loadFile(GroupService.kSovereignBundleSetting),
+            fixture.encrypted,
+          );
+          expect(
+            await again.getSetting('devices.gid'),
+            fixture.manifest.groupId.hex,
+          );
+        } finally {
+          await again.close();
+        }
+      },
+      skip:
+          hasVeilFfi &&
+              (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isNotEmpty
+          ? false
+          : 'native sovereign crypto and hidden volume required',
     );
   }
 

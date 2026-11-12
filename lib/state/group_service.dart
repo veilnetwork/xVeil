@@ -19956,6 +19956,20 @@ class GroupService implements ArchiveGroups {
     return true;
   }
 
+  /// Raw reads only: also used inside the device-publication queue, whose
+  /// readers must not await their own pending barrier.
+  Future<GroupBundle?> _activeCredentialGroup() async {
+    final hex = await _storage.getSetting('devices.gid');
+    if (hex == null || hex.isEmpty) return null;
+    final group = await load(NodeId.fromHex(hex));
+    if (group == null ||
+        group.manifest.groupId.hex != hex ||
+        group.manifest.name != kDeviceGroupName) {
+      throw StateError('Active device group is unavailable');
+    }
+    return group;
+  }
+
   /// The encrypted sovereign credential (XVSB/XVRC) is persisted in the
   /// CHUNKED file store: the hybrid blob (~2.3 KiB raw, ~3.1 KiB base64)
   /// exceeds a single hidden-volume settings record, so the settings path
@@ -19976,9 +19990,31 @@ class GroupService implements ArchiveGroups {
         continue;
       }
       final epoch = _devicePublicationEpoch;
-      final read = await material.readSovereignCredential(_storage);
-      if (epoch == _devicePublicationEpoch && _devicePublicationPending == null) {
-        return read;
+      try {
+        var read = await material.readSovereignCredential(_storage);
+        if (!read.corrupt && read.bundle == null) {
+          // A historical interrupted publication may have left only the
+          // encrypted, manifest-hash-bound copy in the explicitly active group.
+          // Never recover from an arbitrary received snapshot or overwrite a
+          // corrupt dedicated copy. Reading this candidate alone authorizes no
+          // signer and makes no storage change.
+          final group = await _activeCredentialGroup();
+          read = (bundle: group?.sovereignBundle, corrupt: false);
+        }
+        if (epoch == _devicePublicationEpoch &&
+            _devicePublicationPending == null) {
+          return (
+            bundle: read.bundle == null
+                ? null
+                : Uint8List.fromList(read.bundle!),
+            corrupt: read.corrupt,
+          );
+        }
+      } catch (_) {
+        if (epoch == _devicePublicationEpoch &&
+            _devicePublicationPending == null) {
+          rethrow;
+        }
       }
     }
   }
@@ -20046,28 +20082,49 @@ class GroupService implements ArchiveGroups {
   Future<Uint8List?> localSovereignBundle() async =>
       (await _readSovereignCredential()).bundle;
 
-  /// Decrypt the persisted bundle in native RAM for one signing burst. The
-  /// first phrase-backed operation creates and stores only an encrypted blob.
+  /// Decrypt the existing owner in native RAM. Only a genuinely new identity
+  /// or an explicitly supported Ed25519 upgrade may create a hybrid key.
   Future<NativeSovereignGroupSigner> openLocalSovereign(
     String phrase, {
     bool createIfMissing = true,
-  }) async {
-    final stored = await _readSovereignCredential();
+  }) => _withDevicePublication(() async {
+    final stored = await material.readSovereignCredential(_storage);
     if (stored.corrupt) {
-      // Fail closed: an unreadable existing credential is never silently
-      // replaced (that would be a silent owner rotation).
       throw StateError('Local sovereign bundle is corrupt');
     }
-    var bundle = stored.bundle;
-    if (bundle == null && createIfMissing) {
+    final group = await _activeCredentialGroup();
+    var bundle = stored.bundle ?? group?.sovereignBundle;
+    if (bundle == null &&
+        createIfMissing &&
+        (group == null ||
+            !group.manifest.isSovereignDevice ||
+            group.manifest.signatureAlgorithm == 'ed25519')) {
       bundle = veil.createHybrid512SovereignBundle(phrase);
-      await _writeSovereignCredential(bundle);
     }
     if (bundle == null) throw StateError('No local sovereign bundle');
-    return material.isRecoveryCertificate(bundle)
+    if (_disposed) throw StateError('device group service disposed');
+    final signer = material.isRecoveryCertificate(bundle)
         ? NativeSovereignGroupSigner.openRecoveryCertificate(bundle, phrase)
         : NativeSovereignGroupSigner.openBundle(bundle, phrase);
-  }
+    try {
+      if (group != null &&
+          group.manifest.isSovereignDevice &&
+          !_sovereignMatches(group.manifest, signer) &&
+          !_canUpgradeSovereign(group.manifest, signer)) {
+        throw StateError('Sovereign credential does not match active owner');
+      }
+      // Repair only after decryption AND owner validation. Adoption shares this
+      // queue, so a repair can never overwrite a newer group's credential.
+      if (stored.bundle == null && createIfMissing) {
+        await _writeSovereignCredential(bundle);
+      }
+      if (_disposed) throw StateError('device group service disposed');
+      return signer;
+    } catch (_) {
+      signer.close();
+      rethrow;
+    }
+  });
 
   /// How the persisted sovereign material is unlocked. Missing/corrupt stays
   /// null; callers must not guess that a legacy identity has a phrase.
@@ -21151,44 +21208,49 @@ class GroupService implements ArchiveGroups {
     return true;
   }
 
-  Future<void> _publishDeviceGroup(GroupBundle bundle, GroupState state) {
-    _devicePublicationEpoch++;
-    final work = _devicePublicationTail.then((_) async {
-      if (_disposed) throw StateError('device group service disposed');
-      _invalidateDeviceMembersCache();
-      _masterDeviceCachedAtMs = null;
-      try {
-        final encrypted = bundle.sovereignBundle;
-        final gid = bundle.manifest.groupId.hex;
-        if (encrypted != null) {
-          final writer = _storage;
-          if (writer is! StoredFileSettingWriter) {
-            throw UnsupportedError(
-              'device group needs atomic credential publication',
-            );
-          }
-          await (writer as StoredFileSettingWriter).storeFileWithSetting(
-            StoredFileWrite(
-              kSovereignBundleSetting,
-              encrypted,
-              name: 'sovereign-credential',
-            ),
-            settingKey: 'devices.gid',
-            settingValue: gid,
-          );
-        } else {
-          await _storage.putSetting('devices.gid', gid);
-        }
-        _deviceGidCache = gid;
-        _publishDeviceMembersCache(bundle.manifest, state);
-      } catch (_) {
-        // A lost completion can follow a successful all-or-none commit. Drop
-        // warm state and let readers discover the actual durable pair.
-        _deviceGidCache = null;
+  Future<void> _publishDeviceGroup(GroupBundle bundle, GroupState state) =>
+      _withDevicePublication(() async {
         _invalidateDeviceMembersCache();
-        if (!_disposed) changes.value++;
-        rethrow;
-      }
+        _masterDeviceCachedAtMs = null;
+        try {
+          final encrypted = bundle.sovereignBundle;
+          final gid = bundle.manifest.groupId.hex;
+          if (encrypted != null) {
+            final writer = _storage;
+            if (writer is! StoredFileSettingWriter) {
+              throw UnsupportedError(
+                'device group needs atomic credential publication',
+              );
+            }
+            await (writer as StoredFileSettingWriter).storeFileWithSetting(
+              StoredFileWrite(
+                kSovereignBundleSetting,
+                encrypted,
+                name: 'sovereign-credential',
+              ),
+              settingKey: 'devices.gid',
+              settingValue: gid,
+            );
+          } else {
+            await _storage.putSetting('devices.gid', gid);
+          }
+          _deviceGidCache = gid;
+          _publishDeviceMembersCache(bundle.manifest, state);
+        } catch (_) {
+          // A lost completion can follow a successful all-or-none commit. Drop
+          // warm state and let readers discover the actual durable pair.
+          _deviceGidCache = null;
+          _invalidateDeviceMembersCache();
+          if (!_disposed) changes.value++;
+          rethrow;
+        }
+      });
+
+  Future<T> _withDevicePublication<T>(Future<T> Function() action) {
+    _devicePublicationEpoch++;
+    final work = _devicePublicationTail.then((_) {
+      if (_disposed) throw StateError('device group service disposed');
+      return action();
     });
     final settled = work.then<void>((_) {}, onError: (_) {});
     _devicePublicationTail = settled;
@@ -22910,6 +22972,7 @@ class GroupService implements ArchiveGroups {
     try {
       await Future.wait<void>([
         ?_devicePostDrain,
+        _devicePublicationTail,
         ..._mutationTails.values,
         ..._bundleWrites.values,
         _backgroundTasks.close(),
