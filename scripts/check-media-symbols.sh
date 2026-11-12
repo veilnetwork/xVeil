@@ -79,6 +79,21 @@ if [ "$fmt" = "PE" ]; then
   # imports and section data, and reading those as exports would answer the
   # wrong question in the safe-looking direction.
   sed -n '/Name Pointer. Table/,/^$/p' "$tmp/pe" | awk '{print $NF}' > "$tmp/raw"
+  if [ ! -s "$tmp/raw" ]; then
+    # LLVM reads ARM64 PE files that x64 binutils cannot, but prints a
+    # different export-table format. Read only its ordinal/RVA/name rows,
+    # never imports or a normal symbol table.
+    awk '
+      /^[[:space:]]*Export Table:[[:space:]]*$/ { exports = 1; next }
+      exports && /^[[:space:]]*Ordinal[[:space:]]+RVA[[:space:]]+Name[[:space:]]*$/ {
+        rows = 1; next
+      }
+      rows && /^[[:space:]]*[0-9]+[[:space:]]+0x[0-9a-fA-F]+[[:space:]]+[^[:space:]]+/ {
+        print $3; next
+      }
+      rows { exit }
+    ' "$tmp/pe" > "$tmp/raw"
+  fi
 elif nm -D --defined-only "$so" >"$tmp/raw" 2>/dev/null; then
   fmt="ELF"
 elif nm -gU "$so" >"$tmp/raw" 2>/dev/null; then
