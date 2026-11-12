@@ -295,6 +295,9 @@ jobs:
       # compiler each bake their own source paths into the binary, and neither
       # flag covers the other. A release APK once carried the builder's account
       # name 213 times because only one of the two was set.
+      - name: Android OpenMP metadata privacy
+        run: python3 scripts/test_android_openmp_paths.py --ndk "${{ steps.ndk.outputs.path }}"
+
       - name: whisper static libs
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
@@ -310,10 +313,11 @@ jobs:
             cmake -B "build-android-$abi" \
               -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 \
+              -DCMAKE_BUILD_TYPE=Release \
               -DGGML_METAL=OFF -DBUILD_SHARED_LIBS=OFF \
               -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF \
-              -DCMAKE_C_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src" \
-              -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src"
+              -DCMAKE_C_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src -g0" \
+              -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src -g0"
             cmake --build "build-android-$abi" -j "$(nproc)"
           done
 

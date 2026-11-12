@@ -142,6 +142,24 @@ included in the macOS native CI job.
 
 ## Privacy and remaining work
 
+The first full Android packaging attempt built all three APKs but the artifact
+privacy gate refused them before export. No failing APK was attached to a
+release. Failure diagnostics now report only fixed component/ABI categories and
+counts; protected strings and artifact-controlled filenames are never reflected.
+Eleven scanner checks and twelve build-orchestration checks pass locally. Manual
+builds can select a single platform; publication additionally requires a successful
+complete scan and the full platform selection.
+
+A real Android NDK/CMake fixture isolates a source-path mechanism in the speech
+dependency: debug-enabled OpenMP embeds source labels in runtime data that
+survive `llvm-strip`. Prefix remapping alone leaves two home paths in each C/C++
+fixture. The actual previous workflow flags fail this test; explicit release
+configuration with `-g0` yields zero after stripping. Both variants retain
+`__kmpc_fork_call`, so OpenMP parallel execution has not been disabled. The speech
+build uses these corrected flags and runs the fixture before compilation.
+Full candidate APK qualification and attribution of any remaining categories
+are still pending.
+
 The build-only application workflow at `8d34ef73` caught another real Windows
 ARM64 producer failure before any application tag: ring invokes GNU-driver
 clang directly for assembly, bypassing the target's clang-cl selection. That

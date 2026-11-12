@@ -16,8 +16,15 @@
 #   cmake -B build-android-arm64-v8a \
 #     -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
 #     -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+#     -DCMAKE_BUILD_TYPE=Release \
+#     -DCMAKE_C_FLAGS="-ffile-prefix-map=$WHISPER_SRC=/whisper.cpp -g0" \
+#     -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$WHISPER_SRC=/whisper.cpp -g0" \
 #     -DGGML_METAL=OFF -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF
 #   cmake --build build-android-arm64-v8a -j
+#
+# The maps and -g0 belong on the STATIC-library build. Android's toolchain
+# otherwise enables debug locations; OpenMP retains their absolute paths in
+# runtime metadata even after llvm-strip. This wrapper cannot remove them.
 #
 # Usage: ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/26.3.11579264 \
 #        WHISPER_SRC=~/Projects/veilnetwork/whisper.cpp \
