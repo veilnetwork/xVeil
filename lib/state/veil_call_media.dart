@@ -2741,6 +2741,7 @@ class VeilCallMediaController implements CallMediaController {
       final devices = await bridge.listDevices();
       final selected =
           _androidNativeCam?.cameraId ??
+          _androidCam?.cameraId ??
           _selectedCameraId ??
           devices.where((device) => device.facing == 'front').firstOrNull?.id ??
           devices.firstOrNull?.id;
@@ -3017,7 +3018,7 @@ class VeilCallMediaController implements CallMediaController {
       _androidCam = null;
       if (fallback != null) await fallback.stop();
       await _startAndroidCam(engine, highQuality: _highQualityRoute);
-      return _androidNativeCam?.cameraId == id;
+      return _androidNativeCam?.cameraId == id || _androidCam?.cameraId == id;
     }
     return true;
   }
@@ -3358,7 +3359,10 @@ class VeilCallMediaController implements CallMediaController {
     }
     _androidNativeCam = null;
     devLog(() => 'xVeil[call-media]: native Camera2 failed; plugin fallback');
-    final cam = AndroidCameraCapture(highQuality: highQuality);
+    final cam = AndroidCameraCapture(
+      highQuality: highQuality,
+      requestedCameraId: _selectedCameraId,
+    );
     _androidCam = cam;
     final ok = await cam.startAndroid420((
       y,
@@ -3394,6 +3398,7 @@ class VeilCallMediaController implements CallMediaController {
       if (ok) await cam.stop();
       if (_androidCam == cam) _androidCam = null;
     } else {
+      _selectedCameraId = cam.cameraId;
       _startFramePump(engine);
     }
   }
