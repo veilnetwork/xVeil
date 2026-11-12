@@ -77,11 +77,13 @@ def _input_files(source: Path):
                     yield base / child
 
 
-def _protect_workspace(path: Path) -> None:
+def _protect_workspace(path: Path, *, system_read: bool = False) -> None:
     if os.name != "nt":
         path.chmod(0o700)
         return
-    # Protect before copying signing keys or local network configuration.
+    # Private workspaces never grant SYSTEM access. Only the already verified
+    # public program export opts into read/execute: Windows' camera service
+    # needs to inspect that executable before it can activate a camera for it.
     # Apply exactly this descriptor through .NET, without provider-specific
     # owner/audit processing by Set-Acl under the runner's restricted token.
     command = (
@@ -90,7 +92,11 @@ def _protect_workspace(path: Path) -> None:
         "$acl.SetAccessRuleProtection($true,$false); "
         "$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new("
         "$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')); "
-        "[IO.Directory]::SetAccessControl(" + _ps_literal(str(path)) + ", $acl)"
+        + ("$system=[Security.Principal.SecurityIdentifier]::new('S-1-5-18'); "
+           "$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new("
+           "$system,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')); "
+           if system_read else "")
+        + "[IO.Directory]::SetAccessControl(" + _ps_literal(str(path)) + ", $acl)"
     )
     encoded = base64.b64encode(command.encode("utf-16le")).decode("ascii")
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",

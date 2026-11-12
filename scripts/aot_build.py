@@ -143,7 +143,9 @@ def _publish_directory(artifact: Path, destination: Path, *, target: str | None 
             # An elevated Windows token can give mkdtemp's mode-0700 directory
             # an Administrators-only ACL. Explicitly grant the actual user SID
             # (also in its non-elevated token) before publishing the artifact.
-            _protect_workspace(partial)
+            # SYSTEM needs read/execute on the public program for camera source
+            # activation. Keep source/key workspaces and private symbols owner-only.
+            _protect_workspace(partial, system_read=True)
         # Check the copied bytes and link portability before replacing an old
         # artifact. An absolute link back into the workspace would break when
         # that workspace is removed, even if it passed the source-side scan.
