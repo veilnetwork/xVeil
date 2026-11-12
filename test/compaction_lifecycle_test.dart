@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -41,9 +42,13 @@ class _Controller extends AppController {
 
   @override
   Future<List<String>> remapRostersAfterCompaction(
-    List<({List<int> password, List<int> oldSpaceKeys})> credentials,
-  ) async {
-    final stale = await super.remapRostersAfterCompaction(credentials);
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials, {
+    Storage? storageOverride,
+  }) async {
+    final stale = await super.remapRostersAfterCompaction(
+      credentials,
+      storageOverride: storageOverride,
+    );
     if (gateRemap) {
       remapped.complete();
       await continueRemap.future;
