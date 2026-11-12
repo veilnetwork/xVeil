@@ -488,6 +488,36 @@ Uint8List _fakeSovereignSignature(Uint8List publicKey, Uint8List message) {
   return Uint8List.fromList([...digest, ...digest]);
 }
 
+class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
+  _AdoptionCredentialWriteFault(super.opener);
+
+  bool rejectCredential = false;
+  Uint8List? credentialAtPublication;
+
+  @override
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
+    if (rejectCredential && fileId == GroupService.kSovereignBundleSetting) {
+      throw StateError('fixture credential store refused');
+    }
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
+  }
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    if (key == 'devices.gid') {
+      credentialAtPublication = await loadFile(
+        GroupService.kSovereignBundleSetting,
+      );
+    }
+    await super.putSetting(key, value);
+  }
+}
+
 class _FakeSovereign implements SovereignGroupSigner {
   _FakeSovereign(this.nodeId);
   @override
@@ -7501,6 +7531,85 @@ void main() {
     },
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB',
   );
+
+  for (final previousGroup in <String?>[null, _id(110).hex]) {
+    test(
+      'adoption publishes only a durable credential, previous=$previousGroup',
+      () async {
+        final phrase = veil.generateMasterPhrase();
+        final encrypted = veil.createHybrid512SovereignBundle(phrase);
+        final sourceStorage = FakeHvContainer().storage();
+        await sourceStorage.open(password: 'pw', createIfMissing: true);
+        addTearDown(sourceStorage.close);
+        await sourceStorage.storeFile(
+          GroupService.kSovereignBundleSetting,
+          encrypted,
+        );
+        final source = GroupService(
+          sourceStorage,
+          _NativeSovereignVerifier(owner),
+        );
+        addTearDown(source.dispose);
+        final sovereign = NativeSovereignGroupSigner.openBundle(
+          encrypted,
+          phrase,
+        );
+        try {
+          expect(await source.linkDevice(bob, sovereign: sovereign), isTrue);
+        } finally {
+          sovereign.close();
+        }
+        final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+        final bundle = (await source.load(gid))!;
+        final container = FakeHvContainer();
+        final storage = _AdoptionCredentialWriteFault(container.passwordOpener);
+        await storage.open(password: 'pw', createIfMissing: true);
+        addTearDown(storage.close);
+        Uint8List? oldCredential;
+        if (previousGroup != null) {
+          oldCredential = veil.createHybrid512SovereignBundle(
+            veil.generateMasterPhrase(),
+          );
+          await storage.storeFile(
+            GroupService.kSovereignBundleSetting,
+            oldCredential,
+          );
+          await storage.putSetting('devices.gid', previousGroup);
+        }
+        final target = GroupService(storage, _NativeSovereignVerifier(bob));
+        addTearDown(target.dispose);
+        expect(
+          await target.ingestSnapshot(source.snapshotJson(bundle)),
+          isTrue,
+        );
+        storage.rejectCredential = true;
+        await expectLater(target.adoptDeviceGroup(gid), throwsStateError);
+        expect(
+          await storage.getSetting('devices.gid'),
+          previousGroup,
+          reason: 'a rejected credential must not publish a new active group',
+        );
+        expect(await target.deviceGroupIdHex(), previousGroup);
+        expect(await target.localSovereignBundle(), oldCredential);
+        storage.rejectCredential = false;
+        expect(await target.adoptDeviceGroup(gid), isTrue);
+        expect(storage.credentialAtPublication, encrypted);
+        expect(await target.localSovereignBundle(), encrypted);
+        final reopened = await target.openLocalSovereign(
+          phrase,
+          createIfMissing: false,
+        );
+        try {
+          expect(reopened.nodeId, bundle.manifest.owner);
+        } finally {
+          reopened.close();
+        }
+      },
+      skip: hasVeilFfi
+          ? false
+          : 'set VEIL_FFI_DYLIB to test hybrid adoption publication',
+    );
+  }
 
   test(
     'sovereign credential lives in the chunked file store, not a setting',
