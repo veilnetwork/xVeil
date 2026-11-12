@@ -3021,33 +3021,33 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'removal — the peer may not be a member, or this identity may '
               'not own the device group';
         }
-        if (docRevoked) {
-          final stack = ref.read(realStackProvider);
-          if (stack != null) {
-            await stack.refreshSovereignIdentity(ref.read(storageProvider));
-          }
-          final raw = await readSovereignMaterial(ref.read(storageProvider));
-          final doc = raw == null
-              ? null
-              : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
-          if (doc != null && doc.isNotEmpty) {
-            // Keyed by DEVICE id, not selfId: a phrase-restored sibling
-            // SHARES our selfId and would drop the event as its own echo.
-            final meDevice = await svc.resolveMyDevice();
-            // Marked like every other announcement of this row. The fold keeps
-            // the newest per (kind, key), so an unmarked one from the master
-            // retires its own mark — and this path runs on the stand, which is
-            // exactly where the mark is measured.
-            final ownsGroup = await svc.ownsDeviceGroup();
-            await svc.postDeviceEvent(
-              DeviceSyncEvent(
-                kind: DeviceSyncKind.identityDoc,
-                key: (meDevice ?? svc.selfId).hex,
-                tsMs: DateTime.now().millisecondsSinceEpoch,
-                payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
-              ),
-            );
-          }
+        // A previous completion may have been lost after the durable write.
+        // Retry publication even when the tombstone already exists.
+        final stack = ref.read(realStackProvider);
+        if (stack != null) {
+          await stack.refreshSovereignIdentity(ref.read(storageProvider));
+        }
+        final raw = await readSovereignMaterial(ref.read(storageProvider));
+        final doc = raw == null
+            ? null
+            : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+        if (doc != null && doc.isNotEmpty) {
+          // Keyed by DEVICE id, not selfId: a phrase-restored sibling
+          // SHARES our selfId and would drop the event as its own echo.
+          final meDevice = await svc.resolveMyDevice();
+          // Marked like every other announcement of this row. The fold keeps
+          // the newest per (kind, key), so an unmarked one from the master
+          // retires its own mark — and this path runs on the stand, which is
+          // exactly where the mark is measured.
+          final ownsGroup = await svc.ownsDeviceGroup();
+          await svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.identityDoc,
+              key: (meDevice ?? svc.selfId).hex,
+              tsMs: DateTime.now().millisecondsSinceEpoch,
+              payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
+            ),
+          );
         }
       }
     } catch (caught) {
