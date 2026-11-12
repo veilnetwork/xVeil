@@ -10,7 +10,18 @@
     {"width": 640, "height": 360, "encoded": 94, "delivered": 94, "drops": 0}
   ],
   "platform": "windows11-x64",
-  "networkCallQualified": false,
+  "networkCallQualified": true,
+  "networkCallScope": "windows11-live-camera-to-macos-frozen-aot-frontends",
+  "networkCalls": [
+    {"windowsDirection": "outgoing", "route": "p2p", "encoded": 361, "decoded": 361, "uiFrames": 360},
+    {"windowsDirection": "outgoing", "route": "relay", "encoded": 247, "decoded": 243, "uiFrames": 221},
+    {"windowsDirection": "incoming", "route": "p2p", "encoded": 161, "decoded": 161, "uiFrames": 160},
+    {"windowsDirection": "incoming", "route": "relay", "encoded": 155, "decoded": 154, "uiFrames": 153}
+  ],
+  "networkPassed": 4,
+  "networkFailed": 0,
+  "cameraRestartWithinEachCall": true,
+  "currentAppPackagingQualified": false,
   "originalWindows10Qualified": false,
   "published": false,
   "mediaRepinRequired": true
