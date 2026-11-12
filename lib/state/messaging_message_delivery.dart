@@ -41,6 +41,13 @@ class _MessagingMessageDelivery {
   /// source of truth across restart.
   final _delivered = DeliveryAckCache();
 
+  // Received receipts awaiting their local durable effect. Keep this distinct
+  // from settled dedup: a failed write needs no new packet from the recipient.
+  final _pendingAckStatus = <(String, String), Object>{};
+  final _ackStatusWrites = <(String, String), Future<bool>>{};
+  Future<void>? _ackRetryPass;
+  static const _ackRetryBatch = 64;
+
   // A trusted sibling can report delivery before this device receives the
   // mirror. Keep that bounded evidence separate: an ordinary peer's ACK for
   // an absent row must not authorize a future append's initial status.
@@ -59,6 +66,7 @@ class _MessagingMessageDelivery {
 
   bool _hasDeliveryReceipt(String peerHex, String messageId) =>
       _delivered.contains(peerHex, messageId) ||
+      _pendingAckStatus.containsKey((peerHex, messageId)) ||
       hasMirroredDelivery(peerHex, messageId);
 
   /// Per-peer reconnect probe throttle. Give-up itself is per message below.
@@ -81,13 +89,34 @@ class _MessagingMessageDelivery {
     _lastReconnectAt.remove(peerHex);
     final first = _delivered.remember(peerHex, messageId);
     if (first) diagnosticJournal.record(DiagnosticEvent.messageAcknowledged);
-    return first;
+    return first || _pendingAckStatus.containsKey((peerHex, messageId));
   }
 
-  /// Keep early retry cancellation while the status write is pending, but do
-  /// not let a failed write become permanent ACK deduplication. A normal retry
-  /// can obtain another receipt once storage recovers.
-  Future<bool> persistAckStatus(String peerHex, String messageId) async {
+  /// Coalesce inbound and maintenance writers. Only the initiating caller
+  /// receives `moved=true`, so a joined retry cannot publish the same change.
+  Future<bool> persistAckStatus(String peerHex, String messageId) {
+    if (_owner._disposed) {
+      return Future<bool>.error(StateError('messaging is closed'));
+    }
+    final key = (peerHex, messageId);
+    final active = _ackStatusWrites[key];
+    if (active != null) return active.then((_) => false);
+    final receipt = _pendingAckStatus.putIfAbsent(key, Object.new);
+    if (_pendingAckStatus.length > _delivered.capacity) {
+      final oldest = _pendingAckStatus.keys.first;
+      _pendingAckStatus.remove(oldest);
+      _delivered.forget(oldest.$1, oldest.$2);
+    }
+    late final Future<bool> work;
+    work = _persistAckStatus(key, receipt).whenComplete(() {
+      if (identical(_ackStatusWrites[key], work)) _ackStatusWrites.remove(key);
+    });
+    _ackStatusWrites[key] = work;
+    return work;
+  }
+
+  Future<bool> _persistAckStatus((String, String) key, Object receipt) async {
+    final (peerHex, messageId) = key;
     try {
       final moved = await _owner._storage.markMessageStatus(
         peerHex,
@@ -97,6 +126,7 @@ class _MessagingMessageDelivery {
       if (!moved) {
         // false also covers a failed target read. Cache only a settled row or
         // an absent control-frame id, never a readable row still awaiting ACK.
+        if (_owner._disposed) throw StateError('messaging is closed');
         final target = await _owner._storage.loadMessageById(
           peerHex,
           messageId,
@@ -105,10 +135,77 @@ class _MessagingMessageDelivery {
           throw StateError('Delivery status was not saved');
         }
       }
+      if (identical(_pendingAckStatus[key], receipt)) {
+        _pendingAckStatus.remove(key);
+      }
+      _delivered.remember(peerHex, messageId);
       return moved;
     } catch (_) {
-      _delivered.forget(peerHex, messageId);
+      // A capped-out receipt falls back to the ordinary network retry path.
+      // Retained work suppresses both re-sending and the terminal-age policy.
+      if (!_pendingAckStatus.containsKey(key)) {
+        _delivered.forget(peerHex, messageId);
+      }
       rethrow;
+    }
+  }
+
+  Future<void> _retryAckStatuses() {
+    if (_ackRetryPass != null ||
+        _owner._disposed ||
+        _owner.backgroundStashPaused) {
+      return Future<void>.value();
+    }
+    final keys = _pendingAckStatus.keys.take(_ackRetryBatch).toList();
+    if (keys.isEmpty) return Future<void>.value();
+    late final Future<void> work;
+    work =
+        (() async {
+          for (final key in keys) {
+            if (_owner._disposed || _owner.backgroundStashPaused) break;
+            if (!_pendingAckStatus.containsKey(key)) continue;
+            // An inbound writer already owns this effect. Maintenance must not
+            // wait behind its I/O or hold up unrelated conversation retries.
+            if (_ackStatusWrites.containsKey(key)) continue;
+            try {
+              final moved = await persistAckStatus(key.$1, key.$2);
+              if (_owner._disposed) break;
+              if (moved) {
+                try {
+                  _owner.onMessageStatusChanged?.call(
+                    NodeId.fromHex(key.$1),
+                    key.$2,
+                    MessageStatus.delivered,
+                  );
+                } finally {
+                  _owner._signal();
+                }
+              }
+              _owner._mailboxDelivery.noteAcknowledged(key.$1, key.$2);
+            } catch (_) {
+              // Rotate failures so a damaged first page cannot starve other ACKs.
+              final receipt = _pendingAckStatus.remove(key);
+              if (receipt != null) _pendingAckStatus[key] = receipt;
+            }
+          }
+        })().whenComplete(() {
+          if (identical(_ackRetryPass, work)) _ackRetryPass = null;
+        });
+    _ackRetryPass = work;
+    return work;
+  }
+
+  Future<void> quiesce() async {
+    _pendingAckStatus.clear(); // dispose already stopped admission
+    try {
+      await Future.wait<void>([
+        ?_ackRetryPass,
+        for (final write in _ackStatusWrites.values) write.then<void>((_) {}),
+      ]).timeout(const Duration(seconds: 3));
+    } catch (error) {
+      devLog(
+        () => 'xVeil[ack]: persistence did not quiesce (${error.runtimeType})',
+      );
     }
   }
 
@@ -158,12 +255,17 @@ class _MessagingMessageDelivery {
 
   /// Re-drive durable control frames, reconciliation beacons and ordinary
   /// messages. Public callers continue to use [MessagingService.flushOutbox].
-  Future<void> flush() async {
-    // Both jobs have their own durable state and admission rules. A control
+  Future<void> flush({bool waitForAckStatus = true}) async {
+    // Each job has its own state and admission rules. A control
     // read or live-leg deadline must not defer unrelated conversation retries.
     // Join both even on failure, so a finished pass owns no detached work.
+    final ackStatus = _retryAckStatuses();
+    // The periodic driver must stay available while one local write waits.
+    // This coalesced job remains owned and is joined during service teardown.
+    if (!waitForAckStatus) unawaited(ackStatus);
     await Future.wait<void>([
       _owner._flushOutboxFrames(),
+      if (waitForAckStatus) ackStatus,
       _flushConversations(),
     ]);
   }
