@@ -21102,10 +21102,13 @@ class GroupService implements ArchiveGroups {
       initialName: bundle.manifest.name,
     ).state;
     if (!state.isMember(_signer.selfId)) return false;
-    await _storage.putSetting('devices.gid', groupId.hex);
     if (bundle.sovereignBundle != null) {
       await _writeSovereignCredential(bundle.sovereignBundle!);
     }
+    // Publish the active group only after its encrypted owner credential is
+    // durable. A failed credential store or crash must not leave a linked
+    // device unable to open the sovereign key for its advertised group.
+    await _storage.putSetting('devices.gid', groupId.hex);
     _deviceGidCache = groupId.hex;
     _publishDeviceMembersCache(bundle.manifest, state);
     changes.value++;
