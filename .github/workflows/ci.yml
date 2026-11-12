@@ -98,12 +98,7 @@ jobs:
         with:
           toolchain: '1.97.1'
       - name: Build the isolated filesystem test fixture
-        run: |
-          fs_fixture_target="$RUNNER_TEMP/veil-fs-fixture-target"
-          CARGO_TARGET_DIR="$fs_fixture_target" cargo build --locked \
-            --manifest-path third_party/veil/crates/veilclient-ffi/tests/fs_fixture/Cargo.toml
-          printf 'XVEIL_FS_TEST_DYLIB=%s\n' "$fs_fixture_target/debug/libveil_fs_test_ffi.so" >> "$GITHUB_ENV"
-          printf 'XVEIL_REQUIRE_FOLDER_FS=1\n' >> "$GITHUB_ENV"
+        run: bash scripts/prepare_folder_fs_tests.sh
       - run: flutter test
       # A moved document leaves a link that still looks like a link.
       # README and INSTALL both described an app and a set of published

@@ -8,10 +8,12 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
-## [0.13.97] - 2026-11-12
+## [0.13.98] - 2026-11-12
 
 ### Fixed
 
+- Prepare the required native filesystem fixture in both source and release
+  checks, so tagged builds run the same folder tests before packaging.
 - Preserve compaction ownership through cancellation, route changes, identity
   switching and teardown. Keep typed passwords, retained rosters and recovery
   copies available after interrupted repair instead of applying late work to a
