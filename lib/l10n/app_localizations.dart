@@ -2091,23 +2091,11 @@ abstract class AppL10n {
   /// **'Dismiss'**
   String get spaceJoinDismiss;
 
-  /// No description provided for @spaceJoinApprove.
-  ///
-  /// In en, this message translates to:
-  /// **'Approve'**
-  String get spaceJoinApprove;
-
   /// No description provided for @spaceJoinRetry.
   ///
   /// In en, this message translates to:
   /// **'Retry connection'**
   String get spaceJoinRetry;
-
-  /// No description provided for @spaceJoinDecline.
-  ///
-  /// In en, this message translates to:
-  /// **'Decline'**
-  String get spaceJoinDecline;
 
   /// No description provided for @spaceJoinLinkTitle.
   ///

@@ -1169,13 +1169,7 @@ class AppL10nRu extends AppL10n {
   String get spaceJoinDismiss => 'Скрыть';
 
   @override
-  String get spaceJoinApprove => 'Одобрить';
-
-  @override
   String get spaceJoinRetry => 'Повторить подключение';
-
-  @override
-  String get spaceJoinDecline => 'Отклонить';
 
   @override
   String get spaceJoinLinkTitle => 'Публичная ссылка для вступления';
