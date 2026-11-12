@@ -132,9 +132,6 @@ class NativeCallCamera(
             val fpsRange = chooseStableFps(characteristics, requestedFps.coerceIn(10, 60))
             val sensorRotation =
                 (characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0) % 360
-            val mirror =
-                characteristics.get(CameraCharacteristics.LENS_FACING) ==
-                    CameraCharacteristics.LENS_FACING_FRONT
 
             // Camera2 reports ImageReader availability on this looper. Keep it
             // at display priority and do only acquire/enqueue work here: a
@@ -308,7 +305,11 @@ class NativeCallCamera(
                                                             "height" to
                                                                 if (previewSwapsAxes) size.width else size.height,
                                                             "previewRotation" to 0,
-                                                            "mirror" to mirror,
+                                                            // SurfaceTexture already carries the
+                                                            // front-camera mirror in its producer
+                                                            // matrix, consumed by Flutter. An extra
+                                                            // Dart flip would cancel that mirror.
+                                                            "mirror" to false,
                                                             "fps" to fpsRange.upper,
                                                             "cameraId" to cameraId,
                                                             "facing" to lensFacingName(
