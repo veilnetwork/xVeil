@@ -32,6 +32,7 @@ import '../support/stand_cpu_profile.dart';
 import '../support/stand_storage_timeline.dart';
 import '../support/queued_snapshot_probe.dart';
 import '../support/history_archive_fixture.dart';
+import '../support/private_link_document.dart';
 
 // File-controlled synthetic stand probe, never an application HTTP endpoint.
 // Populate the real durable Outbox while the master process is stopped, then
@@ -188,6 +189,23 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['linkDocumentFor'] case final String publicKey) {
+                final document = await privateLinkDocument(
+                  device!.storage,
+                  publicKey: base64Decode(publicKey),
+                  secret: E2eIdentity.x.phrase,
+                );
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'document': base64Encode(document),
+                    'sourceUnchanged': true,
+                  }),
+                );
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['replayFinishedOffer'] == true) {
                 // A new authenticated transport copy of an old logical offer.
                 // Only this private fixture can request it; no app debug API.
