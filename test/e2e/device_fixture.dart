@@ -81,6 +81,7 @@ import '../support/private_history_wire_probe.dart';
 import '../support/private_history_work_probe.dart';
 import '../support/private_history_gate.dart';
 import '../support/private_message_append_gate.dart';
+import '../support/private_message_status_gate.dart';
 import 'convergence_oracle.dart';
 import 'crash_retention_oracle.dart';
 import 'e2e_env.dart';
@@ -517,9 +518,19 @@ class E2eDevice {
         _messageApplyCensus = census;
         final storage =
             (census == null
-                  ? (label == 'C' &&
-                            Platform.environment['XVEIL_E2E_MESSAGE_APPEND_CRASH'] ==
+                  ? (label == 'A' &&
+                            Platform.environment['XVEIL_E2E_STATUS_PUBLICATION_CRASH'] ==
                                 '1'
+                        ? PrivateMessageStatusGate(
+                            opener,
+                            directory: dir,
+                            freezeProcess: true,
+                          )
+                        : label == 'C' &&
+                              (Platform.environment['XVEIL_E2E_MESSAGE_APPEND_CRASH'] ==
+                                      '1' ||
+                                  Platform.environment['XVEIL_E2E_STATUS_PUBLICATION_CRASH'] ==
+                                      '1')
                         ? PrivateMessageAppendGate(
                             opener,
                             directory: dir,
