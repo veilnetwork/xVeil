@@ -490,6 +490,7 @@ Uint8List _fakeSovereignSignature(Uint8List publicKey, Uint8List message) {
 
 class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
   _AdoptionCredentialWriteFault(super.opener);
+  _AdoptionCredentialWriteFault.async(super.opener) : super.async();
 
   bool rejectCredential = false;
   bool rejectGroupPointer = false;
@@ -497,6 +498,7 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
   bool loseAtomicReply = false;
   bool loseCredentialReply = false;
   Completer<void>? credentialEntered, releaseCredential;
+  Completer<void>? groupEntered, releaseGroup;
 
   @override
   Future<void> storeFileWithSetting(
@@ -535,6 +537,11 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
       credentialEntered?.complete();
       credentialEntered = null;
       await releaseCredential?.future;
+    }
+    if (name == 'group') {
+      groupEntered?.complete();
+      groupEntered = null;
+      await releaseGroup?.future;
     }
     await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
     if (fileId == GroupService.kSovereignBundleSetting && loseCredentialReply) {
@@ -1140,6 +1147,26 @@ class _DeviceTtlFaultStorage extends HiddenVolumeStorage {
       throw StateError('TTL vacuum failure');
     }
     return super.scrubDeleted();
+  }
+}
+
+({Uint8List certificate, String code, NodeId owner}) _newRecoveryCertificate() {
+  final phrase = veil.generateMasterPhrase();
+  final encrypted = veil.createHybrid512SovereignBundle(phrase);
+  final code = veil.generateSovereignRecoveryCode();
+  final certificate = veil.exportSovereignRecoveryCertificate(
+    encrypted,
+    phrase,
+    code,
+  );
+  final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
+    certificate,
+    code,
+  );
+  try {
+    return (certificate: certificate, code: code, owner: signer.nodeId);
+  } finally {
+    signer.close();
   }
 }
 
@@ -8398,6 +8425,324 @@ void main() {
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB',
   );
 
+  for (final same in [false, true]) {
+    test(
+      'certificate recovery publication concurrent imports same=$same have one winner',
+      () async {
+        final first = _newRecoveryCertificate();
+        final second = same ? first : _newRecoveryCertificate();
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _NativeSovereignVerifier(bob));
+        addTearDown(() async {
+          await service.dispose();
+          await storage.close();
+        });
+        final results = await Future.wait([
+          service.recoverDeviceGroupFromCertificate(
+            first.certificate,
+            first.code,
+          ),
+          service.recoverDeviceGroupFromCertificate(
+            second.certificate,
+            second.code,
+          ),
+        ]);
+        expect(
+          results.whereType<NodeId>(),
+          hasLength(1),
+          reason: 'fresh-group precondition belongs to the whole operation',
+        );
+        final winner = results.first == null ? second : first;
+        final gid = results.whereType<NodeId>().single;
+        expect(await service.deviceGroupIdHex(), gid.hex);
+        expect(
+          await storage.loadFile(GroupService.kSovereignBundleSetting),
+          winner.certificate,
+        );
+        final group = (await service.load(gid))!;
+        expect(group.manifest.owner, winner.owner);
+        expect(group.sovereignBundle, winner.certificate);
+        final reopened = await service.openLocalSovereign(winner.code);
+        try {
+          expect(reopened.nodeId, group.manifest.owner);
+        } finally {
+          reopened.close();
+        }
+      },
+      skip: hasVeilFfi ? false : 'native sovereign crypto required',
+    );
+  }
+  for (final legacy in [false, true]) {
+    test(
+      'certificate recovery publication refuses corrupt existing credential legacy=$legacy',
+      () async {
+        final recovery = _newRecoveryCertificate();
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _NativeSovereignVerifier(bob));
+        addTearDown(() async {
+          await service.dispose();
+          await storage.close();
+        });
+        if (legacy) {
+          await storage.putSetting(
+            GroupService.kSovereignBundleSetting,
+            'not-base64%%%',
+          );
+        } else {
+          await storage.storeFile(
+            GroupService.kSovereignBundleSetting,
+            Uint8List(0),
+          );
+        }
+        await expectLater(
+          service.recoverDeviceGroupFromCertificate(
+            recovery.certificate,
+            recovery.code,
+          ),
+          throwsStateError,
+        );
+        expect(await storage.getSetting('devices.gid'), isNull);
+        expect(
+          await storage.loadFile(GroupService.kSovereignBundleSetting),
+          legacy ? isNull : isEmpty,
+        );
+        if (legacy) {
+          expect(
+            await storage.getSetting(GroupService.kSovereignBundleSetting),
+            'not-base64%%%',
+          );
+        }
+      },
+      skip: hasVeilFfi ? false : 'native sovereign crypto required',
+    );
+  }
+  test(
+    'certificate recovery publication refusal leaves no partial credential',
+    () async {
+      final recovery = _newRecoveryCertificate();
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(bob));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      storage.rejectGroupPointer = true;
+      await expectLater(
+        service.recoverDeviceGroupFromCertificate(
+          recovery.certificate,
+          recovery.code,
+        ),
+        throwsStateError,
+      );
+      expect(await storage.getSetting('devices.gid'), isNull);
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        isNull,
+      );
+      storage.rejectGroupPointer = false;
+      final retry = await service.recoverDeviceGroupFromCertificate(
+        recovery.certificate,
+        recovery.code,
+      );
+      expect((await service.load(retry!))!.manifest.owner, recovery.owner);
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'certificate recovery publication adoption waits and wins after recovery',
+    () async {
+      final next = await _missingCredentialFixture(
+        owner,
+        bob,
+        certificate: true,
+      );
+      final nextBundle = (await next.service.load(next.manifest.groupId))!;
+      final recovery = _newRecoveryCertificate();
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(bob));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      expect(
+        await service.ingestSnapshot(next.service.snapshotJson(nextBundle)),
+        isTrue,
+      );
+      final entered = Completer<void>(), release = Completer<void>();
+      storage.groupEntered = entered;
+      storage.releaseGroup = release;
+      final recovering = service.recoverDeviceGroupFromCertificate(
+        recovery.certificate,
+        recovery.code,
+      );
+      await entered.future;
+      final adopting = service.adoptDeviceGroup(next.manifest.groupId);
+      try {
+        await pumpEventQueue();
+      } finally {
+        release.complete();
+      }
+      expect(await recovering, isNotNull);
+      expect(await adopting, isTrue);
+      expect(await service.deviceGroupIdHex(), next.manifest.groupId.hex);
+      expect(await service.localSovereignBundle(), next.encrypted);
+      final reopened = await service.openLocalSovereign(next.secret);
+      try {
+        expect(reopened.nodeId, next.manifest.owner);
+      } finally {
+        reopened.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  test(
+    'certificate recovery publication shutdown before activation installs no key',
+    () async {
+      final recovery = _newRecoveryCertificate();
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(bob));
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      final entered = Completer<void>(), release = Completer<void>();
+      storage.groupEntered = entered;
+      storage.releaseGroup = release;
+      final recovering = service.recoverDeviceGroupFromCertificate(
+        recovery.certificate,
+        recovery.code,
+      );
+      final refused = expectLater(recovering, throwsStateError);
+      await entered.future;
+      var closed = false;
+      final closing = service.dispose().then((_) {
+        closed = true;
+      });
+      try {
+        await pumpEventQueue();
+        expect(
+          closed,
+          isFalse,
+          reason: 'accepted group write still owns storage',
+        );
+      } finally {
+        release.complete();
+      }
+      await refused;
+      await closing;
+      expect(await storage.getSetting('devices.gid'), isNull);
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        isNull,
+      );
+    },
+    skip: hasVeilFfi ? false : 'native sovereign crypto required',
+  );
+
+  for (final committed in [false, true]) {
+    test(
+      'certificate recovery publication native lost completion committed=$committed',
+      () async {
+        expect(
+          ensureHiddenVolumeLoaded(
+            dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+          ),
+          isTrue,
+        );
+        final dir = await Directory.systemTemp.createTemp(
+          'xveil-certificate-publish-',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        final path = '${dir.path}/store.hv';
+        HvKvLogStore(
+          hv.HvSpace.create(
+            path: path,
+            password: Uint8List.fromList(utf8.encode('pw')),
+            argon: hv.ArgonPreset.light,
+          ),
+        ).close();
+        final storage = _AdoptionCredentialWriteFault.async(
+          workerSpaceOpener(path),
+        );
+        expect(await storage.open(password: 'pw'), isTrue);
+        final service = GroupService(storage, _NativeSovereignVerifier(bob));
+        final recovery = _newRecoveryCertificate();
+        try {
+          storage.rejectGroupPointer = !committed;
+          storage.loseAtomicReply = committed;
+          await expectLater(
+            service.recoverDeviceGroupFromCertificate(
+              recovery.certificate,
+              recovery.code,
+            ),
+            throwsStateError,
+          );
+        } finally {
+          await service.dispose();
+          await storage.close();
+        }
+        final coldStorage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        expect(await coldStorage.open(password: 'pw'), isTrue);
+        final cold = GroupService(coldStorage, _NativeSovereignVerifier(bob));
+        try {
+          expect(
+            await coldStorage.loadFile(GroupService.kSovereignBundleSetting),
+            committed ? recovery.certificate : isNull,
+          );
+          final gid = await cold.deviceGroupIdHex();
+          expect(gid, committed ? isNotNull : isNull);
+          if (committed) {
+            final signer = await cold.openLocalSovereign(recovery.code);
+            try {
+              expect(signer.nodeId, recovery.owner);
+              expect(
+                (await cold.load(NodeId.fromHex(gid!)))!.manifest.owner,
+                signer.nodeId,
+              );
+            } finally {
+              signer.close();
+            }
+            expect(
+              await cold.recoverDeviceGroupFromCertificate(
+                recovery.certificate,
+                recovery.code,
+              ),
+              isNull,
+            );
+            expect(await cold.deviceGroupIdHex(), gid);
+          } else {
+            final retried = await cold.recoverDeviceGroupFromCertificate(
+              recovery.certificate,
+              recovery.code,
+            );
+            expect((await cold.load(retried!))!.manifest.owner, recovery.owner);
+          }
+        } finally {
+          await cold.dispose();
+          await coldStorage.close();
+        }
+      },
+      skip:
+          hasVeilFfi &&
+              (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isNotEmpty
+          ? false
+          : 'native sovereign crypto and hidden volume required',
+    );
+  }
+
   test(
     'XVRC disaster recovery preserves sovereign node id and mints fresh gid',
     () async {
@@ -8489,7 +8834,7 @@ void main() {
       expect(
         await rejected.localSovereignBundle(),
         isNull,
-        reason: 'failed manifest verification rolls back the staged XVRC',
+        reason: 'failed manifest verification never installs the XVRC',
       );
     },
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test XVRC recovery',
