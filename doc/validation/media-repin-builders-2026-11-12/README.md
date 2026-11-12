@@ -142,6 +142,20 @@ included in the macOS native CI job.
 
 ## Privacy and remaining work
 
+The build-only application workflow at `8d34ef73` caught another real Windows
+ARM64 producer failure before any application tag: ring invokes GNU-driver
+clang directly for assembly, bypassing the target's clang-cl selection. That
+driver rejects the `/clang:` path-remapping option. The Windows environment now
+passes macro/debug prefix maps through the frontend interface accepted by both
+drivers. Path hiding is retained rather than disabled.
+
+A real cross-host ARM64 COFF assembly fixture failed with the old flags and
+passes with the new flags; its embedded `__FILE__` is remapped. The existing
+narrow/wide C++ macro checks also pass on the available Windows host: four
+compiler tests, zero skips. The build-entrypoint checks pass (21 tests). Full
+ARM64 application packaging is being repeated; the fixture alone is not claimed
+to qualify the complete bundle.
+
 The next versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.97+116.
 The version manifests and locked graphs pass metadata/version checks; the storage
 format remains generation 3.

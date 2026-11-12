@@ -117,13 +117,16 @@ def _path_remap_env(*, msvc: bool = False) -> dict[str, str]:
     # compile C through cc-rs (aws-lc-sys is the big one) embed their own
     # __FILE__ strings, so the C and C++ compilers need the equivalent or the
     # account name simply moves from the Rust frames to the C ones.
-    # clang-cl silently ignores the GNU-driver spelling. Its /clang: escape
-    # forwards the option to clang's frontend, including CMake dependencies.
+    # clang-cl ignores the GNU-driver spelling, while ring's ARM64 assembly
+    # calls GNU-driver clang directly and cannot accept /clang: options.
+    # Both drivers accept these explicit frontend maps.
     # Forward slashes also survive cc-rs's shell-style flag parsing on Windows.
     prefix = home.replace("\\", "/") if msvc else home
-    cmap = f"{'/clang:' if msvc else ''}-ffile-prefix-map={prefix}=/build"
-    if any(char.isspace() for char in cmap):
-        cmap = '"' + cmap + '"'
+    maps = (["-Xclang", f"-fmacro-prefix-map={prefix}=/build",
+             "-Xclang", f"-fdebug-prefix-map={prefix}=/build"] if msvc else
+            [f"-ffile-prefix-map={prefix}=/build"])
+    cmap = " ".join('"' + flag + '"' if any(char.isspace() for char in flag)
+                    else flag for flag in maps)
     env = {"CARGO_BUILD_RUSTFLAGS": " ".join(filter(None, [existing, *remaps]))}
     for var in ("CFLAGS", "CXXFLAGS"):
         env[var] = " ".join(filter(None, [os.environ.get(var, "").strip(), cmap]))

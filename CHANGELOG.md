@@ -25,6 +25,8 @@ bumps may change behaviour a user notices.
 - Reject native macOS artifacts that cannot actually load, even if signing and
   privacy checks pass. Build release packages in neutral workspaces and check
   embedded source paths and native-library provenance before publication.
+- Keep Windows ARM64 assembly builds compatible with the same path-hiding flags
+  used by C/C++ compilation, without dropping path remapping.
 - Skip repeated ordering lookups when an own-device mirror already matches the
   stored effective position. Keep fresh checks for delivery changes and actual
   ordering corrections.
