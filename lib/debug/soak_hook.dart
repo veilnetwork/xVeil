@@ -24,7 +24,6 @@ import '../data/serve_source.dart';
 import '../data/veil_stack.dart'
     show
         claimRuntimeDirUnder,
-        DeviceDelegation,
         adoptCeremonyDocument,
         DocumentRevocation,
         RealVeilStack,
@@ -2656,7 +2655,6 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // seq 11) frames queue to that no verifier accepts. The reverse
       // mismatch (document names it, group add fails below) is harmless:
       // nothing queues to a non-member, and a retry is idempotent.
-      var delegated = false;
       try {
         final outcome = await RealVeilStack.delegateDeviceIntoDocument(
           ref.read(storageProvider),
@@ -2676,7 +2674,6 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
                 'would leave a device the identity does not vouch for',
           });
         }
-        delegated = outcome == DeviceDelegation.delegated;
       } on TombstonedDeviceException catch (e) {
         return _json(req, {'ok': false, 'error': '$e'});
       }
@@ -2697,23 +2694,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       for (final entry in (await svc.deviceWriterKeys()).entries) {
         if (entry.key == target.nodeId) continue;
         try {
-          delegated =
-              await RealVeilStack.delegateDeviceIntoDocument(
-                    ref.read(storageProvider),
-                    secret: phrase.trim(),
-                    devicePubkey: entry.value,
-                    stagingBase: Directory.systemTemp.path,
-                  ) ==
-                  DeviceDelegation.delegated ||
-              delegated;
+          await RealVeilStack.delegateDeviceIntoDocument(
+            ref.read(storageProvider),
+            secret: phrase.trim(),
+            devicePubkey: entry.value,
+            stagingBase: Directory.systemTemp.path,
+          );
         } on TombstonedDeviceException {
           // A revoked OLD member still listed by the group is its own
           // cleanup, not this ceremony's failure.
         }
       }
-      if (delegated) {
-        await stack.refreshSovereignIdentity(ref.read(storageProvider));
-      }
+      // Repair publication after a previous durable store lost completion.
+      // The successful admission above covers already-certified targets too.
+      await stack.refreshSovereignIdentity(ref.read(storageProvider));
       // Issued BY this device: `source` below is the identity, which the
       // target shares, so without this it cannot tell a token it was handed
       // from one it issued itself.
