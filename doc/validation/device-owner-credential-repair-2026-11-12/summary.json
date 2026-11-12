@@ -1,0 +1,29 @@
+{
+  "schema": "xveil-validation/1",
+  "scope": "active-device-owner-credential-repair",
+  "baselineRecovery": {
+    "passed": 3,
+    "failed": 7
+  },
+  "baselineConcurrentFirstOpen": {
+    "passed": 0,
+    "failed": 1
+  },
+  "unitAndStorage": {
+    "passed": 588,
+    "skipped": 0
+  },
+  "newScenariosIncluded": 18,
+  "nativeColdContainerScenariosIncluded": 2,
+  "analyzeIssues": 0,
+  "release": false,
+  "processReplacement": {
+    "passed": 2,
+    "skipped": 0
+  },
+  "cleanup": {
+    "trackedPidsAndGroupsExited": 31,
+    "registeredTcpUdpPortsFree": 30,
+    "testVms": 0
+  }
+}
