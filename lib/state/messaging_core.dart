@@ -1794,7 +1794,7 @@ class MessagingService {
     _flushing = true;
     unawaited(retryPendingMessageDeletions());
     try {
-      await flushOutbox();
+      await _messageDelivery.flush(waitForAckStatus: false);
     } catch (_) {
       // Transport hiccup — the next tick retries.
     } finally {
@@ -4727,6 +4727,7 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    await _messageDelivery.quiesce();
     await largeFramesClosed;
     await postReceiptsClosed;
     await groupReceiptsClosed;
