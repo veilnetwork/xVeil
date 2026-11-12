@@ -1,0 +1,17 @@
+{
+  "schema": "xveil-validation/1",
+  "confirmedMechanism": "exact-camera-geometry-refusal-retains-compressed-default",
+  "mechanismFixedLocally": true,
+  "userCaseClosed": false,
+  "regressionChecks": {"passed": 5, "failed": 0},
+  "realReaderOldNewPairs": 2,
+  "engineCallbackLoopback": [
+    {"width": 352, "height": 198, "encoded": 47, "delivered": 47, "drops": 0},
+    {"width": 640, "height": 360, "encoded": 94, "delivered": 94, "drops": 0}
+  ],
+  "platform": "windows11-x64",
+  "networkCallQualified": false,
+  "originalWindows10Qualified": false,
+  "published": false,
+  "mediaRepinRequired": true
+}
