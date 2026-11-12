@@ -451,6 +451,7 @@ class VeilCallMediaController implements CallMediaController {
   final VeilFlutterTransport _transport;
   final _peerHealth = StreamController<CallSignal>.broadcast();
   final _microphoneUnavailable = StreamController<String>.broadcast();
+  final _cameraUnavailable = StreamController<String>.broadcast();
   Timer? _controlPollTimer;
 
   @override
@@ -458,6 +459,9 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Stream<String> get microphoneUnavailable => _microphoneUnavailable.stream;
+
+  @override
+  Stream<String> get cameraUnavailable => _cameraUnavailable.stream;
 
   @override
   bool get canReceiveEphemeralHealth =>
@@ -538,6 +542,9 @@ class VeilCallMediaController implements CallMediaController {
   bool get startedWithoutMicrophone => _startedWithoutMicrophone;
   CallMicrophonePermission? _microphonePermission;
   final _cameraState = CallCameraState();
+  bool _startedWithoutCamera = false;
+  @override
+  bool get startedWithoutCamera => _startedWithoutCamera;
   VeilMediaEngine? _engine;
   bool _noiseSuppressionEnabled = true;
 
@@ -1427,6 +1434,7 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    _startedWithoutCamera = false;
     final previousCall = _activeCall;
     final preserveReceiveHistory =
         previousCall?.callId == call.callId &&
@@ -2135,6 +2143,9 @@ class VeilCallMediaController implements CallMediaController {
         maxBitrateKbps: target.maxBitrateKbps,
         maxFps: target.maxFps,
       );
+      if (!videoOk && !Platform.isAndroid) {
+        _reportCameraStartOutcome(engine, false);
+      }
       devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
       if (videoOk) {
         if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
@@ -2462,6 +2473,7 @@ class VeilCallMediaController implements CallMediaController {
     if (clearActiveCall) {
       _routeHandovers = 0;
       _startedWithoutMicrophone = false;
+      _startedWithoutCamera = false;
       _activeCall = null;
       _microphonePermission = null;
       _bitrateAdapter = null;
@@ -3043,15 +3055,31 @@ class VeilCallMediaController implements CallMediaController {
       // The report retains a categorical result, never driver text or IDs.
     }
     diagnosticJournal.recordCameraStart(success: started, origin: origin);
+    _reportCameraStartOutcome(engine, started);
     return started;
   }
 
+  void _reportCameraStartOutcome(VeilMediaEngine engine, bool started) {
+    final call = _activeCall;
+    if (_engine != engine ||
+        call == null ||
+        !_cameraState.enabledForCall(call.callId)) {
+      return;
+    }
+    _startedWithoutCamera = !started;
+    if (!started) _cameraUnavailable.add(call.callId);
+  }
+
   @override
-  void updateCameraIntent(bool enabled) => _cameraState.setEnabled(enabled);
+  void updateCameraIntent(bool enabled) {
+    _cameraState.setEnabled(enabled);
+    // A new intent supersedes queued failure evidence from the older attempt.
+    if (enabled) _startedWithoutCamera = false;
+  }
 
   @override
   Future<void> setCameraEnabled(bool enabled) async {
-    _cameraState.setEnabled(enabled);
+    updateCameraIntent(enabled);
     final engine = _engine;
     if (engine == null) return;
     if (enabled && (_screenSharing || _screenStarting != null)) return;

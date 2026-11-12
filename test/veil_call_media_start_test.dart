@@ -15,6 +15,8 @@ import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/veil_call_media.dart';
 import 'package:xveil/state/call_microphone_state.dart';
+import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int value) => NodeId(Uint8List.fromList(List.filled(32, value)));
 
@@ -34,6 +36,10 @@ class _Transport implements VeilFlutterTransport {
   }) async => 42;
   @override
   bool get supportsCallControl => false;
+  @override
+  int setMediaScreenSharing(int channel, bool enabled) => 0;
+  @override
+  bool hasCallControl(int channel) => false;
   @override
   int mediaRecvCount(Uint8List peer) => 0;
   @override
@@ -199,6 +205,23 @@ class _CameraChoiceEngine extends _UpgradeEngine {
   bool throwOnRejected = false;
   bool stopAccepted = true;
   bool rejectAll = false;
+  bool rejectVideo = false;
+  @override
+  bool startVideo({
+    bool send = true,
+    bool recv = true,
+    int maxBitrateKbps = 150,
+    num maxFps = 15,
+  }) {
+    final started = super.startVideo(
+      send: send,
+      recv: recv,
+      maxBitrateKbps: maxBitrateKbps,
+      maxFps: maxFps,
+    );
+    return started && !rejectVideo;
+  }
+
   @override
   List<MediaDevice> listVideoInputs() => const [
     MediaDevice(id: 'old-camera', label: 'Previous camera', kind: 'camera'),
@@ -232,6 +255,47 @@ class _CameraChoiceEngine extends _UpgradeEngine {
     activeCamera = null;
     super.dispose();
   }
+}
+
+class _CameraCallWire implements MessagingService {
+  @override
+  bool backgroundStashPaused = false;
+  @override
+  bool get isAnonymousIdentity => false;
+  @override
+  void Function(NodeId, CallSignal)? onCallSignal;
+  @override
+  bool Function(NodeId, CallSignal)? acceptsCallDeviceSignal;
+  final sent = <CallSignal>[];
+  @override
+  Future<NodeId> localDeviceId() async => _id(1);
+  @override
+  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {}
+  @override
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    sent.add(signal);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> _connectCameraCall(
+  CallService service,
+  _CameraCallWire wire,
+) async {
+  await service.placeCall(_id(2), const CallMedia(audio: true, video: true));
+  wire.onCallSignal!(
+    _id(2),
+    CallSignal(
+      callId: service.current!.callId,
+      type: CallSignalType.answer,
+      posture: CallPosture.anonymous,
+      mediaKey: generateCallMediaKeyContribution(),
+    ),
+  );
+  await pumpEventQueue();
+  expect(service.current?.status, CallStatus.active);
 }
 
 class _RestoreStageEngine extends _Engine {
@@ -408,6 +472,129 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     diagnosticJournal.clear();
   });
+
+  for (final phase in ['initial', 'toggle']) {
+    for (final throws in [false, true]) {
+      test(
+        'desktop camera refusal clears actual call posture ($phase/$throws)',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            'call.capture.camera.${Platform.operatingSystem}': 'old-camera',
+          });
+          final wire = _CameraCallWire();
+          final engine = _CameraChoiceEngine()
+            ..rejectAll = phase == 'initial'
+            ..throwOnRejected = throws;
+          final controller = VeilCallMediaController(
+            _Transport(),
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engine,
+          );
+          final service = CallService(wire, media: controller)..start();
+          try {
+            await _connectCameraCall(service, wire);
+            if (phase == 'toggle') {
+              await service.setCameraEnabled(false);
+              engine.rejectAll = true;
+              await service.setCameraEnabled(true);
+              await pumpEventQueue();
+            }
+            expect(engine.activeCamera, isNull);
+            expect(
+              service.current?.status,
+              CallStatus.active,
+              reason: 'camera failure must preserve audio/receive',
+            );
+            expect(service.current?.cameraOn, isFalse);
+            expect(wire.sent.last.capture?.video, isFalse);
+            if (kDiagnosticReportEnabled) {
+              final report = diagnosticJournal.toJson();
+              final evidence = report['last_evidence'] as Map;
+              expect((evidence['cameraStart'] as Map)['values'], {
+                'success': 0,
+                'origin':
+                    (phase == 'initial'
+                            ? CameraStartOrigin.callStart
+                            : CameraStartOrigin.toggle)
+                        .index,
+              });
+              final encoded = jsonEncode(report);
+              for (final private in [
+                'old-camera',
+                'fixture camera unavailable',
+                service.current!.callId,
+                _id(2).hex,
+              ]) {
+                expect(encoded, isNot(contains(private)));
+              }
+            }
+          } finally {
+            service.dispose();
+            await controller.stop();
+          }
+        },
+        skip: Platform.isAndroid ? 'Desktop camera refusal' : false,
+      );
+    }
+  }
+
+  for (final mode in [
+    'video-refusal',
+    'switch-recovered',
+    'switch-failed',
+    'rebuild-failed',
+  ]) {
+    test(
+      'desktop camera failure evidence respects $mode',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'call.capture.camera.${Platform.operatingSystem}': 'old-camera',
+        });
+        final wire = _CameraCallWire();
+        final engine = _CameraChoiceEngine()
+          ..rejectVideo = mode == 'video-refusal';
+        final replacement = _CameraChoiceEngine()..rejectAll = true;
+        var creations = 0;
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  creations++ == 0 ? engine : replacement,
+        );
+        final service = CallService(wire, media: controller)..start();
+        try {
+          await _connectCameraCall(service, wire);
+          if (mode.startsWith('switch-')) {
+            expect(service.current?.cameraOn, isTrue);
+            engine.rejected = 'new-camera';
+            engine.rejectAll = mode == 'switch-failed';
+            expect(await service.selectCamera('new-camera'), isFalse);
+          } else if (mode == 'rebuild-failed') {
+            expect(service.current?.cameraOn, isTrue);
+            expect(await controller.start(service.current!), isTrue);
+          }
+          await pumpEventQueue();
+          expect(service.current?.status, CallStatus.active);
+          expect(service.current?.cameraOn, mode == 'switch-recovered');
+          if (mode == 'switch-recovered') {
+            expect(engine.activeCamera, 'old-camera');
+            expect(
+              wire.sent.where((s) => s.capture?.video == false),
+              isEmpty,
+              reason: 'a recovered selection must ignore its queued failure',
+            );
+          } else {
+            expect(wire.sent.last.capture?.video, isFalse);
+          }
+        } finally {
+          service.dispose();
+          await controller.stop();
+        }
+      },
+      skip: Platform.isAndroid ? 'Desktop camera failure' : false,
+    );
+  }
 
   for (final refusal in ['stop', 'start', 'throw']) {
     test(

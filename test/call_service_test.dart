@@ -17,6 +17,132 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test('rejected video mount leaves no latent camera-on intent', () async {
+    final wire = _FakeMessaging();
+    final media = _FakeMedia()..videoOk = false;
+    final service = CallService(wire, media: media)..start();
+    addTearDown(service.dispose);
+    wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+    await service.accept();
+    await pumpEventQueue();
+    await service.setCameraEnabled(true);
+    expect(service.current?.media.video, isFalse);
+    expect(service.current?.cameraOn, isFalse);
+    expect(media.cameraIntent, isNot(true));
+    expect(media.log, isNot(contains('cam:true')));
+  });
+
+  test('camera off cancels an in-flight audio-to-video upgrade', () async {
+    final wire = _FakeMessaging();
+    final media = _FakeMedia()..videoGate = Completer<bool>();
+    final service = CallService(wire, media: media)..start();
+    addTearDown(service.dispose);
+    wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+    await service.accept();
+    await pumpEventQueue();
+    expect(service.current?.status, CallStatus.active);
+    final enabling = service.setCameraEnabled(true);
+    await pumpEventQueue();
+    expect(media.log, contains('video:true'));
+    await service.setCameraEnabled(false);
+    media.videoGate!.complete(true);
+    await enabling;
+    expect(service.current?.cameraOn, isFalse);
+    expect(media.log, isNot(contains('cam:true')));
+    expect(
+      wire.sent.where((s) => s.type == CallSignalType.renegotiate),
+      isEmpty,
+    );
+  });
+
+  test(
+    'failed camera upgrade preserves receive and advertises camera off',
+    () async {
+      final wire = _FakeMessaging();
+      final media = _FakeMedia()
+        ..cameraOperation = (_) async => throw StateError('capture refused');
+      final service = CallService(wire, media: media)..start();
+      addTearDown(service.dispose);
+      wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+      await service.accept();
+      await pumpEventQueue();
+      await service.setCameraEnabled(true);
+      expect(service.current?.status, CallStatus.active);
+      expect(service.current?.media.video, isTrue);
+      expect(service.current?.cameraOn, isFalse);
+      expect(media.cameraIntent, isFalse);
+      expect(wire.sent.where((s) => s.capture?.video == false), isNotEmpty);
+      expect(
+        wire.sent
+            .where((s) => s.type == CallSignalType.renegotiate)
+            .last
+            .media
+            ?.video,
+        isTrue,
+      );
+    },
+  );
+
+  test('late camera failure cannot undo a newer successful retry', () async {
+    final wire = _FakeMessaging();
+    final gate = Completer<void>();
+    var starts = 0;
+    final media = _FakeMedia()
+      ..cameraOperation = (on) async {
+        if (on && starts++ == 0) await gate.future;
+      };
+    final service = CallService(wire, media: media)..start();
+    addTearDown(service.dispose);
+    wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+    await service.accept();
+    await pumpEventQueue();
+    final first = service.setCameraEnabled(true);
+    await pumpEventQueue();
+    expect(media.log, contains('cam:true'));
+    await service.setCameraEnabled(false);
+    await service.setCameraEnabled(true);
+    gate.completeError(StateError('retired capture failed'));
+    await first;
+    expect(service.current?.cameraOn, isTrue);
+    expect(media.cameraIntent, isTrue);
+    expect(wire.sent.where((s) => s.capture?.video == false), isEmpty);
+  });
+
+  test(
+    'camera failure stream ignores old calls and recovered attempts',
+    () async {
+      final wire = _FakeMessaging();
+      final media = _FakeMedia();
+      final service = CallService(wire, media: media)..start();
+      addTearDown(() async {
+        service.dispose();
+        await media.cameraFailures.close();
+      });
+      wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+      await service.accept();
+      await pumpEventQueue();
+      await service.setCameraEnabled(true);
+      media.startedWithoutCamera = true;
+      media.cameraFailures.add('previous-call');
+      await pumpEventQueue();
+      expect(service.current?.cameraOn, isTrue);
+      media.cameraFailures.add(service.current!.callId);
+      media.startedWithoutCamera = false;
+      await pumpEventQueue();
+      expect(service.current?.cameraOn, isTrue);
+      media.startedWithoutCamera = true;
+      media.cameraFailures.add(service.current!.callId);
+      await pumpEventQueue();
+      expect(service.current?.cameraOn, isFalse);
+      expect(service.current?.status, CallStatus.active);
+      expect(wire.sent.last.capture?.video, isFalse);
+      final sent = wire.sent.length;
+      media.cameraFailures.add(service.current!.callId);
+      await pumpEventQueue();
+      expect(wire.sent, hasLength(sent));
+    },
+  );
+
   test('history bootstrap cannot reattach a disposed owner or send a queued call', () async {
     final wire = _FakeMessaging();
     final gate = Completer<List<CallLogEntry>>();
@@ -7386,6 +7512,12 @@ CallSignal _diagnosticOffer() => CallSignal(
 );
 
 class _FakeMedia extends CallMediaController {
+  final cameraFailures = StreamController<String>.broadcast();
+  @override
+  Stream<String> get cameraUnavailable => cameraFailures.stream;
+  @override
+  bool startedWithoutCamera = false;
+  Future<void> Function(bool)? cameraOperation;
   final microphoneFailures = StreamController<String>.broadcast();
   @override
   Stream<String> get microphoneUnavailable => microphoneFailures.stream;
@@ -7424,6 +7556,7 @@ class _FakeMedia extends CallMediaController {
   int signalVersion = kCallSignalProtocolVersion;
   bool screenOk = true;
   bool videoOk = true;
+  Completer<bool>? videoGate;
   bool? cameraIntent;
   CallTransportKind? openedTransport;
   CallTransportKind? repairTo;
@@ -7591,12 +7724,13 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<void> setCameraEnabled(bool enabled) async {
     log.add('cam:$enabled');
+    await cameraOperation?.call(enabled);
   }
 
   @override
   Future<bool> setVideoEnabled(bool enabled) async {
     log.add('video:$enabled');
-    return videoOk;
+    return await videoGate?.future ?? videoOk;
   }
 
   @override
