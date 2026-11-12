@@ -27,6 +27,8 @@ bumps may change behaviour a user notices.
   embedded source paths and native-library provenance before publication.
 - Keep Windows ARM64 assembly builds compatible with the same path-hiding flags
   used by C/C++ compilation, without dropping path remapping.
+- Omit source paths retained by OpenMP debug metadata in Android speech
+  dependencies while retaining OpenMP parallel execution.
 - Skip repeated ordering lookups when an own-device mirror already matches the
   stored effective position. Keep fresh checks for delivery changes and actual
   ordering corrections.
