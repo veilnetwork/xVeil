@@ -1,0 +1,79 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "fixed-locally-export-acl",
+  "frontend": "077282bb",
+  "platform": "windows11",
+  "positiveRelayCalls": 3,
+  "negativeCaptureControls": 2,
+  "cameraOffOnQualified": true,
+  "originalWindows10Closed": false,
+  "currentMacFrontendQualified": false,
+  "currentP2PQualified": false,
+  "physical": [
+    {
+      "case": "owner-only-before",
+      "encoded": 0,
+      "decoded": 0,
+      "localFrames": 0,
+      "uiFrames": 0,
+      "actualTransport": "relay",
+      "cameraOffOnQualified": false
+    },
+    {
+      "case": "normal-user-copy",
+      "encoded": 150,
+      "decoded": 148,
+      "localFrames": 364,
+      "uiFrames": 148,
+      "actualTransport": "relay",
+      "cameraOffOnQualified": true
+    },
+    {
+      "case": "owner-only-repeat",
+      "encoded": 0,
+      "decoded": 0,
+      "localFrames": 0,
+      "uiFrames": 0,
+      "actualTransport": "relay",
+      "cameraOffOnQualified": false
+    },
+    {
+      "case": "same-path-system-read",
+      "encoded": 128,
+      "decoded": 127,
+      "localFrames": 367,
+      "uiFrames": 126,
+      "actualTransport": "relay",
+      "cameraOffOnQualified": true
+    },
+    {
+      "case": "incoming-system-read",
+      "encoded": 148,
+      "decoded": 147,
+      "localFrames": 366,
+      "uiFrames": 146,
+      "actualTransport": "relay",
+      "cameraOffOnQualified": true
+    }
+  ],
+  "tests": {
+    "windows": {
+      "passed": 18,
+      "skipped": 0
+    },
+    "macos": {
+      "passed": 17,
+      "skipped": 1
+    },
+    "provenancePassed": 6,
+    "receiverFixturePassed": 1
+  },
+  "baseline": {
+    "passed": 11,
+    "failed": 1,
+    "errors": 0
+  },
+  "fullReleaseArtifactQualified": false,
+  "privateQaExportBlockedHomePathCount": 13,
+  "published": false
+}
