@@ -174,6 +174,13 @@ compiler tests, zero skips. The build-entrypoint checks pass (21 tests). Full
 ARM64 application packaging is being repeated; the fixture alone is not claimed
 to qualify the complete bundle.
 
+The repeated ARM64 job passed the earlier compiler failure but was cancelled at
+its 60-minute job limit. Its last visible child output was locked package setup;
+this does not establish which later operation stalled. The neutral builder now
+flushes step labels and reports fixed phase labels, elapsed time and package-alias
+counts without printing source paths. The job limit and artifact gates remain
+unchanged while the build is repeated with this instrumentation.
+
 The next versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.97+116.
 The version manifests and locked graphs pass metadata/version checks; the storage
 format remains generation 3.

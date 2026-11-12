@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 from aot_package_roots import _directory_alias, remap_workspace
@@ -192,15 +193,25 @@ def run_neutral_build(source: Path, target: str, *, native_versions: dict,
     workspace, staged = Path(prepared["workspace"]), Path(prepared["source"])
     symbols = None
     published = False
+    started = time.monotonic()
+
+    def phase(name: str) -> None:
+        # Fixed labels and elapsed time only: build logs must not disclose
+        # source paths while still identifying a stalled producer.
+        print(f"neutral AOT: {name} ({time.monotonic() - started:.1f}s)", flush=True)
+
     try:
+        phase("stage native outputs")
         environment = dict(os.environ)
         cargo = _stage_native(source, staged, workspace, environment)
         environment.update(CARGO_TARGET_DIR=str(cargo),
                            XVEIL_PACKET_TUNNEL_TARGET_BASE=str(workspace / "packet-tunnel-target"))
         if os.name != "nt":
             environment["TMPDIR"] = "/private/tmp/" if Path("/private/tmp").is_dir() else "/tmp/"
+        phase("locked package setup")
         _run_command([resolve("flutter"), "pub", "get", "--enforce-lockfile"],
                      cwd=staged, env=environment)
+        phase("map package roots")
         remap_workspace(source, staged, workspace / "deps")
         marker = {"schema": 1, "source": str(staged.resolve()), "cargo_target": str(cargo),
                   "input_sha256": prepared["input_sha256"], "native_versions": native_versions}
@@ -209,10 +220,13 @@ def run_neutral_build(source: Path, target: str, *, native_versions: dict,
         environment["XVEIL_AOT_PACKAGE_ROOTS_READY"] = "1"
         for name in ("XVEIL_VEIL_VERSION", "XVEIL_HV_VERSION"):
             environment[name] = native_versions[name]
+        phase("build staged application")
         _run_command([sys.executable, str(staged / "builder.py"), target, "--release"],
                      cwd=staged, env=environment)
+        phase("verify staged artifact")
         result = check_artifact(staged, target)
         symbols = _preserve_symbols(staged, source, target)
+        phase("export verified artifact")
         _publish_directory(staged / artifact_directory(target), source / artifact_directory(target),
                            target=target)
         published = True

@@ -265,7 +265,7 @@ def run(steps: list[Step], *, dry_run: bool) -> None:
         if step.skip_if:
             print(f"{prefix} SKIP {step.title} — {step.skip_if}")
             continue
-        print(f"{prefix} {step.title}")
+        print(f"{prefix} {step.title}", flush=True)
         if step.argv:
             print(f"{' ' * (len(prefix) + 1)}$ {' '.join(step.argv)}")
         if dry_run and step.preview:
