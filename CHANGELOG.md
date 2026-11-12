@@ -32,7 +32,8 @@ bumps may change behaviour a user notices.
 
 ### Dependencies
 
-- Use Veil 0.11.51, hidden-volume 2.7.2 and freshly rebuilt media engines.
+- Use Veil 0.11.51, hidden-volume 2.7.2 and freshly rebuilt media engines
+  from `engine-2026.11.12.2`.
   The storage format is unchanged.
 
 ### Known limits
