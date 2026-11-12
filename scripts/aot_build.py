@@ -47,7 +47,19 @@ def check_artifact(source: Path, target: str) -> dict:
     artifact = source / artifact_directory(target)
     if not artifact.is_dir():
         raise ValueError("expected release artifact directory is missing")
-    return _check_paths(artifact)
+    result = _check_paths(artifact)
+    if target == "macos":
+        _check_macos_native_load(artifact)
+        result["native_libraries_loadable"] = True
+    return result
+
+
+def _check_macos_native_load(artifact: Path) -> None:
+    # A valid signature and a clean source-path scan do not prove that dyld
+    # accepts the native libraries (for example, malformed Rust LINKEDIT).
+    # Use a fresh process so loaded SDK symbols cannot leak between builds.
+    subprocess.run([sys.executable, str(Path(__file__).with_name("check_macos_native_load.py")),
+                    str(artifact)], check=True)
 
 
 def _check_paths(artifact: Path) -> dict:
@@ -109,7 +121,7 @@ def _stage_native(source: Path, staged: Path, workspace: Path, environment: dict
     return target
 
 
-def _publish_directory(artifact: Path, destination: Path) -> None:
+def _publish_directory(artifact: Path, destination: Path, *, target: str | None = None) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.is_symlink() or (destination.exists() and directory_alias(destination)):
         raise ValueError("artifact destination must not be an alias")
@@ -129,6 +141,8 @@ def _publish_directory(artifact: Path, destination: Path) -> None:
         # artifact. An absolute link back into the workspace would break when
         # that workspace is removed, even if it passed the source-side scan.
         _check_paths(partial)
+        if target == "macos":
+            _check_macos_native_load(partial)
         if destination.exists():
             destination.rename(backup)
             moved = True
@@ -193,7 +207,8 @@ def run_neutral_build(source: Path, target: str, *, native_versions: dict,
                      cwd=staged, env=environment)
         result = check_artifact(staged, target)
         symbols = _preserve_symbols(staged, source, target)
-        _publish_directory(staged / artifact_directory(target), source / artifact_directory(target))
+        _publish_directory(staged / artifact_directory(target), source / artifact_directory(target),
+                           target=target)
         published = True
         return {"input_sha256": prepared["input_sha256"], "privacy": result,
                 "private_symbols_saved": symbols is not None}

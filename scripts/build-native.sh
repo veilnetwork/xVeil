@@ -48,6 +48,11 @@ HV="$ROOT/third_party/hidden-volume"
 # object then requires the build machine's OS instead of xVeil's contract.
 if [[ "$(uname -s)" == "Darwin" ]]; then
   export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
+  if [[ "$PROFILE" == release ]]; then
+    # rustc's strip can produce a signed but unloadable Mach-O LINKEDIT.
+    # Apple package-time strip -S removes debug records before signing.
+    export CARGO_PROFILE_RELEASE_STRIP=none
+  fi
 fi
 
 echo "==> Building hidden-volume-ffi ($PROFILE)"
