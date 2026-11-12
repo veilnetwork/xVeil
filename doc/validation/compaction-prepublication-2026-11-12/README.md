@@ -116,3 +116,29 @@ Actor, reader и workers завершены, тестовые контейнер
 паролей не воспроизведён и этим исправлением не объясняется. Новые изменения
 локально закоммичены, не запушены и не выпущены. Перед следующей публикацией
 потребуются новые сборки hidden-volume и последующая сборка приложения с ними.
+
+## Подготовка Android проверки
+
+Из `293792d` собрана arm64 native-библиотека для Android API 24, с отдельным
+Cargo target и NDK 28.2.13676358. Проверены шесть prepared lifecycle exports
+и четыре checksum exports. В отдельном profile AOT APK сохранены production
+`AppController` и providers из `74277174`; SDK и медиадвижок взяты из
+опубликованного arm64 APK 0.13.98, digest которого повторно сверен с GitHub.
+В итоговом QA APK native bytes точно соответствуют подготовленным inputs.
+
+QA использует отдельный application ID и синтетические личности. Штатные
+onboarding, collection, password probe и compaction вызываются через приватный
+package-gated fixture; barriers дают остановиться до или после публикации.
+У fixtures явно выключены bundled seeds, meeting points и system bootstrap
+DNS. Первый неустановленный APK с неявными настройками discovery заменён
+сборкой с явным отключением до какой-либо проверки на телефоне.
+
+Финальный APK собран и проверен по package/ABI, source hashes и native inputs;
+статический анализ QA-области проходит. Состояние компилятора после сборки
+восстановлено, его bytes не менялись. Собственные Android Cargo/APK build
+intermediates удалены, финальные APK и native inputs сохранены отдельно.
+
+**На устройстве этот APK ещё не запускался:** ADB в этом цикле не видел
+телефон. AOT-сборка и наличие ABI exports не заменяют проверки сжатия,
+сохранности roster и process-kill на Android. Основное приложение и данные
+пользователя не менялись.
