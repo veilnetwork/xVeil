@@ -83,6 +83,7 @@ import '../support/private_history_gate.dart';
 import '../support/private_message_append_gate.dart';
 import '../support/private_message_status_gate.dart';
 import '../support/private_sovereign_write_fault.dart';
+import '../support/private_device_adoption_gate.dart';
 import 'convergence_oracle.dart';
 import 'crash_retention_oracle.dart';
 import 'e2e_env.dart';
@@ -534,9 +535,13 @@ class E2eDevice {
         _messageApplyCensus = census;
         final storage =
             (census == null
-                  ? (label == 'A' &&
-                            Platform.environment['XVEIL_E2E_SOVEREIGN_WRITE_FAULT'] ==
+                  ? (label == 'B' &&
+                            Platform.environment['XVEIL_E2E_DEVICE_ADOPTION_CRASH'] ==
                                 '1'
+                        ? PrivateDeviceAdoptionGate(opener, directory: dir)
+                        : label == 'A' &&
+                              Platform.environment['XVEIL_E2E_SOVEREIGN_WRITE_FAULT'] ==
+                                  '1'
                         ? PrivateSovereignWriteFault(opener, directory: dir)
                         : label == 'A' &&
                               Platform.environment['XVEIL_E2E_STATUS_PUBLICATION_CRASH'] ==
