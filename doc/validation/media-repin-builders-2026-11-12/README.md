@@ -18,8 +18,11 @@ records) matched GitHub's archive digests. Each binary matched its recorded SHA,
 current native source digest and intended architecture. No known developer home
 path was present. All seven binaries pass the application's required-symbol
 check after the PE reader correction below. These are build and artifact checks,
-not seven platform runtime qualifications. Application engine pins have not yet
-been changed and no application release was published by these runs.
+not seven platform runtime qualifications. The verified set is published as the
+immutable [`engine-2026.11.12` prerelease](https://github.com/veilnetwork/xVeil/releases/tag/engine-2026.11.12).
+All fourteen release assets matched a download round trip and a separate public,
+unauthenticated download. The latest application release stayed unchanged.
+Android, Linux and Windows release jobs now pin this new set.
 
 ## Darwin host proc-macro failure
 
@@ -40,15 +43,30 @@ The checked-in native regression test failed before this change and passed
 after it, with no skips. It uses an isolated, locked dependency fixture with a
 known triggering layout; it does not update production dependencies. Earlier
 small fixtures that passed the old profile were not counted as reproductions.
-Full automatic macOS application qualification with this fix is pending.
 
 A subsequent full build, including native producers from an empty Cargo cache,
 found the same malformed host macro in hidden-volume before compiling its FFI.
 Its profile also needs an explicit host `strip = "none"`. Storage commit
 `3b8c302` adds that setting; the same isolated profile probe failed before it and
 passed after it. The probe now accepts a workspace path so CI exercises both
-profiles. No production dependency versions or storage format changed. A new
-full application build with both fixes remains pending.
+profiles. No production dependency versions or storage format changed.
+
+That full ordinary build subsequently completed in 596.38 seconds, including
+native producers, CLI, optional wrappers, Flutter AOT, packaging and signature
+verification. Its 126 artifact members (128,746,351 scanned bytes) contained zero
+home paths or home source URIs; the separate known-private-data scan was clean.
+However, the final SDK dylib was still rejected by dyld for misaligned LINKEDIT.
+It was quarantined and is **not a usable candidate**. This extends the problem
+from host macros to final Rust Mach-O outputs.
+
+The macOS release plan now disables Rust's strip step for the target too; Apple
+packaging still removes debug records before signing. The SDK's Darwin release
+script and storage's Darwin publication workflow use the same approach. A new
+gate loads bundled native libraries in an isolated process, both before export
+and from the copied artifact before replacing any previous output. It starts no
+application, recording or playback. The old gate accepted an unloadable fixture;
+three native loader/export-preservation tests now pass, plus the eleven existing
+build-orchestration checks. A full rebuild with the target fix is still pending.
 
 ## ARM64 PE symbol-reader correction
 
@@ -62,6 +80,12 @@ symbols still cannot satisfy the export gate. Three format checks pass; the LLVM
 case failed on the old script. The corrected gate also passed on all seven actual
 CI binaries, including both Windows architectures.
 
+The CI-built x64 Windows DLL also loaded on the available Windows 11 host with
+all 107 required Dart lookups resolved. No application or audio was started by
+this probe. Its temporary files were removed and the previous SDK, storage and
+media DLL hashes remained unchanged. This does not qualify Windows 10 or speech
+audibility.
+
 ## Privacy and remaining work
 
 The full reachable histories of the application, SDK and storage repositories
@@ -71,8 +95,7 @@ and restored branch protections were independently recorded previously. This
 does not claim that GitHub's old object retention or local unreachable objects
 have been garbage-collected.
 
-Remaining release work includes publishing and pinning the verified immutable
-media set, qualifying the automatic application builders, and completing source
+Remaining release work includes qualifying the automatic application builders and completing source
 CI and artifact checks. The original Windows 10 audio/video/avatar complaint is
 still distinct from the available Windows 11 qualification. No new human
 listening or Windows GUI confirmation is claimed here.

@@ -38,6 +38,10 @@ Use `builder.py` for publication: a direct Flutter command bypasses these checks
 Apple dSYM sidecars are retained separately under `build/private-symbols/` and
 must not be included in a public app archive. Temporary source/Cargo workspaces
 are removed after the build.
+On macOS the native libraries are also loaded in a fresh process before export
+and after copying. A valid signature alone is insufficient. Rust linking keeps
+the Mach-O debug records intact; Apple's packaging tools remove them before
+signing, avoiding malformed LINKEDIT produced by Rust's strip step.
 
 `prepare.py` installs Rust and the cross-compilation targets, cargo-ndk, the
 Android command-line tools and NDK, the Linux system packages, CocoaPods, the
@@ -1064,6 +1068,10 @@ package roots убирают домашние пути сборщика из Dar
 Apple dSYM сохраняются отдельно в `build/private-symbols/`; их нельзя включать
 в публичный архив приложения. Временные копии исходников и Cargo targets после
 сборки удаляются.
+На macOS нативные библиотеки дополнительно загружаются в отдельном процессе
+до экспорта и после копирования: одной корректной подписи недостаточно.
+Отладочные записи Mach-O удаляются средствами Apple перед подписью, а не
+во время Rust-линковки, которая могла повредить LINKEDIT.
 
 `prepare.py` ставит Rust и кросс-цели, cargo-ndk, командные инструменты
 Android и NDK, системные пакеты Linux, CocoaPods, git-подмодули с нативными

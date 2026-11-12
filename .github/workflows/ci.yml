@@ -150,6 +150,7 @@ jobs:
       # Real clang/dsymutil/strip/codesign and a loaded native function. The
       # Linux job covers input guards but skips this platform-specific proof.
       - run: python3 -m unittest discover -s scripts -p test_strip_macos_debug_info.py
+      - run: python3 -m unittest discover -s scripts -p test_macos_native_load.py
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: '1.97.1'

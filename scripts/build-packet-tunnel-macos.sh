@@ -21,6 +21,9 @@ case "$CONFIGURATION" in
     CARGO_PROFILE="release"
     CARGO_FLAGS=(--release)
     PROFILE="release"
+    # Match build-native.sh: keep Rust's Mach-O link output intact and
+    # remove debug records with Apple tooling during final packaging.
+    export CARGO_PROFILE_RELEASE_STRIP=none
     ;;
   *)
     echo "error: unsupported Xcode configuration: $CONFIGURATION" >&2
