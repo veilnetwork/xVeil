@@ -950,17 +950,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     if (result != SpaceRecommendationRevokeResult.revoked) _failure();
   }
 
-  Future<void> _decideJoinRequest(
-    GroupService service,
-    SpaceJoinInboxEntry entry, {
-    required bool accept,
-  }) async {
-    if (!await service.decideSpaceJoinRequest(
-      entry.request.requestId,
-      accept: accept,
-    )) {
-      _failure();
-    }
+  Future<void> _retryJoinRequests(GroupService service) async {
+    await service.retryPendingSpaceJoins();
   }
 
   Future<void> _memberAction(
@@ -1918,26 +1909,9 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                       subtitle: Text(
                                         entry.request.requester.short,
                                       ),
-                                      trailing: Wrap(
-                                        spacing: 4,
-                                        children: [
-                                          TextButton(
-                                            onPressed: () => _decideJoinRequest(
-                                              service,
-                                              entry,
-                                              accept: false,
-                                            ),
-                                            child: Text(l.spaceJoinDecline),
-                                          ),
-                                          FilledButton.tonal(
-                                            onPressed: () => _decideJoinRequest(
-                                              service,
-                                              entry,
-                                              accept: true,
-                                            ),
-                                            child: Text(l.spaceJoinApprove),
-                                          ),
-                                        ],
+                                      trailing: TextButton(
+                                        onPressed: () => _retryJoinRequests(service),
+                                        child: Text(l.spaceJoinRetry),
                                       ),
                                     );
                                   },

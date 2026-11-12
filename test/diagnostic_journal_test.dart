@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/core/diagnostic_space_discovery.dart';
+import 'package:veil_flutter/veil_ffi.dart' show VeilException;
 import 'package:xveil/state/call_bitrate_adapter.dart';
 
 class _PrivateValue {
@@ -10,6 +12,43 @@ class _PrivateValue {
 }
 
 void main() {
+  test('public search evidence has stages without query or error text', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    final cases = <Object, SpaceDiscoveryFailureKind>{
+      VeilException('no embedded node running for this identity'):
+          SpaceDiscoveryFailureKind.nodeUnavailable,
+      VeilException('PRIVATE_QUERY PRIVATE_PATH PRIVATE_ID'):
+          SpaceDiscoveryFailureKind.nativeCall,
+      const FormatException('PRIVATE_QUERY'):
+          SpaceDiscoveryFailureKind.invalidData,
+      StateError('PRIVATE_PATH'): SpaceDiscoveryFailureKind.localState,
+      ArgumentError('PRIVATE_ID'): SpaceDiscoveryFailureKind.binding,
+      _PrivateValue(): SpaceDiscoveryFailureKind.other,
+    };
+    for (final stage in SpaceDiscoveryFailureStage.values) {
+      for (final entry in cases.entries) {
+        recordSpaceDiscoveryFailure(entry.key, stage: stage, journal: journal);
+        journal.record(DiagnosticEvent.transportSent);
+        final report = journal.toJson();
+        final evidence =
+            (report['last_evidence'] as Map)['spaceDiscoveryFailed'] as Map;
+        expect(evidence['values'], {
+          'state': stage.index,
+          'code': entry.value.index,
+          'success': 0,
+        });
+        expect(jsonEncode(report), isNot(contains('PRIVATE_')));
+      }
+    }
+    final disabled = DiagnosticJournal(enabled: false);
+    recordSpaceDiscoveryFailure(
+      _PrivateValue(),
+      stage: SpaceDiscoveryFailureStage.routeResolve,
+      journal: disabled,
+    );
+    expect(disabled.toJson()['events'], isEmpty);
+  });
+
   test('camera capture evidence accepts only bounded native state', () {
     for (final state in <Object?>[-1, 0, 1, 2, -2, 0.0, '0', _PrivateValue()]) {
       final journal = DiagnosticJournal(enabled: true);

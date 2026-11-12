@@ -51,6 +51,24 @@ enum DiagnosticEvent {
   cameraStart,
   folderSavedFailure,
   cameraStopped,
+  spaceDiscoveryFailed,
+}
+
+enum SpaceDiscoveryFailureStage {
+  transportUnavailable,
+  routeResolve,
+  searchInterface,
+  subscriptions,
+  memberships,
+}
+
+enum SpaceDiscoveryFailureKind {
+  other,
+  nodeUnavailable,
+  nativeCall,
+  invalidData,
+  localState,
+  binding,
 }
 
 /// Source-owned stages; never a device ID, label or native error string.
@@ -445,9 +463,24 @@ class DiagnosticJournal {
     );
   }
 
+  /// Coarse source-owned codes only: no query, route hash, identity or error
+  /// message is accepted by this API or retained in the exported report.
+  void recordSpaceDiscoveryFailure({
+    required SpaceDiscoveryFailureStage stage,
+    required SpaceDiscoveryFailureKind failure,
+  }) => record(
+    DiagnosticEvent.spaceDiscoveryFailed,
+    values: {
+      DiagnosticMetric.state: stage.index,
+      DiagnosticMetric.code: failure.index,
+      DiagnosticMetric.success: 0,
+    },
+  );
+
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
+    DiagnosticEvent.spaceDiscoveryFailed,
     DiagnosticEvent.callHistoryRestore,
     DiagnosticEvent.mediaSample,
     DiagnosticEvent.audioStart,

@@ -651,7 +651,9 @@ void main() {
         sent.add(json);
       },
     );
-    addTearDown(service.dispose);
+    addTearDown(() async {
+      if (!service.isDisposed) await service.dispose();
+    });
     final now = DateTime.now().millisecondsSinceEpoch;
     final link = SpaceJoinCode.encode(
       SpaceJoinTicket(
@@ -685,6 +687,12 @@ void main() {
     expect(sent, hasLength(1));
     expect(find.text(l.spaceJoinRequestSent), findsOneWidget);
     expect(await service.outgoingSpaceJoinRequests(), hasLength(1));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    bool closed = false;
+    unawaited(service.dispose().then((_) => closed = true));
+    await tester.pumpAndSettle();
+    expect(closed, isTrue);
   });
 
   testWidgets(
@@ -1502,9 +1510,11 @@ void main() {
     },
   );
 
-  testWidgets('public Space join link and approval are available in UI', (
+  testWidgets('public Space join link admits without a manual approval UI', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     String? copied;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -1530,7 +1540,9 @@ void main() {
       _Signer(owner),
       sendSpaceJoinDecision: (peer, requestId, json) async {},
     );
-    addTearDown(service.dispose);
+    addTearDown(() async {
+      if (!service.isDisposed) await service.dispose();
+    });
     final spaceId = await service.createSpace(
       'Open lab',
       visibility: SpaceVisibility.public,
@@ -1600,24 +1612,26 @@ void main() {
       approver: owner,
       createdAtMs: now,
     );
-    expect(
-      await service.receiveSpaceJoinRequest(
-        requester,
-        jsonEncode(request.toJson()),
-      ),
-      isTrue,
-    );
+    bool? received;
+    unawaited(service.receiveSpaceJoinRequest(
+      requester,
+      jsonEncode(request.toJson()),
+    ).then((value) => received = value));
+    await tester.pumpAndSettle();
+    expect(received, isTrue);
     await tester.pumpAndSettle();
     expect(
       find.byKey(ValueKey('space-join-request-${request.requestId}')),
-      findsOneWidget,
+      findsNothing,
     );
-    final approve = find.widgetWithText(FilledButton, l.spaceJoinApprove);
-    await tester.ensureVisible(approve);
-    await tester.pumpAndSettle();
-    await tester.tap(approve);
-    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, l.spaceJoinApprove), findsNothing);
     expect((await service.stateOf(spaceId))!.isMember(requester), isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    bool closed = false;
+    unawaited(service.dispose().then((_) => closed = true));
+    await tester.pumpAndSettle();
+    expect(closed, isTrue);
   });
 
   testWidgets('Space owner archives and restores from settings', (

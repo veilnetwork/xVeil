@@ -317,16 +317,22 @@ class SpaceJoinInboxEntry {
     required this.request,
     required this.receivedAtMs,
     this.decision,
+    this.decisionEnqueued = false,
   });
 
   final SpaceJoinRequest request;
   final int receivedAtMs;
   final SpaceJoinDecision? decision;
 
+  /// The signed snapshot and decision have reached the host's durable sender.
+  /// Older pending stores default to false and are resumed on startup.
+  final bool decisionEnqueued;
+
   bool get pending => decision == null;
 
   bool get isStructurallyValid =>
       request.isStructurallyValid &&
+      (!decisionEnqueued || decision != null) &&
       receivedAtMs >= request.createdAtMs &&
       (decision == null ||
           (decision!.isStructurallyValid &&
@@ -338,6 +344,7 @@ class SpaceJoinInboxEntry {
     'request': request.toJson(),
     'receivedAt': receivedAtMs,
     if (decision != null) 'decision': decision!.toJson(),
+    if (decisionEnqueued) 'decisionEnqueued': true,
   };
 
   static SpaceJoinInboxEntry? fromJson(Object? value) {
@@ -353,6 +360,7 @@ class SpaceJoinInboxEntry {
       request: request,
       receivedAtMs: value['receivedAt'] as int,
       decision: decision,
+      decisionEnqueued: value['decisionEnqueued'] == true,
     );
     return entry.isStructurallyValid ? entry : null;
   }

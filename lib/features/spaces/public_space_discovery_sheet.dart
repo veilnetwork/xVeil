@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../core/diagnostic_journal.dart';
+import '../../core/diagnostic_space_discovery.dart';
 import '../../domain/space_discovery_search.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -93,6 +95,7 @@ class _PublicSpaceDiscoverySheetState
       }
       return;
     }
+    var stage = SpaceDiscoveryFailureStage.searchInterface;
     try {
       late final SpacePublicDiscoverySearchOutcome outcome;
       if (_nodeIdPattern.hasMatch(query)) {
@@ -106,7 +109,9 @@ class _PublicSpaceDiscoverySheetState
       } else {
         outcome = await service.searchPublicSpaceDiscoveryOutcome(query);
       }
+      stage = SpaceDiscoveryFailureStage.subscriptions;
       final subscriptions = await service.publicSpaceSubscriptions();
+      stage = SpaceDiscoveryFailureStage.memberships;
       final memberships = await service.listSpaces();
       if (!mounted || generation != _generation) return;
       setState(() {
@@ -119,7 +124,8 @@ class _PublicSpaceDiscoverySheetState
         };
         _memberIds = {for (final item in memberships) item.groupId.hex};
       });
-    } catch (_) {
+    } catch (error) {
+      recordSpaceDiscoveryFailure(error, stage: stage);
       if (!mounted || generation != _generation) return;
       setState(() {
         _loading = false;

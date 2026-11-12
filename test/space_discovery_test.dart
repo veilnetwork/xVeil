@@ -662,6 +662,44 @@ void main() {
     );
   });
 
+  test('XS separates a transport device from its authorized logical holder', () {
+    const now = 4000000;
+    final descriptor = _descriptor(now: now);
+    final publicKey = _id(17).bytes;
+    final device = NodeId(blake3Hash(publicKey));
+    final identity = _id(18);
+    final unsigned = SpacePublicHolderAnnouncement(
+      spaceId: descriptor.spaceId,
+      descriptorHash: descriptor.descriptorHash,
+      publicFeedManifestHash: descriptor.publicFeedManifestHash,
+      holder: identity,
+      holderPublicKey: publicKey,
+      issuedAtMs: now,
+      expiresAtMs: now + const Duration(hours: 1).inMilliseconds,
+    );
+    final holder = unsigned.withSignature(
+      _signature(identity, publicKey, unsigned.canonicalBytes()));
+    final payload = SpacePublicDiscoveryPayload(descriptor: descriptor, holder: holder);
+    final carrier = SpaceDiscoveryCarrier.sign(
+      route: SpaceDiscoveryCarrierRoute.direct(descriptor.spaceId),
+      payload: payload,
+      holder: device,
+      holderPublicKey: publicKey,
+      sign: (message) => (signature: _signature(device, publicKey, message), publicKey: publicKey),
+    );
+    expect(carrier.holder, isNot(holder.holder));
+    expect(carrier.verifyAt(now, _verify), isTrue);
+    expect(carrier.verifyAt(now, ({required signer, required publicKey,
+      required message, required signature}) => signer != identity && _verify(
+        signer: signer, publicKey: publicKey, message: message, signature: signature)),
+      isFalse, reason: 'a valid outer device signature never authorizes the inner identity');
+    expect(() => SpaceDiscoveryCarrier.sign(
+      route: carrier.route, payload: payload, holder: device,
+      holderPublicKey: _id(19).bytes,
+      sign: (message) => (signature: Uint8List(64), publicKey: _id(19).bytes)),
+      throwsArgumentError, reason: 'the inner and outer signing keys must match');
+  });
+
   test(
     'native XS carrier round-trips and rejects tampering or wrong route',
     () {
