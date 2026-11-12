@@ -156,3 +156,4 @@ jobs:
           toolchain: '1.97.1'
       - run: python3 third_party/veil/scripts/test_release_proc_macros.py
       - run: python3 third_party/veil/scripts/test_release_proc_macros.py --workspace third_party/hidden-volume
+      - run: python3 third_party/veil/scripts/test_release_staging.py

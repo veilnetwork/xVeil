@@ -66,7 +66,15 @@ gate loads bundled native libraries in an isolated process, both before export
 and from the copied artifact before replacing any previous output. It starts no
 application, recording or playback. The old gate accepted an unloadable fixture;
 three native loader/export-preservation tests now pass, plus the eleven existing
-build-orchestration checks. A full rebuild with the target fix is still pending.
+build-orchestration checks. The full repeat on application `35de3e11` completed
+in 488.69 seconds. All five bundled libraries (SDK, storage, media, whisper and
+translation) loaded successfully, including the copied artifact. Its signature
+passed; 126 members / 128,821,471 scanned bytes had zero home paths or source
+home URIs. A separate known-private-data scan covered 108 unique physical files
+with zero findings. The development media cache was then updated to the verified
+current-source binary. No app window, container, recording or playback was opened.
+This qualifies the builder; the later dependency fixes below still require final
+release builds.
 
 ## ARM64 PE symbol-reader correction
 
@@ -85,6 +93,52 @@ all 107 required Dart lookups resolved. No application or audio was started by
 this probe. Its temporary files were removed and the previous SDK, storage and
 media DLL hashes remained unchanged. This does not qualify Windows 10 or speech
 audibility.
+
+## Dependency audit caught by source CI
+
+SDK source CI reached its advisory gate and stopped on five Hickory advisories
+and one rustix unsoundness warning. Formatting, clippy and preceding native
+checks had passed; this was not treated as an infrastructure failure.
+
+| Component | Validation | Change |
+| --- | --- | --- |
+| Hickory 0.26.1 | DNS bootstrap uses the resolver. The [wire-decoder allocation advisory](https://github.com/rustsec/advisory-db/blob/main/crates/hickory-proto/RUSTSEC-2026-0491.md) is relevant to parsing DNS responses; the other text-parser findings are not asserted to be reachable in this client. | Resolver, proto and net updated together to 0.26.2; proto requires prefix-trie 0.8.4. |
+| rustix 1.1.4 | The [zero-length xattr buffer advisory](https://github.com/rustsec/advisory-db/blob/main/crates/rustix/RUSTSEC-2026-0486.md) is confirmed upstream. Exploitation through the application's working paths was not established. A compatible patch is available and removes the SDK audit blocker. | 1.1.6 in SDK and storage runtime locks; SDK fuzz lock updated too. |
+
+An intermediate resolver/proto-only update failed compilation because net was
+still 0.26.1. That combination was rejected. The coherent three-package 0.26.2
+family passed 141 bootstrap tests (one ignored). Storage passed 753 workspace
+tests (five ignored). Unrelated Windows binding and randomness dependency edges
+were retained and Cargo accepted the resulting locked graphs.
+
+SDK main, fuzz and compiler-fixture audits pass with `--deny warnings`; there are
+zero vulnerabilities and zero warnings under the existing policy. No advisory
+exceptions were added. Storage reports zero vulnerabilities and its pre-existing
+maintenance-only basic-toml warning; that warning is not called a vulnerability.
+The advisory database revision was
+`fd6f39814c4d3c359fdbe223d0280dec4933f78f` (1,458 entries).
+
+The compiler fixture now has a standalone workspace/source target and a CI
+metadata-plus-audit gate. Its final fixture still reproduces E0463 under the old
+release profile and passes under the corrected SDK and storage profiles. The
+existing hygiene-workflow parser self-test passes with 30 steps. Standalone
+vendored Quinn/tun2proxy lockfiles do not select the production dependency graph
+and were not upgraded. An ignored local storage-fuzz lock was refreshed locally;
+it is not presented as a tracked release defect.
+
+## Standalone release staging
+
+The SDK release script could build into `CARGO_TARGET_DIR` and then stage older
+files from the conventional `target/` directory. A native regression builds four
+tiny real Rust executables into an external directory containing spaces, leaving
+stale files in the conventional location. The old script stages `stale`; the
+corrected script stages runnable `fresh` binaries with valid ad-hoc signatures.
+
+Both SDK and storage local releasers now follow the actual Cargo output path.
+The storage local path also uses locked resolution and the Darwin
+unstripped-link / Apple-strip / re-sign sequence already used by its publication
+workflow. No CLI options or storage format changed. The staging regression is
+included in the macOS native CI job.
 
 ## Privacy and remaining work
 
