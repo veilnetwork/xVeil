@@ -1,0 +1,11 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "fixed-locally",
+  "scope": "atomic-device-group-credential-publication",
+  "unit": {"passed": 570, "skipped": 0},
+  "process": {"existingFamily": 2, "freshAdoption": 4, "skipped": 0},
+  "sdkSource": "e963fbdb",
+  "hiddenVolumeSource": "293792d",
+  "platform": "macos-arm64-jit",
+  "published": false
+}

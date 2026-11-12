@@ -40,6 +40,7 @@ import '../data/storage/file_store.dart'
         StoredFileBatchReader,
         StoredFilePresenceReader,
         StoredFilePairWriter,
+        StoredFileSettingWriter,
         StoredFileWrite;
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
@@ -19909,15 +19910,30 @@ class GroupService implements ArchiveGroups {
   static const String kPendingDeviceAdoptionFile = 'device-adoption.pending.v1';
 
   String? _deviceGidCache;
+  Future<void> _deviceAdoptionTail = Future<void>.value();
+  Future<void> _devicePublicationTail = Future<void>.value();
+  Future<void>? _devicePublicationPending;
+  int _devicePublicationEpoch = 0;
 
   /// My device group's id (hex), or null before the first link/adopt.
   Future<String?> deviceGroupIdHex() async {
-    if (_deviceGidCache == null) {
-      final stored = await _storage.getSetting('devices.gid');
-      // A late empty read must not erase a link/adoption completed meanwhile.
-      _deviceGidCache ??= stored;
+    while (true) {
+      final pending = _devicePublicationPending;
+      if (pending != null) {
+        await pending;
+        continue;
+      }
+      final epoch = _devicePublicationEpoch;
+      if (_deviceGidCache == null) {
+        final stored = await _storage.getSetting('devices.gid');
+        if (epoch != _devicePublicationEpoch ||
+            _devicePublicationPending != null) {
+          continue;
+        }
+        _deviceGidCache ??= stored;
+      }
+      return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
     }
-    return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
   }
 
   /// Debug/stand repair for the historical broken state (2026-07-13) where
@@ -19953,8 +19969,19 @@ class GroupService implements ArchiveGroups {
   /// when the BOOT turned out to have a second, shorter reader of its own that
   /// skipped the legacy settings fallback — and the boot is where the answer
   /// decides which identity a phrase names.
-  Future<({Uint8List? bundle, bool corrupt})> _readSovereignCredential() =>
-      material.readSovereignCredential(_storage);
+  Future<({Uint8List? bundle, bool corrupt})> _readSovereignCredential() async {
+    while (true) {
+      if (_devicePublicationPending != null) {
+        await _devicePublicationPending;
+        continue;
+      }
+      final epoch = _devicePublicationEpoch;
+      final read = await material.readSovereignCredential(_storage);
+      if (epoch == _devicePublicationEpoch && _devicePublicationPending == null) {
+        return read;
+      }
+    }
+  }
 
   Future<void> _writeSovereignCredential(Uint8List bundle) =>
       _storage.storeFile(
@@ -20125,12 +20152,10 @@ class GroupService implements ArchiveGroups {
         await _clearSovereignCredential();
       }
       return gid;
-    } catch (_) {
-      if (installed) {
-        await _clearSovereignCredential();
-      }
-      rethrow;
     } finally {
+      // An exception may follow a durable publication whose reply was lost.
+      // Preserve the validated credential on uncertain completion; only the
+      // known pre-publication refusal (gid == null above) rolls it back.
       signer.close();
     }
   }
@@ -20912,7 +20937,7 @@ class GroupService implements ArchiveGroups {
       }
     }
 
-    await _save(
+    final minted = await _save(
       GroupBundle(
         manifest: manifest,
         control: control,
@@ -20925,9 +20950,7 @@ class GroupService implements ArchiveGroups {
       idx.add(gid.hex);
       await _setIndex(idx);
     }
-    await _storage.putSetting('devices.gid', gid.hex);
-    _deviceGidCache = gid.hex;
-    _publishDeviceMembersCache(manifest, folded.state);
+    await _publishDeviceGroup(minted, folded.state);
     if (broadcastSnapshot) await broadcast(gid, reseed: true);
     return gid;
   }
@@ -21057,7 +21080,15 @@ class GroupService implements ArchiveGroups {
   /// explicit: a device group is NEVER auto-adopted from an inbound snapshot,
   /// or any contact could plant a marker-named group and start receiving this
   /// device's sync events.
-  Future<bool> adoptDeviceGroup(NodeId groupId) async {
+  Future<bool> adoptDeviceGroup(NodeId groupId) {
+    // Two different group locks must not race to replace one active pointer.
+    final result = _deviceAdoptionTail.then((_) => _adoptDeviceGroup(groupId));
+    _deviceAdoptionTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<bool> _adoptDeviceGroup(NodeId groupId) async {
+    if (_disposed) return false;
     // Ingest can save valid rows while the ceremony is still inert. Adopt
     // under that same gate so every such row is either replayed here or
     // streamed by a subsequent ingest, with no gap between the two.
@@ -21102,15 +21133,7 @@ class GroupService implements ArchiveGroups {
       initialName: bundle.manifest.name,
     ).state;
     if (!state.isMember(_signer.selfId)) return false;
-    if (bundle.sovereignBundle != null) {
-      await _writeSovereignCredential(bundle.sovereignBundle!);
-    }
-    // Publish the active group only after its encrypted owner credential is
-    // durable. A failed credential store or crash must not leave a linked
-    // device unable to open the sovereign key for its advertised group.
-    await _storage.putSetting('devices.gid', groupId.hex);
-    _deviceGidCache = groupId.hex;
-    _publishDeviceMembersCache(bundle.manifest, state);
+    await _publishDeviceGroup(bundle, state);
     changes.value++;
     // Ingest deliberately kept the snapshot inert before adoption. Replay its
     // validated state now that gid + sovereign genesis + membership are bound.
@@ -21126,6 +21149,58 @@ class GroupService implements ArchiveGroups {
       }
     }
     return true;
+  }
+
+  Future<void> _publishDeviceGroup(GroupBundle bundle, GroupState state) {
+    _devicePublicationEpoch++;
+    final work = _devicePublicationTail.then((_) async {
+      if (_disposed) throw StateError('device group service disposed');
+      _invalidateDeviceMembersCache();
+      _masterDeviceCachedAtMs = null;
+      try {
+        final encrypted = bundle.sovereignBundle;
+        final gid = bundle.manifest.groupId.hex;
+        if (encrypted != null) {
+          final writer = _storage;
+          if (writer is! StoredFileSettingWriter) {
+            throw UnsupportedError(
+              'device group needs atomic credential publication',
+            );
+          }
+          await (writer as StoredFileSettingWriter).storeFileWithSetting(
+            StoredFileWrite(
+              kSovereignBundleSetting,
+              encrypted,
+              name: 'sovereign-credential',
+            ),
+            settingKey: 'devices.gid',
+            settingValue: gid,
+          );
+        } else {
+          await _storage.putSetting('devices.gid', gid);
+        }
+        _deviceGidCache = gid;
+        _publishDeviceMembersCache(bundle.manifest, state);
+      } catch (_) {
+        // A lost completion can follow a successful all-or-none commit. Drop
+        // warm state and let readers discover the actual durable pair.
+        _deviceGidCache = null;
+        _invalidateDeviceMembersCache();
+        if (!_disposed) changes.value++;
+        rethrow;
+      }
+    });
+    final settled = work.then<void>((_) {}, onError: (_) {});
+    _devicePublicationTail = settled;
+    _devicePublicationPending = settled;
+    unawaited(
+      settled.then((_) {
+        if (identical(_devicePublicationPending, settled)) {
+          _devicePublicationPending = null;
+        }
+      }),
+    );
+    return work;
   }
 
   /// Called on the joining device once its group is ready for local settings

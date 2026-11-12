@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/state/group_service.dart';
 
 /// Test-only SIGSTOP immediately before/after a real encrypted adoption write.
@@ -39,6 +40,25 @@ class PrivateDeviceAdoptionGate extends HiddenVolumeStorage {
     if (value['write'] != write) return null;
     _captured = true;
     return value;
+  }
+
+  @override
+  Future<void> storeFileWithSetting(
+    StoredFileWrite file, {
+    required String settingKey,
+    required String settingValue,
+  }) async {
+    final arm = settingKey == 'devices.gid' ? _armFor('activation') : null;
+    final digest = arm == null
+        ? null
+        : sha256.convert(utf8.encode(settingValue)).toString();
+    if (arm?['phase'] == 'before') _pause(arm!, digest!);
+    await super.storeFileWithSetting(
+      file,
+      settingKey: settingKey,
+      settingValue: settingValue,
+    );
+    if (arm?['phase'] == 'after') _pause(arm!, digest!);
   }
 
   @override

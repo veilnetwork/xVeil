@@ -2751,6 +2751,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final stack = ref.read(realStackProvider);
       if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
       await stack.addContact(token.sourceInvite);
+      final restart = adoptionNeedsNodeRestart(
+        runningIdentity: stack.myInvite.nodeId,
+        token: token,
+      );
       // The mirror of what the source did with our invite's document. Both
       // devices have to end up holding the document that names both, or the
       // link is one-directional: this one would publish a registry of itself
@@ -2763,7 +2767,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           stagingBase: Directory.systemTemp.path,
         );
         devLog(() => 'xVeil[link]: source document merged=$merged');
-        if (merged) {
+        if (merged && !restart) {
           await stack.refreshSovereignIdentity(ref.read(storageProvider));
         }
       }
@@ -2775,10 +2779,6 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }
       // Same step as the sheet: a node still running as the throwaway
       // identity restarts as the one it joined.
-      final restart = adoptionNeedsNodeRestart(
-        runningIdentity: stack.myInvite.nodeId,
-        token: token,
-      );
       await _json(req, {
         'ok': true,
         'group': token.groupId.hex,

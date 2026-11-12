@@ -492,7 +492,32 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
   _AdoptionCredentialWriteFault(super.opener);
 
   bool rejectCredential = false;
-  Uint8List? credentialAtPublication;
+  bool rejectGroupPointer = false;
+  Uint8List? credentialAfterAtomicPublication;
+  bool loseAtomicReply = false;
+
+  @override
+  Future<void> storeFileWithSetting(
+    StoredFileWrite file, {
+    required String settingKey,
+    required String settingValue,
+  }) async {
+    if (rejectCredential || rejectGroupPointer) {
+      throw StateError('fixture atomic publication refused');
+    }
+    await super.storeFileWithSetting(
+      file,
+      settingKey: settingKey,
+      settingValue: settingValue,
+    );
+    credentialAfterAtomicPublication = await loadFile(
+      GroupService.kSovereignBundleSetting,
+    );
+    if (loseAtomicReply) {
+      loseAtomicReply = false;
+      throw StateError('fixture atomic completion lost');
+    }
+  }
 
   @override
   Future<void> storeFile(
@@ -510,9 +535,7 @@ class _AdoptionCredentialWriteFault extends HiddenVolumeStorage {
   @override
   Future<void> putSetting(String key, String value) async {
     if (key == 'devices.gid') {
-      credentialAtPublication = await loadFile(
-        GroupService.kSovereignBundleSetting,
-      );
+      if (rejectGroupPointer) throw StateError('fixture group pointer refused');
     }
     await super.putSetting(key, value);
   }
@@ -7532,6 +7555,151 @@ void main() {
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB',
   );
 
+  for (final lostReply in [false, true]) {
+    test(
+      'group replacement preserves its durable owner, lostReply=$lostReply',
+      () async {
+        Future<({GroupBundle bundle, String phrase, Uint8List credential})>
+        prepare(NodeId self) async {
+          final phrase = veil.generateMasterPhrase();
+          final credential = veil.createHybrid512SovereignBundle(phrase);
+          final storage = FakeHvContainer().storage();
+          await storage.open(password: 'pw', createIfMissing: true);
+          addTearDown(storage.close);
+          await storage.storeFile(
+            GroupService.kSovereignBundleSetting,
+            credential,
+          );
+          final source = GroupService(storage, _NativeSovereignVerifier(self));
+          addTearDown(source.dispose);
+          final signer = NativeSovereignGroupSigner.openBundle(
+            credential,
+            phrase,
+          );
+          try {
+            expect(await source.linkDevice(bob, sovereign: signer), isTrue);
+          } finally {
+            signer.close();
+          }
+          final bundle = (await source.load(
+            NodeId.fromHex((await source.deviceGroupIdHex())!),
+          ))!;
+          return (bundle: bundle, phrase: phrase, credential: credential);
+        }
+
+        final old = await prepare(owner);
+        final next = await prepare(_id(96));
+        expect(old.bundle.manifest.owner, isNot(next.bundle.manifest.owner));
+        final storage = _AdoptionCredentialWriteFault(
+          FakeHvContainer().passwordOpener,
+        );
+        await storage.open(password: 'pw', createIfMissing: true);
+        addTearDown(storage.close);
+        final target = GroupService(storage, _NativeSovereignVerifier(bob));
+        addTearDown(target.dispose);
+        expect(
+          await target.ingestSnapshot(target.snapshotJson(old.bundle)),
+          isTrue,
+        );
+        expect(
+          await target.adoptDeviceGroup(old.bundle.manifest.groupId),
+          isTrue,
+        );
+        final current = await target.openLocalSovereign(
+          old.phrase,
+          createIfMissing: false,
+        );
+        expect(current.nodeId, old.bundle.manifest.owner);
+        current.close();
+        expect(
+          await target.ingestSnapshot(target.snapshotJson(next.bundle)),
+          isTrue,
+        );
+        expect(
+          await target.deviceGroupIdHex(),
+          old.bundle.manifest.groupId.hex,
+        );
+        storage.rejectGroupPointer = !lostReply;
+        storage.loseAtomicReply = lostReply;
+        await expectLater(
+          target.adoptDeviceGroup(next.bundle.manifest.groupId),
+          throwsStateError,
+        );
+        final expected = lostReply ? next : old;
+        expect(
+          await storage.getSetting('devices.gid'),
+          expected.bundle.manifest.groupId.hex,
+        );
+        expect(
+          await target.deviceGroupIdHex(),
+          expected.bundle.manifest.groupId.hex,
+        );
+        expect(await target.localSovereignBundle(), expected.credential);
+        final reopened = await target.openLocalSovereign(
+          expected.phrase,
+          createIfMissing: false,
+        );
+        try {
+          expect(reopened.nodeId, expected.bundle.manifest.owner);
+        } finally {
+          reopened.close();
+        }
+      },
+      skip: hasVeilFfi
+          ? false
+          : 'set VEIL_FFI_DYLIB for native owner replacement',
+    );
+  }
+
+  test(
+    'lost recovery publication completion retains the installed owner',
+    () async {
+      final phrase = veil.generateMasterPhrase();
+      final encrypted = veil.createHybrid512SovereignBundle(phrase);
+      final code = veil.generateSovereignRecoveryCode();
+      final certificate = veil.exportSovereignRecoveryCertificate(
+        encrypted,
+        phrase,
+        code,
+      );
+      final storage = _AdoptionCredentialWriteFault(
+        FakeHvContainer().passwordOpener,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      final service = GroupService(storage, _NativeSovereignVerifier(bob));
+      addTearDown(service.dispose);
+      storage.loseAtomicReply = true;
+      final before = service.changes.value;
+      await expectLater(
+        service.recoverDeviceGroupFromCertificate(certificate, code),
+        throwsStateError,
+      );
+      final gid = await service.deviceGroupIdHex();
+      expect(gid, isNotNull);
+      expect(service.changes.value, greaterThan(before));
+      expect(
+        await service.localSovereignBundle(),
+        certificate,
+        reason:
+            'a completed group publication must not lose its key in recovery cleanup',
+      );
+      final signer = await service.openLocalSovereign(
+        code,
+        createIfMissing: false,
+      );
+      try {
+        expect(
+          signer.nodeId,
+          (await service.load(NodeId.fromHex(gid!)))!.manifest.owner,
+        );
+      } finally {
+        signer.close();
+      }
+    },
+    skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB for recovery publication',
+  );
+
   for (final previousGroup in <String?>[null, _id(110).hex]) {
     test(
       'adoption publishes only a durable credential, previous=$previousGroup',
@@ -7593,7 +7761,7 @@ void main() {
         expect(await target.localSovereignBundle(), oldCredential);
         storage.rejectCredential = false;
         expect(await target.adoptDeviceGroup(gid), isTrue);
-        expect(storage.credentialAtPublication, encrypted);
+        expect(storage.credentialAfterAtomicPublication, encrypted);
         expect(await target.localSovereignBundle(), encrypted);
         final reopened = await target.openLocalSovereign(
           phrase,
