@@ -8051,9 +8051,6 @@ class AppL10nEn extends AppL10n {
   String get nodeConnectRefresh => 'Renew QR access';
 
   @override
-  String get nodeConnectInstall => 'Install or manage components';
-
-  @override
   String get folderSyncSavedTitle => 'Saved copies';
 
   @override

@@ -13962,12 +13962,6 @@ abstract class AppL10n {
   /// **'Renew QR access'**
   String get nodeConnectRefresh;
 
-  /// No description provided for @nodeConnectInstall.
-  ///
-  /// In en, this message translates to:
-  /// **'Install or manage components'**
-  String get nodeConnectInstall;
-
   /// No description provided for @folderSyncSavedTitle.
   ///
   /// In en, this message translates to:

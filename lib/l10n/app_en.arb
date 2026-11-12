@@ -3718,7 +3718,6 @@
   "nodeConnectExpired": "Access expired. Run veil-connect again and scan the new QR.",
   "nodeConnectError": "Could not connect. Check the code, server address, port and certificate.",
   "nodeConnectRefresh": "Renew QR access",
-  "nodeConnectInstall": "Install or manage components",
   "folderSyncSavedTitle": "Saved copies",
   "folderSyncSavedHint": "Save as creates a separate file. An incoming copy may be incomplete if the transfer was interrupted.",
   "folderSyncSavedPrevious": "Previous version",
