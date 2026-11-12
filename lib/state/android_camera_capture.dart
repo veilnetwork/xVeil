@@ -61,16 +61,21 @@ int preferredExactCameraFps(Iterable<int> available) {
 class AndroidCameraCapture {
   AndroidCameraCapture({
     this.highQuality = false,
+    this.requestedCameraId,
     // Stands in for a FACT about the device — which cameras it has — never for
     // a decision. Without a seam the supersede rule below can only be tested by
     // owning a camera, and it is a rule about awaits, not about hardware.
-    @visibleForTesting
-    Future<List<CameraDescription>> Function()? listCameras,
+    @visibleForTesting Future<List<CameraDescription>> Function()? listCameras,
   }) : _listCameras = listCameras ?? availableCameras;
 
   /// Direct P2P can afford a 720p capture source that WebRTC scales/adapts;
   /// padded onion media keeps the old low-resolution source.
   final bool highQuality;
+
+  /// Physical camera ID shared by Camera2 and the Android camera plugin.
+  /// Null preserves the default front-first selection. An explicit selection
+  /// must never silently open a different lens when it is unavailable.
+  final String? requestedCameraId;
   final Future<List<CameraDescription>> Function() _listCameras;
 
   /// Which start this is.
@@ -93,6 +98,7 @@ class AndroidCameraCapture {
   Future<bool>? _starting;
 
   CameraController? _ctrl;
+  String? get cameraId => _ctrl?.description.name;
   int _rotCw = 0; // clockwise rotation to make the frame upright (0/90/180/270)
   Isolate? _worker;
   ReceivePort? _workerResults;
@@ -109,8 +115,9 @@ class AndroidCameraCapture {
   int _maxInputGapUs = 0;
   int _inputHoldsOver75Ms = 0;
 
-  /// Open the front camera (falls back to the first) and stream frames to
-  /// [sink]. Returns false if no camera / permission denied / init failed.
+  /// Open the requested camera and stream frames to [sink]. Without an explicit
+  /// choice, prefer the front camera, then the first available camera.
+  /// Returns false if the requested lens is missing or cannot initialize.
   Future<bool> start(I420FrameSink sink) async {
     return _start(i420Sink: sink);
   }
@@ -121,10 +128,7 @@ class AndroidCameraCapture {
     return _start(rawSink: sink);
   }
 
-  Future<bool> _start({
-    I420FrameSink? i420Sink,
-    Android420FrameSink? rawSink,
-  }) {
+  Future<bool> _start({I420FrameSink? i420Sink, Android420FrameSink? rawSink}) {
     final started = _startOnce(i420Sink: i420Sink, rawSink: rawSink);
     _starting = started;
     return started.whenComplete(() {
@@ -139,15 +143,22 @@ class AndroidCameraCapture {
     final gen = ++_generation;
     try {
       _rawSink = rawSink;
-      if (i420Sink != null) await _startWorker(i420Sink);
       if (gen != _generation) return false;
       final cams = await _listCameras();
       if (gen != _generation) return false;
       if (cams.isEmpty) return false;
-      final cam = cams.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cams.first,
-      );
+      final requested = requestedCameraId;
+      final cam = requested == null
+          ? cams.firstWhere(
+              (c) => c.lensDirection == CameraLensDirection.front,
+              orElse: () => cams.first,
+            )
+          : cams.where((c) => c.name == requested).firstOrNull;
+      if (cam == null) return false;
+      // Missing/rejected selection must not leave an unused converter isolate.
+      // Open it only once we know which physical camera will be attempted.
+      if (i420Sink != null) await _startWorker(i420Sink);
+      if (gen != _generation) return false;
       // Camera frames arrive in sensor orientation; rotate them clockwise by
       // sensorOrientation so the far side sees an upright image. (Device-checked:
       // the front sensor here reports 90 -> a 90° CW rotation lands upright; the

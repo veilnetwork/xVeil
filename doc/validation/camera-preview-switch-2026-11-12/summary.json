@@ -1,0 +1,57 @@
+{
+  "schema": "xveil-camera-preview-validation/1",
+  "baseline": "4147ef5077fb8a7b4e573fa5b0782280c8ebd1e0",
+  "released_0_13_98_contains_three_mechanisms": true,
+  "unit_passed": 115,
+  "unit_skipped": 0,
+  "unit_sources_unchanged": true,
+  "source_input_count": 1537,
+  "unit_seconds": 14.519,
+  "stale_stats_red": {
+    "failed": 3,
+    "current_stop_control_passed": 1
+  },
+  "selection_old_algorithm_control": {
+    "failed": 3,
+    "front_controls_passed": 2,
+    "uses_current_choice_API": true,
+    "candidate_restored_exactly": true
+  },
+  "kotlin_compilation": {
+    "exitCode": 0,
+    "classFiles": 9
+  },
+  "native_media_source_digest": "59d214afb4b205ed17a28c50ada8a18587d270077466d1be8a1c587ffd8dafe2",
+  "native_engine_changed": false,
+  "geometry_probe": {
+    "sdk": 30,
+    "sessions": 8,
+    "switches": 7,
+    "initial_frames_discarded_per_session": 5,
+    "matrices_per_session": 15,
+    "front_positive_determinants": 60,
+    "front_negative_determinants": 0,
+    "rear_positive_determinants": 0,
+    "rear_negative_determinants": 60,
+    "image_or_audio_recording": false,
+    "modified_xveil_apk_tested": false
+  },
+  "cleanup": {
+    "testGroupExited": true,
+    "testVMs": 0,
+    "qaAndroidProcessExited": true,
+    "qaPackageRemoved": true,
+    "qaLoggerExited": true,
+    "mainAndroidApksUnchanged": true,
+    "testCacheRemovedBytes": 110681216,
+    "transientProbeBuildInputsRemoved": true,
+    "finalProbeApkRetained": true
+  },
+  "limits": [
+    "original_phone_updated_xveil_not_yet_tested",
+    "user_case_attribution_not_proven",
+    "self_front_mirror_is_intended",
+    "other_start_stop_races_not_qualified",
+    "complete_native_failure_to_plugin_phone_test_not_run"
+  ]
+}

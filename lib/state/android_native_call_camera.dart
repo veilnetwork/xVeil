@@ -32,6 +32,9 @@ class AndroidNativeCameraPreview {
   final int width;
   final int height;
   final int rotation;
+
+  /// Additional Dart flip, after Flutter applies the producer matrix. Camera2
+  /// supplies its front-lens mirror in that matrix and needs no extra flip.
   final bool mirror;
   final int fps;
   final String cameraId;
@@ -191,7 +194,13 @@ class AndroidNativeCallCamera {
     if (preview == null) return;
     try {
       final value = await _channel.invokeMapMethod<Object?, Object?>('stats');
-      if (value == null) return;
+      // A camera switch can complete while this platform reply is in flight.
+      // Retired capture stats must not clear the new texture or its mirroring.
+      if (value == null ||
+          !identical(_preview, preview) ||
+          !identical(androidNativeCallCameraPreview.value, preview)) {
+        return;
+      }
       _diagnostics = {
         'camera_native': true,
         'camera_id': preview.cameraId,
