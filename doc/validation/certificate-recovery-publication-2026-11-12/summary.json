@@ -1,0 +1,25 @@
+{
+  "schema": "xveil-validation/1",
+  "scope": "certificate-recovery-publication",
+  "baselineSelected": {
+    "passed": 0,
+    "failed": 7
+  },
+  "unitAndStorage": {
+    "passed": 597,
+    "skipped": 0
+  },
+  "newScenariosIncluded": 9,
+  "nativeColdContainerScenariosIncluded": 2,
+  "analyzeIssues": 0,
+  "release": false,
+  "processReplacementRegression": {
+    "passed": 2,
+    "skipped": 0
+  },
+  "cleanup": {
+    "trackedPidsAndGroupsExited": 31,
+    "registeredTcpUdpPortsFree": 30,
+    "testVms": 0
+  }
+}
