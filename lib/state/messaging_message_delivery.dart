@@ -1,5 +1,7 @@
 part of 'messaging_core.dart';
 
+typedef _PersistedAckStatus = ({bool moved, bool delivered});
+
 /// Retry, acknowledgement and bounded reconnect lifecycle for ordinary chat
 /// messages.
 ///
@@ -44,7 +46,7 @@ class _MessagingMessageDelivery {
   // Received receipts awaiting their local durable effect. Keep this distinct
   // from settled dedup: a failed write needs no new packet from the recipient.
   final _pendingAckStatus = <(String, String), Object>{};
-  final _ackStatusWrites = <(String, String), Future<bool>>{};
+  final _ackStatusWrites = <(String, String), Future<_PersistedAckStatus>>{};
   Future<void>? _ackRetryPass;
   static const _ackRetryBatch = 64;
 
@@ -94,20 +96,35 @@ class _MessagingMessageDelivery {
 
   /// Coalesce inbound and maintenance writers. Only the initiating caller
   /// receives `moved=true`, so a joined retry cannot publish the same change.
-  Future<bool> persistAckStatus(String peerHex, String messageId) {
+  Future<bool> persistAckStatus(String peerHex, String messageId) =>
+      _persistAckStatusResult(
+        peerHex,
+        messageId,
+      ).then((result) => result.moved);
+
+  Future<_PersistedAckStatus> _persistAckStatusResult(
+    String peerHex,
+    String messageId,
+  ) {
     if (_owner._disposed) {
-      return Future<bool>.error(StateError('messaging is closed'));
+      return Future<_PersistedAckStatus>.error(
+        StateError('messaging is closed'),
+      );
     }
     final key = (peerHex, messageId);
     final active = _ackStatusWrites[key];
-    if (active != null) return active.then((_) => false);
+    if (active != null) {
+      return active.then(
+        (result) => (moved: false, delivered: result.delivered),
+      );
+    }
     final receipt = _pendingAckStatus.putIfAbsent(key, Object.new);
     if (_pendingAckStatus.length > _delivered.capacity) {
       final oldest = _pendingAckStatus.keys.first;
       _pendingAckStatus.remove(oldest);
       _delivered.forget(oldest.$1, oldest.$2);
     }
-    late final Future<bool> work;
+    late final Future<_PersistedAckStatus> work;
     work = _persistAckStatus(key, receipt).whenComplete(() {
       if (identical(_ackStatusWrites[key], work)) _ackStatusWrites.remove(key);
     });
@@ -115,7 +132,10 @@ class _MessagingMessageDelivery {
     return work;
   }
 
-  Future<bool> _persistAckStatus((String, String) key, Object receipt) async {
+  Future<_PersistedAckStatus> _persistAckStatus(
+    (String, String) key,
+    Object receipt,
+  ) async {
     final (peerHex, messageId) = key;
     try {
       final moved = await _owner._storage.markMessageStatus(
@@ -123,6 +143,7 @@ class _MessagingMessageDelivery {
         messageId,
         MessageStatus.delivered,
       );
+      var delivered = moved;
       if (!moved) {
         // false also covers a failed target read. Cache only a settled row or
         // an absent control-frame id, never a readable row still awaiting ACK.
@@ -134,12 +155,13 @@ class _MessagingMessageDelivery {
         if (target != null && target.status != MessageStatus.delivered) {
           throw StateError('Delivery status was not saved');
         }
+        delivered = target?.status == MessageStatus.delivered;
       }
       if (identical(_pendingAckStatus[key], receipt)) {
         _pendingAckStatus.remove(key);
       }
       _delivered.remember(peerHex, messageId);
-      return moved;
+      return (moved: moved, delivered: delivered);
     } catch (_) {
       // A capped-out receipt falls back to the ordinary network retry path.
       // Retained work suppresses both re-sending and the terminal-age policy.
@@ -168,9 +190,9 @@ class _MessagingMessageDelivery {
             // wait behind its I/O or hold up unrelated conversation retries.
             if (_ackStatusWrites.containsKey(key)) continue;
             try {
-              final moved = await persistAckStatus(key.$1, key.$2);
+              final result = await _persistAckStatusResult(key.$1, key.$2);
               if (_owner._disposed) break;
-              if (moved) {
+              if (result.moved) {
                 try {
                   _owner.onMessageStatusChanged?.call(
                     NodeId.fromHex(key.$1),
@@ -180,6 +202,11 @@ class _MessagingMessageDelivery {
                 } finally {
                   _owner._signal();
                 }
+              } else if (result.delivered) {
+                // A lost commit response left the open chat on its old view.
+                // Refresh from the verified read-back, without inventing a
+                // second transition for the own-device journal.
+                _owner._signal();
               }
               _owner._mailboxDelivery.noteAcknowledged(key.$1, key.$2);
             } catch (_) {
