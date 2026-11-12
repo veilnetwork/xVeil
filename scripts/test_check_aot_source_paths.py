@@ -18,6 +18,40 @@ spec.loader.exec_module(scanner)
 
 
 class AotSourcePathsTest(unittest.TestCase):
+    def test_role_counts_do_not_reflect_member_names_or_protected_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'app.apk'
+            home = '/home/private-builder'
+            with zipfile.ZipFile(path, 'w') as archive:
+                archive.writestr('lib/arm64-v8a/libapp.so', b'file:///home/private-builder/main.dart')
+                archive.writestr('lib/x86_64/libhidden_volume_ffi.so', (home + '/native.rs').encode())
+                archive.writestr('secret-member-private-builder', (home + '/other').encode())
+            result = scanner.scan_artifact(path, current_home=home, include_roles=True)
+            self.assertEqual(result['path_roles'], [
+                {'role': 'dart_aot', 'abi': 'arm64-v8a', 'source_home_uris': 1, 'current_home_paths': 1},
+                {'role': 'other', 'abi': 'unknown', 'source_home_uris': 0, 'current_home_paths': 1},
+                {'role': 'storage_native', 'abi': 'x86_64', 'source_home_uris': 0, 'current_home_paths': 1},
+            ])
+            serialized = json.dumps(result)
+            self.assertNotIn('private-builder', serialized)
+            self.assertNotIn('secret-member', serialized)
+            self.assertNotIn(tmp, serialized)
+
+    def test_build_failure_exposes_only_counts_and_fixed_categories(self):
+        import aot_build
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with zipfile.ZipFile(root / 'app.apk', 'w') as archive:
+                archive.writestr('lib/arm64-v8a/libveil_media.so',
+                                 b'file:///home/private-builder/native.cc')
+            with self.assertRaises(ValueError) as failure:
+                aot_build._check_paths(root)
+            message = str(failure.exception)
+            self.assertIn('media_native', message)
+            self.assertIn('source_home_uris', message)
+            self.assertNotIn('private-builder', message)
+            self.assertNotIn(tmp, message)
+
     def test_owners_do_not_have_to_be_known(self):
         for uri in [
             b"file:///Users/fixture-builder/project/lib/main.dart",

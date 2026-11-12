@@ -71,21 +71,50 @@ def current_home_path_count(data: bytes, home: str) -> int:
     return count
 
 
+def _member_role(name: str) -> tuple[str, str]:
+    """Fixed categories only; never echo an artifact-controlled member name."""
+    names = {
+        'libapp.so': 'dart_aot', 'app.so': 'dart_aot',
+        'libflutter.so': 'flutter_engine',
+        'libveilclient_ffi.so': 'overlay_native',
+        'libhidden_volume_ffi.so': 'storage_native',
+        'libveil_media.so': 'media_native',
+        'libveil_whisper.so': 'speech_native',
+        'libveil_translate.so': 'translation_native',
+    }
+    match = re.fullmatch(r'lib/(arm64-v8a|armeabi-v7a|x86_64)/([^/]+)', name)
+    if match:
+        return names.get(match[2], 'other_native'), match[1]
+    if name.startswith('assets/'):
+        return 'assets', 'unknown'
+    if re.fullmatch(r'classes[0-9]*\.dex', name):
+        return 'android_code', 'unknown'
+    return names.get(name, 'other'), 'unknown'
+
+
 def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT,
-                  current_home: str | None = None) -> dict[str, int]:
+                  current_home: str | None = None,
+                  include_roles: bool = False) -> dict:
     if byte_limit <= 0:
         raise ValueError("invalid scan budget")
     total = members = matches = home_matches = 0
+    roles = {}
 
-    def consume(data: bytes) -> None:
+    def consume(data: bytes, member: str) -> None:
         nonlocal total, members, matches, home_matches
         total += len(data)
         if total > byte_limit:
             raise ValueError("artifact scan budget exceeded")
         members += 1
-        matches += source_home_uri_count(data)
-        if current_home is not None:
-            home_matches += current_home_path_count(data, current_home)
+        uri_count = source_home_uri_count(data)
+        home_count = current_home_path_count(data, current_home) if current_home is not None else 0
+        matches += uri_count
+        home_matches += home_count
+        if include_roles and (uri_count or home_count):
+            key = _member_role(member)
+            counts = roles.setdefault(key, [0, 0])
+            counts[0] += uri_count
+            counts[1] += home_count
 
     def scan_file(file: Path) -> None:
         nonlocal total
@@ -95,14 +124,14 @@ def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT,
                 if total + sum(e.file_size for e in entries) > byte_limit:
                     raise ValueError("artifact scan budget exceeded")
                 for entry in entries:
-                    consume(archive.read(entry))
+                    consume(archive.read(entry), entry.filename)
         else:
             # A damaged ZIP must not quietly pass as an opaque compressed file.
             if file.suffix.lower() in {".zip", ".apk", ".aab", ".ipa"}:
                 raise ValueError("invalid artifact archive")
             if total + file.stat().st_size > byte_limit:
                 raise ValueError("artifact scan budget exceeded")
-            consume(file.read_bytes())
+            consume(file.read_bytes(), file.name)
 
     if path.is_dir():
         base = path.resolve(strict=True)
@@ -134,6 +163,12 @@ def scan_artifact(path: Path, *, byte_limit: int = DEFAULT_LIMIT,
               "source_home_uri_occurrences": matches}
     if current_home is not None:
         result["current_home_path_occurrences"] = home_matches
+    if include_roles:
+        result["path_roles"] = [
+            {"role": role, "abi": abi, "source_home_uris": counts[0],
+             "current_home_paths": counts[1]}
+            for (role, abi), counts in sorted(roles.items())
+        ]
     return result
 
 
