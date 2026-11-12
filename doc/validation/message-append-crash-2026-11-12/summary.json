@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-12",
+  "platform": "macOS arm64 native processes and containers; Flutter JIT host",
+  "sources": {
+    "productCode": "742771745710c280f0cd38e227715db6d5d14f7c",
+    "testCommit": "e4612be293665d65633ebfc756651ec10effd525",
+    "veil": "e963fbdb8e4ee7d233e2747d59615925568461ca",
+    "hiddenVolume": "293792d7acb815accf44f91a0f3cc11c067b9bd2"
+  },
+  "unitTestsPassed": 2,
+  "processE2eTestsPassed": 2,
+  "skipped": 0,
+  "phases": [
+    {
+      "phase": "before",
+      "receiverActuallySuspended": true,
+      "receiverExitCode": -9,
+      "senderHadNoDeliveryAckAtCheckpoint": true,
+      "coldMessagePresentBeforeNetwork": false,
+      "expectedColdPresence": false,
+      "sameIdRecoveredExactlyOnce": true,
+      "senderAndSiblingDelivered": true,
+      "subsequentRatchetBothDirections": true,
+      "finalColdRowsWithSourcesStopped": 5,
+      "finalRowsVerifiedBeforeNodeStart": true,
+      "finalIdsAndBodiesMatch": true
+    },
+    {
+      "phase": "after",
+      "receiverActuallySuspended": true,
+      "receiverExitCode": -9,
+      "senderHadNoDeliveryAckAtCheckpoint": true,
+      "coldMessagePresentBeforeNetwork": true,
+      "expectedColdPresence": true,
+      "sameIdRecoveredExactlyOnce": true,
+      "senderAndSiblingDelivered": true,
+      "subsequentRatchetBothDirections": true,
+      "finalColdRowsWithSourcesStopped": 5,
+      "finalRowsVerifiedBeforeNodeStart": true,
+      "finalIdsAndBodiesMatch": true
+    }
+  ],
+  "sourceAndNativeUnchangedDuringRun": true,
+  "cleanup": {
+    "ownedProcesses": 18,
+    "ownedProcessesExited": true,
+    "selectedTcpListenPortsChecked": 18,
+    "tcpListenersLeft": 0,
+    "runtimeRootsRemoved": 2,
+    "phoneTouched": false,
+    "windowsTouched": false,
+    "productionRelaysTouched": false
+  },
+  "coverage": {
+    "beforeStorageAppendAfterInboundProcessing": true,
+    "afterStorageAppendBeforeCallerPublicationAndReceipt": true,
+    "midDecryptOrNativeTransaction": false,
+    "crashAfterAckSend": false,
+    "all63MatrixCases": false,
+    "android": false,
+    "windows": false
+  },
+  "productRuntimeCodeChanged": false,
+  "newPushOrRelease": false
+}

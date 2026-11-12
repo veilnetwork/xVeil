@@ -1,0 +1,3 @@
+phase,checkpoint,cold_message_present_before_network,delivery_ack_at_sender_before_crash,same_id_recovered_once,subsequent_bidirectional_messages,source_sibling_ids_order_seq_status_match,final_rows_before_network_with_sources_stopped,status
+before,Before real appendMessage call,false,false,true,true,true,5,PASS
+after,After real appendMessage return before caller continues,true,false,true,true,true,5,PASS
