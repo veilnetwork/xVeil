@@ -76,6 +76,13 @@ class PrivateMessageAppendGate extends HiddenVolumeStorage {
     if (freezeProcess && !Process.killPid(pid, ProcessSignal.sigstop)) {
       throw StateError('fixture could not suspend its process');
     }
+    if (arm['allowResume'] == true) {
+      final resume = File('${directory.path}/message-append-resume');
+      if (!resume.existsSync() || resume.readAsStringSync() != arm['nonce']) {
+        throw StateError('fixture resumed without its matching release');
+      }
+      release();
+    }
     await _release.future;
   }
 }
