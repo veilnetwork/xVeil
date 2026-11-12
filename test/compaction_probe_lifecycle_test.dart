@@ -187,9 +187,10 @@ Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
           storePath: file.path,
         ),
       ),
-      containerCompactorProvider.overrideWithValue((
+      preparedContainerCompactorProvider.overrideWithValue((
         path,
         passwords, {
+        required repairMetadata,
         dylibPath,
       }) async {
         if (rewrite != null) await rewrite();

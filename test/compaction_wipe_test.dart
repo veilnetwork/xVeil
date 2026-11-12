@@ -120,9 +120,10 @@ void main() {
               storePath: source.path,
             ),
           ),
-          containerCompactorProvider.overrideWithValue((
+          preparedContainerCompactorProvider.overrideWithValue((
             path,
             passwords, {
+            required repairMetadata,
             dylibPath,
           }) async {
             // External backend contract: its accepted operation may still
@@ -135,7 +136,12 @@ void main() {
               await staged.delete();
               throw StateError('fixture backend refusal');
             }
-            await staged.rename(path);
+            try {
+              await repairMetadata(staged.path);
+              await staged.rename(path);
+            } finally {
+              if (await staged.exists()) await staged.delete();
+            }
           }),
         ],
       );

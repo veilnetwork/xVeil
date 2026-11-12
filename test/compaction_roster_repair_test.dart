@@ -7,6 +7,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
@@ -28,11 +29,15 @@ class _Controller extends AppController {
   Future<void> unlock(String password) async => reopened.add(password);
   @override
   Future<List<String>> remapRostersAfterCompaction(
-    List<({List<int> password, List<int> oldSpaceKeys})> credentials,
-  ) {
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials, {
+    Storage? storageOverride,
+  }) {
     remaps++;
     beforeRemap?.call(remaps);
-    return super.remapRostersAfterCompaction(credentials);
+    return super.remapRostersAfterCompaction(
+      credentials,
+      storageOverride: storageOverride,
+    );
   }
 }
 
@@ -125,6 +130,7 @@ class _Fixture {
       overrides: [
         appControllerProvider.overrideWith(() => owner),
         storageProvider.overrideWith((ref) => storage),
+        compactionStagedStorageProvider.overrideWithValue((_) => storage),
         notificationServiceProvider.overrideWithValue(_Notifications()),
         if (path != null)
           deniableBootProvider.overrideWithValue(
@@ -134,13 +140,15 @@ class _Fixture {
             ),
           ),
         if (path != null)
-          containerCompactorProvider.overrideWithValue((
+          preparedContainerCompactorProvider.overrideWithValue((
             path,
             passwords, {
+            required repairMetadata,
             dylibPath,
           }) async {
             nativeCalls++;
             fake.rotateSalt();
+            await repairMetadata(path);
             if (compactionOutcome case final error?) throw error;
           }),
       ],
@@ -187,7 +195,9 @@ void main() {
     'RenameVisibleDurabilityUncertain',
   ]) {
     test('repairs retained roster before reporting $kind', () async {
-      final dir = await Directory.systemTemp.createTemp('xveil-applied-repair-');
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-applied-repair-',
+      );
       addTearDown(() => dir.delete(recursive: true));
       final path = '${dir.path}/fixture.hv';
       await File(path).writeAsString('owned synthetic container');
@@ -196,9 +206,13 @@ void main() {
       addTearDown(f.providers.dispose);
       final outcome = hv.HvException(kind, 'fixture post-publication outcome');
       f.compactionOutcome = outcome;
-      await expectLater(f.controller.compactStorageKeeping(
-        roster: f.roster, reopenWith: 'master-fixture',
-      ), throwsA(same(outcome)));
+      await expectLater(
+        f.controller.compactStorageKeeping(
+          roster: f.roster,
+          reopenWith: 'master-fixture',
+        ),
+        throwsA(same(outcome)),
+      );
       expect(f.owner.remaps, 1);
       expect(f.nativeCalls, 1);
       await f.expectUsable();
@@ -206,22 +220,34 @@ void main() {
     });
   }
 
-  test('unverified visible content does not authorize roster repair', () async {
-    final dir = await Directory.systemTemp.createTemp('xveil-unverified-repair-');
-    addTearDown(() => dir.delete(recursive: true));
-    final path = '${dir.path}/fixture.hv';
-    await File(path).writeAsString('owned synthetic container');
-    final f = _Fixture();
-    await f.prepare(rotate: false, path: path);
-    addTearDown(f.providers.dispose);
-    final outcome = hv.HvException('RenameVisibleContentUnverified', 'fixture');
-    f.compactionOutcome = outcome;
-    await expectLater(f.controller.compactStorageKeeping(
-      roster: f.roster, reopenWith: 'master-fixture',
-    ), throwsA(same(outcome)));
-    expect(f.owner.remaps, 0);
-    expect(f.storage.writes, isEmpty);
-  });
+  test(
+    'unverified publication result never triggers post-publication repair',
+    () async {
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-unverified-repair-',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final path = '${dir.path}/fixture.hv';
+      await File(path).writeAsString('owned synthetic container');
+      final f = _Fixture();
+      await f.prepare(rotate: false, path: path);
+      addTearDown(f.providers.dispose);
+      final outcome = hv.HvException(
+        'RenameVisibleContentUnverified',
+        'fixture',
+      );
+      f.compactionOutcome = outcome;
+      await expectLater(
+        f.controller.compactStorageKeeping(
+          roster: f.roster,
+          reopenWith: 'master-fixture',
+        ),
+        throwsA(same(outcome)),
+      );
+      expect(f.owner.remaps, 1);
+      expect(f.storage.writes, {'master-fixture': 1, 'duress-fixture': 1});
+    },
+  );
 
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));

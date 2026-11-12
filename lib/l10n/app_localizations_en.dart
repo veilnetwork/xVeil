@@ -3645,7 +3645,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsStorageCompactRepairIncomplete =>
-      'Storage was compacted, but checking identities and updating their list didn\'t finish. Try opening them with their own passwords.';
+      'Storage was not compacted because checking identities and updating their list did not finish. The original storage is unchanged. Try again.';
 
   @override
   String get settingsStorageAutoCompact => 'Auto-compact on unlock';

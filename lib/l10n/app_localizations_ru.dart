@@ -3680,7 +3680,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsStorageCompactRepairIncomplete =>
-      'Хранилище сжато, но проверить личности и обновить их список не удалось. Попробуйте войти их собственными паролями.';
+      'Хранилище не сжато: не удалось проверить личности и обновить их список. Исходное хранилище не изменено. Попробуйте ещё раз.';
 
   @override
   String get settingsStorageAutoCompact => 'Авто-сжатие при разблокировке';

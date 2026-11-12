@@ -6407,7 +6407,7 @@ abstract class AppL10n {
   /// No description provided for @settingsStorageCompactRepairIncomplete.
   ///
   /// In en, this message translates to:
-  /// **'Storage was compacted, but checking identities and updating their list didn\'t finish. Try opening them with their own passwords.'**
+  /// **'Storage was not compacted because checking identities and updating their list did not finish. The original storage is unchanged. Try again.'**
   String get settingsStorageCompactRepairIncomplete;
 
   /// No description provided for @settingsStorageAutoCompact.
