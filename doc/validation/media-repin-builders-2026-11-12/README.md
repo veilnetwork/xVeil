@@ -201,7 +201,7 @@ its SDK when the 75-minute job limit stopped it. The Android budget is now 120
 minutes for the two independently prepared AOT workspaces. The Windows limit
 and all privacy, signature and artifact gates remain unchanged.
 
-The next versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.97+116.
+The release versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.98+117.
 The version manifests and locked graphs pass metadata/version checks; the storage
 format remains generation 3.
 
@@ -240,3 +240,16 @@ Remaining release work includes qualifying the automatic application builders an
 CI and artifact checks. The original Windows 10 audio/video/avatar complaint is
 still distinct from the available Windows 11 qualification. No new human
 listening or Windows GUI confirmation is claimed here.
+
+Veil 0.11.50 and hidden-volume 2.7.1 were published and their artifacts verified.
+All six production and three standard testnet seeds were updated and checked.
+The immutable application tag 0.13.97 reached its checks but produced no release
+packages: unlike source CI, that job had not prepared the native filesystem
+fixture. Eleven folder-test failures had that same missing prerequisite. Both
+workflows now use the same fixture setup, with an isolated Cargo target and a
+mandatory native fixture. The next application tag is 0.13.98; the failed tag is
+not moved, and test, privacy and publication gates remain enabled.
+
+A freshly compiled isolated fixture on macOS passes all 56 affected folder
+tests with native checks required; no fixture-dependent test is skipped in
+this targeted run. Full source CI and the tagged release checks remain gates.
