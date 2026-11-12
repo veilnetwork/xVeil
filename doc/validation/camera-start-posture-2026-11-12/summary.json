@@ -1,0 +1,17 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "fixed-locally",
+  "findings": [
+    "desktop-camera-start-failure-retained-camera-on-posture",
+    "camera-off-did-not-cancel-pending-video-upgrade"
+  ],
+  "qualifiedBaselineRedCases": 5,
+  "normal": {"passed": 405, "skipped": 0},
+  "diagnosticsEnabled": {"passed": 425, "skipped": 0},
+  "artifactVerifierTestPassed": true,
+  "analyzeIssues": 0,
+  "scope": "dart-unit-real-service-and-controller-injected-engine",
+  "physicalCurrentAppQualified": false,
+  "originalWindows10CaseClosed": false,
+  "published": false
+}
