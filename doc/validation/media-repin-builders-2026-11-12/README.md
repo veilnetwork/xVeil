@@ -142,6 +142,34 @@ included in the macOS native CI job.
 
 ## Privacy and remaining work
 
+The next versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.97+116.
+The version manifests and locked graphs pass metadata/version checks; the storage
+format remains generation 3.
+
+The ordinary Mac builder completed again with the patched dependencies in
+455.34 seconds. All 2,920 tracked inputs in its captured source workspace matched
+application `b039e6b4` and the clean dependency checkouts. The driver started at an
+earlier application commit; the separate source comparison, rather than that
+entry-time label, establishes what the child compiled. The later `2895fa33`
+change affects test ACL reads only. The candidate reports 0.13.97+116, has a valid
+signature and loads all five bundled native libraries. Its known-private-data
+scan covers 108 physical files with zero findings. It is a local builder
+qualification, not a final tagged release artifact.
+
+The first application source CI exposed six failing Flutter checks and Windows
+packaging-test failures. The release dry run now displays the child workspace's
+actual commands and signing checks without executing them. The node chooser
+uses safe system insets; an unused translation was removed; the certificate test
+selects its specific expandable section instead of assuming there is only one.
+The 28 affected Flutter tests pass locally.
+
+Windows ACL application and verification now use explicit .NET descriptors and
+the required access/owner sections, avoiding PowerShell provider processing that
+failed on the restricted CI token. The actual Windows checks retain a protected
+descriptor, the current owner and exactly one access rule. Five workspace tests
+and twelve build tests pass on the available Windows 11 host. The repeated
+GitHub Windows packaging job also passes; full source CI is still in progress.
+
 The full reachable histories of the application, SDK and storage repositories
 were scanned again before the feature-branch CI pushes: zero known private-data
 findings, zero oversized objects skipped. Existing sanitized history publication

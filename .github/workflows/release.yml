@@ -39,7 +39,7 @@ name: release
 # the producer. An unchanged ABI is not evidence that a prebuilt carries the
 # current microphone or device-module fixes; rebuild and repin when it changes.
 #
-# Current pin: engine-2026.11.10, including Windows output and COM lifetime fixes.
+# Current pin: engine-2026.11.12, including the Windows system microphone role.
 # All seven binaries passed SHA, native-source digest, architecture and export
 # checks. The source digest uses POSIX case-sensitive ordering on every host.
 #
