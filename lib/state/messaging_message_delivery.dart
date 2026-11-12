@@ -84,6 +84,34 @@ class _MessagingMessageDelivery {
     return first;
   }
 
+  /// Keep early retry cancellation while the status write is pending, but do
+  /// not let a failed write become permanent ACK deduplication. A normal retry
+  /// can obtain another receipt once storage recovers.
+  Future<bool> persistAckStatus(String peerHex, String messageId) async {
+    try {
+      final moved = await _owner._storage.markMessageStatus(
+        peerHex,
+        messageId,
+        MessageStatus.delivered,
+      );
+      if (!moved) {
+        // false also covers a failed target read. Cache only a settled row or
+        // an absent control-frame id, never a readable row still awaiting ACK.
+        final target = await _owner._storage.loadMessageById(
+          peerHex,
+          messageId,
+        );
+        if (target != null && target.status != MessageStatus.delivered) {
+          throw StateError('Delivery status was not saved');
+        }
+      }
+      return moved;
+    } catch (_) {
+      _delivered.forget(peerHex, messageId);
+      rethrow;
+    }
+  }
+
   /// Any authenticated inbound proves the peer's path is healthy now. Rewind
   /// pending retry windows without resetting their exponential-backoff counts.
   ///
