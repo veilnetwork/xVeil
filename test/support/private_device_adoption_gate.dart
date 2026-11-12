@@ -16,6 +16,42 @@ class PrivateDeviceAdoptionGate extends HiddenVolumeStorage {
   final Directory directory;
   bool _captured = false;
 
+  Map<String, dynamic>? _armFor(String write) {
+    if (_captured) return null;
+    final file = File('${directory.path}/adoption-arm.json');
+    if (!file.existsSync()) return null;
+    if (file.lengthSync() > 16384) {
+      throw StateError('adoption arm too large');
+    }
+    final value = jsonDecode(file.readAsStringSync());
+    if (value is! Map<String, dynamic> ||
+        value['nonce'] is! String ||
+        (value['nonce'] as String).isEmpty ||
+        !const [
+          'document',
+          'admission',
+          'activation',
+          'consumption',
+        ].contains(value['write']) ||
+        !const ['before', 'after'].contains(value['phase'])) {
+      throw StateError('invalid adoption arm');
+    }
+    if (value['write'] != write) return null;
+    _captured = true;
+    return value;
+  }
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    final arm = key == 'devices.gid' ? _armFor('activation') : null;
+    final digest = arm == null
+        ? null
+        : sha256.convert(utf8.encode(value)).toString();
+    if (arm?['phase'] == 'before') _pause(arm!, digest!);
+    await super.putSetting(key, value);
+    if (arm?['phase'] == 'after') _pause(arm!, digest!);
+  }
+
   @override
   Future<void> storeFile(
     String fileId,
@@ -24,30 +60,10 @@ class PrivateDeviceAdoptionGate extends HiddenVolumeStorage {
     List<String> retireHints = const [],
   }) async {
     Map<String, dynamic>? arm;
-    if (!_captured &&
-        (fileId == kSovereignIdentitySetting ||
-            fileId == GroupService.kPendingDeviceAdoptionFile)) {
-      final file = File('${directory.path}/adoption-arm.json');
-      if (file.existsSync()) {
-        if (file.lengthSync() > 16384) {
-          throw StateError('adoption arm too large');
-        }
-        final value = jsonDecode(file.readAsStringSync());
-        if (value is! Map<String, dynamic> ||
-            value['nonce'] is! String ||
-            (value['nonce'] as String).isEmpty ||
-            !const ['document', 'admission'].contains(value['write']) ||
-            !const ['before', 'after'].contains(value['phase'])) {
-          throw StateError('invalid adoption arm');
-        }
-        final target = value['write'] == 'document'
-            ? kSovereignIdentitySetting
-            : GroupService.kPendingDeviceAdoptionFile;
-        if (fileId == target) {
-          arm = value;
-          _captured = true;
-        }
-      }
+    if (fileId == kSovereignIdentitySetting) {
+      arm = _armFor('document');
+    } else if (fileId == GroupService.kPendingDeviceAdoptionFile) {
+      arm = _armFor(bytes.isEmpty ? 'consumption' : 'admission');
     }
     final digest = arm == null ? null : sha256.convert(bytes).toString();
     if (arm?['phase'] == 'before') _pause(arm!, digest!);
