@@ -144,7 +144,10 @@ jobs:
     # while a RED `checks` still stops the build dead.
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android') }}
-    timeout-minutes: 75
+    # Normal and diagnostic AOT workspaces each compile their own SDK. The
+    # qualified normal APKs finished at ~50 min; the 75-min cap interrupted
+    # the diagnostic SDK build. Preserve isolation and allow both to finish.
+    timeout-minutes: 120
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -906,6 +909,10 @@ jobs:
       - name: Audio diagnostic helper native tests
         shell: pwsh
         run: ./scripts/test-windows-audio-probe.ps1
+
+      - name: AOT package alias native tests
+        shell: pwsh
+        run: python -m unittest discover -s scripts -p test_aot_package_roots.py
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         if: ${{ !matrix.flutter_from_git }}
