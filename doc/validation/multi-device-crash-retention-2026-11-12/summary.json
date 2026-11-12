@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-12",
+  "platform": "macOS arm64 native clients and containers; Flutter JIT host",
+  "sources": {
+    "xVeil": "742771745710c280f0cd38e227715db6d5d14f7c",
+    "veil": "e963fbdb8e4ee7d233e2747d59615925568461ca",
+    "hiddenVolume": "293792d7acb815accf44f91a0f3cc11c067b9bd2"
+  },
+  "oneE2eTestPassed": true,
+  "skipped": 0,
+  "historyRows": 2000,
+  "crash": {
+    "exitCode": -9,
+    "expectedRowsBeforeCrash": 253,
+    "rowsAtColdReadBeforeNetwork": 253,
+    "retainedDeliveredRows": 253,
+    "retainedBodyRows": 253,
+    "retainedCanonicalRows": 253
+  },
+  "sourcesOffline": {
+    "bothStoppedBeforeReceiverRestart": true,
+    "rowsHeldWithoutSources": 253,
+    "onlySourceAReturned": true
+  },
+  "convergence": {
+    "expectedRows": 2000,
+    "uniqueRows": 2000,
+    "idsAndOrderMatch": true,
+    "positionsCompared": true,
+    "bodiesCompared": true,
+    "delivered": 2000,
+    "completedHistoryRetries": 0
+  },
+  "finalColdReadBeforeNetwork": {
+    "sourcesRemainStopped": true,
+    "expectedRows": 2000,
+    "retainedRows": 2000,
+    "retainedDeliveredRows": 2000,
+    "retainedBodyRows": 2000,
+    "retainedCanonicalRows": 2000,
+    "missingRows": 0,
+    "unexpectedRows": 0,
+    "duplicateRows": 0,
+    "invalidRows": 0
+  },
+  "cleanup": {
+    "ownedProcesses": 10,
+    "ownedProcessesExited": true,
+    "tcpListenPortsChecked": 10,
+    "tcpListenersLeft": 0,
+    "runtimeRemoved": true
+  },
+  "sourceAndNativeUnchanged": true,
+  "fullMatrixQualified": false,
+  "exactReceiveDecryptDbAckCrashBoundaryQualified": false,
+  "androidQualified": false,
+  "windowsQualified": false,
+  "ownDeviceMailboxPolicyChanged": false,
+  "newPushOrRelease": false
+}

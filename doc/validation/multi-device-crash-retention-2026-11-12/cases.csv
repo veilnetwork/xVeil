@@ -1,0 +1,6 @@
+phase,topology,action,expected,actual,status
+source-history,A B C and three loopback Core,A sends 2000 messages to C before linking B,All 2000 IDs and bodies present with durable delivery confirmations,2000 delivered at source and received by C,PASS
+receiver-crash,A B C and three loopback Core,SIGKILL B during initial history migration,Known partial witness survives a fresh process,253 IDs bodies delivered and canonical positions retained with exit code -9,PASS
+sources-offline,B and three loopback Core; A C stopped,Restart B before either source returns,Retain local history while still needing the missing suffix,253 unique expected rows retained before network and with sources absent,PASS
+single-source-recovery,A B and three loopback Core; C stopped,Return A alone,Complete all 2000 rows and converge IDs order positions bodies and delivered,2000 delivered and complete with no missing or duplicate rows,PASS
+final-cold-open,B and three loopback Core; A C stopped,Restart B after convergence,All 2000 rows remain durable without a source,2000 IDs bodies delivered and canonical positions retained before network,PASS
