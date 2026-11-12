@@ -1,0 +1,42 @@
+{
+  "schema": "xveil-revocation-crash-validation/1",
+  "application_baseline": "20ccae9a1e44da1b0135b886a0b8c3d8803d611e",
+  "sdk_commit": "e963fbdb8e4ee7d233e2747d59615925568461ca",
+  "hidden_volume_commit": "293792d7acb815accf44f91a0f3cc11c067b9bd2",
+  "production_changes": false,
+  "native_passed": 1,
+  "native_skipped": 0,
+  "unit_passed": 19,
+  "unit_skipped": 0,
+  "suite_with_flutter_seconds": 112.195,
+  "source_and_native_unchanged": true,
+  "frozen_source_inputs": 1558,
+  "observations": {
+    "positiveBeforeRevoke": true,
+    "exactCheckpointObservedBeforeKill": true,
+    "receiverExitCode": -9,
+    "coldCheckpointMatched": true,
+    "restoredBeforeAuthorOrStaleDeviceReturned": true,
+    "freshRelayState": true,
+    "oldDeviceMessagesAndCallsRejected": true,
+    "negativeObservationMs": 60195,
+    "negativeObservations": 118,
+    "authorizedRatchetBidirectionalAfterRestart": true
+  },
+  "cleanup": {
+    "trackedPidsAndGroupsExited": 14,
+    "registeredPortsFree": 13,
+    "testVms": 0
+  },
+  "negative_control": {
+    "expected_failures": 1,
+    "reason": "intentionally_removed_checkpoint_detected_on_receiver_restart",
+    "restored_before_final_run": true
+  },
+  "limits": [
+    "checkpoint_observed_durable_before_SIGKILL",
+    "macOS_arm64_JIT",
+    "signaling_only_no_audio_hardware",
+    "not_entire_multi_device_matrix"
+  ]
+}

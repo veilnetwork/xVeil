@@ -591,11 +591,19 @@ void main() {
               final Object? authority = device!.stack.ratchetState;
               final authorization = <String, Object?>{};
               if (request['authorizationOnly'] == true) {
+                authorization['processId'] = pid;
+                final stored = await device!.storage.loadPeerAuthorization();
                 authorization['storedPeers'] = [
-                  for (final entry
-                      in await device!.storage.loadPeerAuthorization())
-                    entry.peer,
+                  for (final entry in stored) entry.peer,
                 ];
+                if (request['authorizationDocument']
+                    case final String expected) {
+                  authorization['storedDocumentMatches'] = stored.any(
+                    (entry) =>
+                        entry.peer == request['identity'] &&
+                        base64Encode(entry.document) == expected,
+                  );
+                }
                 if (authority is PeerAuthorizationStateHandle) {
                   authorization['nativePeers'] = [
                     for (final entry
