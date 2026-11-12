@@ -1748,6 +1748,7 @@ void main() {
       await tester.pumpAndSettle();
     }
     await tester.ensureVisible(policySwitch);
+    await tester.pumpAndSettle();
     await tester.tap(policySwitch);
     await tester.pumpAndSettle();
     expect((await service.stateOf(spaceId))!.recommendationsEnabled, isFalse);
