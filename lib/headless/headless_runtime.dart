@@ -278,6 +278,13 @@ class HeadlessRuntime {
           json,
           awaitInitialSend: false,
         ),
+        sendRequiredSnapshot: (peer, groupId, json) => messaging!.sendGroupSnapshot(
+          peer,
+          groupId.hex,
+          json,
+          awaitInitialSend: false,
+          requireEnqueue: true,
+        ),
         sendSpaceInvite: messaging.sendSpaceInvite,
         sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
         sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
@@ -739,6 +746,7 @@ class HeadlessRuntime {
     messaging.onGroupEntryFromStranger = (peer, bundleJson) =>
         groups.receiveGroupFrame(peer, bundleJson, fromStranger: true);
     messaging.allowStrangerGroupSync = groups.allowStrangerGroupSync;
+    messaging.allowStrangerGroupReassembly = groups.allowStrangerGroupReassembly;
     unawaited(groups.nudgeGroupSyncAll());
   }
 

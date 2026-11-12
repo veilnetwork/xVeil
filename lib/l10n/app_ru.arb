@@ -371,12 +371,12 @@
   "spaceInviteDecline": "Отклонить",
   "spaceInviteJoining": "Принято · ожидается проверенное членство",
   "spaceJoinAction": "Вступить по ссылке",
-  "spaceJoinDialogTitle": "Запросить вступление в сообщество",
+  "spaceJoinDialogTitle": "Вступить в сообщество",
   "spaceJoinCodeHint": "Вставьте ссылку xveil://space",
-  "spaceJoinSafetyHint": "Ссылка отправляет только заявку. Каналы, участники и ключи останутся недоступны, пока администратор не подтвердит вступление подписанной записью.",
-  "spaceJoinRequestSent": "Заявка отправлена. Сообщество появится после подписанного подтверждения.",
-  "spaceJoinRequestsTitle": "Заявки на вступление",
-  "spaceJoinRequestFrom": "Заявка от {peer}",
+  "spaceJoinSafetyHint": "В публичное сообщество можно вступить без одобрения. Для завершения подключения администратор сообщества должен быть в сети.",
+  "spaceJoinRequestSent": "Подключаемся к сообществу. Оно появится в списке автоматически.",
+  "spaceJoinRequestsTitle": "Подключение к сообществу",
+  "spaceJoinRequestFrom": "Подключается {peer}",
   "@spaceJoinRequestFrom": {
     "placeholders": {
       "peer": {
@@ -384,8 +384,8 @@
       }
     }
   },
-  "spaceJoinRequestPending": "Ожидает подтверждения",
-  "spaceJoinRequestApproved": "Одобрено · получаем проверенное членство",
+  "spaceJoinRequestPending": "Подключаемся к сообществу",
+  "spaceJoinRequestApproved": "Получаем данные сообщества",
   "spaceJoinRequestDeclined": "Отклонено",
   "spaceMembershipStatusTitle": "Статус участия",
   "spaceMembershipPending": "Вступление ожидает подтверждения",
@@ -403,9 +403,10 @@
   "spaceMembershipBanned": "Участие заблокировано",
   "spaceJoinDismiss": "Скрыть",
   "spaceJoinApprove": "Одобрить",
+  "spaceJoinRetry": "Повторить подключение",
   "spaceJoinDecline": "Отклонить",
   "spaceJoinLinkTitle": "Публичная ссылка для вступления",
-  "spaceJoinLinkHint": "Любой, у кого есть эта отзывная ссылка, сможет отправить заявку. Сама ссылка никогда не предоставляет доступ.",
+  "spaceJoinLinkHint": "По этой ссылке можно вступить без одобрения. Вы можете отозвать её. Для завершения подключения администратор должен быть в сети.",
   "spaceJoinLinkCreate": "Создать ссылку",
   "spaceJoinLinkCopy": "Копировать ссылку",
   "spaceJoinLinkRevoke": "Отозвать ссылку",

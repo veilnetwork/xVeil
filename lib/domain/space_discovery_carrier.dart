@@ -120,7 +120,10 @@ final class SpaceDiscoveryCarrier {
     return inner != null &&
         inner.descriptor.spaceId == spaceId &&
         inner.holder.spaceId == spaceId &&
-        inner.holder.holder == holder &&
+        // The outer holder is a hash-bound transport device. The inner
+        // attestation names its logical identity, and verifyAt must still
+        // authorize this same signing key for that identity (including its
+        // document when the two addresses differ). Quorum uses the inner id.
         _bytesEqual(inner.holder.holderPublicKey, holderPublicKey) &&
         inner.verifyAt(nowMs, verify);
   }
@@ -135,8 +138,7 @@ final class SpaceDiscoveryCarrier {
     )
     sign,
   }) {
-    if (payload.holder.holder != holder ||
-        !_bytesEqual(payload.holder.holderPublicKey, holderPublicKey) ||
+    if (!_bytesEqual(payload.holder.holderPublicKey, holderPublicKey) ||
         !_bytesEqual(blake3Hash(holderPublicKey), holder.bytes)) {
       throw ArgumentError('payload holder does not match carrier identity');
     }

@@ -1111,33 +1111,32 @@ class AppL10nEs extends AppL10n {
   String get spaceJoinAction => 'Unirse con un enlace';
 
   @override
-  String get spaceJoinDialogTitle => 'Solicitar entrar en una comunidad';
+  String get spaceJoinDialogTitle => 'Unirse a una comunidad';
 
   @override
   String get spaceJoinCodeHint => 'Pega un enlace xveil://space';
 
   @override
   String get spaceJoinSafetyHint =>
-      'El enlace solo envía una solicitud de pertenencia. Los canales, los miembros y las claves siguen sin estar disponibles hasta que un administrador la apruebe con una concesión firmada.';
+      'Las comunidades públicas no requieren aprobación. Un administrador debe estar conectado para completar la conexión.';
 
   @override
   String get spaceJoinRequestSent =>
-      'Solicitud enviada. La comunidad aparecerá tras la aprobación firmada.';
+      'Conectando con la comunidad. Aparecerá automáticamente en tu lista.';
 
   @override
-  String get spaceJoinRequestsTitle => 'Solicitudes de entrada';
+  String get spaceJoinRequestsTitle => 'Conexiones a la comunidad';
 
   @override
   String spaceJoinRequestFrom(String peer) {
-    return 'Solicitud de $peer';
+    return '$peer se está conectando';
   }
 
   @override
-  String get spaceJoinRequestPending => 'Esperando aprobación';
+  String get spaceJoinRequestPending => 'Conectando con la comunidad';
 
   @override
-  String get spaceJoinRequestApproved =>
-      'Aprobada · recibiendo la pertenencia verificada';
+  String get spaceJoinRequestApproved => 'Recibiendo datos de la comunidad';
 
   @override
   String get spaceJoinRequestDeclined => 'Rechazada';
@@ -1172,6 +1171,9 @@ class AppL10nEs extends AppL10n {
   String get spaceJoinApprove => 'Aprobar';
 
   @override
+  String get spaceJoinRetry => 'Reintentar conexión';
+
+  @override
   String get spaceJoinDecline => 'Rechazar';
 
   @override
@@ -1179,7 +1181,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get spaceJoinLinkHint =>
-      'Cualquiera que tenga este enlace revocable puede solicitar la pertenencia. El enlace nunca concede acceso por sí solo.';
+      'Cualquiera con este enlace puede unirse sin aprobación. Puedes revocarlo. Un administrador debe estar conectado para completar la conexión.';
 
   @override
   String get spaceJoinLinkCreate => 'Crear enlace';

@@ -1112,33 +1112,32 @@ class AppL10nRu extends AppL10n {
   String get spaceJoinAction => 'Вступить по ссылке';
 
   @override
-  String get spaceJoinDialogTitle => 'Запросить вступление в сообщество';
+  String get spaceJoinDialogTitle => 'Вступить в сообщество';
 
   @override
   String get spaceJoinCodeHint => 'Вставьте ссылку xveil://space';
 
   @override
   String get spaceJoinSafetyHint =>
-      'Ссылка отправляет только заявку. Каналы, участники и ключи останутся недоступны, пока администратор не подтвердит вступление подписанной записью.';
+      'В публичное сообщество можно вступить без одобрения. Для завершения подключения администратор сообщества должен быть в сети.';
 
   @override
   String get spaceJoinRequestSent =>
-      'Заявка отправлена. Сообщество появится после подписанного подтверждения.';
+      'Подключаемся к сообществу. Оно появится в списке автоматически.';
 
   @override
-  String get spaceJoinRequestsTitle => 'Заявки на вступление';
+  String get spaceJoinRequestsTitle => 'Подключение к сообществу';
 
   @override
   String spaceJoinRequestFrom(String peer) {
-    return 'Заявка от $peer';
+    return 'Подключается $peer';
   }
 
   @override
-  String get spaceJoinRequestPending => 'Ожидает подтверждения';
+  String get spaceJoinRequestPending => 'Подключаемся к сообществу';
 
   @override
-  String get spaceJoinRequestApproved =>
-      'Одобрено · получаем проверенное членство';
+  String get spaceJoinRequestApproved => 'Получаем данные сообщества';
 
   @override
   String get spaceJoinRequestDeclined => 'Отклонено';
@@ -1173,6 +1172,9 @@ class AppL10nRu extends AppL10n {
   String get spaceJoinApprove => 'Одобрить';
 
   @override
+  String get spaceJoinRetry => 'Повторить подключение';
+
+  @override
   String get spaceJoinDecline => 'Отклонить';
 
   @override
@@ -1180,7 +1182,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceJoinLinkHint =>
-      'Любой, у кого есть эта отзывная ссылка, сможет отправить заявку. Сама ссылка никогда не предоставляет доступ.';
+      'По этой ссылке можно вступить без одобрения. Вы можете отозвать её. Для завершения подключения администратор должен быть в сети.';
 
   @override
   String get spaceJoinLinkCreate => 'Создать ссылку';

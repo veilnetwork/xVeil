@@ -142,7 +142,10 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
   ) {
     final l = AppL10n.of(context);
     return switch (membership.status) {
-      SpaceMembershipStatus.pending => l.spaceMembershipPending,
+      SpaceMembershipStatus.pending =>
+        membership.source == SpaceMembershipSource.joinRequest
+            ? l.spaceJoinRequestPending
+            : l.spaceMembershipPending,
       SpaceMembershipStatus.active => l.spaceMembershipActive,
       SpaceMembershipStatus.suspended when membership.untilMs != null =>
         l.spaceMembershipSuspendedUntil(

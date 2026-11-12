@@ -759,15 +759,20 @@ class MessagingService {
 
   /// Attached by the group layer: a group snapshot from a NON-contact sender
   /// (scale-free log sync — members need no pairwise contact handshake). The
-  /// group layer admits it ONLY into groups it already holds where the sender
-  /// is a current member; new-group materialization (an invite) stays
-  /// contact-gated. The same terminal/durable contract as [onGroupEntry].
+  /// group layer requires existing membership or locally saved invitation/join
+  /// consent plus the corresponding signed membership grant. Reassembly alone
+  /// grants nothing. The same terminal/durable contract as [onGroupEntry].
   FutureOr<bool> Function(NodeId peer, String bundleJson)?
   onGroupEntryFromStranger;
 
-  /// Asks the group layer whether NON-contact [peer] may sync the group —
-  /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
+  /// Asks whether NON-contact [peer] already has group sync authority. Also
+  /// supplies fragment policy for hosts without a separate RAM-lease callback.
   Future<bool> Function(NodeId peer, String gidHex)? allowStrangerGroupSync;
+
+  /// Only a bounded partial-buffer lease. Full-frame authority remains with
+  /// onGroupEntryFromStranger; absent hosts retain the existing sync policy.
+  Future<bool> Function(NodeId peer, String gidHex)?
+  allowStrangerGroupReassembly;
 
   /// Asks the identity layer whether [peer] is another device of THIS
   /// identity. A sibling is not a contact and never will be — the identity does
@@ -891,11 +896,13 @@ class MessagingService {
     String groupIdHex,
     String bundleJson, {
     bool awaitInitialSend = true,
+    bool requireEnqueue = false,
   }) => _replication.sendGroupSnapshot(
     dst,
     groupIdHex,
     bundleJson,
     awaitInitialSend: awaitInitialSend,
+    requireEnqueue: requireEnqueue,
   );
 
   Future<void> sendSpacePublicFeedRequest(NodeId dst, String requestJson) =>
@@ -962,6 +969,9 @@ class MessagingService {
     dst,
     'space-join-decision:$requestId',
     WireEnvelope.spaceJoinDecision(decisionJson),
+    // This response is emitted while handling an incoming public join. Keep
+    // the durable obligation without holding ingress behind a network attempt.
+    awaitLive: false,
   );
 
   Future<void> sendSpaceModerationAppeal(

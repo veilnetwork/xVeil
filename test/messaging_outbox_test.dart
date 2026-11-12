@@ -74,6 +74,19 @@ class _FakeTransport implements VeilTransport {
   Future<void> dispose() async => _inbound.close();
 }
 
+class _HeldTransport extends _FakeTransport {
+  _HeldTransport(super.me);
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    await super.send(dst, payload, anonymous: anonymous);
+  }
+}
+
 class _BlockingMailboxSink implements MailboxSink {
   @override
   bool get isRegistered => true;
@@ -780,6 +793,29 @@ void main() {
       expect(mailbox.calls, 1);
     },
   );
+
+  test('public join decision returns with durable bytes while transport waits', () async {
+    final transport = _HeldTransport(_id(23));
+    final storage = HiddenVolumeStorage(_memOpener());
+    await storage.open(password: 'synthetic', createIfMissing: true);
+    final messaging = MessagingService(transport, storage)..start();
+    var returned = false;
+    final sending = messaging.sendSpaceJoinDecision(_id(24), 'ab' * 32, 'valid')
+        .then((_) => returned = true);
+    try {
+      await transport.started.future;
+      await _pump();
+      expect(returned, isTrue);
+      expect((await storage.pendingOutboxFrames()).map((frame) => frame.frameId),
+        contains('space-join-decision:${'ab' * 32}'));
+    } finally {
+      transport.release.complete();
+      await sending;
+      await messaging.dispose();
+      await storage.close();
+      await transport.dispose();
+    }
+  });
 
   test(
     'non-contact Space join ACK is scoped to a persisted valid request',

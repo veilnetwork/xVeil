@@ -192,7 +192,7 @@ void main() {
   final enabled = Platform.environment['PUBLIC_SPACE_DISCOVERY_LIVE'] == '1';
 
   test(
-    'three real nodes transfer authority, form holder quorum and navigate an exact public mention without plaintext telemetry',
+    'three real nodes discover a public Space and join it without manual approval or plaintext telemetry',
     () async {
       expect(
         kXVeilDebugMetricsDefine || kXVeilDebugHookDefine,
@@ -266,6 +266,14 @@ void main() {
           password: password,
           apiToken: apiToken,
           debugMetricsPort: metricsPorts[2],
+          // The existing owner/publisher fixture uses synthetic epoch envelopes
+          // to isolate discovery. Read-only discovery never opens them; the
+          // final explicit join does and expects the current publisher.
+          groupEpochCryptoOverride: LoopbackMailboxCrypto(
+            senderForOpen:
+                await (publisher.stack.transport as VeilFlutterTransport)
+                    .nodeId(),
+          ),
         );
         final owner = genesis;
         final nextOwner = publisher;
@@ -504,6 +512,76 @@ void main() {
           '/space/${spaceId.hex}/public-posts?post='
           '${Uri.encodeQueryComponent(authored!.postId)}',
         );
+
+        var receivedJoins = 0;
+        var admittedJoins = 0;
+        var receivedSnapshots = 0;
+        var admittedSnapshots = 0;
+        final joinHandler = nextOwner.messaging.onSpaceJoinRequest!;
+        nextOwner.messaging.onSpaceJoinRequest = (peer, body) async {
+          receivedJoins++;
+          final accepted = await joinHandler(peer, body);
+          if (accepted) admittedJoins++;
+          return accepted;
+        };
+        final snapshotHandler = subscriber.messaging.onGroupEntryFromStranger!;
+        subscriber.messaging.onGroupEntryFromStranger = (peer, body) async {
+          receivedSnapshots++;
+          final accepted = await snapshotHandler(peer, body);
+          if (accepted) admittedSnapshots++;
+          return accepted;
+        };
+        expect(
+          await subscriber.groups.requestToJoinSpace(
+            result.descriptor.joinCode,
+          ),
+          isTrue,
+        );
+        try {
+          await _waitUntil(
+            () async =>
+                (await subscriber.groups.stateOf(
+                      spaceId,
+                    ))?.isMember(readerId) ==
+                    true &&
+                (await nextOwner.groups.stateOf(spaceId))?.isMember(readerId) ==
+                    true,
+            reason:
+                'public join did not deliver its signed membership snapshot',
+          );
+        } on TimeoutException {
+          throw StateError(
+            jsonEncode({
+              'receivedJoins': receivedJoins,
+              'admittedJoins': admittedJoins,
+              'receivedSnapshots': receivedSnapshots,
+              'admittedSnapshots': admittedSnapshots,
+              'publisherHasMember': (await nextOwner.groups.stateOf(
+                spaceId,
+              ))?.isMember(readerId),
+              'readerHasMember': (await subscriber.groups.stateOf(
+                spaceId,
+              ))?.isMember(readerId),
+              'pendingIncoming':
+                  (await nextOwner.groups.pendingSpaceJoinRequests(
+                    spaceId,
+                  )).length,
+              'pendingOutgoing':
+                  (await subscriber.groups.outgoingSpaceJoinRequests()).length,
+              'requestFrames': (await subscriber.storage.pendingOutboxFrames())
+                  .where((f) => f.frameId.startsWith('space-join-request:'))
+                  .length,
+              'decisionFrames': (await nextOwner.storage.pendingOutboxFrames())
+                  .where((f) => f.frameId.startsWith('space-join-decision:'))
+                  .length,
+            }),
+          );
+        }
+        expect(
+          await nextOwner.groups.pendingSpaceJoinRequests(spaceId),
+          isEmpty,
+        );
+        expect(await subscriber.groups.outgoingSpaceJoinRequests(), isEmpty);
 
         final telemetry = StringBuffer();
         for (final port in metricsPorts) {

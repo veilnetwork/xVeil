@@ -26,6 +26,8 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/async_tasks.dart';
+import '../core/diagnostic_journal.dart';
+import '../core/diagnostic_space_discovery.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../domain/clear_policy.dart';
@@ -653,6 +655,7 @@ class GroupService implements ArchiveGroups {
     this._signer, {
     this._send,
     this.sendSyncResponse,
+    this.sendRequiredSnapshot,
     this.sendSpaceInvite,
     this.sendSpaceInviteDecision,
     this.sendSpaceJoinRequest,
@@ -772,6 +775,9 @@ class GroupService implements ArchiveGroups {
   /// input is acknowledged, without awaiting live admission in the serialized
   /// inbound lane. Hosts without a reply scheduler retain the ordinary sender.
   final GroupSnapshotSender? sendSyncResponse;
+  /// First membership snapshot: queue refusal must throw so the durable join
+  /// remains pending. Other members retain normal replication backpressure.
+  final GroupSnapshotSender? sendRequiredSnapshot;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
   final SpaceJoinRequestSender? sendSpaceJoinRequest;
@@ -1702,6 +1708,9 @@ class GroupService implements ArchiveGroups {
   /// Validate and durably persist one capability-bound join request.
   Future<bool> receiveSpaceJoinRequest(NodeId peer, String requestJson) =>
       _spaceJoins.receiveSpaceJoinRequest(peer, requestJson);
+
+  /// Resume durable public joins, including requests saved by older clients.
+  Future<void> retryPendingSpaceJoins() => _spaceJoins.retryPending();
 
   Future<List<SpaceJoinInboxEntry>> pendingSpaceJoinRequests(NodeId spaceId) =>
       _spaceJoins.pendingSpaceJoinRequests(spaceId);
@@ -2789,7 +2798,7 @@ class GroupService implements ArchiveGroups {
             SpaceDiscoveryCarrier.sign(
               route: route,
               payload: payload,
-              holder: selfId,
+              holder: NodeId(blake3Hash(_signer.selfPubKey)),
               holderPublicKey: _signer.selfPubKey,
               sign: _signer.signDetached,
             ).toBytes(),
@@ -2899,6 +2908,10 @@ class GroupService implements ArchiveGroups {
       );
     }
     if (_spaceDiscoveryTransport == null) {
+      diagnosticJournal.recordSpaceDiscoveryFailure(
+        stage: SpaceDiscoveryFailureStage.transportUnavailable,
+        failure: SpaceDiscoveryFailureKind.nodeUnavailable,
+      );
       return SpacePublicDiscoverySearchOutcome(
         status: SpacePublicDiscoverySearchStatus.unavailable,
         results: const [],
@@ -3029,7 +3042,11 @@ class GroupService implements ArchiveGroups {
     final List<Uint8List> records;
     try {
       records = await transport.resolve(route, timeout: timeout);
-    } catch (_) {
+    } catch (error) {
+      recordSpaceDiscoveryFailure(
+        error,
+        stage: SpaceDiscoveryFailureStage.routeResolve,
+      );
       return (
         payloads: const <SpacePublicDiscoveryPayload>[],
         available: false,
@@ -7654,6 +7671,7 @@ class GroupService implements ArchiveGroups {
   /// [purgeDeletedSpaces] directly with a deterministic clock.
   void startSpaceLifecycleMaintenance() {
     if (_spaceDeletionMaintenanceTimer != null) return;
+    _spaceJoins.startMaintenance();
     unawaited(_runSpaceDeletionMaintenance());
     _spaceDeletionMaintenanceTimer = Timer.periodic(
       const Duration(hours: 1),
@@ -9791,6 +9809,7 @@ class GroupService implements ArchiveGroups {
     NodeId member,
     GroupRole role, {
     required bool requireAcceptedContact,
+    bool waitForBroadcast = false,
   }) {
     final generation = _contactAccessGeneration(member);
     Future<bool> guard() => _contactConsentStillAllows(
@@ -9806,6 +9825,7 @@ class GroupService implements ArchiveGroups {
         target: member,
         role: role,
         commitGuard: guard,
+        waitForBroadcast: waitForBroadcast,
       ),
     );
   }
@@ -9832,6 +9852,7 @@ class GroupService implements ArchiveGroups {
     SpaceAuthorityBoundary? authorityBoundary,
     int? createdAtMs,
     Future<bool> Function()? commitGuard,
+    bool waitForBroadcast = false,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
@@ -10228,7 +10249,11 @@ class GroupService implements ArchiveGroups {
           await broadcastDelta(groupId, control: controls);
         }
       } else if (op == ControlOp.addMember) {
-        unawaited(broadcast(groupId));
+        if (waitForBroadcast) {
+          await _broadcastJoinSnapshot(groupId, target!);
+        } else {
+          unawaited(broadcast(groupId));
+        }
       } else {
         unawaited(broadcastDelta(groupId, control: controls));
       }
@@ -17466,6 +17491,22 @@ class GroupService implements ArchiveGroups {
   /// Whether NON-contact [peer] may sync group [gidHex]: we already hold that
   /// group AND the peer is a current member per OUR fold. The admission the
   /// wire layer asks before spending reassembly RAM on a stranger's chunks.
+  /// Lease bounded chunk reassembly for the exact public join this user saved.
+  /// This never authorizes applying a snapshot; its signed grant is checked
+  /// by _acceptedSpaceJoinRequestFor after complete reassembly.
+  Future<bool> allowStrangerGroupReassembly(NodeId peer, String gidHex) async {
+    if (await allowStrangerGroupSync(peer, gidHex)) return true;
+    for (final join in await outgoingSpaceJoinRequests()) {
+      if (!join.declined &&
+          join.ticket.spaceId.hex == gidHex &&
+          join.request.approver == peer &&
+          join.request.requester == selfId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<bool> allowStrangerGroupSync(NodeId peer, String gidHex) async {
     return _allowStrangerGroupSync(
       peer,
@@ -22296,8 +22337,20 @@ class GroupService implements ArchiveGroups {
   /// (direct delivery, v1). Used to sync a member joining (they need the whole
   /// history). No-op without an injected sender. Returns how many peers it was
   /// shipped to.
-  Future<int> broadcast(NodeId groupId, {bool reseed = false}) async {
-    final send = _send;
+  Future<int> _broadcastJoinSnapshot(NodeId groupId, NodeId member) {
+    final ordinary = sendSyncResponse ?? _send;
+    final required = sendRequiredSnapshot ?? ordinary;
+    if (required == null) return broadcast(groupId);
+    return broadcast(groupId, sendOverride: (peer, id, json) =>
+      (peer == member ? required : ordinary ?? required)(peer, id, json));
+  }
+
+  Future<int> broadcast(
+    NodeId groupId, {
+    bool reseed = false,
+    GroupSnapshotSender? sendOverride,
+  }) async {
+    final send = sendOverride ?? _send;
     final b = await load(groupId);
     if (b == null) return 0;
     final attempt = Stopwatch()..start();
@@ -22954,6 +23007,7 @@ class GroupService implements ArchiveGroups {
   void beginShutdown() {
     if (_disposed) return;
     _disposed = true;
+    _spaceJoins.stopMaintenance();
     _spaceDeletionMaintenanceTimer?.cancel();
     _spaceDeletionMaintenanceTimer = null;
     _scheduledSpacePostTimer?.cancel();
