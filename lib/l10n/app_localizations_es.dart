@@ -1168,13 +1168,7 @@ class AppL10nEs extends AppL10n {
   String get spaceJoinDismiss => 'Descartar';
 
   @override
-  String get spaceJoinApprove => 'Aprobar';
-
-  @override
   String get spaceJoinRetry => 'Reintentar conexión';
-
-  @override
-  String get spaceJoinDecline => 'Rechazar';
 
   @override
   String get spaceJoinLinkTitle => 'Enlace público para unirse';

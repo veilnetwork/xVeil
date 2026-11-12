@@ -1624,7 +1624,6 @@ void main() {
       find.byKey(ValueKey('space-join-request-${request.requestId}')),
       findsNothing,
     );
-    expect(find.widgetWithText(FilledButton, l.spaceJoinApprove), findsNothing);
     expect((await service.stateOf(spaceId))!.isMember(requester), isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
