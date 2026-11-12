@@ -181,6 +181,26 @@ flushes step labels and reports fixed phase labels, elapsed time and package-ali
 counts without printing source paths. The job limit and artifact gates remain
 unchanged while the build is repeated with this instrumentation.
 
+That repeat localized the ARM64 delay to package aliases: only 100 of 169 were
+created before the 60-minute limit, with each 25 taking about 9 min 20 s. The
+old implementation started one PowerShell process per alias. The regression
+fixture observes 32 invocations on that implementation and one after batching.
+Paths are sent as JSON data, without insertion into PowerShell source. Provider
+failure or timeout preserves the original package map and does not reflect the
+provider's path-bearing error. Native Windows checks cover literal special and
+Unicode characters, source updates through all 32 junctions and idempotence.
+The real Windows test also caught and corrected PowerShell 5's nested-array
+enumeration behavior. Full ARM64 packaging must still be repeated.
+
+The fixed Android normal build produced all three APKs. Their downloaded Actions
+archive matched its digest; every APK contains the intended speech ELF library
+and its OpenMP fork symbol. All three complete scans have zero source home URIs
+and zero builder-home paths; the separate known-developer-data scan also passes.
+This is not a final-tag qualification. The diagnostic variant was still compiling
+its SDK when the 75-minute job limit stopped it. The Android budget is now 120
+minutes for the two independently prepared AOT workspaces. The Windows limit
+and all privacy, signature and artifact gates remain unchanged.
+
 The next versions are Veil 0.11.50, hidden-volume 2.7.1 and xVeil 0.13.97+116.
 The version manifests and locked graphs pass metadata/version checks; the storage
 format remains generation 3.

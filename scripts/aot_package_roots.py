@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 from urllib.request import url2pathname
 
@@ -103,26 +104,59 @@ def _ps_literal(text: str) -> str:
 
 
 def _directory_alias(alias: Path, target: Path) -> None:
-    if not target.is_dir():
-        raise ValueError("package source directory unavailable")
-    if alias.exists() or alias.is_symlink():
-        if alias.resolve(strict=True) != target.resolve(strict=True):
-            raise ValueError("package alias destination already exists")
+    _directory_aliases([(alias, target)])
+
+
+def _directory_aliases(aliases: list[tuple[Path, Path]]) -> None:
+    pending = []
+    for alias, target in aliases:
+        if not target.is_dir():
+            raise ValueError("package source directory unavailable")
+        if alias.exists() or alias.is_symlink():
+            if alias.resolve(strict=True) != target.resolve(strict=True):
+                raise ValueError("package alias destination already exists")
+            continue
+        alias.parent.mkdir(parents=True, exist_ok=True)
+        pending.append((alias, target))
+    if not pending:
         return
-    alias.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
-        # Junctions work without enabling Developer Mode. Literal PowerShell
-        # arguments do not expand command substitutions or environment syntax.
-        command = ("$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path "
-                   + _ps_literal(str(alias)) + " -Target " + _ps_literal(str(target))
-                   + " | Out-Null")
+        # One process for the package set: individual PowerShell junction
+        # invocations on the ARM64 runner took ~22 seconds each, 169 times.
+        # Paths travel as ASCII JSON on stdin, never as PowerShell source.
+        command = (
+            "$ErrorActionPreference='Stop'; "
+            "$pairs=ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()); "
+            "$clock=[Diagnostics.Stopwatch]::StartNew(); $created=0; "
+            "foreach($pair in $pairs){ New-Item -ItemType Junction "
+            "-Path $pair.alias -Target $pair.target | Out-Null; $created++ }; "
+            "$clock.Stop(); [Console]::Out.WriteLine((@{count=$created; "
+            "create_ms=$clock.ElapsedMilliseconds} | ConvertTo-Json -Compress))"
+        )
         encoded = base64.b64encode(command.encode("utf-16le")).decode("ascii")
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
-                                 "-EncodedCommand", encoded], capture_output=True)
+        payload = json.dumps([{'alias': str(alias), 'target': str(target)}
+                              for alias, target in pending]).encode('ascii')
+        started = time.monotonic()
+        try:
+            result = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+                                     "-EncodedCommand", encoded], input=payload,
+                                    capture_output=True, timeout=180)
+        except subprocess.TimeoutExpired:
+            raise OSError("package alias creation timed out") from None
         if result.returncode:
             raise OSError("package alias creation failed")
+        try:
+            stats = json.loads(result.stdout)
+            if stats['count'] != len(pending) or not isinstance(stats['create_ms'], int) or stats['create_ms'] < 0:
+                raise ValueError('invalid alias counts')
+        except (ValueError, TypeError, KeyError):
+            raise OSError("package alias completion was not verified") from None
+        elapsed = int((time.monotonic() - started) * 1000)
+        print(f"neutral AOT: package aliases {len(pending)}, process_ms={elapsed}, "
+              f"create_ms={stats['create_ms']}", file=sys.stderr, flush=True)
     else:
-        alias.symlink_to(target, target_is_directory=True)
+        for alias, target in pending:
+            alias.symlink_to(target, target_is_directory=True)
 
 
 def remap_workspace(source: Path, staged: Path, aliases: Path) -> dict[str, int]:
@@ -144,10 +178,7 @@ def remap_workspace(source: Path, staged: Path, aliases: Path) -> dict[str, int]
     mapped, links = plan_package_roots(
         config, config_uri=config_path.as_uri(), source_uri=source.as_uri() + "/",
         staged_uri=staged.as_uri() + "/", aliases_uri=aliases.absolute().as_uri() + "/")
-    for index, (alias, target) in enumerate(links, start=1):
-        _directory_alias(_uri_path(alias), _uri_path(target))
-        if index % 25 == 0 or index == len(links):
-            print(f"neutral AOT: package aliases {index}/{len(links)}", flush=True)
+    _directory_aliases([(_uri_path(alias), _uri_path(target)) for alias, target in links])
     if not all(_uri_path(p["rootUri"]).is_dir() for p in mapped["packages"]):
         raise ValueError("staged package source directory unavailable")
     # Replacement is atomic; a failed plan/link cannot leave a partial config.
