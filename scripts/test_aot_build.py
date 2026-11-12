@@ -82,13 +82,22 @@ class AotBuildTest(unittest.TestCase):
                 + _ps_literal(str(self.output / "current")) + "); "
                 "@($paths|ForEach-Object {$acl=if([IO.Directory]::Exists($_)) {"
                 "[IO.Directory]::GetAccessControl($_)}else{[IO.File]::GetAccessControl($_)}; "
-                "@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])"
-                "|Where-Object {$_.IdentityReference.Value -eq $sid -and "
-                "$_.AccessControlType -eq 'Allow'}).Count -gt 0})|ConvertTo-Json -Compress"
+                "$rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])"
+                "|Where-Object {$_.AccessControlType -eq 'Allow'}); "
+                "$system=@($rules|Where-Object {$_.IdentityReference.Value -eq 'S-1-5-18'}); "
+                "$read=[Security.AccessControl.FileSystemRights]::ReadAndExecute; "
+                "$write=[Security.AccessControl.FileSystemRights]::Write; "
+                "[pscustomobject]@{User=@($rules|Where-Object {$_.IdentityReference.Value -eq $sid}).Count -gt 0; "
+                "SystemRead=@($system|Where-Object {($_.FileSystemRights -band $read) -eq $read}).Count -gt 0; "
+                "SystemWrite=@($system|Where-Object {($_.FileSystemRights -band $write) -ne 0}).Count -gt 0}"
+                "})|ConvertTo-Json -Compress"
             )
             check = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
                                     "-Command", command], capture_output=True, text=True, check=True)
-            self.assertEqual(json.loads(check.stdout), [True, True])
+            self.assertEqual(json.loads(check.stdout), [
+                {"User": True, "SystemRead": True, "SystemWrite": False},
+                {"User": True, "SystemRead": True, "SystemWrite": False},
+            ])
         self.assert_original_and_cleanup()
 
     def test_failed_child_keeps_previous_artifact(self):
@@ -98,6 +107,14 @@ class AotBuildTest(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, ["fixture-child"])
         with self.assertRaises(subprocess.CalledProcessError):
             self.build(command)
+        self.assertEqual((self.output / "previous").read_bytes(), b"previous artifact")
+        self.assert_original_and_cleanup()
+
+    @unittest.skipUnless(os.name == "nt", "Windows export ACL failure")
+    def test_export_acl_failure_keeps_previous_artifact(self):
+        with patch("aot_build._protect_workspace", side_effect=OSError("ACL refused")):
+            with self.assertRaisesRegex(OSError, "ACL refused"):
+                self.build()
         self.assertEqual((self.output / "previous").read_bytes(), b"previous artifact")
         self.assert_original_and_cleanup()
 
