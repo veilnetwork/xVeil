@@ -190,7 +190,8 @@ failure or timeout preserves the original package map and does not reflect the
 provider's path-bearing error. Native Windows checks cover literal special and
 Unicode characters, source updates through all 32 junctions and idempotence.
 The real Windows test also caught and corrected PowerShell 5's nested-array
-enumeration behavior. Full ARM64 packaging must still be repeated.
+enumeration behavior. Full ARM64 packaging was still pending at that checkpoint;
+the completed tagged qualification is recorded below.
 
 The fixed Android normal build produced all three APKs. Their downloaded Actions
 archive matched its digest; every APK contains the intended speech ELF library
@@ -227,7 +228,7 @@ the required access/owner sections, avoiding PowerShell provider processing that
 failed on the restricted CI token. The actual Windows checks retain a protected
 descriptor, the current owner and exactly one access rule. Five workspace tests
 and twelve build tests pass on the available Windows 11 host. The repeated
-GitHub Windows packaging job also passes; full source CI is still in progress.
+GitHub Windows packaging job also passes; completed source CI is recorded below.
 
 The full reachable histories of the application, SDK and storage repositories
 were scanned again before the feature-branch CI pushes: zero known private-data
@@ -236,8 +237,8 @@ and restored branch protections were independently recorded previously. This
 does not claim that GitHub's old object retention or local unreachable objects
 have been garbage-collected.
 
-Remaining release work includes qualifying the automatic application builders and completing source
-CI and artifact checks. The original Windows 10 audio/video/avatar complaint is
+Final builder, source CI and artifact qualification is recorded below. The
+original Windows 10 audio/video/avatar complaint is
 still distinct from the available Windows 11 qualification. No new human
 listening or Windows GUI confirmation is claimed here.
 
@@ -247,9 +248,48 @@ The immutable application tag 0.13.97 reached its checks but produced no release
 packages: unlike source CI, that job had not prepared the native filesystem
 fixture. Eleven folder-test failures had that same missing prerequisite. Both
 workflows now use the same fixture setup, with an isolated Cargo target and a
-mandatory native fixture. The next application tag is 0.13.98; the failed tag is
+mandatory native fixture. The replacement application tag is 0.13.98; the failed tag is
 not moved, and test, privacy and publication gates remain enabled.
 
 A freshly compiled isolated fixture on macOS passes all 56 affected folder
 tests with native checks required; no fixture-dependent test is skipped in
 this targeted run. Full source CI and the tagged release checks remain gates.
+
+[xVeil 0.13.98+117](https://github.com/veilnetwork/xVeil/releases/tag/v0.13.98)
+is published from application `60fd5e2f`, pinned to Veil `e963fbdb` (0.11.50)
+and hidden-volume `17fcb9ea` (2.7.1). Both dependency releases were published and
+verified first. All six jobs in
+[exact-source CI](https://github.com/veilnetwork/xVeil/actions/runs/43157600740)
+and all ten jobs in the
+[tagged release workflow](https://github.com/veilnetwork/xVeil/actions/runs/43159885158)
+passed. Each Flutter suite reports 8,440 passed, 532 skipped and zero failures;
+the skipped cases are not counted as passed.
+
+The full Windows x64 and ARM64 builds now pass for both normal and diagnostic
+packages. Each 169-entry package map uses one PowerShell invocation: x64 took
+594/593 ms, ARM64 22,934/801 ms including process startup. These are observations
+from this build, not a controlled timing comparison. Linux x64/ARM64 normal and
+diagnostic packages and the x64 musl package pass their baseline startup checks.
+All six Android APKs were built, including the diagnostic variants that had
+previously exceeded the shorter job limit.
+
+All 17 public assets were downloaded and checked against GitHub's sizes and
+digests. The six APKs have version 0.13.98, the expected ABI-specific version
+codes and the previous release's signing certificate. Every packaged media
+engine matches its verified immutable pin, including the documented Android
+strip transformation. The three normal APKs also match the bytes independently
+qualified from the tagged Actions artifact before publication. All six APKs
+contain the expected speech ELF architecture, Whisper API and OpenMP fork
+symbol, without bundled signing-key files.
+
+The release privacy gate scans 3,141 entries with no forbidden-data findings.
+The separate public-package audit checks 15 archives, 9,216 metadata fields and
+all 3,141 payload entries: zero known developer identifiers and zero ordinary
+byte-encoded home-directory source URIs. ZIP comments are empty. The last
+read-only seed check confirms all six production and three standard testnet
+services on 0.11.50, matching binary digests and unchanged configs, no automatic
+restarts, healthy sessions and nine successful DHT commands.
+
+Reports 33, 34 and 35 still match the reviewed files; report 34 has no new
+findings. This packaging qualification does not close the original Windows 10
+audio/video/avatar complaint or add an unperformed human listening test.
