@@ -19,6 +19,28 @@ def windows_native_env():
 
 
 class BuilderPathRemapTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('clang'), 'Requires the real assembly compiler')
+    def test_windows_arm64_assembly_accepts_flags_and_remaps_file(self):
+        # ring uses GNU-driver clang for ARM64 assembly even when CC is
+        # clang-cl. Both drivers consume the same CFLAGS from cc-rs.
+        with tempfile.TemporaryDirectory(prefix='xveil asm remap ', dir=Path.home()) as directory:
+            source = Path(directory) / 'probe.S'
+            source.write_text('.text\n.globl remap_probe\nremap_probe:\n ret\n'
+                              '.section .rdata,"dr"\n.asciz __FILE__\n')
+            output = Path(directory) / 'probe.obj'
+            with mock.patch.dict(os.environ, {'CFLAGS': '', 'CXXFLAGS': ''}):
+                additions = windows_native_env()
+            subprocess.run([shutil.which('clang'), '--target=aarch64-pc-windows-msvc',
+                            '-c', str(source), '-o', str(output),
+                            *shlex.split(additions['CFLAGS'])],
+                           cwd=directory, env={**os.environ, **additions},
+                           capture_output=True, check=True)
+            raw = output.read_bytes()
+            self.assertEqual(int.from_bytes(raw[:2], 'little'), 0xaa64)
+            self.assertIn(b'/build/', raw.replace(b'\\', b'/'))
+            for prefix in (str(Path.home()), str(Path.home()).replace('\\', '/')):
+                self.assertNotIn(prefix.encode(), raw)
+
     def test_cross_platform_flags_and_caller_options_are_preserved(self):
         with mock.patch.dict(os.environ, {'CXXFLAGS': '-DKEEP_ME=1'}, clear=True):
             generic = builder._build_env()
@@ -28,8 +50,9 @@ class BuilderPathRemapTest(unittest.TestCase):
             self.assertFalse(any(key.startswith('CC_') for key in generic))
         with mock.patch('builder.os.path.expanduser', return_value=r'C:\Users\build operator'):
             native = builder._build_env(msvc=True)
-            self.assertIn('/clang:-ffile-prefix-map=C:/Users/build operator=/build',
-                          shlex.split(native['CXXFLAGS']))
+            for kind in ('macro', 'debug'):
+                self.assertIn(f'-f{kind}-prefix-map=C:/Users/build operator=/build',
+                              shlex.split(native['CXXFLAGS']))
 
     def test_windows_native_steps_use_the_msvc_clang_driver(self):
         # The repo-wide clang/clang++ defaults are GNU drivers. The native
@@ -41,8 +64,11 @@ class BuilderPathRemapTest(unittest.TestCase):
                 self.assertEqual(step.env.get(f'CC_{target}_pc_windows_msvc'), 'clang-cl')
                 self.assertEqual(step.env.get(f'CXX_{target}_pc_windows_msvc'), 'clang-cl')
             for variable in ('CFLAGS', 'CXXFLAGS'):
-                self.assertTrue(any(flag.startswith('/clang:-ffile-prefix-map=')
-                                    for flag in shlex.split(step.env[variable])))
+                flags = shlex.split(step.env[variable])
+                for kind in ('macro', 'debug'):
+                    at = next(i for i, flag in enumerate(flags)
+                              if flag.startswith(f'-f{kind}-prefix-map='))
+                    self.assertEqual(flags[at - 1], '-Xclang')
 
     @unittest.skipUnless(sys.platform == 'win32', 'Requires the real Windows compiler')
     def test_windows_compiler_remaps_narrow_and_wide_file_macros(self):

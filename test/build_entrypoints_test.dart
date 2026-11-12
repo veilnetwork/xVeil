@@ -570,8 +570,10 @@ for target in ("android", "linux", "macos", "ios", "windows"):
                 continue
             rustflags = step.env.get("CARGO_BUILD_RUSTFLAGS", "")
             cxxflags = step.env.get("CXXFLAGS", "")
-            ok = ("--remap-path-prefix=" in rustflags
-                  and "-ffile-prefix-map=" in cxxflags)
+            cpp_remapped = ("-ffile-prefix-map=" in cxxflags or
+                            ("-fmacro-prefix-map=" in cxxflags and
+                             "-fdebug-prefix-map=" in cxxflags))
+            ok = ("--remap-path-prefix=" in rustflags and cpp_remapped)
             print(("REMAPPED " if ok else "BARE ") + target + ": " + step.title)
 ''');
       final result = Process.runSync(python!, [probe.path]);
