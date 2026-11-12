@@ -116,11 +116,22 @@ androidNativeCallCameraPreview = ValueNotifier<AndroidNativeCameraPreview?>(
   null,
 );
 
+class _CameraRequest {
+  _CameraRequest(this.owner);
+
+  final AndroidNativeCallCamera owner;
+}
+
 class AndroidNativeCallCamera {
   AndroidNativeCallCamera({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel('xveil/native_call_camera');
 
   final MethodChannel _channel;
+  // MainActivity owns one Camera2 capture for all Dart bridge instances. Claim
+  // it before the first await: FIFO commands do not imply FIFO async replies.
+  static _CameraRequest? _activeRequest;
+  _CameraRequest? _request;
+  final Set<Future<void>> _drainingStops = {};
   Timer? _statsTimer;
   AndroidNativeCameraPreview? _preview;
   Map<String, Object?> _diagnostics = const {};
@@ -136,7 +147,15 @@ class AndroidNativeCallCamera {
     required int fps,
     String? cameraId,
   }) async {
-    await stop();
+    final previous = _activeRequest;
+    previous?.owner._retireLocal(previous);
+    final request = _CameraRequest(this);
+    _request = request;
+    _activeRequest = request;
+    final stopped = _stopPlatform(retiringOwner: previous?.owner);
+    androidNativeCallCameraPreview.value = null;
+    await stopped;
+    if (!_owns(request)) return _finishSupersededStart();
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>('start', {
         'engine': engineAddress,
@@ -145,13 +164,15 @@ class AndroidNativeCallCamera {
         'fps': fps,
         if (cameraId != null && cameraId.isNotEmpty) 'cameraId': cameraId,
       });
+      // A later start/stop already owns the platform. In particular, never
+      // clean up this stale reply with a global stop of its replacement.
+      if (!_owns(request)) return _finishSupersededStart();
       final preview = AndroidNativeCameraPreview.fromMap(result);
       if (preview == null) {
-        await _channel.invokeMethod<void>('stop');
+        await stop();
         return false;
       }
       _preview = preview;
-      androidNativeCallCameraPreview.value = preview;
       _diagnostics = {
         'camera_native': true,
         'camera_id': preview.cameraId,
@@ -163,15 +184,22 @@ class AndroidNativeCallCamera {
         const Duration(seconds: 1),
         (_) => unawaited(refreshStats()),
       );
+      androidNativeCallCameraPreview.value = preview;
+      // ValueNotifier listeners run synchronously and may stop or replace us.
+      if (!_owns(request)) return _finishSupersededStart();
       unawaited(refreshStats());
       return true;
     } on PlatformException catch (error) {
+      if (!_owns(request)) return _finishSupersededStart();
       devLog(
         () => 'veil-camera2: start failed ${error.code}: ${error.message}',
       );
+      await stop();
       return false;
     } catch (error) {
+      if (!_owns(request)) return _finishSupersededStart();
       devLog(() => 'veil-camera2: start failed: $error');
+      await stop();
       return false;
     }
   }
@@ -219,16 +247,58 @@ class AndroidNativeCallCamera {
     }
   }
 
-  Future<void> stop() async {
+  bool _owns(_CameraRequest request) =>
+      identical(_request, request) && identical(_activeRequest, request);
+
+  Future<bool> _finishSupersededStart() async {
+    // The caller may release this start's engine as soon as false is returned.
+    // Cancellation must therefore fence its old native callbacks just like stop.
+    await Future.wait(_drainingStops.toList());
+    return false;
+  }
+
+  void _retireLocal(_CameraRequest request) {
+    if (!identical(_request, request)) return;
+    _request = null;
     _statsTimer?.cancel();
     _statsTimer = null;
     _preview = null;
     _diagnostics = const {};
-    androidNativeCallCameraPreview.value = null;
-    try {
-      await _channel.invokeMethod<void>('stop');
-    } catch (_) {
-      // Idempotent teardown; the Android activity also owns a final cleanup.
+  }
+
+  void _trackStop(Future<void> stopped) {
+    if (!_drainingStops.add(stopped)) return;
+    unawaited(
+      stopped.then<void>((_) {
+        _drainingStops.remove(stopped);
+      }),
+    );
+  }
+
+  Future<void> _stopPlatform({AndroidNativeCallCamera? retiringOwner}) {
+    final stopped = () async {
+      try {
+        await _channel.invokeMethod<void>('stop');
+      } catch (_) {
+        // Idempotent teardown; the Android activity owns a final cleanup too.
+      }
+    }();
+    _trackStop(stopped);
+    retiringOwner?._trackStop(stopped);
+    return stopped;
+  }
+
+  Future<void> stop() async {
+    final request = _request;
+    if (request != null && _owns(request)) {
+      _retireLocal(request);
+      _activeRequest = null;
+      _stopPlatform();
+      androidNativeCallCameraPreview.value = null;
     }
+    // A replacement can have already sent stop for us. Its acknowledgement
+    // fences old Camera2/copy callbacks: an obsolete owner must still await it
+    // before its engine is freed, without issuing another stop of the new lens.
+    await Future.wait(_drainingStops.toList());
   }
 }
