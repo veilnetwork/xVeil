@@ -51,7 +51,31 @@
     "original_phone_updated_xveil_not_yet_tested",
     "user_case_attribution_not_proven",
     "self_front_mirror_is_intended",
-    "other_start_stop_races_not_qualified",
+    "physical_fast_switching_with_updated_apk_not_qualified",
     "complete_native_failure_to_plugin_phone_test_not_run"
-  ]
+  ],
+  "start_stop_ownership": {
+    "baseline": "d0b955aaeacc59812c9a06a13e6a48a81dc14d2a",
+    "red_failed": 15,
+    "red_controls_passed": 3,
+    "candidate_restored_exactly": true,
+    "current_suite_passed": 133,
+    "current_suite_skipped": 0,
+    "lifecycle_cases": 18,
+    "unit_sources_unchanged": true,
+    "source_input_count": 1538,
+    "unit_seconds": 12.689,
+    "current_analyze_issues": 0,
+    "partial_candidate_fence_regression_caught_and_fixed": true,
+    "old_owner_stop_still_waits_native_fences": true,
+    "superseded_start_still_waits_native_fences": true,
+    "native_platform_or_engine_changed": false,
+    "physical_updated_app_tested": false,
+    "cleanup": {
+      "ownedGroupsExited": true,
+      "testVms": 0,
+      "testCacheRemovedBytes": 110686544,
+      "userAppOrServersChanged": false
+    }
+  }
 }
