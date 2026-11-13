@@ -42,6 +42,11 @@ final class _ManagedWorkerErr extends _Reply {
   final ManagedWorkerFailureKind kind;
 }
 
+final class _ManagedReclaimReq extends _Req {
+  const _ManagedReclaimReq(this.force, super.reply);
+  final bool force;
+}
+
 final class _ManagedOpenFailed extends _Reply {
   const _ManagedOpenFailed(this.kind, this.cleanup);
   final ManagedWorkerFailureKind kind;
@@ -58,6 +63,11 @@ final class _ManagedBootstrapCleanup implements Exception {
 /// automatic conversion exists here. Create/open/KDF and all store I/O run in
 /// the worker, with its admitted root retained until confirmed close.
 abstract final class ManagedWorkerIdentity {
+  /// Queue owned maintenance. Legacy/hidden workers reject this request.
+  static Future<ManagedReclaimReport> reclaim(
+    WorkerKvLogStore worker, {
+    bool force = false,
+  }) => worker._call((reply) => _ManagedReclaimReq(force, reply));
   // Lexical only: actual path/ancestor admission remains in the worker.
   static String _profileKey(String profile) =>
       Directory(profile).absolute.uri.normalizePath().toFilePath();
