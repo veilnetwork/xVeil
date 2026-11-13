@@ -14,39 +14,94 @@ void main() {
     '/onboarding',
     '/pick-identity',
     '/preparing',
+    '/identity-erase-recovery',
   ];
+
+  test('erase recovery pins every route and ready leaves its screen', () {
+    for (final path in [
+      ...protected,
+      '/settings',
+      '/manage-identities',
+      '/lock',
+    ]) {
+      if (path == '/identity-erase-recovery') continue;
+      expect(
+        redirectForPhase(AppPhase.identityEraseRecovery, path),
+        '/identity-erase-recovery',
+      );
+    }
+    expect(
+      redirectForPhase(
+        AppPhase.identityEraseRecovery,
+        '/identity-erase-recovery',
+      ),
+      isNull,
+    );
+    expect(
+      redirectForPhase(AppPhase.ready, '/identity-erase-recovery'),
+      '/home',
+    );
+  });
 
   test('locked: every location except /lock redirects to /lock', () {
     for (final loc in protected) {
-      expect(redirectForPhase(AppPhase.locked, loc), '/lock',
-          reason: '$loc must not be reachable while locked');
+      expect(
+        redirectForPhase(AppPhase.locked, loc),
+        '/lock',
+        reason: '$loc must not be reachable while locked',
+      );
     }
     expect(redirectForPhase(AppPhase.locked, '/lock'), isNull);
   });
 
-  test('onboarding/bootstrapping/picking/preparing each pin to their screen',
-      () {
+  test('onboarding/bootstrapping/picking/preparing each pin to their screen', () {
     expect(redirectForPhase(AppPhase.bootstrapping, '/home'), '/splash');
     expect(redirectForPhase(AppPhase.bootstrapping, '/splash'), isNull);
     expect(redirectForPhase(AppPhase.onboarding, '/chat/x'), '/onboarding');
     expect(redirectForPhase(AppPhase.onboarding, '/onboarding'), isNull);
-    expect(redirectForPhase(AppPhase.pickingIdentity, '/home'), '/pick-identity');
-    expect(redirectForPhase(AppPhase.pickingIdentity, '/pick-identity'), isNull);
+    expect(
+      redirectForPhase(AppPhase.pickingIdentity, '/home'),
+      '/pick-identity',
+    );
+    expect(
+      redirectForPhase(AppPhase.pickingIdentity, '/pick-identity'),
+      isNull,
+    );
     expect(redirectForPhase(AppPhase.preparingNode, '/home'), '/preparing');
     expect(redirectForPhase(AppPhase.preparingNode, '/preparing'), isNull);
     // Exception: the manage-identities screen stays mounted across the re-enter
     // its own roster ops trigger (it shows its own busy overlay).
-    expect(redirectForPhase(AppPhase.preparingNode, '/manage-identities'), isNull);
+    expect(
+      redirectForPhase(AppPhase.preparingNode, '/manage-identities'),
+      isNull,
+    );
   });
 
   test('ready: gate screens bounce to /home, app screens are allowed', () {
-    for (final gate in ['/splash', '/lock', '/onboarding', '/pick-identity', '/preparing']) {
-      expect(redirectForPhase(AppPhase.ready, gate), '/home',
-          reason: '$gate should bounce to /home once ready');
+    for (final gate in [
+      '/splash',
+      '/lock',
+      '/onboarding',
+      '/pick-identity',
+      '/preparing',
+    ]) {
+      expect(
+        redirectForPhase(AppPhase.ready, gate),
+        '/home',
+        reason: '$gate should bounce to /home once ready',
+      );
     }
-    for (final app in ['/home', '/chat/abc123', '/add-identity', '/decoy-master']) {
-      expect(redirectForPhase(AppPhase.ready, app), isNull,
-          reason: '$app should be allowed once ready');
+    for (final app in [
+      '/home',
+      '/chat/abc123',
+      '/add-identity',
+      '/decoy-master',
+    ]) {
+      expect(
+        redirectForPhase(AppPhase.ready, app),
+        isNull,
+        reason: '$app should be allowed once ready',
+      );
     }
   });
 

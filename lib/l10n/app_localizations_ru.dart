@@ -8213,4 +8213,22 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get storageNewMasterMode => 'Хранение мастера';
+
+  @override
+  String get identityEraseRecoveryTitle => 'Удаление личности не завершено';
+
+  @override
+  String get identityEraseRecoveryBody =>
+      'Повторите попытку, чтобы завершить операцию. До этого личности не запускаются.';
+
+  @override
+  String get identityEraseRecoveryHint =>
+      'Если ошибка повторяется, сохраните отчёт.';
+
+  @override
+  String get identityEraseRecoveryLock => 'Заблокировать';
+
+  @override
+  String get identityEraseRecoveryFailed =>
+      'Не удалось завершить удаление. Можно повторить попытку.';
 }

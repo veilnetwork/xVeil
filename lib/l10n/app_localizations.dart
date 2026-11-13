@@ -14129,6 +14129,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Master storage'**
   String get storageNewMasterMode;
+
+  /// No description provided for @identityEraseRecoveryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity deletion is unfinished'**
+  String get identityEraseRecoveryTitle;
+
+  /// No description provided for @identityEraseRecoveryBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry to finish the operation. Identities stay offline until it is complete.'**
+  String get identityEraseRecoveryBody;
+
+  /// No description provided for @identityEraseRecoveryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'If it still fails, save an error report.'**
+  String get identityEraseRecoveryHint;
+
+  /// No description provided for @identityEraseRecoveryLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get identityEraseRecoveryLock;
+
+  /// No description provided for @identityEraseRecoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not finish deletion. You can try again.'**
+  String get identityEraseRecoveryFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

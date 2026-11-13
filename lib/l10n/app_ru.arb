@@ -3245,5 +3245,10 @@
   "storageUnencryptedWarning": "Любой, кто получит доступ к файлам приложения, сможет прочитать переписку, файлы и ключи личности. Используйте только на доверенном устройстве.",
   "storagePlainMasterWarning": "Этот незашифрованный мастер будет хранить ключи всех привязанных личностей без шифрования.",
   "storageNewIdentityMode": "Хранение новой личности",
-  "storageNewMasterMode": "Хранение мастера"
+  "storageNewMasterMode": "Хранение мастера",
+  "identityEraseRecoveryTitle": "Удаление личности не завершено",
+  "identityEraseRecoveryBody": "Повторите попытку, чтобы завершить операцию. До этого личности не запускаются.",
+  "identityEraseRecoveryHint": "Если ошибка повторяется, сохраните отчёт.",
+  "identityEraseRecoveryLock": "Заблокировать",
+  "identityEraseRecoveryFailed": "Не удалось завершить удаление. Можно повторить попытку."
 }

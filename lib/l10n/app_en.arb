@@ -3745,5 +3745,10 @@
   "storageUnencryptedWarning": "Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.",
   "storagePlainMasterWarning": "This unencrypted master will store the keys of every linked identity without encryption.",
   "storageNewIdentityMode": "New identity storage",
-  "storageNewMasterMode": "Master storage"
+  "storageNewMasterMode": "Master storage",
+  "identityEraseRecoveryTitle": "Identity deletion is unfinished",
+  "identityEraseRecoveryBody": "Retry to finish the operation. Identities stay offline until it is complete.",
+  "identityEraseRecoveryHint": "If it still fails, save an error report.",
+  "identityEraseRecoveryLock": "Lock",
+  "identityEraseRecoveryFailed": "Could not finish deletion. You can try again."
 }

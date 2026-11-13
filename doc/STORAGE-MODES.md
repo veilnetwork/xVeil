@@ -934,10 +934,30 @@ Cancellation fences accepted operations to the same parent/target; they cannot
 publish a ready session after lock. Late roster buffers are adopted before the
 cancellation check and retired if no session keeps them. A pending intent with
 an absent/empty roster or unavailable recovery route cannot boot as an ordinary
-identity. Unresolved erasure errors retain the intent and return to locked state
-with a diagnostic, rather than booting a cached roster that names erased data.
-Retrying the authenticated master unlock retries this work. A usable in-app
-repair path for an erasure blocked by preserved unknown files is still needed.
+identity. After authenticated erasure fails, a dedicated recovery phase closes
+the parent and keeps its authorized keys/roster only in RAM, like the identity
+picker. It pins navigation to a recovery screen and blocks ordinary identity
+leases, child selection, roster edits and another sign-in. No child boots from
+a cached roster that may name already erased data. Unauthenticated open failures
+still use the ordinary locked/error path.
+
+Recovery offers retry, the existing allowlisted diagnostic report and lock.
+Retry is serialized, reopens the same parent and resumes its durable intent.
+Deletion and recovery entry synchronously stop global recording/playback
+controllers and invalidate pending media-permission responses before the view
+changes. Stopping nodes alone does not stop those independent controllers.
+If the initial intent write failed, the original authorized target can be kept
+in RAM for an explicit retry; no automatic deletion is promised after locking
+when that intent never reached storage. Lock remains available during retry,
+destroys temporary authority and prevents late work from publishing a session.
+A later authenticated unlock resumes any durable intent. Retry success restores
+the prior active identity/hosting policy when available. The RU/EN/ES recovery
+screen is exercised at a narrow viewport with large text.
+
+Unknown files remain preserved. Tests simulate their external repair before a
+successful retry; they do not prove an in-app way to review/export/purge those
+files. A safe explicit disposition workflow for them is still required before
+default activation.
 
 Host-native application cases cover all three master modes, visible and legacy
 child removal, single-active and all-online restoration, cold intent-only /
@@ -948,7 +968,7 @@ Separate native processes exercise SIGKILL after intent persistence, child
 removal, roster publication and intent clear for encrypted and plaintext parents.
 These do not qualify packaged platform behavior or filesystem power loss.
 
-Remaining before default activation: pending-erasure repair UX, mixed decoy
+Remaining before default activation: disposition of preserved unknown files, mixed decoy
 creation, whole-profile erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
