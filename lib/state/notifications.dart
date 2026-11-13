@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../desktop/desktop_window.dart';
 import '../data/notifications/notification_service.dart';
 import '../data/notifications/opaque_payload.dart';
 import '../domain/space_post.dart';
@@ -110,11 +111,17 @@ const int kNotificationIdClearRequests = 0x78564352; // "xVCR"
 /// message alert is careful never to leave one (audit XV-03).
 const String kNotificationPayloadClearRequests = 'clear-requests';
 
+/// Only opens the existing app window. No peer, call id or answer capability
+/// is persisted in the OS notification database.
+const String kNotificationPayloadIncomingCall = 'incoming-call';
+const int kNotificationIdIncomingCall = 0x78564341; // xVCA
+
 /// Maps the opaque notification payload to its in-app destination. Spaces are
 /// deliberately distinct from group chats: a publication alert opens the
 /// community publication surface, never `/group/...` or a direct chat.
 String? notificationRouteForPayload(String? payload) {
   if (payload == null || payload.isEmpty) return null;
+  if (payload == kNotificationPayloadIncomingCall) return '/home';
   if (payload.startsWith('mention:')) {
     try {
       final encoded = payload.substring('mention:'.length);
@@ -292,6 +299,9 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   // Fire-and-forget init; show() is a no-op until it completes.
   svc.init(
     onTap: (raw) {
+      // Even an expired opaque token should reveal the app; it must not
+      // guess a conversation or answer a call.
+      unawaited(showDesktopWindow());
       final payload = resolveNotificationPayload(ref, raw);
       final route = notificationRouteForPayload(payload);
       if (route != null) {
@@ -299,9 +309,8 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
         // button (user-reported on desktop). Root the stack at home first,
         // then push — back leads to the chat list, like a normal open.
         // A `group:<hex>` payload opens the group chat instead of a 1:1.
-        ref.read(routerProvider)
-          ..go('/home')
-          ..push(route);
+        final router = ref.read(routerProvider)..go('/home');
+        if (route != '/home') router.push(route);
       }
     },
     onReply: (raw, text) {

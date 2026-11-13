@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 
@@ -30,8 +32,77 @@ class _LaunchDetailsPlatform extends FlutterLocalNotificationsPlatform {
   Future<void> cancelAll() async => cancelAllCalls++;
 }
 
+class _InitializationPlugin implements FlutterLocalNotificationsPlugin {
+  final entered = Completer<void>();
+  final result = Completer<bool?>();
+  final clearEntered = Completer<void>();
+  Completer<void>? clearGate;
+
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) {
+    entered.complete();
+    return result.future;
+  }
+
+  @override
+  Future<NotificationAppLaunchDetails?>
+  getNotificationAppLaunchDetails() async => null;
+
+  @override
+  Future<void> cancelAll() async {
+    if (!clearEntered.isCompleted) clearEntered.complete();
+    await clearGate?.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'failed initialization is not reported as a ready notification backend',
+    () async {
+      final plugin = _InitializationPlugin()..result.complete(false);
+      final service = NotificationService(plugin: plugin);
+      await service.init(onTap: (_) {});
+      expect(service.isReady, isFalse);
+      expect(await service.waitUntilReady(), isFalse);
+    },
+  );
+
+  test('readiness includes clearing alerts requested during startup', () async {
+    final plugin = _InitializationPlugin()..clearGate = Completer<void>();
+    final service = NotificationService(plugin: plugin);
+    final init = service.init(onTap: (_) {});
+    await plugin.entered.future;
+    final clear = service.cancelAll();
+    var readySeen = false;
+    final ready = service.waitUntilReady().then((value) {
+      readySeen = true;
+      return value;
+    });
+    plugin.result.complete(true);
+    await plugin.clearEntered.future;
+    try {
+      await Future<void>.value();
+      expect(
+        readySeen,
+        isFalse,
+        reason: 'new call alerts must not race the deferred startup clear',
+      );
+    } finally {
+      plugin.clearGate!.complete();
+      await Future.wait([init, clear, ready]);
+    }
+    expect(service.isReady, isTrue);
+  });
 
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;

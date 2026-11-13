@@ -8,8 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../core/log.dart';
+import '../../core/diagnostic_journal.dart';
 import '../../core/ids.dart';
 import '../../data/storage/storage.dart';
+import '../../data/notifications/notification_service.dart';
 import '../../domain/call.dart';
 import '../../domain/group_call.dart';
 import '../../l10n/app_localizations.dart';
@@ -20,6 +22,7 @@ import '../../state/call_screen_caller.dart';
 import '../../state/call_notification_session.dart';
 import '../../state/group_call_service.dart';
 import '../../state/locale_controller.dart';
+import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
 final callPipMode = ValueNotifier<bool>(false);
@@ -47,6 +50,13 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   final _notificationSession = CallNotificationSession();
   StreamSubscription<Call?>? _directChanges;
   StreamSubscription<GroupCall?>? _groupChanges;
+  String? _desktopAlertKey;
+  int _desktopAlertGeneration = 0;
+  Future<void> _desktopAlertWork = Future<void>.value();
+  NotificationService? _desktopAlerts;
+
+  bool get _desktop =>
+      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
   static const _kBatteryPromptKey = 'call_battery_prompted';
 
@@ -68,6 +78,12 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       _groupChanges = service?.changes.listen((_) => _syncCallState());
       _syncCallState();
     }, fireImmediately: true);
+    if (_desktop) {
+      ref.listenManual(
+        notificationSettingsProvider,
+        (_, _) => _syncCallState(),
+      );
+    }
     unawaited(_consumeInitialAction());
   }
 
@@ -75,6 +91,13 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ringTimer?.cancel();
+    _desktopAlertGeneration++;
+    final alerts = _desktopAlerts;
+    if (alerts != null) {
+      _desktopAlertWork = _desktopAlertWork
+          .then((_) => alerts.cancel(kNotificationIdIncomingCall))
+          .catchError((Object _) {});
+    }
     _notificationSession.clear();
     unawaited(_directChanges?.cancel());
     unawaited(_groupChanges?.cancel());
@@ -85,6 +108,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncCallState();
     if (!_videoCallActive) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
@@ -116,6 +140,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     }
     _syncRinger(call);
     _syncForegroundService(call, groupCall);
+    _syncDesktopAlert(call, groupCall);
     // First time a call actually connects, offer the battery-optimization
     // exemption once: aggressive OEMs (MIUI et al.) kill a backgrounded call
     // even with the foreground service unless the app is whitelisted, which is
@@ -128,6 +153,118 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
             (groupCall.status == GroupCallStatus.connecting ||
                 groupCall.status == GroupCallStatus.active));
     if (connected) unawaited(_maybeOfferBatteryExemption());
+  }
+
+  void _syncDesktopAlert(Call? call, GroupCall? group) {
+    if (!_desktop) return;
+    final directRinging =
+        call != null && call.isIncoming && call.status == CallStatus.ringing;
+    final groupRinging =
+        !directRinging && group?.status == GroupCallStatus.ringing;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final background =
+        lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    final settings = ref.read(notificationSettingsProvider);
+    final shouldPost =
+        (directRinging || groupRinging) && background && settings.enabled;
+    final directOwner = ref.read(callServiceProvider);
+    final groupOwner = ref.read(groupCallServiceProvider);
+    final owner = directRinging
+        ? directOwner
+        : groupRinging
+        ? groupOwner
+        : null;
+    final l = l10nFor(
+      ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
+    );
+    final session = shouldPost && owner != null
+        ? _notificationSession.bind(
+            owner,
+            directRinging ? call.callId : group!.callId,
+            directRinging ? call.startedAt : group!.startedAt,
+          )
+        : null;
+    final key = session == null
+        ? null
+        : '$session:${settings.preview.name}:${l.localeName}';
+    if (key == _desktopAlertKey) return;
+    _desktopAlertKey = key;
+    final generation = ++_desktopAlertGeneration;
+    final alerts = ref.read(notificationServiceProvider);
+    _desktopAlerts = alerts;
+    final title = settings.preview == NotificationPreview.full
+        ? (directRinging
+              ? l.callNotificationIncoming
+              : l.callNotificationGroupIncoming)
+        : 'xVeil';
+    final body = settings.preview == NotificationPreview.full
+        ? (directRinging
+              ? call.mediaIdentity.short
+              : group?.groupId.short ?? '')
+        : (directRinging
+              ? l.callNotificationIncoming
+              : l.callNotificationGroupIncoming);
+    bool current() {
+      if (!mounted ||
+          generation != _desktopAlertGeneration ||
+          key != _desktopAlertKey) {
+        return false;
+      }
+      if (directRinging) {
+        final live = directOwner.current;
+        return live?.status == CallStatus.ringing &&
+            live?.isIncoming == true &&
+            live?.callId == call.callId &&
+            live?.startedAt == call.startedAt;
+      }
+      final live = groupOwner?.current;
+      return live?.status == GroupCallStatus.ringing &&
+          live?.callId == group!.callId &&
+          live?.startedAt == group.startedAt;
+    }
+
+    // Cancellation shares the queue with posting. A delayed take-down must
+    // finish before the next call replaces this same OS notification id.
+    _desktopAlertWork = _desktopAlertWork
+        .then((_) async {
+          if (key == null) {
+            await alerts.cancel(kNotificationIdIncomingCall);
+            diagnosticJournal.record(
+              DiagnosticEvent.callAlertDismissed,
+              values: {DiagnosticMetric.state: 2},
+            );
+            return;
+          }
+          if (!current()) return;
+          if (!await alerts.waitUntilReady()) {
+            diagnosticJournal.record(
+              DiagnosticEvent.callAlert,
+              values: {DiagnosticMetric.state: 0, DiagnosticMetric.success: 0},
+            );
+            return;
+          }
+          if (!current()) return;
+          final posted = await alerts.showIfCurrent(
+            isCurrent: current,
+            id: kNotificationIdIncomingCall,
+            title: title,
+            body: body,
+            payload: kNotificationPayloadIncomingCall,
+          );
+          diagnosticJournal.record(
+            DiagnosticEvent.callAlert,
+            values: {
+              DiagnosticMetric.state: 1,
+              DiagnosticMetric.success: posted ? 1 : 0,
+            },
+          );
+        })
+        .catchError((Object _) {
+          diagnosticJournal.record(
+            DiagnosticEvent.callAlert,
+            values: {DiagnosticMetric.state: 3, DiagnosticMetric.success: 0},
+          );
+        });
   }
 
   Future<void> _maybeOfferBatteryExemption() async {
