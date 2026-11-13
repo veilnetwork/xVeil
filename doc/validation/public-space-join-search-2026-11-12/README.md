@@ -1,5 +1,8 @@
 # Public Space joining and discovery
 
+Published in [xVeil 0.13.99](https://github.com/veilnetwork/xVeil/releases/tag/v0.13.99).
+The qualification boundaries below remain unchanged.
+
 Local changes; no release or deployment in this cycle.
 
 | Case | Evidence and result |
