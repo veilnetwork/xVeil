@@ -512,11 +512,18 @@ void _workerEntry(_OpenConfig cfg) {
     return;
   }
 
-  final rx = ReceivePort();
-  cfg.reply.send(_Ok(rx.sendPort));
+  cfg.reply.send(_Ok(_serveWorker(store)));
+}
 
+SendPort _serveWorker(KvLogStore store) {
+  final rx = ReceivePort();
+  var closing = false;
   rx.listen((dynamic msg) {
     if (msg is! _Req) return;
+    if (closing && msg is! _CloseReq) {
+      msg.reply.send(const _Err('Internal', 'storage worker is closing'));
+      return;
+    }
     void run<T>(T Function() body) {
       try {
         msg.reply.send(_Ok(body()));
@@ -603,17 +610,22 @@ void _workerEntry(_OpenConfig cfg) {
           return null;
         });
       case _CloseReq():
+        closing = true;
         try {
           store.close();
           msg.reply.send(const _Ok(null));
-        } catch (e) {
-          msg.reply.send(_Err('Internal', e.toString()));
-        } finally {
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
+        } on hv.HvException catch (e) {
+          // Retain the owner and serving port: native close may be retryable.
+          // Killing here strands any handles whose release failed.
+          msg.reply.send(_Err(e.kind, e.message));
+        } catch (e) {
+          msg.reply.send(_Err('Internal', e.toString()));
         }
     }
   });
+  return rx.sendPort;
 }
 
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
@@ -676,6 +688,11 @@ class WorkerKvLogStore
   /// caller can report and recover from.
   final WorkerDeath _watch;
   bool _closed = false;
+  bool _closeSucceeded = false;
+  hv.HvException? _closeDeathError;
+  Future<void>? _closeAttempt;
+  Future<void>? _closeWait;
+  Future<void>? _lateCloseSource;
   int _requestFrontier = 0;
 
   @override
@@ -782,6 +799,14 @@ class WorkerKvLogStore
   /// Unannotated for the same Flutter-free reason as [overWorker].
   static Object debugFailureReply(String kind, String message) =>
       _Err(kind, message);
+
+  @visibleForTesting
+  static Object debugSuccessReply() => const _Ok(null);
+
+  /// Runs the same command server with a disposable test store. The test must
+  /// create that store inside its worker, never transfer native handles.
+  @visibleForTesting
+  static SendPort debugServeStore(KvLogStore store) => _serveWorker(store);
 
   Future<T> _call<T>(_Req Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerKvLogStore is closed');
@@ -897,104 +922,87 @@ class WorkerKvLogStore
       _call<void>((reply) => _AckHardeningReq(reply));
 
   @override
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() {
+    if (_closeSucceeded) return Future.value();
+    final death = _closeDeathError;
+    if (death != null) return Future.error(death);
+    _closed = true; // reject new I/O from the first close request onward
+    final waiting = _closeWait;
+    if (waiting != null) return waiting;
+    final attempt = _closeAttempt ??= _sendClose();
+    late final Future<void> next;
+    next = _waitForClose(attempt).whenComplete(() {
+      if (identical(_closeWait, next)) _closeWait = null;
+    });
+    _closeWait = next;
+    return next;
+  }
+
+  Future<void> _sendClose() async {
     _requestFrontier++;
-    _closed = true;
     final reply = ReceivePort();
-    final done = reply.first; // single-subscription: capture exactly once
-    _toWorker.send(_CloseReq(reply.sendPort));
-    // Raced against the worker's death, exactly like every other call (audit
-    // XV-07) — this was the one wait in the file that still watched only the
-    // reply. `errorsAreFatal` makes a crashed worker die QUIETLY, so a worker
-    // that faulted on the way out left this burning the whole timeout and then
-    // registering a background drain for a reply that can never come: the
-    // watcher was never disposed and its ports were never closed.
-    Object? r;
     try {
-      // The worker never replies a bare null (`_Ok`/`_Err` are objects), so null
-      // unambiguously means the timeout fired.
-      r = await _watch.race(done).timeout(closeTimeout, onTimeout: () => null);
-    } catch (e) {
-      // The worker died mid-close. Nothing is left to wait for, and whether the
-      // container handle was released with it is not something this can claim.
-      reply.close();
-      _watch.dispose();
-      _isolate.kill(priority: Isolate.immediate);
-      throw hv.HvException('Internal', 'storage worker died during close: $e');
-    }
-    if (r != null) {
-      reply.close();
-      // Stop watching BEFORE the kill: an expected shutdown is not a death to
-      // report, and leaving the watcher armed turns every clean close into an
-      // error future with nobody listening (audit XV-07).
-      _watch.dispose();
-      _isolate.kill(priority: Isolate.immediate);
-      // A REPLY IS NOT AN OUTCOME. The worker answers `_Err` when the close
-      // itself failed — a flush that did not land, a lock it could not
-      // release — and every non-null reply was read here as success. The
-      // caller was told the container was shut while the native handle was
-      // still held, and the next open came back `Busy` with nothing to point
-      // at (report17 XV17-M6).
-      //
-      // Raised AFTER the cleanup above, deliberately: the ports and the
-      // isolate go either way, and what is in doubt is the container, not this
-      // side of the boundary.
-      if (r is _Err) {
-        throw hv.HvException(r.kind, r.message);
+      final done = reply.first;
+      _toWorker.send(_CloseReq(reply.sendPort));
+      final Object? result;
+      try {
+        result = await _watch.race(done);
+      } catch (error) {
+        // Death cannot prove native release. Remember this terminal failure so
+        // a later close cannot silently manufacture success for a dead owner.
+        final failure = hv.HvException(
+          'Internal',
+          'storage worker died during close: $error',
+        );
+        _closeDeathError = failure;
+        _watch.dispose();
+        _isolate.kill(priority: Isolate.immediate);
+        throw failure;
       }
-      return;
+      if (result is _Err) {
+        // Keep the worker/watch alive for a fresh close attempt. Ordinary I/O
+        // remains disabled; the worker's native owners are still authoritative.
+        throw hv.HvException(result.kind, result.message);
+      }
+      if (result is! _Ok) {
+        throw hv.HvException(
+          'Internal',
+          'invalid storage close acknowledgement',
+        );
+      }
+      _closeSucceeded = true;
+      _watch.dispose();
+      _isolate.kill(priority: Isolate.immediate);
+    } finally {
+      reply.close();
+      _closeAttempt = null;
     }
-    // Timed out — the worker is almost certainly blocked inside a long
-    // synchronous FFI op (a big commit/scan) with our close queued behind it.
-    // KILLING IT HERE WOULD LEAK THE NATIVE CONTAINER HANDLE: an isolate kill
-    // cannot interrupt or unwind an FFI frame, so the store would never close,
-    // the container's exclusive flock would stay held by THIS PROCESS, and
-    // every later open of the container would fail Busy until an app restart —
-    // the "correct password but won't unlock" trap. Let the worker drain and
-    // close in the background instead; it kills itself after serving _CloseReq.
-    //
-    // And SAY SO. Returning normally here told the caller the container was
-    // closed while its exclusive lock was still held — the same fabricated
-    // success WorkerMultiSpaceBacking used to manufacture with an
-    // `onTimeout` that answered `_MOk`. The caller does not have to be stuck to
-    // be told; every teardown path already collects this and carries on.
-    devLog(
-      () =>
-          'xVeil[storage]: worker close timed out '
-          '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
-          'store to finish closing (flock still held)',
-    );
-    // Whichever comes FIRST — the late reply or the worker's death — releases
-    // the ports. Hung on the reply alone this cleanup never ran at all when the
-    // worker died without answering: a dead isolate sends nothing, so the
-    // future it waited on could not complete, and the reply port together with
-    // the watcher's two ports stayed open for the life of the process. Repeated
-    // failed unlocks pile one set up per attempt (report16 XV-18).
-    _lateClose = _watch
-        .race(done)
-        .then(
-          (_) => devLog(
-            () =>
-                'xVeil[storage]: late worker close completed — container '
-                'handle released',
-          ),
-        )
-        .catchError((Object e) {
-          devLog(() => 'xVeil[storage]: late worker close failed: $e');
-        })
-        .whenComplete(() {
-          reply.close();
-          // The worker is finally gone, on its own terms. Stop watching now
-          // rather than at the timeout: until this lands the isolate is still
-          // live and a real crash in the meantime is still worth reporting.
-          _watch.dispose();
-        });
-    unawaited(_lateClose!);
+  }
+
+  Future<void> _waitForClose(Future<void> attempt) async {
+    final completed = await attempt
+        .then((_) => true)
+        .timeout(closeTimeout, onTimeout: () => false);
+    if (completed) return;
+    // A timeout bounds the caller's wait, not the native operation's lifetime.
+    // Retain the ONE attempt: retries join it rather than queueing another close
+    // or killing a worker inside FFI. A later refusal remains retryable.
+    if (!identical(_lateCloseSource, attempt)) {
+      _lateCloseSource = attempt;
+      _lateClose = attempt.then(
+        (_) => devLog(
+          () => 'xVeil[storage]: late worker close completed; handles released',
+        ),
+        onError: (Object error, StackTrace stack) {
+          devLog(() => 'xVeil[storage]: late worker close failed: $error');
+        },
+      );
+      unawaited(_lateClose!);
+    }
     throw hv.HvException(
       'Busy',
       'storage worker did not close within ${closeTimeout.inMilliseconds}ms; '
-          'the container lock is still held',
+          'native release is not confirmed',
     );
   }
 }

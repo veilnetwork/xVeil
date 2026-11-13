@@ -455,6 +455,25 @@ architectures, the full managed backend on Linux or power-loss durability.
 No connected Android was available in this round. Android packaging/runtime
 qualification still precedes enabling new storage modes in the application.
 
+## Worker close ownership prerequisite
+
+The existing single-store worker no longer kills its native owner when close
+reports an error. The serving loop admits only further close attempts after
+shutdown begins. The facade rejects ordinary I/O, shares concurrent close
+waits and retains one wire request after a caller timeout. Late failure keeps
+the worker supervised for retry; late success is accepted only from the real
+success envelope. A dead worker's uncertain release remains an error on later
+close calls instead of becoming an idempotent success.
+
+Five gated regression cases failed against the prior facade: retry after
+refusal, concurrent wait, timeout/retry, late refusal and repeated close after
+worker death. A sixth test exercises the production command server itself with
+a disposable synchronous store that refuses its first close. The server remains
+available and its second close succeeds. Together with existing close/death and
+headless-import checks, **30 cases pass**. Native-close failure and abrupt
+native-worker abandonment are not manufactured or claimed by these fixtures.
+The managed factory is not yet wired into worker boot or the application's UI.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
