@@ -52,8 +52,12 @@ Future<void> main(List<String> args) async {
       !['prepared', 'published', 'complete'].contains(phase)) {
     exit(3);
   }
-  void mark() =>
-      File('$root/ready').writeAsStringSync('$pid:$phase', flush: true);
+  void mark() {
+    final staged = File('$root/ready.pending');
+    staged.writeAsStringSync('$pid:$phase', flush: true);
+    staged.renameSync('$root/ready');
+  }
+
   final keybox = ManagedKeybox.openOwned(
     _open('$root/keybox.hv', _userPassword),
     identity: _id,

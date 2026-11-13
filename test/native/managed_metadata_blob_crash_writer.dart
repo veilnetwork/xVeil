@@ -16,7 +16,9 @@ class _BoundaryStore extends HvKvLogStore {
   int index = 0;
 
   void hold() {
-    marker.writeAsStringSync('$pid', flush: true);
+    final staged = File('${marker.path}.pending');
+    staged.writeAsStringSync('$pid', flush: true);
+    staged.renameSync(marker.path);
     // An owned process waits here without close/dispose. The parent kills it.
     while (true) {
       sleep(const Duration(seconds: 1));
