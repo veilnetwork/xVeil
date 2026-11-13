@@ -809,14 +809,33 @@ profile refuses session boot rather than silently minting a new network
 identity. This does not yet cover interruption after profile publication but
 before all onboarding credentials have settled.
 
-During this staging phase, mixed-master mutations and legacy whole-profile
-compaction/wipe are refused before writes when visible catalog entries exist.
+One-active selection and non-destructive master edits now follow explicit roster
+locators: switching, anonymity changes, bind and unbind. The master access
+locator remains stable while its children are opened. Binding a visible identity
+requires its explicit ID/mode; password guessing across public entries is never
+used. The dialog warns when an unencrypted master would expose linked keys.
+
+A host-native round covers all three master modes with mixed hidden/encrypted/
+unencrypted children, exact per-child data, on-disk roster preservation and cold
+reopen. An additional encrypted-master round hosts all three simultaneously with
+fake network boots. Rejected edits restore all-online hosting, rather than
+silently leaving only the active child online. These are storage/controller
+checks, not real-network or packaged-platform qualification.
+
+A baseline comparison confirms that one-active selection previously used the
+legacy facade for a managed child's keys. A separately injected cancellation at
+facade construction confirms provider publication even after its caller loses
+lifecycle authority; it is not attribution to a historical user incident.
+
+During this staging phase, remaining mixed-master creation/deletion operations
+and legacy whole-profile compaction/wipe are refused before writes when visible
+catalog entries exist.
 Managed settings show automatic owned reclamation instead of legacy
 unknown-space maintenance. These temporary restrictions are reasons to keep the
 QA switch off in production, not a completed mode-aware management feature.
 
-Remaining before default activation: full single-active/master editing paths,
-owned accounting and erase, interrupted-onboarding recovery, password rotation,
+Remaining before default activation: mode-aware master creation/deletion/decoy
+paths, owned accounting and erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

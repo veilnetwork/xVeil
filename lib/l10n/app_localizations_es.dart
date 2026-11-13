@@ -8235,4 +8235,8 @@ class AppL10nEs extends AppL10n {
   @override
   String get storageUnencryptedWarning =>
       'Quien pueda leer los archivos de la aplicación podrá leer mensajes, archivos y claves de identidad. Úsalo solo en un dispositivo de confianza.';
+
+  @override
+  String get storagePlainMasterWarning =>
+      'Este maestro sin cifrar guardará sin cifrar las claves de todas las identidades vinculadas.';
 }

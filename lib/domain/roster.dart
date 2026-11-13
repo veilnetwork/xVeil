@@ -8,9 +8,11 @@ import 'storage_locator.dart';
 /// `HvSpace.spaceKeys`). The master opens any child via
 /// `HvSpace.openWithKeys(keys: spaceKeys)` — no per-child password prompt.
 ///
-/// **Sensitive.** [spaceKeys] bypasses Argon2 on reopen, so it lives ONLY
-/// inside the (encrypted, deniable) master space — never logged or persisted in
-/// the clear. References are one-directional (master → child): a child space
+/// **Sensitive.** [spaceKeys] bypasses Argon2 on reopen. Persist it only
+/// inside its owning master store, never in public catalog metadata or logs.
+/// Hidden/encrypted masters protect these keys; an explicitly unencrypted
+/// master exposes the keys of EVERY linked child to a filesystem reader.
+/// References are one-directional (master → child): a child space
 /// never records which master(s) list it, so a shared decoy child reveals
 /// nothing about the hidden set. Only add genuinely safe-to-reveal children to
 /// a decoy/duress master.

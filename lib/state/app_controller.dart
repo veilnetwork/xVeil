@@ -381,6 +381,51 @@ class AppController extends Notifier<AppState> {
     ref.invalidate(singleSpaceStorageProvider);
   }
 
+  /// Publish the actual router state even if lock supersedes its caller just
+  /// after a transition completed. Otherwise providers can retain the retired
+  /// facade while the router already owns its successor.
+  Future<void> _updateStorageRoute(Future<void> Function() transition) async {
+    try {
+      await transition();
+    } finally {
+      if (ref.mounted) _publishStorageRoute();
+    }
+  }
+
+  Future<Storage> _storageForIdentityEdit(
+    IdentityStorageLocator locator,
+    _IdentityEdit edit,
+  ) async {
+    edit.check();
+    final router = ref.read(profileStorageRouterProvider);
+    if (router == null) {
+      if (locator is! LegacyStorageLocator) throw const InvalidStorageLocator();
+      return edit.own(ref.read(storageProvider));
+    }
+    if (ref.read(sessionProvider) != null) {
+      throw StateError(
+        'hosted identities must settle before storage selection',
+      );
+    }
+    edit.viewReadable = false;
+    edit.own(router.storage);
+    if (router.location != locator) {
+      await _updateStorageRoute(() => router.select(locator, access: false));
+    }
+    // Register before the cancellation check: the transition is accepted work
+    // even if its continuation has lost authority to open or publish a view.
+    edit.storages.add(router.storage);
+    edit.check();
+    return router.storage;
+  }
+
+  Future<Storage> _masterStorageForEdit(_IdentityEdit edit) =>
+      _storageForIdentityEdit(
+        ref.read(profileStorageRouterProvider)?.access ??
+            const LegacyStorageLocator(),
+        edit,
+      );
+
   Future<bool> selectStorageIdentity(IdentityStorageLocator locator) async {
     final router = ref.read(profileStorageRouterProvider);
     if (router == null ||
@@ -395,9 +440,8 @@ class AppController extends Notifier<AppState> {
     _unlockInFlight = true;
     try {
       await _drainRetiringSessions();
-      await router.select(locator);
+      await _updateStorageRoute(() => router.select(locator));
       if (!ref.mounted || _supersededSince(gen)) return false;
-      _publishStorageRoute();
       ref.read(screenLockProvider.notifier).forgetSession();
       state = state.copyWith(unlockError: false);
       return true;
@@ -572,9 +616,8 @@ class AppController extends Notifier<AppState> {
       if (protection != null) {
         final router = ref.read(profileStorageRouterProvider);
         if (router == null) throw StateError('managed storage routing unavailable');
-        await router.create(protection);
+        await _updateStorageRoute(() => router.create(protection));
         requireCurrent();
-        _publishStorageRoute();
         storage = ref.read(storageProvider);
       }
       // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
@@ -785,12 +828,18 @@ class AppController extends Notifier<AppState> {
   int _identitySelectionRequest = 0;
 
   Future<bool> _withIdentityEdit(
-    Future<bool> Function(_IdentityEdit) run,
-  ) async {
-    // QA staging: mixed-master mutations still require locator-aware edits.
-    // Refuse before any teardown or write while that path is being wired.
-    if (_masterKeys != null &&
-        (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+    Future<bool> Function(_IdentityEdit) run, {
+    bool supportsManagedMaster = false,
+  }) async {
+    // Remaining destructive/creation paths still need mode-aware wiring.
+    // Refuse before any teardown or write during QA staging.
+    if (!supportsManagedMaster &&
+        _masterKeys != null &&
+        (ref
+                .read(profileStorageRouterProvider)
+                ?.catalog
+                .identities
+                .isNotEmpty ??
             false)) {
       return false;
     }
@@ -1073,9 +1122,10 @@ class AppController extends Notifier<AppState> {
       if (router != null) {
         router.requireAccessSelection();
         if (router.location != router.access) {
-          await router.select(router.access, access: false);
+          await _updateStorageRoute(
+            () => router.select(router.access, access: false),
+          );
           if (!ref.mounted || _supersededSince(gen)) return;
-          _publishStorageRoute();
           storage = ref.read(storageProvider);
         }
       }
@@ -1281,8 +1331,19 @@ class AppController extends Notifier<AppState> {
       _masterKeys == null &&
       ref.read(deniableBootProvider)?.storePath != null;
 
-  bool get usesManagedStorage =>
-      ref.read(profileStorageRouterProvider)?.location is ManagedStorageLocator;
+  bool get usesManagedStorage {
+    // Hosted views bypass the single-active router: classify the active child,
+    // never the closed master facade used to unlock its roster.
+    if (ref.read(sessionProvider) != null && _activeLabel != null) {
+      for (final entry in _pendingRoster ?? const <RosterEntry>[]) {
+        if (entry.label == _activeLabel) {
+          return entry.storageLocator is ManagedStorageLocator;
+        }
+      }
+    }
+    return ref.read(profileStorageRouterProvider)?.location
+        is ManagedStorageLocator;
+  }
 
   /// Compact the deniable container in place to reclaim dead padding (the
   /// log-structured store never shrinks on its own; only a repack does). The
@@ -2082,9 +2143,21 @@ class AppController extends Notifier<AppState> {
   ) async {
     final gen = _lifecycle;
     bool current() => ref.mounted && !_supersededSince(gen);
+    final legacy = [
+      for (final entry in spaces)
+        if (entry.storageLocator is LegacyStorageLocator) entry,
+    ];
+    if (legacy.isEmpty) return [];
+    final router = ref.read(profileStorageRouterProvider);
+    if (router != null && router.location is! LegacyStorageLocator) {
+      await _updateStorageRoute(
+        () => router.select(const LegacyStorageLocator(), access: false),
+      );
+      if (!current()) return [for (final entry in legacy) entry.label];
+    }
     final storage = ref.read(storageProvider);
     final unsettled = <String>[];
-    for (final entry in spaces) {
+    for (final entry in legacy) {
       // Only legacy spaces share this container and its keep-known-spaces
       // attestation. Managed identities own separate files; do not try their
       // keys in the hidden container or change their independent policy.
@@ -2141,6 +2214,7 @@ class AppController extends Notifier<AppState> {
   static const String _offerPeriodDaysKey = 'storage.compact.offer.days.v1';
   static const String _offerThresholdKey = 'storage.compact.offer.bytes.v1';
   static const String _offerLastShownKey = 'storage.compact.offer.shown.v1';
+
 
   /// The person's two knobs, with the defaults they asked for: every 3 days,
   /// and only when a gigabyte or more would come back.
@@ -2707,8 +2781,7 @@ class AppController extends Notifier<AppState> {
       }
     }
     if (entry == null) return;
-    final storage = ref.read(storageProvider);
-    edit.own(storage);
+    final storage = await _storageForIdentityEdit(entry.storageLocator, edit);
     final selectedKeys = edit.copyKeys(entry.spaceKeys)!;
     if (!await edit.step(() => storage.openWithKeys(selectedKeys))) {
       // The child keys no longer open a space — bounce back to locked.
@@ -2763,8 +2836,9 @@ class AppController extends Notifier<AppState> {
     final watch = Stopwatch()..start();
     await edit.step(_teardownRealStack);
     final teardownMs = watch.elapsedMilliseconds;
-    final storage = edit.own(ref.read(storageProvider));
-    await edit.step(storage.close);
+    final previous = edit.own(ref.read(storageProvider));
+    await edit.step(previous.close);
+    final storage = await _storageForIdentityEdit(entry.storageLocator, edit);
     final closeMs = watch.elapsedMilliseconds - teardownMs;
     state = state.copyWith(phase: AppPhase.preparingNode);
     if (!await edit.step(() => storage.openWithKeys(selectedKeys))) {
@@ -3057,6 +3131,7 @@ class AppController extends Notifier<AppState> {
   Future<bool> setIdentityAnonymous(String label, bool anonymous) =>
       _withIdentityEdit(
         (edit) => _setIdentityAnonymousOwned(edit, label, anonymous),
+        supportsManagedMaster: true,
       );
 
   Future<bool> _setIdentityAnonymousOwned(
@@ -3081,13 +3156,18 @@ class AppController extends Notifier<AppState> {
     await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = edit.own(ref.read(storageProvider));
+      final storage = await _masterStorageForEdit(edit);
       if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
         await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
       // Edit the master's ON-DISK roster (source of truth), then mirror it.
       final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
+      if (!onDisk.any((entry) => entry.label == label)) {
+        await edit.step(storage.close);
+        await edit.step(() => _recoverToActive(edit: edit));
+        return false;
+      }
       final updated = [
         for (final e in onDisk)
           if (e.label == label)
@@ -3183,8 +3263,10 @@ class AppController extends Notifier<AppState> {
   /// from any other master that lists it. Master-mode only; refuses to unbind
   /// the last identity (an empty-roster master is indistinguishable from a plain
   /// identity space at unlock). Returns false on those guards or a reopen fail.
-  Future<bool> unbindIdentity(String label) =>
-      _withIdentityEdit((edit) => _unbindIdentityOwned(edit, label));
+  Future<bool> unbindIdentity(String label) => _withIdentityEdit(
+    (edit) => _unbindIdentityOwned(edit, label),
+    supportsManagedMaster: true,
+  );
 
   Future<bool> _unbindIdentityOwned(_IdentityEdit edit, String label) async {
     final roster = edit.copyRoster(_pendingRoster);
@@ -3202,12 +3284,17 @@ class AppController extends Notifier<AppState> {
     await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = edit.own(ref.read(storageProvider));
+      final storage = await _masterStorageForEdit(edit);
       if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
         await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
       final onDisk = await edit.step(() => storage.loadRoster()) ?? roster;
+      if (onDisk.length <= 1 || !onDisk.any((entry) => entry.label == label)) {
+        await edit.step(storage.close);
+        await edit.step(() => _recoverToActive(edit: edit));
+        return false;
+      }
       final updated = [
         for (final e in onDisk)
           if (e.label != label) e,
@@ -3317,18 +3404,23 @@ class AppController extends Notifier<AppState> {
   Future<bool> bindExistingIdentity({
     required String identityPassword,
     required String label,
+    IdentityStorageLocator identityStorageLocator =
+        const LegacyStorageLocator(),
   }) => _withIdentityEdit(
     (edit) => _bindExistingIdentityOwned(
       edit,
       identityPassword: identityPassword,
       label: label,
+      identityStorageLocator: identityStorageLocator,
     ),
+    supportsManagedMaster: true,
   );
 
   Future<bool> _bindExistingIdentityOwned(
     _IdentityEdit edit, {
     required String identityPassword,
     required String label,
+    required IdentityStorageLocator identityStorageLocator,
   }) async {
     final roster = edit.copyRoster(_pendingRoster);
     final masterKeys = edit.copyKeys(_masterKeys);
@@ -3344,7 +3436,7 @@ class AppController extends Notifier<AppState> {
     await edit.step(() => edit.own(ref.read(storageProvider)).close());
 
     try {
-      final storage = edit.own(ref.read(storageProvider));
+      var storage = await _storageForIdentityEdit(identityStorageLocator, edit);
       // Open the identity by its OWN password (must already exist — no create).
       if (!await edit.step(() => storage.open(password: identityPassword))) {
         await edit.step(() => _recoverToActive(edit: edit));
@@ -3368,6 +3460,7 @@ class AppController extends Notifier<AppState> {
       }
 
       // Append to the master's ON-DISK roster, re-checking label + keys there.
+      storage = await _masterStorageForEdit(edit);
       if (!await edit.step(() => storage.openWithKeys(masterKeys))) {
         await edit.step(() => _recoverToActive(edit: edit));
         return false;
@@ -3380,7 +3473,14 @@ class AppController extends Notifier<AppState> {
         await edit.step(() => _recoverToActive(edit: edit));
         return false;
       }
-      final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
+      final updated = [
+        ...onDisk,
+        RosterEntry(
+          label: label,
+          spaceKeys: keys,
+          storageLocator: identityStorageLocator,
+        ),
+      ];
       await edit.step(() => storage.saveRoster(updated));
       await edit.step(() => storage.close());
       // The identity just bound now shares its container with this master and
@@ -3728,13 +3828,24 @@ class AppController extends Notifier<AppState> {
     return ok;
   }
 
-  /// Reopen whatever identity was active before a failed [addIdentity] so the
-  /// user is not stranded on a closed space.
+  /// Restore the hosting policy and active view after a failed roster edit,
+  /// without leaving the other hosted identities offline.
   Future<void> _recoverToActive({required _IdentityEdit edit}) async {
     edit.check();
     edit.viewReadable = false;
     final label = _activeLabel;
-    if (_pendingRoster != null && label != null) {
+    final roster = edit.copyRoster(_pendingRoster);
+    if (roster != null &&
+        edit.keepAllOnline &&
+        ref.read(deniableBootProvider)?.storePath != null) {
+      // A rejected edit must restore the hosting policy it interrupted, not
+      // silently stop every identity except the visible one. Settle any
+      // partially opened facade before the shared session reacquires it.
+      await edit.step(_teardownSession);
+      await edit.step(_teardownRealStack);
+      await edit.step(() => edit.own(ref.read(storageProvider)).close());
+      await _reEnterAfterRosterEdit(roster, label, true, edit: edit);
+    } else if (roster != null && label != null) {
       _activeLabel = null;
       await _pickIdentityOwned(label, edit: edit);
     } else {
