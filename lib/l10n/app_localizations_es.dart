@@ -8245,4 +8245,23 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get storageNewMasterMode => 'Almacenamiento del maestro';
+
+  @override
+  String get identityEraseRecoveryTitle =>
+      'La eliminación de la identidad no ha terminado';
+
+  @override
+  String get identityEraseRecoveryBody =>
+      'Reintenta para terminar la operación. Las identidades permanecerán desconectadas hasta entonces.';
+
+  @override
+  String get identityEraseRecoveryHint =>
+      'Si vuelve a fallar, guarda un informe de errores.';
+
+  @override
+  String get identityEraseRecoveryLock => 'Bloquear';
+
+  @override
+  String get identityEraseRecoveryFailed =>
+      'No se pudo terminar la eliminación. Puedes volver a intentarlo.';
 }

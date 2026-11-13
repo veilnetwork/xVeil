@@ -12,6 +12,7 @@ import '../features/help/help_screen.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_damaged_screen.dart';
+import '../features/identity/identity_erase_recovery_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
@@ -74,6 +75,10 @@ String? redirectForPhase(AppPhase phase, String location) {
       // WRITE, and this phase exists precisely because a space was found in a
       // state nothing should be written over (audit XV-13).
       return location == '/identity-damaged' ? null : '/identity-damaged';
+    case AppPhase.identityEraseRecovery:
+      return location == '/identity-erase-recovery'
+          ? null
+          : '/identity-erase-recovery';
     case AppPhase.preparingNode:
       // The "manage identities" screen drives roster ops that re-enter the
       // session (passing through preparingNode); let it stay put and show its
@@ -91,6 +96,7 @@ String? redirectForPhase(AppPhase phase, String location) {
           location == '/lock' ||
           location == '/onboarding' ||
           location == '/pick-identity' ||
+          location == '/identity-erase-recovery' ||
           location == '/preparing') {
         return '/home';
       }
@@ -213,6 +219,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const IdentityDamagedScreen(),
       ),
       GoRoute(
+        path: '/identity-erase-recovery',
+        builder: (_, _) => const IdentityEraseRecoveryScreen(),
+      ),
+      GoRoute(
         path: '/preparing',
         // No transition: the switch happens right before a brief CPU-bound
         // block (Argon2 container open), so an animated slide would freeze
@@ -306,11 +316,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/settings/devices',
-        builder: (_, state) =>
-            DevicesScreen(
-              autoJoin: state.uri.queryParameters['link'] == '1',
-              autoRecovery: state.uri.queryParameters['recovery'] == '1',
-            ),
+        builder: (_, state) => DevicesScreen(
+          autoJoin: state.uri.queryParameters['link'] == '1',
+          autoRecovery: state.uri.queryParameters['recovery'] == '1',
+        ),
       ),
       GoRoute(
         path: '/settings/privacy',

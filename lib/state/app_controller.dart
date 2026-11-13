@@ -87,6 +87,10 @@ enum AppPhase {
   /// later recovery tool.
   identityDamaged,
 
+  /// Authenticated master, unfinished deletion. No child may boot or accept
+  /// ordinary writes here. Retry uses cached authority; lock destroys it.
+  identityEraseRecovery,
+
   /// Space unlocked, node starting/connected — show the messenger.
   ready,
 }
@@ -312,6 +316,9 @@ class AppController extends Notifier<AppState> {
   /// toggling an identity's anonymity) can reopen the master by keys without
   /// re-prompting for the master password. Cleared on lock/start-over.
   Uint8List? _masterKeys;
+  PendingIdentityErase? _eraseRecoveryIntent;
+  bool _eraseRecoveryWasHosted = false;
+  String? _eraseRecoveryReturnLabel;
 
   /// Label of the identity currently active in a master session (null in
   /// single-identity mode).
@@ -887,7 +894,11 @@ class AppController extends Notifier<AppState> {
   Future<bool> _withIdentityEdit(
     Future<bool> Function(_IdentityEdit) run, {
     bool supportsManagedMaster = false,
+    bool allowEraseRecovery = false,
   }) async {
+    if (state.phase == AppPhase.identityEraseRecovery && !allowEraseRecovery) {
+      return false;
+    }
     // Remaining destructive/creation paths still need mode-aware wiring.
     // Refuse before any teardown or write during QA staging.
     if (!supportsManagedMaster &&
@@ -1085,6 +1096,7 @@ class AppController extends Notifier<AppState> {
   /// label across a lock, so a lease taken in one space matched a completely
   /// different space unlocked afterwards.
   bool holdsIdentity(IdentityLease lease) =>
+      state.phase != AppPhase.identityEraseRecovery &&
       _endingSessions == 0 &&
       _wipeInFlight == null &&
       _identityOwnerReadable(_identityEditOwner) &&
@@ -1117,6 +1129,7 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
+    if (state.phase == AppPhase.identityEraseRecovery) return;
     if (_endingSessions != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
@@ -1233,6 +1246,7 @@ class AppController extends Notifier<AppState> {
     // unlock spinner frozen with the container half-open — bounce back to the
     // lock screen so the user retries cleanly.
     final unlockRosterKeys = <Uint8List>[];
+    var recoveringDeletion = false;
     try {
       // Reopening from onboarding records its launch marker only after the
       // password actually opens a space, and before any session is published.
@@ -1289,6 +1303,8 @@ class AppController extends Notifier<AppState> {
         _setMasterKeys(masterKeys);
         final router = ref.read(profileStorageRouterProvider);
         if (router != null) {
+          recoveringDeletion = eraseMarker != null && eraseMarker.isNotEmpty;
+          if (recoveringDeletion) _setPendingRoster(roster);
           void check() {
             if (!ref.mounted || _supersededSince(gen)) {
               throw _IdentityEditEnded();
@@ -1400,6 +1416,12 @@ class AppController extends Notifier<AppState> {
         await storage.close();
       } catch (_) {}
       if (ref.mounted && !_supersededSince(gen)) {
+        if (recoveringDeletion &&
+            _masterKeys != null &&
+            _pendingRoster != null) {
+          _parkEraseRecovery();
+          return;
+        }
         _clearMasterSession();
         ref.read(screenLockProvider.notifier).forgetSession();
         _forgetAccessVerifier();
@@ -2778,6 +2800,7 @@ class AppController extends Notifier<AppState> {
   Future<void> pickIdentity(String label) => _selectIdentity(label);
 
   bool get _selectionBlocked =>
+      state.phase == AppPhase.identityEraseRecovery ||
       _endingSessions != 0 ||
       _wipeInFlight != null ||
       _onboardingInFlight != null ||
@@ -3469,6 +3492,8 @@ class AppController extends Notifier<AppState> {
     if (entry == null) return false;
     if (roster.length <= 1) return false; // keep >= 1; use wipe for everything
 
+    _stopMediaCapture();
+
     final prevActive = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
 
@@ -3532,15 +3557,18 @@ class AppController extends Notifier<AppState> {
     }
     final previous = _activeLabel;
     final hosted = ref.read(sessionProvider) != null;
+    _stopMediaCapture();
     edit.interrupted = true;
     await edit.step(_teardownSession);
     await edit.step(_teardownRealStack);
     await edit.step(() => edit.own(ref.read(storageProvider)).close());
     final master = await _masterStorageForEdit(edit);
+    var authenticated = false;
     try {
       if (!await edit.step(() => master.openWithKeys(masterKeys))) {
         throw StateError('master credential refused');
       }
+      authenticated = true;
       final roster = await edit.step(master.loadRoster);
       if (roster == null) throw StateError('master roster absent');
       RosterEntry? target;
@@ -3549,6 +3577,14 @@ class AppController extends Notifier<AppState> {
       }
       if (target == null) throw StateError('roster target absent');
       final router = ref.read(profileStorageRouterProvider)!;
+      final intent = PendingIdentityErase.authorized(
+        root: router.access,
+        masterKeys: masterKeys,
+        target: target,
+      );
+      _eraseRecoveryIntent?.destroy();
+      _eraseRecoveryIntent = intent;
+      _setPendingRoster(roster);
       final updated = await edit.step(
         () => RosterIdentityErase.start(
           master: master,
@@ -3564,6 +3600,7 @@ class AppController extends Notifier<AppState> {
         ),
       );
       await edit.step(master.close);
+      _forgetEraseRecovery();
       _setPendingRoster(updated);
       await edit.step(
         () => _reEnterAfterRosterEdit(updated, previous, hosted, edit: edit),
@@ -3585,11 +3622,146 @@ class AppController extends Notifier<AppState> {
         await master.close();
       } catch (_) {}
       edit.check();
+      if (authenticated) {
+        _parkEraseRecovery(target: previous, hosted: hosted);
+        return false;
+      }
       _endLifecycle();
       _clearMasterSession();
       state = const AppState(AppPhase.locked, unlockError: true);
       return false;
     }
+  }
+
+  void _forgetEraseRecovery() {
+    _eraseRecoveryIntent?.destroy();
+    _eraseRecoveryIntent = null;
+    _eraseRecoveryWasHosted = false;
+    _eraseRecoveryReturnLabel = null;
+  }
+
+  void _parkEraseRecovery({String? target, bool hosted = false}) {
+    _endLifecycle();
+    _stopMediaCapture();
+    _activeLabel = null;
+    _eraseRecoveryReturnLabel = target;
+    _eraseRecoveryWasHosted = hosted;
+    _restoreAccessVerifier();
+    state = const AppState(AppPhase.identityEraseRecovery);
+  }
+
+  Future<bool> retryIdentityErasure() {
+    if (state.phase != AppPhase.identityEraseRecovery ||
+        _masterKeys == null ||
+        _pendingRoster == null ||
+        ref.read(profileStorageRouterProvider) == null) {
+      return Future.value(false);
+    }
+    return _withIdentityEdit(
+      (edit) async {
+        final masterKeys = edit.copyKeys(_masterKeys)!;
+        final router = ref.read(profileStorageRouterProvider)!;
+        final intended = _eraseRecoveryIntent;
+        intended?.validate(router.access, masterKeys);
+        final target = intended?.copyTarget();
+        if (target != null) edit.keys.add(target.spaceKeys);
+        final returnLabel = _eraseRecoveryReturnLabel;
+        final wasHosted = _eraseRecoveryWasHosted;
+        edit.interrupted = true;
+        Storage? retiringParent;
+        try {
+          final master = await _masterStorageForEdit(edit);
+          retiringParent = master;
+          // Join a prior uncertain close before opening the same parent again.
+          await edit.step(master.close);
+          if (!await edit.step(() => master.openWithKeys(masterKeys))) {
+            throw StateError('master credential refused during erase recovery');
+          }
+          final roster = await edit.step(master.loadRoster);
+          if (roster == null || roster.isEmpty) {
+            throw const IdentityEraseFailure(IdentityEraseFailureKind.invalid);
+          }
+          final marker = await edit.step(
+            () => master.getSetting(kPendingIdentityErase),
+          );
+          List<RosterEntry> updated;
+          if (marker != null && marker.isNotEmpty) {
+            updated = await edit.step(
+              () => RosterIdentityErase.resume(
+                master: master,
+                root: router.access,
+                masterKeys: masterKeys,
+                roster: roster,
+                check: edit.check,
+                erase: (entry) =>
+                    _eraseRosterTarget(master, masterKeys, entry, edit.check),
+                retainRoster: (rows) =>
+                    edit.keys.addAll(rows.map((e) => e.spaceKeys)),
+              ),
+            );
+          } else if (target != null &&
+              roster.any((row) => intended!.matches(row))) {
+            updated = await edit.step(
+              () => RosterIdentityErase.start(
+                master: master,
+                root: router.access,
+                masterKeys: masterKeys,
+                roster: roster,
+                target: target,
+                check: edit.check,
+                erase: (entry) =>
+                    _eraseRosterTarget(master, masterKeys, entry, edit.check),
+                retainRoster: (rows) =>
+                    edit.keys.addAll(rows.map((e) => e.spaceKeys)),
+              ),
+            );
+          } else {
+            // The roster/intent may already have committed before a lost reply.
+            updated = roster;
+          }
+          await edit.step(master.close);
+          _setPendingRoster(updated);
+          final allOnline =
+              wasHosted ||
+              await edit.step(
+                () => ref.read(keepAllOnlineProvider.notifier).resolved(),
+              );
+          final canHost =
+              allOnline && ref.read(deniableBootProvider)?.storePath != null;
+          _forgetEraseRecovery();
+          state = AppState(
+            AppPhase.pickingIdentity,
+            identities: [for (final row in updated) row.label],
+          );
+          await edit.step(
+            () => _reEnterAfterRosterEdit(
+              updated,
+              returnLabel,
+              canHost,
+              edit: edit,
+            ),
+          );
+          return true;
+        } on _IdentityEditEnded {
+          rethrow;
+        } catch (error, stack) {
+          errorJournal.record(
+            kind: 'identity-erase',
+            error: StateError('identity deletion retry incomplete'),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+          try {
+            await retiringParent?.close();
+          } catch (_) {}
+          edit.check();
+          _parkEraseRecovery(target: returnLabel, hosted: wasHosted);
+          return false;
+        }
+      },
+      supportsManagedMaster: true,
+      allowEraseRecovery: true,
+    );
   }
 
   /// Bind an EXISTING identity (proven by [identityPassword]) into this master
@@ -4776,6 +4948,7 @@ class AppController extends Notifier<AppState> {
   /// Safe here because every caller has already torn the session down, so
   /// nothing is still reading through these buffers.
   void _clearMasterSession() {
+    _forgetEraseRecovery();
     _forgetAccessVerifier();
     _setPendingRoster(null); // drop cached child keys
     _setMasterKeys(null); // drop cached master keys

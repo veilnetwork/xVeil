@@ -30,6 +30,27 @@ import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
 import 'package:xveil/state/screen_lock_controller.dart';
+import 'package:xveil/state/voice_record_controller.dart';
+
+class _Recorder implements VoiceRecorder {
+  bool stopped = false, disposed = false;
+  @override
+  bool start() => true;
+  @override
+  double get level => 0;
+  @override
+  int get elapsedMs => 0;
+  @override
+  VoiceClip? stop({int waveformBars = 48}) {
+    stopped = true;
+    return null;
+  }
+
+  @override
+  void dispose() {
+    disposed = true;
+  }
+}
 
 class _Node implements NodeController {
   @override
@@ -96,6 +117,7 @@ void main() {
         final routers = <ProfileStorageRouter>[];
         final containers = <ProviderContainer>[];
         final keys = <Uint8List>[];
+        final recorders = <_Recorder>[];
         Future<ProfileStorageRouter> open() async {
           final router = await ProfileStorageRouter.open(
             profileDirectory: profile,
@@ -115,6 +137,12 @@ void main() {
         Future<ProviderContainer> app(ProfileStorageRouter router) async {
           final container = ProviderContainer(
             overrides: [
+              micPermissionProvider.overrideWithValue(() async => true),
+              voiceRecorderFactoryProvider.overrideWithValue(() {
+                final recorder = _Recorder();
+                recorders.add(recorder);
+                return recorder;
+              }),
               profileStorageRouterProvider.overrideWithValue(router),
               singleSpaceStorageProvider.overrideWith((ref) {
                 ref.watch(storageRouteRevisionProvider);
@@ -392,12 +420,54 @@ void main() {
             reason: devLogSnapshot(limit: 15).lines.join('\n'),
           );
           expect(coldController.debugMasterKeys, isNotNull);
+          await coldApp.read(voiceRecordControllerProvider.notifier).start();
+          expect(
+            coldApp.read(voiceRecordControllerProvider).isRecording,
+            isTrue,
+          );
+          final activeRecorder = recorders.last;
+          final removed = rows[1].storageLocator as ManagedStorageLocator;
+          final unknown = File(
+            '${ManagedIdentityLayout(profile).directory(removed.id)}/foreign-fixture',
+          )..writeAsBytesSync([42]);
           expect(
             await coldController.deleteIdentity('encrypted-again'),
+            isFalse,
+            reason: devLogSnapshot(limit: 15).lines.join('\n'),
+          );
+          expect(
+            coldApp.read(appControllerProvider).phase,
+            AppPhase.identityEraseRecovery,
+          );
+          expect(coldApp.read(appControllerProvider).unlockError, isFalse);
+          expect(
+            coldApp.read(voiceRecordControllerProvider).isRecording,
+            isFalse,
+            reason:
+                'capture must not survive the transition into erase recovery',
+          );
+          expect(activeRecorder.stopped && activeRecorder.disposed, isTrue);
+          expect(coldApp.read(sessionProvider), isNull);
+          expect(unknown.readAsBytesSync(), [42]);
+          expect(
+            coldController.holdsIdentity(coldController.leaseIdentity()),
+            isFalse,
+          );
+          expect(await coldController.unbindIdentity('hidden'), isFalse);
+          await coldController.pickIdentity('unencrypted');
+          expect(
+            coldApp.read(appControllerProvider).phase,
+            AppPhase.identityEraseRecovery,
+          );
+          unknown
+              .deleteSync(); // The fixture simulates external repair, never product cleanup.
+          expect(
+            await coldController.retryIdentityErasure(),
             isTrue,
             reason: devLogSnapshot(limit: 15).lines.join('\n'),
           );
-          final removed = rows[1].storageLocator as ManagedStorageLocator;
+          expect(coldApp.read(appControllerProvider).phase, AppPhase.ready);
+          expect(coldController.activeIdentity, 'unencrypted');
           expect(
             Directory(
               ManagedIdentityLayout(profile).directory(removed.id),

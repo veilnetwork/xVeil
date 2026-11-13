@@ -8145,4 +8145,22 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get storageNewMasterMode => 'Master storage';
+
+  @override
+  String get identityEraseRecoveryTitle => 'Identity deletion is unfinished';
+
+  @override
+  String get identityEraseRecoveryBody =>
+      'Retry to finish the operation. Identities stay offline until it is complete.';
+
+  @override
+  String get identityEraseRecoveryHint =>
+      'If it still fails, save an error report.';
+
+  @override
+  String get identityEraseRecoveryLock => 'Lock';
+
+  @override
+  String get identityEraseRecoveryFailed =>
+      'Could not finish deletion. You can try again.';
 }
