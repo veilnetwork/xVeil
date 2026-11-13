@@ -1,0 +1,54 @@
+{
+  "schema": "xveil-release-qualification/1",
+  "verifiedAt": "2026-11-13T10:16:27.641453+00:00",
+  "versions": {
+    "xVeil": "0.13.101",
+    "veil": "0.11.52",
+    "hidden-volume": "2.7.2"
+  },
+  "applicationBuild": 120,
+  "applicationSourceCommit": "73e83f0beb22f7bcaab3232ad85dde6e10558208",
+  "coreSourceCommit": "19dc8f3ee9fcaafa981e609f5e03dd6341b5bc6a",
+  "applicationSourceCIRun": 43370333014,
+  "applicationReleaseCIRun": 43384484813,
+  "coreSourceCIRun": 43370323898,
+  "coreReleaseCIRun": 43381615748,
+  "applicationTests": {
+    "source": {
+      "passed": 8539,
+      "skipped": 585,
+      "run": 43370333014
+    },
+    "tagged": {
+      "passed": 8539,
+      "skipped": 585,
+      "run": 43384484813
+    }
+  },
+  "applicationAssets": 17,
+  "applicationArchives": 15,
+  "payloadMembersChecked": 3141,
+  "privacyChecksPassed": true,
+  "androidNormalArtifactsMatched": 3,
+  "androidSignaturesVerified": 6,
+  "android14Arm64FreshInstallPassed": true,
+  "android14Arm64UpdateFrom01399Passed": true,
+  "android14ColdAotMappingCasesPassed": 2,
+  "affectedHyperOsInstallQualified": false,
+  "coreBinaryAssetsVerified": 28,
+  "coreSignedManifestsVerified": 7,
+  "coreUpdateManifestVerified": true,
+  "enginePinUnchanged": "engine-2026.11.12.2",
+  "originalNetcallResolved": false,
+  "fullMultideviceMatrixQualified": false,
+  "fleet": {
+    "production": 6,
+    "testnet": 3,
+    "allHealthy": true,
+    "configurationsUnchanged": true,
+    "automaticRestarts": 0,
+    "dhtCommandsPassed": 9,
+    "deploymentRequired": true,
+    "backupsAndRollbackPrepared": true
+  }
+}
