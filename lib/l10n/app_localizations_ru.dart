@@ -8207,4 +8207,10 @@ class AppL10nRu extends AppL10n {
   @override
   String get storagePlainMasterWarning =>
       'Этот незашифрованный мастер будет хранить ключи всех привязанных личностей без шифрования.';
+
+  @override
+  String get storageNewIdentityMode => 'Хранение новой личности';
+
+  @override
+  String get storageNewMasterMode => 'Хранение мастера';
 }

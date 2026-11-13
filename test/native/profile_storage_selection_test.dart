@@ -142,6 +142,43 @@ void main() {
   );
 
   test(
+    'new child preparation preserves access until an opened root is remembered',
+    () async {
+      final live = await router();
+      await live.create(StorageProtection.unencrypted, access: false);
+      final created = live.location;
+      expect(live.access, const LegacyStorageLocator());
+      await expectLater(live.rememberCurrentAccess(), throwsStateError);
+      expect(live.access, const LegacyStorageLocator());
+      expect(
+        await live.storage.open(password: '', createIfMissing: true),
+        isTrue,
+      );
+      await live.storage.saveProfile(
+        const UserProfile(displayName: 'synthetic root'),
+      );
+      expect(live.catalog.selected, isNull);
+      await live.rememberCurrentAccess();
+      expect(live.access, created);
+      expect(live.catalog.selected, created);
+      await live.close();
+      expect((await router()).access, created);
+    },
+  );
+
+  test('refused catalog publication cannot adopt a new access root', () async {
+    final live = await router(factory: (_, _) => legacy());
+    await live.create(StorageProtection.encrypted, access: false);
+    expect(await live.storage.open(password: 'synthetic'), isTrue);
+    await expectLater(
+      live.rememberCurrentAccess(),
+      throwsA(isA<ManagedWorkerFailure>()),
+    );
+    expect(live.access, const LegacyStorageLocator());
+    expect(live.catalog.selected, isNull);
+  });
+
+  test(
     'two actual managed modes keep data and remembered access across restart',
     () async {
       final live = await router();

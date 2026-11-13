@@ -827,15 +827,46 @@ legacy facade for a managed child's keys. A separately injected cancellation at
 facade construction confirms provider publication even after its caller loses
 lifecycle authority; it is not attribution to a historical user incident.
 
-During this staging phase, remaining mixed-master creation/deletion operations
-and legacy whole-profile compaction/wipe are refused before writes when visible
-catalog entries exist.
+New identity/master creation now routes each role before opening it. The form
+initially selects encrypted storage for both. Plaintext modes omit passwords;
+hidden mode uses the historical container without a public hidden-space entry.
+Converting a single identity retains its original locator and data as a child.
+Appending re-reads the master's durable roster, retains every current row and
+compares the supplied credential's keys with the already authenticated master.
+A password for another hidden master cannot redirect the write there.
+
+Child creation keeps the prior access locator. The opened new master becomes
+the remembered root only after roster publication and catalog confirmation.
+An access-session password recognizer is kept only in RAM and explicitly
+restored after an authorized child-view switch. Rebuilding an unrelated storage
+provider does not inherit it. It is consumed on session end/disposal, without
+retaining the original password. The screen can therefore lock after managed
+creation and master switching as well as after a cold unlock.
+A hidden-to-hidden conversion clears the opted-in old quick-entry wrapper,
+which otherwise opens the former child in the same legacy namespace. Other
+visible namespaces retain their own saved entries. Pending master setup is
+marked inside the protected store and cannot boot as an ordinary identity in
+single-active or all-online mode. Matching an existing hidden identity's
+password refuses creation without overwriting it. The two passwords supplied
+for a protected new child and master must differ; no global password registry
+or probe of unknown hidden spaces is introduced.
+
+Host-native tests cover creation, append and cold reopen across all three
+storage modes, hidden-password collisions, a foreign-master credential, stable
+source data and keys, and adding a child while all identities are hosted with
+fake network boots. An opened-root/catalog-refusal test checks access publication.
+These tests do not qualify power loss between creating an unbound child and
+committing its master roster: already published files remain owned/preserved,
+and interrupted-creation discovery/resume still needs implementation.
+
+During staging, mixed-master deletion/decoy operations and legacy whole-profile
+compaction/wipe remain refused before writes when visible catalog entries exist.
 Managed settings show automatic owned reclamation instead of legacy
 unknown-space maintenance. These temporary restrictions are reasons to keep the
 QA switch off in production, not a completed mode-aware management feature.
 
-Remaining before default activation: mode-aware master creation/deletion/decoy
-paths, owned accounting and erase, interrupted-onboarding recovery, password rotation,
+Remaining before default activation: mode-aware deletion/decoy paths, owned
+accounting and erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

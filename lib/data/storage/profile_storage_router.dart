@@ -152,15 +152,17 @@ final class ProfileStorageRouter {
     });
   }
 
-  Future<void> create(StorageProtection protection) => select(
-    protection == StorageProtection.hidden
-        ? const LegacyStorageLocator()
-        : ManagedStorageLocator(
-            id: ManagedIdentityFiles.newId(),
-            protection: protection,
-          ),
-    create: true,
-  );
+  Future<void> create(StorageProtection protection, {bool access = true}) =>
+      select(
+        protection == StorageProtection.hidden
+            ? const LegacyStorageLocator()
+            : ManagedStorageLocator(
+                id: ManagedIdentityFiles.newId(),
+                protection: protection,
+              ),
+        create: true,
+        access: access,
+      );
 
   void requireAccessSelection() {
     if (_selectionRequired) {
@@ -179,6 +181,27 @@ final class ProfileStorageRouter {
             ? ManagedIdentityEntry.fromLocator(selected)
             : null,
       )).catalog;
+    });
+  }
+
+  /// Adopt the opened root only after its caller has durably published the
+  /// master roster. Child creation/selection can keep the prior access intact.
+  /// Catalog confirmation precedes the in-memory change. The metadata result
+  /// remains authoritative if lock supersedes the caller while it is awaited.
+  Future<void> rememberCurrentAccess() {
+    final selected = _location;
+    return _enqueue(() async {
+      if (_closing || _location != selected || !storage.isOpen) {
+        throw StateError('the new access root must be open');
+      }
+      final snapshot = await _catalog.select(
+        selected is ManagedStorageLocator
+            ? ManagedIdentityEntry.fromLocator(selected)
+            : null,
+      );
+      _snapshot = snapshot.catalog;
+      _access = selected;
+      _selectionRequired = false;
     });
   }
 

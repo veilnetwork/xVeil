@@ -27,9 +27,8 @@ import 'providers.dart';
 /// time on every unlock. What the random per-session key DOES buy is that the
 /// value is not a stable function of the password: it is useless the moment
 /// the process ends, and it is not the same across two runs.
-@immutable
 class ScreenLockVerifier {
-  const ScreenLockVerifier._(this._key, this._digest);
+  ScreenLockVerifier._(this._key, this._digest);
 
   factory ScreenLockVerifier.forPassword(String password) {
     final random = Random.secure();
@@ -39,14 +38,23 @@ class ScreenLockVerifier {
 
   final List<int> _key;
   final List<int> _digest;
+  bool _destroyed = false;
+
+  /// The access-session owner consumes its recognizer when that session ends.
+  /// This never retains or recovers the original password.
+  void destroy() {
+    _destroyed = true;
+    _key.fillRange(0, _key.length, 0);
+    _digest.fillRange(0, _digest.length, 0);
+  }
 
   static List<int> _digestOf(List<int> key, String password) =>
-      Hmac(sha256, key).convert(utf8.encode(password)).bytes;
+      List<int>.from(Hmac(sha256, key).convert(utf8.encode(password)).bytes);
 
-  Map<String, Object> toJson() => {
-    'k': base64Encode(_key),
-    'h': base64Encode(_digest),
-  };
+  Map<String, Object> toJson() {
+    if (_destroyed) throw StateError('Session verifier is no longer available');
+    return {'k': base64Encode(_key), 'h': base64Encode(_digest)};
+  }
 
   static ScreenLockVerifier? fromJson(Object? raw) {
     try {
@@ -64,6 +72,7 @@ class ScreenLockVerifier {
   /// comparison, and a lock screen is exactly where somebody gets to try over
   /// and over.
   bool matches(String candidate) {
+    if (_destroyed) return false;
     final actual = _digestOf(_key, candidate);
     if (actual.length != _digest.length) return false;
     var difference = 0;
@@ -255,9 +264,15 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   /// Called from [AppController.unlock] once the container is open. This is the
   /// only moment the password is in hand, and it is not kept — only something
   /// that can recognise it again.
-  void rememberPassword(String password) {
+  void rememberPassword(String password) =>
+      rememberVerifier(ScreenLockVerifier.forPassword(password));
+
+  /// Borrow the current access session's recognizer after an authorized
+  /// child-view switch. AppController owns and destroys this shared value;
+  /// a storage-provider rebuild alone must not inherit it automatically.
+  void rememberVerifier(ScreenLockVerifier verifier) {
     _session = Object();
-    _verifier = ScreenLockVerifier.forPassword(password);
+    _verifier = verifier;
   }
 
   /// Called from [AppController.lock]: the session is over, so the screen lock
