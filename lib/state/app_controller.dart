@@ -37,6 +37,7 @@ import '../domain/p2p_policy.dart' as p2p;
 import '../domain/roster.dart';
 import '../domain/storage_locator.dart';
 import '../domain/storage_protection.dart';
+import '../domain/storage_setup.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
@@ -351,8 +352,32 @@ class AppController extends Notifier<AppState> {
   /// Storage key for [_singleLazyMining].
   static const _kLazyMiningSetting = 'lazy_mining';
 
+  ScreenLockVerifier? _accessVerifier;
+
+  void _rememberAccessPassword(String password) {
+    final next = ScreenLockVerifier.forPassword(password);
+    final previous = _accessVerifier;
+    _accessVerifier = next;
+    ref.read(screenLockProvider.notifier).rememberVerifier(next);
+    previous?.destroy();
+  }
+
+  void _restoreAccessVerifier() {
+    final verifier = _accessVerifier;
+    if (verifier != null) {
+      ref.read(screenLockProvider.notifier).rememberVerifier(verifier);
+    }
+  }
+
+  void _forgetAccessVerifier() {
+    final previous = _accessVerifier;
+    _accessVerifier = null;
+    previous?.destroy();
+  }
+
   @override
   AppState build() {
+    ref.onDispose(_forgetAccessVerifier);
     _bootstrap();
     return const AppState(AppPhase.bootstrapping);
   }
@@ -443,6 +468,7 @@ class AppController extends Notifier<AppState> {
       await _updateStorageRoute(() => router.select(locator));
       if (!ref.mounted || _supersededSince(gen)) return false;
       ref.read(screenLockProvider.notifier).forgetSession();
+      _forgetAccessVerifier();
       state = state.copyWith(unlockError: false);
       return true;
     } catch (error, stack) {
@@ -676,7 +702,7 @@ class AppController extends Notifier<AppState> {
           heldCredential.corrupt) {
         throw const ContainerAlreadyHasAnIdentity();
       }
-      ref.read(screenLockProvider.notifier).rememberPassword(password);
+      _rememberAccessPassword(password);
       onboardingStage = 2;
       final profile = UserProfile(displayName: displayName);
       await storage.saveProfile(profile);
@@ -790,6 +816,7 @@ class AppController extends Notifier<AppState> {
       }
       if (!current()) return;
       ref.read(screenLockProvider.notifier).forgetSession();
+      _forgetAccessVerifier();
       try {
         final prefs = await ref.read(prefsProvider.future);
         if (!current()) return;
@@ -1190,7 +1217,7 @@ class AppController extends Notifier<AppState> {
         return;
       }
       // Only a recogniser is kept, never the password or anything on disk.
-      ref.read(screenLockProvider.notifier).rememberPassword(password);
+      _rememberAccessPassword(password);
       final roster = await storage.loadRoster();
       if (!ref.mounted || _supersededSince(gen)) {
         _releaseKeys([
@@ -1299,6 +1326,7 @@ class AppController extends Notifier<AppState> {
       if (ref.mounted && !_supersededSince(gen)) {
         _clearMasterSession();
         ref.read(screenLockProvider.notifier).forgetSession();
+        _forgetAccessVerifier();
         state = const AppState(AppPhase.locked, unlockError: true);
       }
     } finally {
@@ -2642,6 +2670,7 @@ class AppController extends Notifier<AppState> {
       devLog(() => 'xVeil[all-online]: superseded before publish');
       return;
     }
+    _restoreAccessVerifier();
     state = AppState(
       AppPhase.ready,
       identity: Identity(
@@ -3536,16 +3565,258 @@ class AppController extends Notifier<AppState> {
     required String password,
     String existingLabel = 'Identity 1',
     bool anonymous = false,
-  }) => _withIdentityEdit(
-    (edit) => _addIdentityOwned(
+    StorageProtection? protection,
+    StorageProtection? masterProtection,
+  }) => _withIdentityEdit((edit) {
+    if (ref.read(profileStorageRouterProvider) != null) {
+      return _addRoutedIdentityOwned(
+        edit,
+        masterPassword: masterPassword,
+        label: label,
+        password: password,
+        existingLabel: existingLabel,
+        anonymous: anonymous,
+        protection: protection ?? StorageProtection.defaultForNewIdentity,
+        masterProtection:
+            masterProtection ?? StorageProtection.defaultForNewIdentity,
+      );
+    }
+    if (protection != null || masterProtection != null) {
+      return Future.value(false);
+    }
+    return _addIdentityOwned(
       edit,
       masterPassword: masterPassword,
       label: label,
       password: password,
       existingLabel: existingLabel,
       anonymous: anonymous,
-    ),
-  );
+    );
+  }, supportsManagedMaster: true);
+
+  Future<bool> _addRoutedIdentityOwned(
+    _IdentityEdit edit, {
+    required String masterPassword,
+    required String label,
+    required String password,
+    required String existingLabel,
+    required bool anonymous,
+    required StorageProtection protection,
+    required StorageProtection masterProtection,
+  }) async {
+    final router = ref.read(profileStorageRouterProvider)!;
+    final converting = _masterKeys == null;
+    final expectedMasterKeys = edit.copyKeys(_masterKeys);
+    if (label.trim().isEmpty ||
+        (converting &&
+            (existingLabel.trim().isEmpty || existingLabel == label)) ||
+        (protection != StorageProtection.unencrypted && password.isEmpty)) {
+      return false;
+    }
+    final masterMode = converting
+        ? masterProtection
+        : switch (router.access) {
+            LegacyStorageLocator() => StorageProtection.hidden,
+            ManagedStorageLocator(:final protection) => protection,
+          };
+    if (masterMode != StorageProtection.unencrypted && masterPassword.isEmpty) {
+      return false;
+    }
+    if (protection != StorageProtection.unencrypted &&
+        masterMode != StorageProtection.unencrypted &&
+        password == masterPassword) {
+      return false;
+    }
+    final active = edit.own(ref.read(storageProvider));
+    final previousAccess = router.access;
+    final sourceLocator = router.location;
+    final currentKeys = converting && active.isOpen
+        ? await edit.step(active.exportSpaceKeys)
+        : null;
+    if (converting && currentKeys == null) return false;
+    final hadSession = ref.read(sessionProvider) != null;
+    edit.interrupted = true;
+    await edit.step(_teardownSession);
+    await edit.step(_teardownRealStack);
+    await edit.step(active.close);
+
+    Future<Storage> create(StorageProtection mode) async {
+      await _updateStorageRoute(() => router.create(mode, access: false));
+      edit.storages.add(router.storage);
+      edit.check();
+      return router.storage;
+    }
+
+    Future<bool> hasCredential(Storage storage) async {
+      final credential = await readSovereignCredential(storage);
+      try {
+        return credential.corrupt || (credential.bundle?.isNotEmpty ?? false);
+      } finally {
+        final bundle = credential.bundle;
+        if (bundle != null) wipeSecretBytes(bundle);
+      }
+    }
+
+    Future<bool> refuse() async {
+      await _recoverToActive(edit: edit);
+      return false;
+    }
+
+    try {
+      final master = converting
+          ? await create(masterMode)
+          : await _masterStorageForEdit(edit);
+      final masterLocator = router.location;
+      if (!await edit.step(
+        () => master.open(
+          password: masterMode == StorageProtection.unencrypted
+              ? ''
+              : masterPassword,
+          createIfMissing: converting,
+        ),
+      )) {
+        return await refuse();
+      }
+      final existing = await edit.step(master.loadRoster);
+      final hasProfile = await edit.step(master.loadProfile) != null;
+      if ((converting && (existing != null || hasProfile)) ||
+          (!converting && (existing == null || existing.isEmpty))) {
+        await edit.step(master.close);
+        return await refuse();
+      }
+      if (converting) {
+        final config = await edit.step(master.loadNodeConfig);
+        final credentialPresent = await edit.step(() => hasCredential(master));
+        if (config != null || credentialPresent) {
+          await edit.step(master.close);
+          return await refuse();
+        }
+        await edit.step(
+          () => master.putSetting(kPendingMasterSetupSetting, '1'),
+        );
+      }
+      final masterKeys = await edit.step(master.exportSpaceKeys);
+      if (!converting && !listEquals(masterKeys, expectedMasterKeys)) {
+        // A legacy locator names a container, not one hidden space. A valid
+        // password for a different master must not redirect this edit there.
+        await edit.step(master.close);
+        return await refuse();
+      }
+      final base =
+          existing ??
+          [
+            RosterEntry(
+              label: existingLabel,
+              spaceKeys: currentKeys!,
+              anonymous: _singleAnonymous,
+              storageLocator: sourceLocator,
+            ),
+          ];
+      if (base.any((entry) => entry.label == label)) {
+        await edit.step(master.close);
+        return await refuse();
+      }
+      await edit.step(master.close);
+      final child = await create(protection);
+      final childLocator = router.location;
+      if (!await edit.step(
+        () => child.open(
+          password: protection == StorageProtection.unencrypted ? '' : password,
+          createIfMissing: true,
+        ),
+      )) {
+        return await refuse();
+      }
+      final childKeys = await edit.step(child.exportSpaceKeys);
+      final hasChildProfile = await edit.step(child.loadProfile) != null;
+      final hasChildRoster = await edit.step(child.loadRoster) != null;
+      final childConfig = await edit.step(child.loadNodeConfig);
+      final childCredentialPresent = await edit.step(
+        () => hasCredential(child),
+      );
+      if (identitySpaceCollides(
+            masterKeys: masterKeys,
+            roster: base,
+            candidateKeys: childKeys,
+          ) ||
+          hasChildProfile ||
+          hasChildRoster ||
+          childConfig != null ||
+          childCredentialPresent ||
+          await edit.step(() => child.getSetting(kPendingMasterSetupSetting)) ==
+              '1') {
+        await edit.step(child.close);
+        return await refuse();
+      }
+      await edit.step(() => child.saveProfile(UserProfile(displayName: label)));
+      await edit.step(child.close);
+      await edit.step(router.refresh);
+      final owner = await _storageForIdentityEdit(masterLocator, edit);
+      if (!await edit.step(() => owner.openWithKeys(masterKeys))) {
+        return await refuse();
+      }
+      // Re-read the authoritative roster before appending. Creation still
+      // requires an empty master; an existing one must keep every current row.
+      final onDisk = await edit.step(owner.loadRoster);
+      if ((converting && onDisk != null) ||
+          (!converting && (onDisk == null || onDisk.isEmpty)) ||
+          (onDisk?.any(
+                (row) =>
+                    row.label == label || listEquals(row.spaceKeys, childKeys),
+              ) ??
+              false)) {
+        await edit.step(owner.close);
+        return await refuse();
+      }
+      final updated = [
+        ...?onDisk,
+        if (onDisk == null) ...base,
+        RosterEntry(
+          label: label,
+          spaceKeys: childKeys,
+          anonymous: anonymous,
+          storageLocator: childLocator,
+        ),
+      ];
+      await edit.step(() => owner.saveRoster(updated));
+      await edit.step(() => owner.putSetting(kPendingMasterSetupSetting, '0'));
+      if (converting) {
+        if (masterLocator is LegacyStorageLocator &&
+            previousAccess == masterLocator) {
+          // The legacy namespace cannot identify individual hidden spaces.
+          // Its old saved password opens the former child, not the new master.
+          await edit.step(_forgetStartupUnlock);
+        }
+        await _updateStorageRoute(router.rememberCurrentAccess);
+        edit.check();
+        _rememberAccessPassword(
+          masterMode == StorageProtection.unencrypted ? '' : masterPassword,
+        );
+      } else if (router.access != previousAccess) {
+        throw StateError('master access changed while adding an identity');
+      }
+      _setMasterKeys(masterKeys);
+      _setPendingRoster(updated);
+      await edit.step(owner.close);
+      await edit.step(() => revokeAutoCompactAcross(updated));
+      await _reEnterAfterRosterEdit(updated, label, hadSession, edit: edit);
+      return state.phase == AppPhase.ready &&
+          _activeLabel == label &&
+          ref.read(storageProvider).isOpen;
+    } on _IdentityEditEnded {
+      rethrow;
+    } catch (error) {
+      devLog(() => 'xVeil[identity]: routed add failed (${error.runtimeType})');
+      return await refuse();
+    } finally {
+      try {
+        await router.refresh();
+      } catch (_) {
+        // Metadata read failure is not permission to replace the catalog.
+      }
+      if (ref.mounted) _publishStorageRoute();
+    }
+  }
 
   Future<bool> _addIdentityOwned(
     _IdentityEdit edit, {
@@ -3869,6 +4140,8 @@ class AppController extends Notifier<AppState> {
     // rebuild it, so the saved timeout stayed `off` for the whole run (IF-01).
     // Best-effort by construction: the read is swallowed on failure.
     await ref.read(screenLockProvider.notifier).reloadTimeout();
+    if (!ref.mounted || _supersededSince(gen)) return;
+    _restoreAccessVerifier();
     // Single-identity mode: load this space's persisted anonymity preference
     // BEFORE booting the node, since anonymity is fixed at boot. Master mode
     // reads the roster flag instead, so skip (the roster is authoritative).
@@ -4276,6 +4549,7 @@ class AppController extends Notifier<AppState> {
     // must not carry this session's password recogniser into the next one,
     // which may well be a different identity entirely.
     ref.read(screenLockProvider.notifier).forgetSession();
+    _forgetAccessVerifier();
     // EVERY LEG RUNS (audit XV-08). These were a plain `await` chain, so the
     // first failure skipped all of it: a session that would not stop left the
     // node running, the runtime dir populated, the container OPEN and the
@@ -4333,6 +4607,7 @@ class AppController extends Notifier<AppState> {
   /// Safe here because every caller has already torn the session down, so
   /// nothing is still reading through these buffers.
   void _clearMasterSession() {
+    _forgetAccessVerifier();
     _setPendingRoster(null); // drop cached child keys
     _setMasterKeys(null); // drop cached master keys
     _activeLabel = null;
@@ -5031,10 +5306,14 @@ class AppController extends Notifier<AppState> {
     try {
       final profile = await storage.loadProfile();
       if (!ref.mounted || _supersededSince(gen)) return null;
-      if (profile == null && usesManagedStorage) {
+      final pendingMaster = profile == null
+          ? await storage.getSetting(kPendingMasterSetupSetting)
+          : null;
+      if (!ref.mounted || _supersededSince(gen)) return null;
+      if (profile == null && (usesManagedStorage || pendingMaster == '1')) {
         throw CorruptIdentityRecord(
           0,
-          StateError('managed identity setup is incomplete'),
+          StateError('identity setup is incomplete'),
         );
       }
       return profile ?? _profileOfSpaceWithNoRecord();

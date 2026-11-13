@@ -14117,6 +14117,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'This unencrypted master will store the keys of every linked identity without encryption.'**
   String get storagePlainMasterWarning;
+
+  /// No description provided for @storageNewIdentityMode.
+  ///
+  /// In en, this message translates to:
+  /// **'New identity storage'**
+  String get storageNewIdentityMode;
+
+  /// No description provided for @storageNewMasterMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Master storage'**
+  String get storageNewMasterMode;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

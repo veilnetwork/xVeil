@@ -5,6 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/storage_router_providers.dart';
+import '../../domain/storage_locator.dart';
+import '../../domain/storage_protection.dart';
+import '../common/help_label.dart';
 
 /// Form to add a new identity. On the FIRST add (single-identity mode) it also
 /// converts the current space into a master, so it asks for a master password
@@ -22,6 +26,17 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
   final _masterPassword = TextEditingController();
   final _currentName = TextEditingController();
   bool _busy = false;
+  StorageProtection _protection = StorageProtection.defaultForNewIdentity;
+  StorageProtection _masterProtection = StorageProtection.defaultForNewIdentity;
+
+  StorageProtection _effectiveMasterMode(bool converting) {
+    if (converting) return _masterProtection;
+    return switch (ref.read(profileStorageRouterProvider)?.access) {
+      ManagedStorageLocator(:final protection) => protection,
+      _ => StorageProtection.hidden,
+    };
+  }
+
   // Default OFF, matching a single identity's default (direct routing, no onion
   // overhead). The user opts INTO anonymity per-identity when they want it.
   bool _anonymous = false;
@@ -39,9 +54,14 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
   Future<void> _submit(bool converting) async {
     final l = AppL10n.of(context);
     if (_busy) return;
+    final routed = ref.read(profileStorageRouterProvider) != null;
+    final plainChild = routed && _protection == StorageProtection.unencrypted;
+    final plainMaster =
+        routed &&
+        _effectiveMasterMode(converting) == StorageProtection.unencrypted;
     if (_newName.text.trim().isEmpty ||
-        _newPassword.text.isEmpty ||
-        _masterPassword.text.isEmpty) {
+        (!plainChild && _newPassword.text.isEmpty) ||
+        (!plainMaster && _masterPassword.text.isEmpty)) {
       setState(() => _error = l.addIdentityIncomplete);
       return;
     }
@@ -54,9 +74,11 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
       ok = await ref
           .read(appControllerProvider.notifier)
           .addIdentity(
-            masterPassword: _masterPassword.text,
+            masterPassword: plainMaster ? '' : _masterPassword.text,
             label: _newName.text.trim(),
-            password: _newPassword.text,
+            password: plainChild ? '' : _newPassword.text,
+            protection: routed ? _protection : null,
+            masterProtection: routed && converting ? _masterProtection : null,
             existingLabel: converting && _currentName.text.trim().isNotEmpty
                 ? _currentName.text.trim()
                 : 'Identity 1',
@@ -80,10 +102,48 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
     }
   }
 
+  Widget _modeChoice(
+    String title,
+    StorageProtection value,
+    ValueChanged<StorageProtection> onChanged,
+  ) {
+    final l = AppL10n.of(context);
+    return DropdownButtonFormField<StorageProtection>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: title,
+        border: const OutlineInputBorder(),
+      ),
+      items: [
+        for (final (mode, text) in [
+          (StorageProtection.encrypted, l.storageEncryptedTitle),
+          (StorageProtection.hidden, l.storageHiddenTitle),
+          (StorageProtection.unencrypted, l.storageUnencryptedTitle),
+        ])
+          DropdownMenuItem(
+            value: mode,
+            child: Text(text, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: _busy
+          ? null
+          : (mode) {
+              if (mode != null) onChanged(mode);
+            },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final converting = !ref.watch(appControllerProvider).isMaster;
+    ref.watch(storageRouteRevisionProvider);
+    final routed = ref.watch(profileStorageRouterProvider) != null;
+    final plainChild = routed && _protection == StorageProtection.unencrypted;
+    final plainMaster =
+        routed &&
+        _effectiveMasterMode(converting) == StorageProtection.unencrypted;
 
     return Scaffold(
       appBar: AppBar(
@@ -119,25 +179,64 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _newPassword,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: l.addIdentityNewPassword,
-                    border: const OutlineInputBorder(),
+                if (routed) ...[
+                  _modeChoice(l.storageNewIdentityMode, _protection, (mode) {
+                    _newPassword.clear();
+                    setState(() => _protection = mode);
+                  }),
+                  const SizedBox(height: 16),
+                  if (plainChild)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        l.storageUnencryptedWarning,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
+                if (!plainChild)
+                  TextField(
+                    controller: _newPassword,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: l.addIdentityNewPassword,
+                      border: const OutlineInputBorder(),
+                    ),
                   ),
-                ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _masterPassword,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: l.addIdentityMasterPassword,
-                    helperText: l.addIdentityMasterHint,
-                    helperMaxLines: 3,
-                    border: const OutlineInputBorder(),
+                if (routed && converting) ...[
+                  _modeChoice(l.storageNewMasterMode, _masterProtection, (
+                    mode,
+                  ) {
+                    _masterPassword.clear();
+                    setState(() => _masterProtection = mode);
+                  }),
+                  const SizedBox(height: 16),
+                ],
+                if (plainMaster)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      l.storagePlainMasterWarning,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ),
-                ),
+                if (!plainMaster)
+                  TextField(
+                    controller: _masterPassword,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      label: HelpLabel(
+                        title: l.addIdentityMasterPassword,
+                        help: l.addIdentityMasterHint,
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,

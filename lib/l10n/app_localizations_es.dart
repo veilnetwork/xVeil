@@ -8239,4 +8239,10 @@ class AppL10nEs extends AppL10n {
   @override
   String get storagePlainMasterWarning =>
       'Este maestro sin cifrar guardará sin cifrar las claves de todas las identidades vinculadas.';
+
+  @override
+  String get storageNewIdentityMode => 'Almacenamiento de la nueva identidad';
+
+  @override
+  String get storageNewMasterMode => 'Almacenamiento del maestro';
 }

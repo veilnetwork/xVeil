@@ -8139,4 +8139,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get storagePlainMasterWarning =>
       'This unencrypted master will store the keys of every linked identity without encryption.';
+
+  @override
+  String get storageNewIdentityMode => 'New identity storage';
+
+  @override
+  String get storageNewMasterMode => 'Master storage';
 }

@@ -21,9 +21,11 @@ import 'package:xveil/data/storage/profile_storage_router.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_protection.dart';
+import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
+import 'package:xveil/state/screen_lock_controller.dart';
 
 class _Node implements NodeController {
   @override
@@ -221,6 +223,12 @@ void main() {
             await controller.pickIdentity(row.label);
             expect(container.read(appControllerProvider).phase, AppPhase.ready);
             expect(controller.activeIdentity, row.label);
+            expect(
+              container
+                  .read(screenLockProvider.notifier)
+                  .tryUnlock(masterPassword),
+              isTrue,
+            );
             expect(controller.usesManagedStorage, row.label != 'hidden');
             if (!allOnline) expect(live.location, row.storageLocator);
             expect(live.access, masterLocator);
@@ -295,6 +303,27 @@ void main() {
             'encrypted',
           );
           expect(live.access, masterLocator);
+          ManagedStorageLocator? fourth;
+          if (allOnline) {
+            final previousIds = live.catalog.identities
+                .map((entry) => entry.id)
+                .toSet();
+            expect(
+              await controller.addIdentity(
+                masterPassword: masterPassword,
+                label: 'fourth',
+                password: '',
+                protection: StorageProtection.unencrypted,
+              ),
+              isTrue,
+            );
+            fourth = live.catalog.identities
+                .singleWhere((entry) => !previousIds.contains(entry.id))
+                .locator;
+            expect(container.read(sessionProvider), isNotNull);
+            expect(controller.activeIdentity, 'fourth');
+            expect(live.access, masterLocator);
+          }
           await controller.lock();
           await live.close();
           container.dispose();
@@ -318,6 +347,7 @@ void main() {
             'hidden',
             'unencrypted',
             'encrypted-again',
+            if (allOnline) 'fourth',
           ]);
           await coldController.pickIdentity('encrypted-again');
           expect(coldApp.read(appControllerProvider).phase, AppPhase.ready);
@@ -334,6 +364,7 @@ void main() {
             rows[0].storageLocator,
             rows[2].storageLocator,
             rows[1].storageLocator,
+            ?fourth,
           ]);
           expect(restored.every((r) => r.spaceKeys.length == 64), isTrue);
         } finally {
