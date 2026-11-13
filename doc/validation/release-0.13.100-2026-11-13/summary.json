@@ -1,0 +1,35 @@
+{
+  "schema": "xveil-release-qualification/1",
+  "verifiedAt": "2026-11-13T03:20:37.065952+00:00",
+  "versions": {
+    "xVeil": "0.13.100",
+    "veil": "0.11.51",
+    "hidden-volume": "2.7.2"
+  },
+  "applicationBuild": 119,
+  "applicationSourceCommit": "9cdac2672798635332450c32e0d25f45197f3842",
+  "sourceCIRun": 43345663353,
+  "releaseCIRun": 43348103623,
+  "sourceTestsPassed": 8539,
+  "sourceTestsSkipped": 584,
+  "taggedTestsPassed": 8539,
+  "taggedTestsSkipped": 584,
+  "relatedTestsPassed": 358,
+  "relatedTestsSkipped": 0,
+  "applicationAssets": 17,
+  "applicationArchives": 15,
+  "androidNormalArtifactsMatched": 3,
+  "androidSignaturesVerified": 6,
+  "privacyChecksPassed": true,
+  "nativeDependenciesChanged": false,
+  "originalNetcallResolved": false,
+  "fleet": {
+    "production": 6,
+    "testnet": 3,
+    "allHealthy": true,
+    "configurationsUnchanged": true,
+    "automaticRestarts": 0,
+    "dhtCommandsPassed": 9,
+    "deploymentRequired": false
+  }
+}

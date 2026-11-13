@@ -1,8 +1,8 @@
 # Network handover notifications for independent identity nodes
 
-Status: **confirmed mechanism, fixed locally** after xVeil 0.13.99. This change
-has not been pushed or released. SDK, storage, native media and call timeouts
-are unchanged.
+Status: **confirmed mechanism, released in xVeil 0.13.100+119**.
+[Release qualification](../release-0.13.100-2026-11-13/README.md).
+SDK, storage, native media and call timeouts are unchanged.
 
 ## Failure and reproduction
 
