@@ -2,28 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../domain/storage_protection.dart';
-
-/// An opaque LOCAL locator, never a node address, key or recovery credential.
-/// Strict syntax keeps catalog data from selecting paths outside its directory.
-final class ManagedIdentityId {
-  ManagedIdentityId(String value) : value = _checked(value);
-
-  final String value;
-
-  static String _checked(String value) {
-    if (value.length != 32 || !RegExp(r'^[0-9a-f]{32}$').hasMatch(value)) {
-      throw const FormatException('Invalid managed identity locator');
-    }
-    return value;
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is ManagedIdentityId && other.value == value;
-
-  @override
-  int get hashCode => value.hashCode;
-}
+import '../../domain/storage_locator.dart';
+export '../../domain/storage_locator.dart' show ManagedIdentityId;
 
 final class ManagedIdentityEntry {
   ManagedIdentityEntry({required this.id, required this.protection}) {
@@ -34,6 +14,12 @@ final class ManagedIdentityEntry {
 
   final ManagedIdentityId id;
   final StorageProtection protection;
+
+  ManagedStorageLocator get locator =>
+      ManagedStorageLocator(id: id, protection: protection);
+
+  factory ManagedIdentityEntry.fromLocator(ManagedStorageLocator locator) =>
+      ManagedIdentityEntry(id: locator.id, protection: locator.protection);
 }
 
 /// Public metadata for ENUMERABLE stores only. No key, password, display name,

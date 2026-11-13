@@ -680,6 +680,63 @@ mode-aware maintenance/erase/password-change UI must be wired consistently
 before switching the application to this binding. Historical `StorageMode.plain`
 is still a legacy preference and never selects the new plaintext backend.
 
+## Roster locations and mixed online hosting
+
+`IdentityStorageLocator` now makes the location explicit in a master's stored
+roster. A legacy locator names only the profile's historical container; it has
+no hidden-space ID or enumeration. A managed locator contains only the opaque
+local ID and protection mode. It never carries a filesystem path, network
+address, password or keys. Missing location fields in historical roster rows
+retain their legacy meaning and stored bytes. An explicit malformed/unknown
+location throws a bounded error instead of becoming an absent roster or a
+legacy child. Roster copies and anonymity edits preserve the location.
+
+The boot planner validates all rows before opening any: labels, legacy keys
+and managed IDs cannot be duplicated, and keys must have the native 64-byte
+shape. In particular the same managed ID cannot acquire owners in two modes.
+An unconfigured managed opener refuses the entire plan before touching the
+legacy container. The planner snapshots all borrowed keys before the first
+await and wipes those copies after planning, so a concurrent lock or roster
+edit cannot change a later selection. The in-memory multi-space fixture now
+copies its admitted keys too; retaining and then wiping the caller's buffer
+would be a false native model.
+
+`MultiIdentitySession` hosts legacy children over its shared native backing
+and managed children over independent workers. The standard builder supplies
+the profile directory explicitly. Storage is retained before awaiting its
+managed open, and native post-unlock cleanup goes to the correct owner.
+Disposal waits for in-flight preparation within its budget, stops further
+boots, and retains a failed managed close for another attempt. The application
+controller also retains unpublished/unreleased sessions after clearing UI
+providers and drains them before a new unlock/creation/selection.
+
+Two pre-fix tests reproduced duplicate labels passing the planner and a failed
+session close being forgotten by the controller. Gated tests additionally
+exercise a late managed open, disposal retry, immutable selection and refusal
+to route a managed locator through a legacy-only host. A native macOS case
+persists and cold-loads a mixed master roster, hosts one legacy, encrypted and
+plaintext child, injects an accepted message through each real messaging
+pipeline, verifies exact isolated histories, then closes and independently
+key-reopens all three native stores. Its transports/node boots are local
+fixtures, not a real network or mobile/desktop GUI qualification.
+
+The broader sequential storage/controller suite reports **449 PASS and one
+opt-in native skip**. A separate native-roster/controller run reports **31
+PASS with no skips**, including the skipped native case and the additional
+guard against probing managed credentials during legacy attestation cleanup.
+Analysis is clean. The first parallel joint attempt had three child-process
+failures during shared Dart SQLite asset-hook preparation, including a reported
+copy error; that attempt is not counted as a successful qualification. Asset
+hashes matched before the sequential repeat. Use `--concurrency=1` for this
+suite while the child `dart run` hooks share their output paths.
+
+One remaining lifecycle audit is the legacy `WorkerMultiSpaceBacking` close
+protocol: the closed flag and late/error replies still need the retry guarantees
+already implemented for independent `WorkerKvLogStore` owners. Controller-level
+retention alone does not prove that protocol can actually retry. This remains
+required before enabling the new application default, along with single-active
+locator routing, durable active selection, vault scoping and mode-aware UI.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

@@ -133,6 +133,8 @@ abstract interface class Storage {
   /// The roster stored in this space, or null if it is a plain identity space
   /// (no roster blob). Null-vs-list is the master-vs-identity discriminator the
   /// app uses after unlock — there is no on-disk flag (deniability).
+  /// An invalid explicit storage locator is refused, never reinterpreted as
+  /// a legacy-container child or a missing roster.
   Future<List<RosterEntry>?> loadRoster();
 
   Future<void> upsertContact(Contact contact);

@@ -14,6 +14,7 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
   void acknowledgeHardeningWarning(int id) {}
   @override
   String? hardeningWarning(int id) => null;
+
   /// Space ids handed out by [openSpace], in call order. Paired with
   /// [vacuumed] so a test can assert every space that OPENED also got its
   /// post-unlock scrub, without hardcoding how ids are assigned.
@@ -29,8 +30,10 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
 
   @override
   int openSpace(Uint8List keys) {
-    final store =
-        _byKeyHex.putIfAbsent(_hex(keys), () => FakeKvLogStore(keys: keys));
+    final store = _byKeyHex.putIfAbsent(
+      _hex(keys),
+      () => FakeKvLogStore(keys: Uint8List.fromList(keys)),
+    );
     _hosted.add(store);
     final id = _hosted.length - 1;
     opened.add(id);
