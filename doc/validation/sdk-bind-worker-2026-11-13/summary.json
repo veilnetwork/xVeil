@@ -1,6 +1,6 @@
 {
   "schema": "xveil-sdk-bind-worker/1",
-  "status": "fixed_locally",
+  "status": "released",
   "releasedBaseline": "0.13.100+119",
   "releasedSdkSource": "952e0c292eb8edae976c8d3d527e202f18b85dbb",
   "baselineAssertionFailures": 12,
@@ -18,6 +18,8 @@
   "callTimeoutsChanged": false,
   "hardwareHandoverQualified": false,
   "originalNetcallResolved": false,
-  "pushed": false,
-  "released": false
+  "pushed": true,
+  "released": true,
+  "release": "0.13.101+120",
+  "sdkRelease": "0.11.52"
 }
