@@ -37,6 +37,7 @@ import '../domain/p2p_policy.dart' as p2p;
 import '../domain/roster.dart';
 import '../domain/storage_locator.dart';
 import '../domain/storage_protection.dart';
+import '../domain/storage_usage.dart';
 import '../domain/storage_setup.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
@@ -1336,10 +1337,22 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Current on-disk size of the deniable container in bytes, or null on the
-  /// loopback/test path (no real container) — for the storage-maintenance UI.
+  /// Logical file lengths for the active visible identity, or the shared
+  /// legacy container size. Never estimates physically reclaimable blocks.
   Future<int?> containerSizeBytes() async {
-    if (usesManagedStorage) return null;
+    if (usesManagedStorage) {
+      final storage = ref.read(storageProvider);
+      if (storage is! StorageUsageSource) return null;
+      try {
+        final usage = await (storage as StorageUsageSource).storageUsage();
+        if (!ref.mounted || !identical(storage, ref.read(storageProvider))) {
+          return null;
+        }
+        return usage?.totalBytes;
+      } catch (_) {
+        return null; // Incomplete/unsafe inventory must not look like 0 B.
+      }
+    }
     final path = ref.read(deniableBootProvider)?.storePath;
     if (path == null) return null;
     try {

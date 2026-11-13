@@ -865,8 +865,27 @@ Managed settings show automatic owned reclamation instead of legacy
 unknown-space maintenance. These temporary restrictions are reasons to keep the
 QA switch off in production, not a completed mode-aware management feature.
 
-Remaining before default activation: mode-aware deletion/decoy paths, owned
-accounting and erase, interrupted-onboarding recovery, password rotation,
+The active visible identity now reports logical file lengths from its owned
+directory, including its database/keybox, role metadata and large-file pieces.
+The shared catalog, sibling identities and legacy container are excluded. The
+measurement runs on the storage worker and joins accepted blob writes before
+walking the tree; queued KV requests, reclamation and close wait for it. A
+timed-out close retains its owner until the inventory and queued release finish.
+All-online settings use the active child's facade, not the closed master root.
+
+Enumeration streams entries with bounded traversal depth and no symlink
+following. Unsafe/replaced paths or missing required files fail the measurement
+instead of returning a partial size or zero. Unknown safe files and empty
+directories are counted separately, without making them cleanup candidates.
+These are logical lengths measured per file, not an atomic filesystem snapshot,
+allocated blocks, reclaimable-space estimates or a secure-erasure promise.
+Native tests exercise both protection modes, actual encrypted blob pieces,
+sibling/legacy exclusion, unsafe paths and recovery after a failed inventory.
+Gate-based tests cover ordering with accepted file writes, KV operations and
+close, including a caller's close timeout.
+
+Remaining before default activation: mode-aware deletion/decoy paths, whole
+identity erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

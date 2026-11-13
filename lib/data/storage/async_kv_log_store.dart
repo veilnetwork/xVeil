@@ -20,6 +20,7 @@ import 'managed_reclaim_budget.dart';
 import 'native_handle_close.dart';
 import 'managed_sqlite_connection.dart';
 import '../../domain/storage_protection.dart';
+import '../../domain/storage_usage.dart';
 import 'rollback_anchor.dart';
 import 'storage_write_census.dart';
 import 'worker_death.dart';
@@ -183,10 +184,19 @@ class SyncWrappedAsyncKvLogStore
         CommitAnchorSource,
         AsyncLogBatchReader,
         AsyncLogGroupReader,
-        AsyncKvBatchReader {
+        AsyncKvBatchReader,
+        StorageUsageSource {
   SyncWrappedAsyncKvLogStore(this._inner);
 
   final KvLogStore _inner;
+
+  @override
+  Future<StorageUsage?> storageUsage() async {
+    final inner = _inner;
+    return inner is StorageUsageSource
+        ? await (inner as StorageUsageSource).storageUsage()
+        : null;
+  }
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
@@ -363,6 +373,10 @@ hv.PaddingPreset _paddingPresetFromTag(int tag) {
 sealed class _Req {
   const _Req(this.reply);
   final SendPort reply;
+}
+
+final class _StorageUsageReq extends _Req {
+  const _StorageUsageReq(super.reply);
 }
 
 class _CommitReq extends _Req {
@@ -719,6 +733,26 @@ SendPort _serveWorker(
           mutationDebt = 0;
           maintain(force, msg.reply);
         }
+      case _StorageUsageReq():
+        // Preserve FIFO order with reads, maintenance and close while the
+        // filesystem inventory yields. A caller abandoning its wait does not
+        // cancel ownership or release the native lease underneath the walk.
+        subscription.pause();
+        unawaited(() async {
+          try {
+            msg.reply.send(
+              _Ok(
+                store is StorageUsageSource
+                    ? await (store as StorageUsageSource).storageUsage()
+                    : null,
+              ),
+            );
+          } catch (error) {
+            msg.reply.send(_workerErrorReply(error, managed: managed));
+          } finally {
+            subscription.resume();
+          }
+        }());
       case _CloseReq():
         closing = true;
         try {
@@ -752,7 +786,8 @@ class WorkerKvLogStore
         AsyncLogBatchReader,
         AsyncLogGroupReader,
         AsyncKvBatchReader,
-        AsyncKvRequestFrontier {
+        AsyncKvRequestFrontier,
+        StorageUsageSource {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   /// Assemble a store over a worker that is ALREADY up.
@@ -951,6 +986,10 @@ class WorkerKvLogStore
       reply.close();
     }
   }
+
+  @override
+  Future<StorageUsage?> storageUsage() =>
+      _call((reply) => _StorageUsageReq(reply));
 
   @override
   Future<int> commit(List<KvLogOp> ops) {

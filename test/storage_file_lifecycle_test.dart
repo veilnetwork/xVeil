@@ -9,6 +9,29 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/domain/storage_usage.dart';
+
+class _UsageFileStore extends _HeldFileStore {
+  _UsageFileStore(super.raw);
+  final usageEntered = Completer<void>();
+  final usageRelease = Completer<void>();
+  int usageCalls = 0;
+  @override
+  Future<StorageUsage?> storageUsage() async {
+    usageCalls++;
+    usageEntered.complete();
+    await usageRelease.future;
+    if (closed) throw StateError('usage crossed fixture close');
+    return StorageUsage(
+      dataBytes: raw.count(Ns.fileChunks),
+      blobBytes: 0,
+      metadataBytes: 0,
+      otherBytes: 0,
+      files: 0,
+      unrecognizedEntries: 0,
+    );
+  }
+}
 
 class _HeldFileStore extends SyncWrappedAsyncKvLogStore {
   _HeldFileStore(this.raw) : super(raw);
@@ -67,6 +90,30 @@ Future<String> _outcome(Future<void> work) =>
     work.then((_) => 'ok', onError: (_) => 'error');
 
 void main() {
+  test(
+    'usage joins accepted file writes and keeps its owner until close',
+    () async {
+      final raw = _UsageFileStore(FakeKvLogStore())..holdNext = true;
+      final storage = HiddenVolumeStorage.fromAsyncStore(raw);
+      final write = storage.storeFile('before', Uint8List.fromList([1]));
+      await raw.entered.future;
+      final reading = storage.storageUsage();
+      final closing = storage.close();
+      await expectLater(storage.storageUsage(), throwsStateError);
+      expect(raw.usageCalls, 0);
+      raw.release.complete();
+      await write;
+      await raw.usageEntered.future;
+      expect(raw.closed, isFalse);
+      expect(FileStore(raw.raw).loadFile('before'), [1]);
+      raw.usageRelease.complete();
+      expect((await reading)!.dataBytes, greaterThan(0));
+      await closing;
+      expect(raw.closed, isTrue);
+      expect(storage.isOpen, isFalse);
+    },
+  );
+
   test('queued file writes and deletes cannot cross a close/reopen', () async {
     final a = _HeldFileStore(FakeKvLogStore());
     final b = _HeldFileStore(FakeKvLogStore());

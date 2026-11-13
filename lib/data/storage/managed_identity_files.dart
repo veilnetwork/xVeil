@@ -325,6 +325,7 @@ final class _ManagedIdentityResources {
   bool closing = false;
   bool closed = false;
   bool reclaiming = false;
+  bool inspecting = false;
   HvKvLogStore? reclaimStaged;
 
   String file(String name) => ManagedDirectoryCatalog._child(path!, name);
@@ -558,7 +559,7 @@ final class _ManagedIdentityResources {
   }
 
   void requireOwned() {
-    if (reclaiming) {
+    if (reclaiming || inspecting) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     if (closing ||
@@ -572,7 +573,7 @@ final class _ManagedIdentityResources {
 
   void close() {
     if (closed) return;
-    if (reclaiming) {
+    if (reclaiming || inspecting) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     closing = true;
@@ -586,10 +587,12 @@ final class _ManagedIdentityResources {
 /// reads/writes stay on pinned native handles, with no path/KDF work per key.
 /// Path admission is repeated for pathname-based lifecycle operations instead.
 sealed class ManagedIdentityStore
-    implements KvLogStore, SyncCommitAnchorSource {
+    implements KvLogStore, SyncCommitAnchorSource, StorageUsageSource {
   ManagedIdentityStore._(this._resources);
   final _ManagedIdentityResources _resources;
   ManagedIdentityEntry get entry => _resources.entry;
+  @override
+  Future<StorageUsage> storageUsage() => _resources.measureUsage();
   Future<ManagedReclaimReport> reclaim({bool force = false}) =>
       _resources.reclaim(force: force);
 

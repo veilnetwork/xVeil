@@ -7,6 +7,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../../domain/storage_protection.dart';
+import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
@@ -27,6 +28,7 @@ import 'rollback_anchor.dart';
 
 part 'managed_identity_files.dart';
 part 'managed_identity_reclaim.dart';
+part 'managed_identity_usage.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
