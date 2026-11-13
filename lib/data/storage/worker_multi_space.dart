@@ -46,7 +46,13 @@ class WorkerMultiSpaceBacking
   /// Completes with an error when the worker isolate dies. Every RPC races it.
   WorkerDeath? _watch;
   Future<SendPort>? _ready;
-  bool _closed = false;
+  bool _closed = false; // ordinary I/O admission, not a release witness
+  bool _closeSucceeded = false;
+  bool _bootstrapFailedCleanly = false;
+  hv.HvException? _closeDeathError;
+  Future<void>? _closeAttempt;
+  Future<void>? _closeWait;
+  Future<void>? _lateCloseSource;
   int _requestFrontier = 0;
 
   @override
@@ -66,6 +72,22 @@ class WorkerMultiSpaceBacking
   )?
   debugBringUpWorker;
 
+  @visibleForTesting
+  static Object debugSuccessReply([Object? value]) => _MOk(value);
+
+  @visibleForTesting
+  static Object debugFailureReply(String kind, String message) =>
+      _MErr(kind, message);
+
+  @visibleForTesting
+  static Object debugCountRequest(int id, SendPort reply) =>
+      _MCount(id, 1, reply);
+
+  /// The disposable backing must be constructed inside the test worker.
+  @visibleForTesting
+  static SendPort debugServeBacking(MultiSpaceBacking backing) =>
+      _serveMultiWorker(backing);
+
   /// Spawn a worker and take its result — or take the [close] that landed while
   /// it was coming up. Two awaits sit inside [_bringUp], and both of them are
   /// window enough (see the rollback below).
@@ -77,32 +99,11 @@ class WorkerMultiSpaceBacking
     _isolate = live.isolate;
     _watch = live.watch;
     _toWorker = live.port;
-    // [close] can have landed during either await in [_bringUp], and until
-    // these assignments there was nothing here for it to find: it saw a null
-    // port, killed an isolate that had not opened anything yet, and returned.
-    // The worker then finished opening the CONTAINER and stayed alive holding
-    // its exclusive flock, with no reference to it left anywhere — and every
-    // later unlock failed `Busy` until the process died. Same shape as the
-    // lock-during-boot window in AppController (audit H-06): a resource
-    // published after the teardown that was supposed to reclaim it.
-    //
-    // Shut it down through the PROTOCOL rather than killing it: by now the
-    // container is open, and an isolate kill cannot unwind an FFI frame, so a
-    // kill is exactly what strands the native handle (the same reason
-    // WorkerKvLogStore.close refuses to kill on timeout).
-    if (_closed) {
-      try {
-        await _shutdown(live.port);
-      } catch (e) {
-        // Logged, not raised: the op that triggered this spawn is doomed either
-        // way, and "the backing is closed" is the answer it needs. [close]'s own
-        // caller is the one that gets the teardown failure.
-        devLog(
-          () => 'xVeil[storage]: multi-space rollback shutdown failed: $e',
-        );
-      }
-      throw StateError('WorkerMultiSpaceBacking is closed');
-    }
+    // A close accepted during bootstrap owns the cleanup attempt and is
+    // waiting for this future to settle. Do not recursively await it here:
+    // that would deadlock bootstrap against its own rollback. Publish the
+    // capability to that owner, and refuse the triggering ordinary request.
+    if (_closed) throw StateError('WorkerMultiSpaceBacking is closed');
     return live.port;
   }
 
@@ -146,6 +147,9 @@ class WorkerMultiSpaceBacking
 
     switch (first) {
       case _MErr(:final kind, :final message):
+        // The production bootstrap reports this before handing out a backing:
+        // opening failed, so there is no live container owner to close.
+        _bootstrapFailedCleanly = true;
         abandon();
         throw hv.HvException(kind, message);
       case _MOk(:final value):
@@ -249,158 +253,117 @@ class WorkerMultiSpaceBacking
       _call<void>((reply) => _MVacuumOrphans(id, reply));
 
   @override
-  Future<void> close() async {
-    if (_closed) return;
-    _requestFrontier++;
+  Future<void> close() {
+    if (_closeSucceeded) return Future.value();
+    final death = _closeDeathError;
+    if (death != null) return Future.error(death);
     _closed = true;
-    final port = _toWorker;
-    if (port == null) {
-      // Nothing published yet — but a spawn may be IN FLIGHT and about to
-      // publish a worker with the container open. It sees `_closed` and shuts
-      // itself down; wait for that to finish rather than returning while a live
-      // worker is still on its way up (the flock outlives us otherwise).
-      final spawning = _ready;
-      if (spawning != null) {
-        try {
-          await spawning;
-        } catch (_) {
-          // The rollback throws by design; the teardown it performed is what
-          // this await was for.
-        }
-      }
-      // ASKED AGAIN, because the answer has changed. The spawn we just waited
-      // for publishes its worker before it notices `_closed`, and its rollback
-      // shuts that worker down through the protocol — including the case where
-      // the shutdown TIMED OUT and deliberately left the worker alive to finish
-      // releasing the container in the background.
-      //
-      // Killing here undid exactly that: an isolate kill cannot unwind an FFI
-      // frame, so the container's exclusive flock stayed held by this process
-      // until it restarted — the "correct password but won't unlock" trap the
-      // timeout path exists to avoid (report17 XV17-M7).
-      if (_toWorker != null || _lateClose != null) return;
-      _watch?.dispose();
-      _isolate?.kill(priority: Isolate.immediate); // never finished spawning
-      return;
-    }
-    await _shutdown(port);
+    final waiting = _closeWait;
+    if (waiting != null) return waiting;
+    final attempt = _closeAttempt ??= _sendClose();
+    late final Future<void> next;
+    next = _waitForClose(attempt).whenComplete(() {
+      if (identical(_closeWait, next)) _closeWait = null;
+    });
+    _closeWait = next;
+    return next;
   }
 
-  /// How long a close waits for the worker before giving up on the wait.
-  ///
-  /// Settable for tests only: the wait itself is what is under test, and five
-  /// seconds of real time per case is not a thing to spend.
   @visibleForTesting
   static Duration closeTimeout = const Duration(seconds: 5);
 
-  /// The background wait a timed-out close leaves behind, so a test can see it
-  /// finish. Null until a close times out; production never reads it.
   Future<void>? _lateClose;
-
   @visibleForTesting
   Future<void>? get debugLateClose => _lateClose;
 
-  /// Ask the worker to close the container, and report honestly what happened.
-  ///
-  /// Shared by [close] and by the closed-during-spawn rollback in [_spawn], on
-  /// purpose: they are the same teardown, and a second hand-rolled copy of it is
-  /// how the stranded-flock bug comes back.
-  ///
-  /// This used to answer its own timeout with `_MOk(null)` — a FABRICATED
-  /// SUCCESS — and then kill the worker regardless, so a container that had not
-  /// closed reported a clean close to the caller and lost its handle in the
-  /// bargain. It also dropped a real `_MErr` from the worker on the floor. Both
-  /// are lies about the one fact the caller needs: whether the container's
-  /// exclusive lock is back.
-  ///
-  /// Aligned now with [WorkerKvLogStore.close], which is the one of the three
-  /// worker lifecycles that already got this right.
-  Future<void> _shutdown(SendPort port) async {
-    final watch = _watch;
-    final reply = ReceivePort();
-    // Single-subscription port: capture the one future ONCE, or the background
-    // drain below cannot listen to what the timeout gave up on.
-    final done = reply.first;
-    port.send(_MClose(reply.sendPort));
-    Object? answer;
-    Object? died;
+  Future<void> _sendClose() async {
+    ReceivePort? reply;
     try {
-      // Raced against the worker's death like every other call (audit XV-07):
-      // `errorsAreFatal` makes a crashed worker die QUIETLY, so a close that
-      // waited on the reply alone burned the whole timeout for nothing.
-      //
-      // The worker never replies a bare null (`_MOk`/`_MErr` are objects), so
-      // null unambiguously means the timeout fired.
-      answer = await (watch == null ? done : watch.race(done)).timeout(
-        closeTimeout,
-        onTimeout: () => null,
-      );
-    } catch (e) {
-      died = e;
-    }
-    if (died != null) {
-      reply.close();
-      watch?.dispose();
-      _isolate?.kill(priority: Isolate.immediate);
-      throw hv.HvException(
-        'Internal',
-        'multi-space worker died during close: $died',
-      );
-    }
-    if (answer != null) {
-      reply.close();
-      // Stop watching BEFORE the kill: an expected shutdown is not a death to
-      // report, and leaving the watcher armed turns every clean close into an
-      // error future with nobody listening.
-      watch?.dispose();
-      _isolate?.kill(priority: Isolate.immediate);
-      if (answer is _MErr) {
-        throw hv.HvException(answer.kind, answer.message);
+      // Startup may still acquire a native handle. Its future must settle
+      // before "never opened" can be distinguished from "opened late".
+      if (_toWorker == null && _ready != null) {
+        try {
+          await _ready;
+        } catch (error) {
+          if (_toWorker == null) {
+            if (_bootstrapFailedCleanly) {
+              _closeSucceeded = true;
+              return;
+            }
+            final failure = hv.HvException(
+              'Internal',
+              'multi-space bootstrap ended without a release witness: $error',
+            );
+            _closeDeathError = failure;
+            throw failure;
+          }
+          // _spawn refuses the ordinary request when closed, but hands its
+          // actual worker capability to this sole cleanup owner first.
+        }
       }
-      return;
+      final port = _toWorker;
+      if (port == null) {
+        _closeSucceeded = true; // no spawn was ever admitted
+        return;
+      }
+      _requestFrontier++;
+      reply = ReceivePort();
+      final done = reply.first;
+      port.send(_MClose(reply.sendPort));
+      final Object? result;
+      try {
+        result = await _watch!.race(done);
+      } catch (error) {
+        final failure = hv.HvException(
+          'Internal',
+          'multi-space worker died during close: $error',
+        );
+        _closeDeathError = failure;
+        _watch?.dispose();
+        _isolate?.kill(priority: Isolate.immediate);
+        throw failure;
+      }
+      if (result is _MErr) {
+        // The backing may still own its lock. Keep it supervised and retryable
+        // instead of killing it or treating an error as a release witness.
+        throw hv.HvException(result.kind, result.message);
+      }
+      if (result is! _MOk || result.value != null) {
+        throw hv.HvException(
+          'Internal',
+          'invalid multi-space close acknowledgement',
+        );
+      }
+      _closeSucceeded = true;
+      _watch?.dispose();
+      _isolate?.kill(priority: Isolate.immediate);
+    } finally {
+      reply?.close();
+      _closeAttempt = null;
     }
-    // Timed out — the worker is almost certainly blocked inside a long
-    // synchronous FFI op (a big commit/scan) with our close queued behind it.
-    // KILLING IT HERE WOULD LEAK THE NATIVE CONTAINER HANDLE: an isolate kill
-    // cannot interrupt or unwind an FFI frame, so the backing would never
-    // close, the container's exclusive flock would stay held by THIS PROCESS,
-    // and every later open would fail Busy until an app restart — the "correct
-    // password but won't unlock" trap. Let the worker drain and close in the
-    // background (it kills itself after serving `_MClose`) and TELL THE CALLER,
-    // because until that lands the lock is still held.
-    devLog(
-      () =>
-          'xVeil[storage]: multi-space worker close timed out '
-          '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
-          'container to finish closing (flock still held)',
-    );
-    // First of {late reply, death}, for the reason spelled out in
-    // `WorkerKvLogStore.close`: bound to the reply alone, a worker that died
-    // without answering left this port and the watcher's two open forever
-    // (report16 XV-18).
-    _lateClose = (watch == null ? done : watch.race(done))
-        .then(
-          (_) => devLog(
-            () =>
-                'xVeil[storage]: late multi-space close completed — '
-                'container handle released',
-          ),
-        )
-        .catchError((Object e) {
-          devLog(() => 'xVeil[storage]: late multi-space close failed: $e');
-        })
-        .whenComplete(() {
-          reply.close();
-          // The worker is finally gone, on its own terms. Stop watching now
-          // rather than at the timeout: until this lands the isolate is still
-          // live and a real crash in the meantime is still worth reporting.
-          watch?.dispose();
-        });
-    unawaited(_lateClose!);
+  }
+
+  Future<void> _waitForClose(Future<void> attempt) async {
+    final completed = await attempt
+        .then((_) => true)
+        .timeout(closeTimeout, onTimeout: () => false);
+    if (completed) return;
+    // Bound only this wait. Keep the ONE attempt across timeouts, including
+    // bootstrap; retries join it rather than queueing duplicate native closes.
+    if (!identical(_lateCloseSource, attempt)) {
+      _lateCloseSource = attempt;
+      _lateClose = attempt.then(
+        (_) => devLog(() => 'xVeil[storage]: late multi-space close confirmed'),
+        onError: (Object error, StackTrace stack) {
+          devLog(() => 'xVeil[storage]: late multi-space close failed: $error');
+        },
+      );
+      unawaited(_lateClose!);
+    }
     throw hv.HvException(
       'Busy',
-      'multi-space worker did not close within '
-          '${closeTimeout.inMilliseconds}ms; the container lock is still held',
+      'multi-space worker did not close within ${closeTimeout.inMilliseconds}ms; '
+          'native release is not confirmed',
     );
   }
 }
@@ -555,11 +518,19 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
     return;
   }
 
+  cfg.reply.send(_MOk(_serveMultiWorker(backing)));
+}
+
+SendPort _serveMultiWorker(MultiSpaceBacking backing) {
   final rx = ReceivePort();
-  cfg.reply.send(_MOk(rx.sendPort));
+  var closing = false;
 
   rx.listen((dynamic msg) {
     if (msg is! _MReq) return;
+    if (closing && msg is! _MClose) {
+      msg.reply.send(const _MErr('Internal', 'storage worker is closing'));
+      return;
+    }
     void run<T>(T Function() body) {
       try {
         msg.reply.send(_MOk(body()));
@@ -621,15 +592,20 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
           return null;
         });
       case _MClose():
+        closing = true;
         try {
           backing.close();
           msg.reply.send(const _MOk(null));
-        } catch (e) {
-          msg.reply.send(_MErr('Internal', e.toString()));
-        } finally {
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
+        } on hv.HvException catch (e) {
+          msg.reply.send(_MErr(e.kind, e.message));
+        } catch (e) {
+          // Close-only serving remains available while native ownership is
+          // unconfirmed. The host must not lose this resource on an error.
+          msg.reply.send(_MErr('Internal', e.toString()));
         }
     }
   });
+  return rx.sendPort;
 }

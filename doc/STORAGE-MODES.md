@@ -720,7 +720,8 @@ pipeline, verifies exact isolated histories, then closes and independently
 key-reopens all three native stores. Its transports/node boots are local
 fixtures, not a real network or mobile/desktop GUI qualification.
 
-The broader sequential storage/controller suite reports **449 PASS and one
+Before the close-protocol follow-up, the sequential storage/controller suite
+reported **449 PASS and one
 opt-in native skip**. A separate native-roster/controller run reports **31
 PASS with no skips**, including the skipped native case and the additional
 guard against probing managed credentials during legacy attestation cleanup.
@@ -730,12 +731,46 @@ copy error; that attempt is not counted as a successful qualification. Asset
 hashes matched before the sequential repeat. Use `--concurrency=1` for this
 suite while the child `dart run` hooks share their output paths.
 
-One remaining lifecycle audit is the legacy `WorkerMultiSpaceBacking` close
-protocol: the closed flag and late/error replies still need the retry guarantees
-already implemented for independent `WorkerKvLogStore` owners. Controller-level
-retention alone does not prove that protocol can actually retry. This remains
-required before enabling the new application default, along with single-active
-locator routing, durable active selection, vault scoping and mode-aware UI.
+The follow-up `WorkerMultiSpaceBacking` close audit is now implemented. The I/O
+admission flag is separate from confirmed release. Concurrent callers and
+timeout retries join one close attempt, including startup still in flight.
+An error reply retains a close-only serving worker and its death supervision;
+a later attempt actually reaches the same backing. A late error is still an
+error, and worker death remains terminal on repeated close. Only the correct
+multi-space success reply with a null close payload confirms release; foreign
+protocol objects, bare values and other success payloads are refused. Test
+fixtures now use their respective real protocol acknowledgements instead of
+the old non-null/bare-boolean stand-ins.
+
+Thirteen gated protocol cases cover refusal/retry, concurrency, timeout and late
+error, malformed/foreign acknowledgements, death, bootstrap rollback, no-spawn
+close, and the production serving loop with a failed-close backing. The initial
+eight cases all failed against the pre-fix behavior. A native case separately
+checks an explicit bootstrap refusal on an absent file: no backing was created,
+so normal and repeated close succeed without manufacturing files. This explicit
+refusal differs from an unwitnessed bootstrap death/failure, which cannot prove
+release.
+
+There is a second boundary below retryable worker protocols. The pinned native
+bindings mark a handle closed and detach its finalizer **before** calling their
+consuming native free. After a free error the next wrapper call would be a no-op,
+not a release witness. Both native app adapters now use `NativeHandleClose` to
+preserve that terminal error and original stack instead of reporting success or
+attempting a possible double-free. Two deterministic tests cover consuming-error
+retention and successful idempotence. These are callback/adapter contract tests;
+actual native free failure or panic is not injected or claimed qualified. Healthy
+native release and cold reopen remain covered by the file and mixed-session cases.
+
+With the close follow-up, the sequential storage/controller/native suite reports
+**466 PASS and one opt-in native skip**. Focused worker/adapter/lifecycle checks
+report **47 PASS**, and analysis is clean. The separate native-roster/controller
+run reports **31 PASS with no skips**, including the opt-in native case.
+These checks retain the distinction
+between retryable protocol errors, terminal unwitnessed death and a consuming
+native free error; none of them is relabeled as successful resource release.
+
+Single-active locator routing, durable active selection, vault scoping and
+mode-aware UI remain required before enabling the new application default.
 
 ## Implementation boundaries
 

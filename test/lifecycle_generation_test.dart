@@ -788,7 +788,7 @@ void _stubWorkerEntry(List<Object> args) {
     final reply = (msg as dynamic).reply as SendPort;
     if (msg.runtimeType.toString().contains('Close')) {
       events.send('close-requested');
-      reply.send(true);
+      reply.send(WorkerMultiSpaceBacking.debugSuccessReply());
       rx.close();
       Isolate.current.kill(priority: Isolate.immediate);
       return;
