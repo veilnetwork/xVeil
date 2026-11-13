@@ -324,6 +324,8 @@ final class _ManagedIdentityResources {
   bool handedOff = false;
   bool closing = false;
   bool closed = false;
+  bool reclaiming = false;
+  HvKvLogStore? reclaimStaged;
 
   String file(String name) => ManagedDirectoryCatalog._child(path!, name);
 
@@ -531,6 +533,8 @@ final class _ManagedIdentityResources {
 
   void closePayloads() {
     // Never release the identity lease before every payload close succeeds.
+    reclaimStaged?.close();
+    reclaimStaged = null;
     backend?.close();
     backend = null;
     content?.close();
@@ -554,6 +558,9 @@ final class _ManagedIdentityResources {
   }
 
   void requireOwned() {
+    if (reclaiming) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
     if (closing ||
         closed ||
         backend == null ||
@@ -565,6 +572,9 @@ final class _ManagedIdentityResources {
 
   void close() {
     if (closed) return;
+    if (reclaiming) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
     closing = true;
     closePayloads();
     closed = true;
@@ -580,6 +590,14 @@ sealed class ManagedIdentityStore
   ManagedIdentityStore._(this._resources);
   final _ManagedIdentityResources _resources;
   ManagedIdentityEntry get entry => _resources.entry;
+  Future<ManagedReclaimReport> reclaim({bool force = false}) =>
+      _resources.reclaim(force: force);
+
+  @visibleForTesting
+  Future<ManagedReclaimReport> debugReclaim(
+    ManagedReclaimObserver observer, {
+    bool force = true,
+  }) => _resources.reclaim(force: force, observer: observer);
   T _use<T>(T Function(KvLogStore) work) {
     _resources.requireOwned();
     return work(_resources.backend!);
