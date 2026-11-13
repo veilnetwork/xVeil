@@ -8264,4 +8264,23 @@ class AppL10nEs extends AppL10n {
   @override
   String get identityEraseRecoveryFailed =>
       'No se pudo terminar la eliminación. Puedes volver a intentarlo.';
+
+  @override
+  String get identityEraseReview => 'Revisar otros archivos';
+
+  @override
+  String get identityEraseReviewTitle =>
+      'Otros archivos en la carpeta de esta identidad';
+
+  @override
+  String identityEraseReviewSummary(int files, int directories, int bytes) {
+    return 'Archivos: $files. Carpetas: $directories. Tamaño: $bytes bytes.';
+  }
+
+  @override
+  String get identityEraseReviewWarning =>
+      'xVeil no reconoce estos archivos. ¿Eliminarlos junto con esta identidad? Esta acción no se puede deshacer. No se eliminarán otras identidades.';
+
+  @override
+  String get identityEraseReviewConfirm => 'Eliminar todo en esta identidad';
 }

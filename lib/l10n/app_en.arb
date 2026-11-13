@@ -3750,5 +3750,23 @@
   "identityEraseRecoveryBody": "Retry to finish the operation. Identities stay offline until it is complete.",
   "identityEraseRecoveryHint": "If it still fails, save an error report.",
   "identityEraseRecoveryLock": "Lock",
-  "identityEraseRecoveryFailed": "Could not finish deletion. You can try again."
+  "identityEraseRecoveryFailed": "Could not finish deletion. You can try again.",
+  "identityEraseReview": "Review other files",
+  "identityEraseReviewTitle": "Other files in this identity’s folder",
+  "identityEraseReviewSummary": "Files: {files}. Folders: {directories}. Size: {bytes} bytes.",
+  "identityEraseReviewWarning": "These files are not recognized by xVeil. Delete them with this identity? This cannot be undone. Other identities will not be deleted.",
+  "identityEraseReviewConfirm": "Delete everything in this identity",
+  "@identityEraseReviewSummary": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "directories": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  }
 }

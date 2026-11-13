@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -6,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:meta/meta.dart' show visibleForTesting;
 
+import '../../domain/identity_erase_review.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;
@@ -31,6 +33,7 @@ part 'managed_identity_files.dart';
 part 'managed_identity_reclaim.dart';
 part 'managed_identity_usage.dart';
 part 'managed_identity_erase.dart';
+part 'managed_identity_erase_review.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
@@ -57,6 +60,7 @@ final class ManagedDirectoryCatalog {
   bool _closed = false;
   late final _catalogRelease = NativeHandleClose(_catalog.close);
   final _identityOwners = <ManagedIdentityId, _ManagedIdentityResources>{};
+  final _eraseReviews = <String, _ManagedEraseConsent>{};
 
   void _reserveIdentity(_ManagedIdentityResources owner) {
     _validate();
@@ -240,6 +244,7 @@ final class ManagedDirectoryCatalog {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     _catalogRelease.close();
+    _eraseReviews.clear();
     _closed = true;
   }
 

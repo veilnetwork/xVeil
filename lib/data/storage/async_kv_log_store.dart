@@ -18,6 +18,7 @@ import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';
 import 'managed_sqlite_connection.dart';
+import '../../domain/identity_erase_review.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import 'rollback_anchor.dart';
@@ -627,7 +628,7 @@ SendPort _serveWorker(
     }
 
     switch (msg) {
-      case _CatalogSnapshotReq() || _CatalogSelectReq() || _CatalogEraseReq():
+      case _CatalogSnapshotReq() || _CatalogSelectReq() || _CatalogEraseReq() || _CatalogReviewEraseReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
         run(() {

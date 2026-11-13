@@ -32,6 +32,8 @@ abstract final class _ManagedIdentityEraser {
     Uint8List? password,
     Uint8List? keys,
     ManagedEraseObserver? observer,
+    IdentityEraseReview? review,
+    void Function(IdentityEraseReview)? collectReview,
   }) {
     // Snapshot before the first await. Never retain/wipe a borrowed roster key.
     final pass = password == null ? null : Uint8List.fromList(password);
@@ -69,6 +71,13 @@ abstract final class _ManagedIdentityEraser {
         }
         final path = owner.layout.directory(entry.id);
         if (!ManagedIdentityFiles._exists(path)) {
+          // A read-only review or stale consent cannot perform the normal
+          // idempotent catalog cleanup on behalf of a missing target.
+          if (review != null || collectReview != null) {
+            throw const ManagedIdentityFailure(
+              ManagedIdentityFailureKind.missing,
+            );
+          }
           owner._catalog.remove(entry); // Public metadata only; no files exist.
           owner._validate();
           return;
@@ -86,13 +95,14 @@ abstract final class _ManagedIdentityEraser {
         // still refuses; absence never becomes permission to create a store.
         final current = ManagedIdentityFiles._listed(owner, entry.id);
         if (current != null) ManagedIdentityFiles._sameMode(current, entry);
-        final inventory = _ManagedUsageInventory(held);
+        final unknown = review != null || collectReview != null
+            ? _ManagedUnknownSnapshot()
+            : null;
+        final inventory = _ManagedUsageInventory(
+          held,
+          unknownEntry: unknown?.add,
+        );
         final usage = await inventory.measure(requireComplete: false);
-        if (usage.unrecognizedEntries != 0) {
-          throw const ManagedIdentityFailure(
-            ManagedIdentityFailureKind.ambiguous,
-          );
-        }
         final payloadPresent =
             inventory.dataFiles != 0 || inventory.blobFiles != 0;
         if (ManagedIdentityFiles._exists(held.file('identity.meta.lock')) &&
@@ -112,7 +122,13 @@ abstract final class _ManagedIdentityEraser {
             ManagedIdentityFailureKind.ambiguous,
           );
         }
-        if (payloadPresent) {
+        final reviewing = review != null || collectReview != null;
+        if (reviewing && (!hasRole || key == null || key.length != 64)) {
+          throw const ManagedIdentityFailure(
+            ManagedIdentityFailureKind.authentication,
+          );
+        }
+        if (payloadPresent || reviewing) {
           if (entry.protection == StorageProtection.encrypted) {
             if (!inventory.seen.contains('keybox.hv')) {
               throw const ManagedIdentityFailure(
@@ -153,6 +169,28 @@ abstract final class _ManagedIdentityEraser {
         // Close every payload handle before touching names, retaining the role
         // lease. A consuming-close error remains owned and stops this operation.
         held.closeDataHandles();
+        if (collectReview != null) {
+          collectReview(
+            _ManagedEraseConsent.issue(owner, held, key!, unknown!),
+          );
+          return;
+        }
+        if (review != null) {
+          _ManagedEraseConsent.consume(owner, held, key!, review, unknown!);
+          await unknown.remove(held);
+          final remaining = await _ManagedUsageInventory(
+            held,
+          ).measure(requireComplete: false);
+          if (remaining.unrecognizedEntries != 0) {
+            throw const ManagedIdentityFailure(
+              ManagedIdentityFailureKind.ambiguous,
+            );
+          }
+        } else if (usage.unrecognizedEntries != 0) {
+          throw const ManagedIdentityFailure(
+            ManagedIdentityFailureKind.ambiguous,
+          );
+        }
         await observer?.call(ManagedEraseStage.validated);
         await _removeBlobs(held);
         await observer?.call(ManagedEraseStage.blobsRemoved);

@@ -3250,5 +3250,23 @@
   "identityEraseRecoveryBody": "Повторите попытку, чтобы завершить операцию. До этого личности не запускаются.",
   "identityEraseRecoveryHint": "Если ошибка повторяется, сохраните отчёт.",
   "identityEraseRecoveryLock": "Заблокировать",
-  "identityEraseRecoveryFailed": "Не удалось завершить удаление. Можно повторить попытку."
+  "identityEraseRecoveryFailed": "Не удалось завершить удаление. Можно повторить попытку.",
+  "identityEraseReview": "Проверить другие файлы",
+  "identityEraseReviewTitle": "Другие файлы в папке личности",
+  "identityEraseReviewSummary": "Файлов: {files}. Папок: {directories}. Размер: {bytes} байт.",
+  "identityEraseReviewWarning": "xVeil не распознаёт эти файлы. Удалить их вместе с этой личностью? Это действие необратимо. Другие личности удалены не будут.",
+  "identityEraseReviewConfirm": "Удалить всё в этой личности",
+  "@identityEraseReviewSummary": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "directories": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  }
 }

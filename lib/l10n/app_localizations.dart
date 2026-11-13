@@ -14159,6 +14159,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not finish deletion. You can try again.'**
   String get identityEraseRecoveryFailed;
+
+  /// No description provided for @identityEraseReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Review other files'**
+  String get identityEraseReview;
+
+  /// No description provided for @identityEraseReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Other files in this identity’s folder'**
+  String get identityEraseReviewTitle;
+
+  /// No description provided for @identityEraseReviewSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Files: {files}. Folders: {directories}. Size: {bytes} bytes.'**
+  String identityEraseReviewSummary(int files, int directories, int bytes);
+
+  /// No description provided for @identityEraseReviewWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'These files are not recognized by xVeil. Delete them with this identity? This cannot be undone. Other identities will not be deleted.'**
+  String get identityEraseReviewWarning;
+
+  /// No description provided for @identityEraseReviewConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete everything in this identity'**
+  String get identityEraseReviewConfirm;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

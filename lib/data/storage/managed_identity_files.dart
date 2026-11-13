@@ -30,8 +30,34 @@ abstract final class ManagedIdentityFiles {
     required ManagedIdentityEntry entry,
     Uint8List? password,
     Uint8List? keys,
-  }) =>
-      _ManagedIdentityEraser.run(owner, entry, password: password, keys: keys);
+    IdentityEraseReview? review,
+  }) => _ManagedIdentityEraser.run(
+    owner,
+    entry,
+    password: password,
+    keys: keys,
+    review: review,
+  );
+
+  /// Read-only review of safe unrecognized entries. Authenticates the same
+  /// role/keybox as erasure; releases the lease before returning to the UI.
+  static Future<IdentityEraseReview> reviewErasure(
+    ManagedDirectoryCatalog owner, {
+    required ManagedIdentityEntry entry,
+    required Uint8List keys,
+  }) async {
+    IdentityEraseReview? result;
+    await _ManagedIdentityEraser.run(
+      owner,
+      entry,
+      keys: keys,
+      collectReview: (value) => result = value,
+    );
+    if (result == null) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.missing);
+    }
+    return result!;
+  }
 
   @visibleForTesting
   static Future<void> debugErase(

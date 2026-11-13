@@ -14,6 +14,7 @@ import 'package:xveil/data/storage/managed_identity_storage.dart';
 import 'package:xveil/data/storage/profile_storage_router.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/identity_erase_review.dart';
 import 'package:xveil/domain/pending_identity_erase.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_protection.dart';
@@ -25,6 +26,8 @@ import 'package:xveil/state/storage_router_providers.dart';
 class _Parent extends StorageProxy {
   _Parent(super.inner);
   bool refuseIntent = false;
+  File? watchedUnknown;
+  final durableIntentWitnesses = <bool>[];
   @override
   Future<void> putSetting(String key, String value) async {
     if (refuseIntent && key == kPendingIdentityErase && value.isNotEmpty) {
@@ -32,6 +35,11 @@ class _Parent extends StorageProxy {
       throw StateError('synthetic intent refusal');
     }
     await inner.putSetting(key, value);
+    if (key == kPendingIdentityErase &&
+        value.isNotEmpty &&
+        watchedUnknown != null) {
+      durableIntentWitnesses.add(watchedUnknown!.existsSync());
+    }
   }
 }
 
@@ -214,6 +222,7 @@ void main() {
             container.read(appControllerProvider).phase,
             AppPhase.identityEraseRecovery,
           );
+          IdentityEraseReview? approved;
           if (coldIntent) {
             expect(await controller.retryIdentityErasure(), isFalse);
             expect(foreign.readAsBytesSync(), [7, 8, 9]);
@@ -221,19 +230,49 @@ void main() {
             final cachedChildren = controller.debugRoster!
                 .map((e) => e.spaceKeys)
                 .toList();
+            final beforeLockReview = await controller.reviewIdentityErasure();
+            expect(beforeLockReview, isNotNull);
+            expect(beforeLockReview!.files, 1);
             await controller.lock();
             expect(cachedRoot, everyElement(0));
             expect(cachedChildren, everyElement(everyElement(0)));
-            expect(await controller.retryIdentityErasure(), isFalse);
+            expect(
+              await controller.retryIdentityErasure(review: beforeLockReview),
+              isFalse,
+            );
+            expect(await controller.reviewIdentityErasure(), isNull);
             await controller.unlock('fixture recovery password');
             expect(
               container.read(appControllerProvider).phase,
               AppPhase.identityEraseRecovery,
             );
-            foreign
-                .deleteSync(); // Explicit fixture repair, never an automatic sweep.
+            approved = await controller.reviewIdentityErasure();
+            expect(approved, isNotNull);
+            final extra = File('${foreign.parent.path}/added-after-review')
+              ..writeAsStringSync('new');
+            expect(
+              await controller.retryIdentityErasure(review: approved),
+              isFalse,
+            );
+            expect(foreign.readAsBytesSync(), [7, 8, 9]);
+            expect(extra.readAsStringSync(), 'new');
+            approved = await controller.reviewIdentityErasure();
+            expect(approved!.files, 2);
           }
-          expect(await controller.retryIdentityErasure(), isTrue);
+          if (!coldIntent) {
+            // No intent reached disk on the initial failure. Review is still
+            // read-only; confirmation must first persist the original target.
+            foreign.writeAsBytesSync([7, 8, 9]);
+            proxy.watchedUnknown = foreign;
+            approved = await controller.reviewIdentityErasure();
+            expect(approved!.files, 1);
+            expect(foreign.existsSync(), isTrue);
+          }
+          expect(
+            await controller.retryIdentityErasure(review: approved),
+            isTrue,
+          );
+          if (!coldIntent) expect(proxy.durableIntentWitnesses, [true]);
           expect(
             container.read(appControllerProvider).phase,
             AppPhase.pickingIdentity,
