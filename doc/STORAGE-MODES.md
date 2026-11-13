@@ -472,6 +472,19 @@ a disposable synchronous store that refuses its first close. The server remains
 available and its second close succeeds. Together with existing close/death and
 headless-import checks, **30 cases pass**. Native-close failure and abrupt
 native-worker abandonment are not manufactured or claimed by these fixtures.
+The domain storage facade now also retains a separate retiring owner after a
+failed close. Ordinary reads/writes see a locked store, but close and both
+password/key reopen paths retry that exact owner before opening a replacement.
+Close errors propagate instead of being logged as a dropped handle. Accepted
+file/ratchet/sequence work still drains before retirement; derived caches are
+invalidated on both success and failure.
+
+All four new facade regression scenarios failed against the former swallowed-
+error path and now pass. The related facade/file/roster lifecycle suite reports
+41 PASS and one opt-in native skip; the skipped real-container roster case was
+then explicitly enabled and passed separately, preserving master/child keys
+through promotion, shrink and cold key-based reopen. No skipped case is counted
+as passed. Focused analysis of the three changed facade/test files is clean.
 The managed factory is not yet wired into worker boot or the application's UI.
 
 ## Implementation boundaries

@@ -188,6 +188,9 @@ class HiddenVolumeStorage
   /// handle is not configured for keys-based open (single-identity build).
   final AsyncKeysSpaceOpener? keysOpener;
   AsyncKvLogStore? _store;
+  // A failed/uncertain close blocks use but must retain its native owner for
+  // retry. Never open another identity until this handle confirms release.
+  AsyncKvLogStore? _retiringStore;
 
   // One encrypted flag, committed WITH a message tombstone. A tombstone makes
   // the body logically absent; it does not prove its orphaned chunks were
@@ -344,7 +347,7 @@ class HiddenVolumeStorage
   /// WITHOUT yielding to the event loop, so a Busy container still fails the
   /// caller synchronously-first (semantics some callers/tests rely on).
   Future<void> _closeStaleStoreBeforeOpen(String who) async {
-    if (_store == null) return;
+    if (_store == null && _retiringStore == null) return;
     devLog(
       () =>
           'xVeil[storage]: $who called while a space is still open — '
@@ -360,7 +363,9 @@ class HiddenVolumeStorage
   }) async {
     final closing = _closePending;
     if (closing != null) await closing;
-    if (_store != null) await _closeStaleStoreBeforeOpen('open()');
+    if (_store != null || _retiringStore != null) {
+      await _closeStaleStoreBeforeOpen('open()');
+    }
     final store = await _opener(
       password: Uint8List.fromList(utf8.encode(password)),
       create: createIfMissing,
@@ -382,7 +387,9 @@ class HiddenVolumeStorage
     if (keysOpener == null) return false;
     final closing = _closePending;
     if (closing != null) await closing;
-    if (_store != null) await _closeStaleStoreBeforeOpen('openWithKeys()');
+    if (_store != null || _retiringStore != null) {
+      await _closeStaleStoreBeforeOpen('openWithKeys()');
+    }
     final store = await keysOpener?.call(keys);
     if (store == null) return false;
     _store = store;
@@ -7955,12 +7962,12 @@ class HiddenVolumeStorage
   Future<void>? _closePending;
 
   Future<void> _close() async {
-    final s = _store;
-    // Clear the handle FIRST: a throwing native close must never leave a stale
-    // _store behind — that would wedge every later open of the same container
-    // behind its exclusive flock until an app restart. The error itself is
-    // logged and swallowed (callers close best-effort on teardown paths).
+    final s = _retiringStore ?? _store;
+    // Disable ordinary I/O first, but keep the exact owner until its close
+    // succeeds. Dropping a failed close loses the only way to release its
+    // native handles; a new open must retry this retirement before proceeding.
     _store = null;
+    _retiringStore = s;
     _ratchetSavesSinceScrub = null;
     _ratchetCommittedChunks.clear();
     _resetLogAllocator();
@@ -7970,10 +7977,10 @@ class HiddenVolumeStorage
     _anchorBeforeDeletionRecovery = null;
     try {
       await s?.close();
-    } catch (e) {
-      devLog(() => 'xVeil[storage]: close failed (handle dropped anyway): $e');
+      _retiringStore = null;
+    } finally {
+      await _invalidateScanCache();
+      await _invalidateOutboxCache();
     }
-    await _invalidateScanCache();
-    await _invalidateOutboxCache();
   }
 }
