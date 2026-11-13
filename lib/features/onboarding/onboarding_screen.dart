@@ -17,6 +17,9 @@ import '../../data/identity/veil_identity.dart';
 import '../../data/node/bundled_seeds.dart';
 import '../../data/node/bundled_seeds_prefs.dart';
 import '../../domain/identity.dart';
+import '../../domain/storage_protection.dart';
+import '../../state/storage_router_providers.dart';
+import 'storage_protection_choice.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
@@ -110,6 +113,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// device waiting to be adopted.
   bool _joinExisting = false;
   StorageMode _mode = StorageMode.hiddenSpace;
+  StorageProtection _protection = StorageProtection.defaultForNewIdentity;
 
   /// Whether this identity may reach the network through the project's shared
   /// seed nodes. Defaults to yes — the same answer every install made before
@@ -447,8 +451,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // went into the space before any node existed and disagreed with
             // the real one forever after (audit XV-06). The node id is the
             // node's to produce.
-            password: _passwordCtrl.text,
+            password:
+                ref.read(profileStorageRouterProvider) != null &&
+                    _protection == StorageProtection.unencrypted
+                ? ''
+                : _passwordCtrl.text,
             mode: _mode,
+            protection: ref.read(profileStorageRouterProvider) == null
+                ? null
+                : _protection,
             // WHICHEVER SECRET OPENS WHAT THIS DEVICE WILL HOLD. For a phrase
             // identity that is the words; for a certificate restore it is the
             // certificate's own code, because an XVRC is re-wrapped under a
@@ -608,15 +619,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               },
               onMinted: (minted) => _minted = minted,
             ),
-            3 => _StorageChoice(
-              mode: _mode,
-              onChanged: (m) => setState(() => _mode = m),
-              onNext: () => _go(7),
-            ),
+            3 =>
+              ref.watch(profileStorageRouterProvider) != null
+                  ? StorageProtectionChoice(
+                      selected: _protection,
+                      onChanged: (value) => setState(() => _protection = value),
+                      onNext: () => _go(7),
+                    )
+                  : _StorageChoice(
+                      mode: _mode,
+                      onChanged: (m) => setState(() => _mode = m),
+                      onNext: () => _go(7),
+                    ),
             7 => BundledSeedsChoiceStep(
               useBundledSeeds: _useBundledSeeds,
               onChanged: (v) => setState(() => _useBundledSeeds = v),
-              onNext: () => _go(4),
+              onNext: () =>
+                  ref.read(profileStorageRouterProvider) != null &&
+                      _protection == StorageProtection.unencrypted
+                  ? _finish()
+                  : _go(4),
             ),
             _ => _PasswordStep(
               passwordCtrl: _passwordCtrl,

@@ -5,6 +5,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/identity_guard.dart';
 import '../../state/startup_unlock.dart';
+import '../../state/storage_router_providers.dart';
 import 'pattern_pad.dart';
 
 class StartupQuickUnlock extends ConsumerStatefulWidget {
@@ -24,6 +25,7 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
     final lease = ref.leaseIdentity();
     final app = ref.read(appControllerProvider.notifier);
     final vault = ref.read(quickUnlockVaultProvider);
+    final locator = ref.read(storageAccessLocatorProvider);
     final reason = AppL10n.of(context).quickUnlockReason;
     setState(() {
       _busy = true;
@@ -34,6 +36,7 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
           ? await vault.openSystem(reason)
           : await vault.openPattern(_nodes);
       if (!mounted ||
+          ref.read(storageAccessLocatorProvider) != locator ||
           !ref.holdsIdentity(lease) ||
           ref.read(appControllerProvider).phase != AppPhase.locked) {
         return;

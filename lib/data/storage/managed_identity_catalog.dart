@@ -28,8 +28,10 @@ final class ManagedIdentityEntry {
 /// Invalid data is rejected as a whole. Treating a malformed catalog as empty
 /// would hide existing stores and let later onboarding forget their locators.
 final class ManagedIdentityCatalog {
-  ManagedIdentityCatalog(Iterable<ManagedIdentityEntry> identities)
-    : identities = List.unmodifiable(identities) {
+  ManagedIdentityCatalog(
+    Iterable<ManagedIdentityEntry> identities, {
+    this.selectedId,
+  }) : identities = List.unmodifiable(identities) {
     if (this.identities.length > maxIdentities) {
       throw const FormatException('Managed identity catalog is too large');
     }
@@ -39,11 +41,19 @@ final class ManagedIdentityCatalog {
         throw const FormatException('Duplicate managed identity locator');
       }
     }
+    if (selectedId != null && !ids.contains(selectedId)) {
+      throw const FormatException('Unknown selected managed identity');
+    }
   }
 
   static const maxIdentities = 128;
   static const maxEncodedBytes = 32 * 1024;
   final List<ManagedIdentityEntry> identities;
+  final ManagedIdentityId? selectedId;
+
+  ManagedStorageLocator? get selected => selectedId == null
+      ? null
+      : identities.singleWhere((entry) => entry.id == selectedId).locator;
 
   factory ManagedIdentityCatalog.decode(String encoded) {
     if (utf8.encode(encoded).length > maxEncodedBytes) {
@@ -51,8 +61,11 @@ final class ManagedIdentityCatalog {
     }
     final json = jsonDecode(encoded);
     if (json is! Map<String, dynamic> ||
-        !_only(json, const {'version', 'identities'}) ||
-        json['version'] != 1 ||
+        json['version'] is! int ||
+        !(json['version'] == 1 &&
+                _only(json, const {'version', 'identities'}) ||
+            json['version'] == 2 &&
+                _only(json, const {'version', 'identities', 'selected'})) ||
         json['identities'] is! List) {
       throw const FormatException('Invalid managed identity catalog');
     }
@@ -60,9 +73,14 @@ final class ManagedIdentityCatalog {
     if (entries.length > maxIdentities) {
       throw const FormatException('Managed identity catalog is too large');
     }
-    return ManagedIdentityCatalog([
-      for (final raw in entries) _decodeEntry(raw),
-    ]);
+    return ManagedIdentityCatalog(
+      [for (final raw in entries) _decodeEntry(raw)],
+      selectedId: json['version'] == 2
+          ? ManagedIdentityId(
+              json['selected'] is String ? json['selected'] as String : '',
+            )
+          : null,
+    );
   }
 
   static ManagedIdentityEntry _decodeEntry(Object? raw) {
@@ -86,7 +104,8 @@ final class ManagedIdentityCatalog {
       json.length == fields.length && fields.every(json.containsKey);
 
   String encode() => jsonEncode({
-    'version': 1,
+    'version': selectedId == null ? 1 : 2,
+    if (selectedId != null) 'selected': selectedId!.value,
     'identities': [
       for (final entry in identities)
         {'id': entry.id.value, 'protection': entry.protection.name},

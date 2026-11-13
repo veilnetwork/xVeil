@@ -36,6 +36,7 @@ import '../domain/p2p_policy.dart';
 import '../domain/p2p_policy.dart' as p2p;
 import '../domain/roster.dart';
 import '../domain/storage_locator.dart';
+import '../domain/storage_protection.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
@@ -47,6 +48,7 @@ import 'voice_play_controller.dart';
 import 'voice_record_controller.dart';
 import 'providers.dart';
 import 'multi_identity_session.dart';
+import 'storage_router_providers.dart';
 import 'screen_lock_controller.dart';
 import 'storage_preferences.dart';
 import 'vpn_controller.dart';
@@ -363,12 +365,53 @@ class AppController extends Notifier<AppState> {
     // nobody awaits, which surfaces as an unhandled error rather than as
     // anything a person could act on.
     if (!ref.mounted) return;
-    final onboarded = prefs.getBool(_onboardedKey()) ?? false;
+    final onboarded =
+        (prefs.getBool(_onboardedKey()) ?? false) ||
+        (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+            false);
     diagnosticJournal.record(
       DiagnosticEvent.startup,
       values: {DiagnosticMetric.enabled: onboarded ? 1 : 0},
     );
     state = AppState(onboarded ? AppPhase.locked : AppPhase.onboarding);
+  }
+
+  void _publishStorageRoute() {
+    ref.read(storageRouteRevisionProvider.notifier).state++;
+    ref.invalidate(singleSpaceStorageProvider);
+  }
+
+  Future<bool> selectStorageIdentity(IdentityStorageLocator locator) async {
+    final router = ref.read(profileStorageRouterProvider);
+    if (router == null ||
+        _selectionBlocked ||
+        _identityEditInFlight != null ||
+        !(state.phase == AppPhase.locked ||
+            state.phase == AppPhase.onboarding)) {
+      return false;
+    }
+    _endLifecycle();
+    final gen = _lifecycle;
+    _unlockInFlight = true;
+    try {
+      await _drainRetiringSessions();
+      await router.select(locator);
+      if (!ref.mounted || _supersededSince(gen)) return false;
+      _publishStorageRoute();
+      ref.read(screenLockProvider.notifier).forgetSession();
+      state = state.copyWith(unlockError: false);
+      return true;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'storage-selection',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      return false;
+    } finally {
+      _unlockInFlight = false;
+    }
   }
 
   /// Finish first-launch setup: persist the new identity into a freshly
@@ -416,6 +459,7 @@ class AppController extends Notifier<AppState> {
   Future<void> completeOnboarding({
     required String password,
     required StorageMode mode,
+    StorageProtection? protection,
     String? displayName,
     // The REAL master phrase shown on the recovery step (null on the
     // loopback/test path where the native generator is unavailable).
@@ -478,7 +522,7 @@ class AppController extends Notifier<AppState> {
         'container maintenance or sign-in is already in progress',
       );
     }
-    final storage = ref.read(storageProvider);
+    Storage storage = ref.read(storageProvider);
     final gen = _lifecycle;
     void requireCurrent() {
       if (!ref.mounted || _supersededSince(gen)) {
@@ -525,6 +569,14 @@ class AppController extends Notifier<AppState> {
       requireCurrent();
       await _drainRetiringSessions();
       requireCurrent();
+      if (protection != null) {
+        final router = ref.read(profileStorageRouterProvider);
+        if (router == null) throw StateError('managed storage routing unavailable');
+        await router.create(protection);
+        requireCurrent();
+        _publishStorageRoute();
+        storage = ref.read(storageProvider);
+      }
       // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
       // dropped and the profile write ran anyway, against a storage that was not
       // open — so a failure here surfaced later, somewhere else, as a confusing
@@ -601,7 +653,8 @@ class AppController extends Notifier<AppState> {
       }
       requireCurrent();
       onboardingStage = 4;
-      if (!await prefs.setString(_kStorageModeKey, mode.name)) {
+      if (protection == null &&
+          !await prefs.setString(_kStorageModeKey, mode.name)) {
         throw StateError('preference store refused the storage mode');
       }
       requireCurrent();
@@ -632,6 +685,8 @@ class AppController extends Notifier<AppState> {
         requireCurrent();
       }
       onboardingStage = 6;
+      await ref.read(profileStorageRouterProvider)?.rememberAccess();
+      requireCurrent();
       await _enterSession(profile);
       requireCurrent();
       diagnosticJournal.record(DiagnosticEvent.onboardingSession);
@@ -732,6 +787,13 @@ class AppController extends Notifier<AppState> {
   Future<bool> _withIdentityEdit(
     Future<bool> Function(_IdentityEdit) run,
   ) async {
+    // QA staging: mixed-master mutations still require locator-aware edits.
+    // Refuse before any teardown or write while that path is being wired.
+    if (_masterKeys != null &&
+        (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+            false)) {
+      return false;
+    }
     if (_endingSessions != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
@@ -863,7 +925,10 @@ class AppController extends Notifier<AppState> {
   /// Ends the current lifecycle: nothing built under the previous generation may
   /// be published any more. Called at the TOP of every teardown-to-locked path,
   /// before the first await, so an in-flight boot cannot slip past it.
-  void _endLifecycle() => _lifecycle++;
+  void _endLifecycle() {
+    _lifecycle++;
+    if (ref.mounted) ref.read(profileStorageRouterProvider)?.cancelSelections();
+  }
 
   /// True when a session-ending transition happened since [gen] was taken.
   bool _supersededSince(int gen) => gen != _lifecycle;
@@ -999,11 +1064,21 @@ class AppController extends Notifier<AppState> {
     }
 
     if (!ref.mounted || _supersededSince(gen)) return;
-    final storage = ref.read(storageProvider);
+    Storage storage = ref.read(storageProvider);
     bool ok;
     try {
       await _drainRetiringSessions();
       if (!ref.mounted || _supersededSince(gen)) return;
+      final router = ref.read(profileStorageRouterProvider);
+      if (router != null) {
+        router.requireAccessSelection();
+        if (router.location != router.access) {
+          await router.select(router.access, access: false);
+          if (!ref.mounted || _supersededSince(gen)) return;
+          _publishStorageRoute();
+          storage = ref.read(storageProvider);
+        }
+      }
       ok = await storage.open(password: password);
       if (!ref.mounted || _supersededSince(gen)) {
         // The opener may finish after lock() has already closed the previous
@@ -1081,6 +1156,11 @@ class AppController extends Notifier<AppState> {
             '(+${ms()}ms)',
       );
       if (roster != null && roster.isNotEmpty) {
+        await ref.read(profileStorageRouterProvider)?.rememberAccess();
+        if (!ref.mounted || _supersededSince(gen)) {
+          await storage.close();
+          return;
+        }
         _setPendingRoster(roster);
         // Cache the master's keys so roster edits can reopen it without a
         // password re-prompt (held in memory like the child keys above).
@@ -1142,6 +1222,11 @@ class AppController extends Notifier<AppState> {
         return;
       }
       if (profile == null) return; // damaged record — parked, nothing written
+      await ref.read(profileStorageRouterProvider)?.rememberAccess();
+      if (!ref.mounted || _supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
       await _enterSession(profile);
       devLog(
         () => 'xVeil[unlock]: done, phase=${state.phase.name} (+${ms()}ms)',
@@ -1176,6 +1261,7 @@ class AppController extends Notifier<AppState> {
   /// Current on-disk size of the deniable container in bytes, or null on the
   /// loopback/test path (no real container) — for the storage-maintenance UI.
   Future<int?> containerSizeBytes() async {
+    if (usesManagedStorage) return null;
     final path = ref.read(deniableBootProvider)?.storePath;
     if (path == null) return null;
     try {
@@ -1191,7 +1277,12 @@ class AppController extends Notifier<AppState> {
   /// container with just one password. `_masterKeys` is set only when a roster
   /// was found, so its absence means a lone space.
   bool get canCompactStorage =>
-      _masterKeys == null && ref.read(deniableBootProvider)?.storePath != null;
+      !usesManagedStorage &&
+      _masterKeys == null &&
+      ref.read(deniableBootProvider)?.storePath != null;
+
+  bool get usesManagedStorage =>
+      ref.read(profileStorageRouterProvider)?.location is ManagedStorageLocator;
 
   /// Compact the deniable container in place to reclaim dead padding (the
   /// log-structured store never shrinks on its own; only a repack does). The
@@ -1616,6 +1707,10 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
   }) async {
+    if (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+        false) {
+      throw StateError('managed storage requires mode-aware maintenance');
+    }
     if (_endingSessions != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
@@ -4559,6 +4654,10 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<List<String>> _wipeContainersOwned() async {
+    if (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+        false) {
+      throw StateError('managed storage requires owned identity erasure');
+    }
     _endLifecycle(); // invalidate pending unlocks before the first await
     _stopMediaCapture();
     _incomplete.clear();
@@ -4821,6 +4920,12 @@ class AppController extends Notifier<AppState> {
     try {
       final profile = await storage.loadProfile();
       if (!ref.mounted || _supersededSince(gen)) return null;
+      if (profile == null && usesManagedStorage) {
+        throw CorruptIdentityRecord(
+          0,
+          StateError('managed identity setup is incomplete'),
+        );
+      }
       return profile ?? _profileOfSpaceWithNoRecord();
     } on CorruptIdentityRecord catch (e, st) {
       if (!ref.mounted || _supersededSince(gen)) return null;

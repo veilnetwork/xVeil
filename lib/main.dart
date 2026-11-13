@@ -29,6 +29,9 @@ import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_prefs_store.dart';
+import 'data/storage/profile_storage_router.dart';
+import 'data/storage/managed_fs_platform.dart';
+import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
@@ -352,37 +355,75 @@ Future<BootstrapResult> _bootstrapOverrides() async {
           ? hv.PaddingPreset.none
           : hv.PaddingPreset.bucket256KiB;
       storePath = path;
-      overrides.add(
-        singleSpaceStorageProvider.overrideWith((ref) {
-          // Open + serve the space on a dedicated worker isolate on EVERY
-          // platform. Android ANR traces proved that the old mobile-inline
-          // exception could park the Flutter main thread inside SpaceHandle.open
-          // for >5s. The worker resolves the packaged Android soname in its own
-          // isolate and both openers retain a guarded inline fallback for a
-          // genuine worker bootstrap failure.
-          //
-          // BOTH openers, now. The master `openWithKeys` path was still lifted
-          // inline here — so entering an identity, switching identity or editing
-          // the roster still opened and scanned the container ON THE UI
-          // ISOLATE, which is the same >5s ANR with a different entry point
-          // (audit XV-14).
-          final storage = HiddenVolumeStorage.async(
-            workerSpaceOpener(path, paddingPreset: paddingPreset),
-            keysOpener: workerKeysSpaceOpener(
-              path,
-              paddingPreset: paddingPreset,
-            ),
-          );
-          // Large-file tier (Phase B): blobs too big for the hidden-volume index
-          // are stored ENCRYPTED here (per-blob key + opaque name kept in the
-          // volume). Alongside the container so a separate store (dev override)
-          // gets its own. Capability only — a large file is stored on disk only
-          // when the per-identity policy opts in (the receiver gates download).
-          storage.useOnDiskTier(blobRootFor(path));
-          ref.onDispose(storage.close);
-          return storage;
-        }),
-      );
+      HiddenVolumeStorage makeLegacyStorage() {
+        // Open + serve the space on a dedicated worker isolate on EVERY
+        // platform. Android ANR traces proved that the old mobile-inline
+        // exception could park the Flutter main thread inside SpaceHandle.open
+        // for >5s. The worker resolves the packaged Android soname in its own
+        // isolate and both openers retain a guarded inline fallback for a
+        // genuine worker bootstrap failure.
+        //
+        // BOTH openers, now. The master `openWithKeys` path was still lifted
+        // inline here — so entering an identity, switching identity or editing
+        // the roster still opened and scanned the container ON THE UI
+        // ISOLATE, which is the same >5s ANR with a different entry point
+        // (audit XV-14).
+        final storage = HiddenVolumeStorage.async(
+          workerSpaceOpener(path, paddingPreset: paddingPreset),
+          keysOpener: workerKeysSpaceOpener(path, paddingPreset: paddingPreset),
+        );
+        // Large-file tier (Phase B): blobs too big for the hidden-volume index
+        // are stored ENCRYPTED here (per-blob key + opaque name kept in the
+        // volume). Alongside the container so a separate store (dev override)
+        // gets its own. Capability only — a large file is stored on disk only
+        // when the per-identity policy opts in (the receiver gates download).
+        storage.useOnDiskTier(blobRootFor(path));
+        return storage;
+      }
+
+      // Staging switch: enable only for isolated QA while the mode-specific
+      // destructive/rotation flows and packaged platforms are qualified.
+      if (const bool.fromEnvironment('XVEIL_MANAGED_STORAGE')) {
+        final managedPath = '${File(path).parent.path}/visible-storage';
+        if (FileSystemEntity.typeSync(managedPath, followLinks: false) ==
+                FileSystemEntityType.notFound &&
+            !const ManagedFsPlatform().createPrivateDirectory(managedPath)) {
+          throw StateError('managed storage root creation failed');
+        }
+        final router = await ProfileStorageRouter.open(
+          profileDirectory: managedPath,
+          legacyFactory: makeLegacyStorage,
+        );
+        overrides.add(
+          profileStorageRouterProvider.overrideWith((ref) {
+            ref.onDispose(
+              () => unawaited(
+                router.close().catchError((Object error) {
+                  devLog(
+                    () =>
+                        'xVeil[storage]: profile router release not confirmed',
+                  );
+                }),
+              ),
+            );
+            return router;
+          }),
+        );
+        overrides.add(
+          singleSpaceStorageProvider.overrideWith((ref) {
+            ref.watch(storageRouteRevisionProvider);
+            return ref.watch(profileStorageRouterProvider)!.storage;
+          }),
+        );
+      } else {
+        overrides.add(
+          singleSpaceStorageProvider.overrideWith((ref) {
+            final storage = makeLegacyStorage();
+            ref.onDispose(storage.close);
+            return storage;
+          }),
+        );
+      }
       secureStorageReady = true;
     } else {
       // SAFETY: the native hidden-volume library did not load, so the app is

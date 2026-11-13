@@ -38,7 +38,7 @@
   "startupFailedBody": "Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.",
   "startupFailedAction": "Close xVeil and open it again. If it keeps happening, reinstall it from the release page.",
   "storageTitle": "How should we store your data?",
-  "storageHiddenTitle": "Hidden space (recommended)",
+  "storageHiddenTitle": "Hidden space",
   "storageHiddenBody": "Your chats and keys live in a deniable encrypted container. An adversary who seizes your device cannot prove the data even exists.",
   "storagePlainTitle": "Plain storage",
   "storagePlainBody": "Faster to set up, but the existence of your data is visible to anyone who inspects the device.",
@@ -3732,5 +3732,15 @@
   "folderSyncSavedRemove": "Remove saved copy",
   "folderSyncSavedRemoveConfirm": "This permanently removes the selected copy. Save it elsewhere first if you need it. The current synced file is kept. Copies still needed for recovery cannot be removed.",
   "folderSyncSavedRemoved": "Saved copy removed",
-  "folderSyncSavedRemoveFailed": "Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere."
+  "folderSyncSavedRemoveFailed": "Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere.",
+  "storageEncryptedTitle": "Encrypted storage",
+  "storageEncryptedBrief": "Separate encrypted storage for each identity.",
+  "storageEncryptedBody": "The number of identities is visible. Space is reclaimed for this identity without touching hidden spaces.",
+  "storageChooseIdentity": "Choose an identity",
+  "storageSelectionFailed": "Could not change storage. Please try again.",
+  "storageOpenPlain": "Open unencrypted storage",
+  "storageOwnedCleanup": "Space is reclaimed automatically for this identity.",
+  "storageUnencryptedTitle": "Unencrypted storage",
+  "storageUnencryptedBrief": "Files on this device are not protected by a password.",
+  "storageUnencryptedWarning": "Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device."
 }

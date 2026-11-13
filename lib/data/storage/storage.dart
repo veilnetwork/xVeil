@@ -68,6 +68,12 @@ class PendingContactPreferences {
 /// conversation id (there is NO per-conversation namespace today — see
 /// doc/EVENT-LOG-SYNC-DESIGN.md §14.2). Keeping the port domain-shaped (not
 /// KV-shaped) means the UI never sees namespace bytes or commit sequencing.
+/// A coordinator must join an accepted opener before releasing its facade:
+/// close alone cannot cancel native preparation that has not returned yet.
+abstract interface class StorageOpeningOwner {
+  Future<void> settleOpening();
+}
+
 abstract interface class Storage {
   /// Unlock (or create on first run) the user's space with [password].
   /// Returns false if the password does not unlock any space.

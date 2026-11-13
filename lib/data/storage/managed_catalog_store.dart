@@ -110,7 +110,36 @@ final class ManagedCatalogStore {
       final next = ManagedIdentityCatalog([
         ...current.catalog.identities,
         entry,
-      ]);
+      ], selectedId: current.catalog.selectedId);
+      final revision = current.revision + 1;
+      db.execute(
+        'UPDATE managed_catalog SET revision = ?, payload = ? WHERE id = 1',
+        [revision, next.encode()],
+      );
+      return ManagedCatalogSnapshot(next, revision);
+    }),
+  );
+
+  /// Public selection only; catalog membership never authorizes opening data.
+  /// Clearing a visible selection records no marker or count for hidden spaces.
+  ManagedCatalogSnapshot select(ManagedIdentityEntry? entry) => _use(
+    (db) => _transaction(db, write: true, () {
+      final current = _read(db);
+      if (entry != null &&
+          !current.catalog.identities.any(
+            (known) =>
+                known.id == entry.id && known.protection == entry.protection,
+          )) {
+        throw const ManagedCatalogFailure(ManagedCatalogFailureKind.conflict);
+      }
+      if (current.catalog.selectedId == entry?.id) return current;
+      if (current.revision == _maxRevision) {
+        throw const ManagedCatalogFailure(ManagedCatalogFailureKind.exhausted);
+      }
+      final next = ManagedIdentityCatalog(
+        current.catalog.identities,
+        selectedId: entry?.id,
+      );
       final revision = current.revision + 1;
       db.execute(
         'UPDATE managed_catalog SET revision = ?, payload = ? WHERE id = 1',

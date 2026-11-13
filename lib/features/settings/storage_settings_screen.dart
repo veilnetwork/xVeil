@@ -305,7 +305,8 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 // The decision is made ONCE, in AppController; the screen only
                 // renders it. Re-deriving "is the file bloated?" from
                 // thresholds here is how the two would drift apart.
-                if (_offerNow?.verdict == CompactionOfferVerdict.offer)
+                if (!ctrl.usesManagedStorage &&
+                    _offerNow?.verdict == CompactionOfferVerdict.offer)
                   _BloatNudge(
                     reclaimableBytes: _offerNow!.estimate.reclaimableBytes,
                     // A container with more than one identity cannot take the
@@ -385,7 +386,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     value: _autoCompact,
                     onChanged: (v) => _setAutoCompact(l, v),
                   ),
-                if (!ctrl.canCompactStorage)
+                if (!ctrl.usesManagedStorage && !ctrl.canCompactStorage)
                   ListTile(
                     leading: const Icon(Icons.compress),
                     title: Text(l.compactOfferTitle),
@@ -393,16 +394,22 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     isThreeLine: true,
                     onTap: () => _compactAll(l),
                   ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.notifications_active_outlined),
-                  title: HelpLabel(
-                    title: l.settingsCompactOffer,
-                    help: l.settingsCompactOfferHint,
+                if (ctrl.usesManagedStorage)
+                  ListTile(
+                    leading: const Icon(Icons.cleaning_services_outlined),
+                    title: Text(l.storageOwnedCleanup),
                   ),
-                  value: _offer.enabled,
-                  onChanged: (v) => _saveOffer(_offer.copyWith(enabled: v)),
-                ),
-                if (_offer.enabled) ...[
+                if (!ctrl.usesManagedStorage)
+                  SwitchListTile(
+                    secondary: const Icon(Icons.notifications_active_outlined),
+                    title: HelpLabel(
+                      title: l.settingsCompactOffer,
+                      help: l.settingsCompactOfferHint,
+                    ),
+                    value: _offer.enabled,
+                    onChanged: (v) => _saveOffer(_offer.copyWith(enabled: v)),
+                  ),
+                if (!ctrl.usesManagedStorage && _offer.enabled) ...[
                   ListTile(
                     leading: const Icon(Icons.schedule_outlined),
                     title: Text(l.settingsCompactOfferPeriod),
@@ -418,19 +425,20 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     onTap: () => _pickThreshold(l),
                   ),
                 ],
-                SwitchListTile(
-                  secondary: const Icon(Icons.speed_outlined),
-                  title: HelpLabel(
-                    title: l.settingsStorageLeanPadding,
-                    help: l.settingsStorageLeanPaddingBody,
+                if (!ctrl.usesManagedStorage)
+                  SwitchListTile(
+                    secondary: const Icon(Icons.speed_outlined),
+                    title: HelpLabel(
+                      title: l.settingsStorageLeanPadding,
+                      help: l.settingsStorageLeanPaddingBody,
+                    ),
+                    subtitle: Text(l.storagePaddingBrief),
+                    value: _leanPadding,
+                    onChanged: (v) {
+                      setState(() => _leanPadding = v);
+                      ctrl.setLeanStoragePaddingEnabled(v);
+                    },
                   ),
-                  subtitle: Text(l.storagePaddingBrief),
-                  value: _leanPadding,
-                  onChanged: (v) {
-                    setState(() => _leanPadding = v);
-                    ctrl.setLeanStoragePaddingEnabled(v);
-                  },
-                ),
                 ListTile(
                   leading: const Icon(Icons.download_outlined),
                   title: Text(l.settingsFiles),

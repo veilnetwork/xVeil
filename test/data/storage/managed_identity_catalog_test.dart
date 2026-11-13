@@ -39,6 +39,48 @@ void main() {
     },
   );
 
+  test(
+    'remembered visible selection is bounded, strict and contains no hidden marker',
+    () {
+      final entry = ManagedIdentityEntry(
+        id: ManagedIdentityId(first),
+        protection: StorageProtection.encrypted,
+      );
+      final encoded = ManagedIdentityCatalog([
+        entry,
+      ], selectedId: entry.id).encode();
+      expect(jsonDecode(encoded), {
+        'version': 2,
+        'identities': [
+          {'id': first, 'protection': 'encrypted'},
+        ],
+        'selected': first,
+      });
+      final decoded = ManagedIdentityCatalog.decode(encoded);
+      expect(decoded.selected, entry.locator);
+      final raw = jsonDecode(encoded) as Map<String, dynamic>;
+      for (final broken in [
+        {...raw, 'selected': second},
+        {...raw, 'selected': null},
+        {...raw, 'selected': 1},
+        {...raw, 'selected': '../synthetic'},
+        {...raw, 'hidden': true},
+        {...raw, 'version': 1},
+      ]) {
+        expect(
+          () => ManagedIdentityCatalog.decode(jsonEncode(broken)),
+          throwsFormatException,
+        );
+      }
+      expect(
+        () => ManagedIdentityCatalog([
+          entry,
+        ], selectedId: ManagedIdentityId(second)),
+        throwsFormatException,
+      );
+    },
+  );
+
   test('hidden spaces cannot enter the catalog through either boundary', () {
     expect(
       () => ManagedIdentityEntry(

@@ -17,6 +17,7 @@ import 'managed_fs_contract.dart';
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';
+import 'native_handle_close.dart';
 import 'managed_sqlite_connection.dart';
 import '../../domain/storage_protection.dart';
 import 'rollback_anchor.dart';
@@ -27,6 +28,7 @@ import 'package:xveil/core/log.dart';
 export 'kv_log_store.dart' show LogReadGroup;
 
 part 'worker_managed_identity.dart';
+part 'worker_managed_catalog.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -490,6 +492,10 @@ class _Err extends _Reply {
 }
 
 void _workerEntry(_OpenConfig cfg) {
+  if (cfg is _OpenManagedCatalog) {
+    _managedCatalogEntry(cfg);
+    return;
+  }
   // The hidden-volume symbols are process-global once the main isolate's
   // startup preload (hv_native.ensureHiddenVolumeLoaded) ran — a spawned
   // isolate shares the process image, so `DynamicLibrary.process()` resolves on
@@ -512,6 +518,9 @@ void _workerEntry(_OpenConfig cfg) {
         paddingPreset: preset,
       )(keys),
       _OpenManagedIdentity() => _openManagedWorker(cfg),
+      _OpenManagedCatalog() => throw StateError(
+        'catalog worker was not dispatched',
+      ),
     };
     if (opened == null) {
       cfg.reply.send(const _Null()); // AuthFailed → no/ wrong space
@@ -605,6 +614,8 @@ SendPort _serveWorker(
     }
 
     switch (msg) {
+      case _CatalogSnapshotReq() || _CatalogSelectReq():
+        msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
         run(() {
           final committed = store.commit(ops);

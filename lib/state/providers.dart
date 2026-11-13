@@ -33,6 +33,7 @@ import '../data/veil_stack.dart';
 import 'group_service_providers.dart';
 import 'multi_identity_session.dart';
 import 'peer_inventory.dart';
+import 'storage_router_providers.dart';
 
 /// --- Infrastructure providers -------------------------------------------
 ///
@@ -126,6 +127,7 @@ MultiIdentitySession _realSessionBuilder({
   bool lazyMining = false,
   ProxyRouting proxy = ProxyRouting.disabled,
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+  String? managedProfileDirectory,
 }) => MultiIdentitySession(
   // Off-isolate: the shared multi-space container is owned by a worker
   // isolate (lazy-spawned on the first openSpace), so every always-online
@@ -136,7 +138,8 @@ MultiIdentitySession _realSessionBuilder({
   // The SAME large-file tier the single-identity boot opens — one directory
   // beside the container, shared by every space (XV-02).
   blobRoot: blobRootFor(storePath),
-  managedProfileDirectory: File(storePath).parent.path,
+  managedProfileDirectory:
+      managedProfileDirectory ?? File(storePath).parent.path,
   // A BUILDER, not a finished list: every identity in the session resolves its
   // own shared-seed answer from its own space, and its peer list is built from
   // that. One list for the session is what let a refuser be handed the seeds
@@ -154,7 +157,31 @@ List<BootstrapPeerCfg> _noSessionPeers(bool useBundledSeeds) =>
     const <BootstrapPeerCfg>[];
 
 final sessionBuilderProvider = Provider<SessionBuilder>(
-  (ref) => _realSessionBuilder,
+  (ref) =>
+      ({
+        required storePath,
+        required runtimeDir,
+        required listenPort,
+        required peersFor,
+        obfs4Psk,
+        required udpReflectors,
+        required lazyMining,
+        required proxy,
+        required paddingPreset,
+      }) => _realSessionBuilder(
+        storePath: storePath,
+        runtimeDir: runtimeDir,
+        listenPort: listenPort,
+        peersFor: peersFor,
+        obfs4Psk: obfs4Psk,
+        udpReflectors: udpReflectors,
+        lazyMining: lazyMining,
+        proxy: proxy,
+        paddingPreset: paddingPreset,
+        managedProfileDirectory: ref
+            .read(profileStorageRouterProvider)
+            ?.profileDirectory,
+      ),
 );
 
 /// The "all identities online" session, set by [AppController] when a master is

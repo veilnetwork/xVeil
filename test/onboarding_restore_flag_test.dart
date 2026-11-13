@@ -1,3 +1,4 @@
+import 'package:xveil/domain/storage_protection.dart';
 // Which flag the WIZARD hands the controller.
 //
 // `restoringIdentity` decides whether this device takes the phrase's own
@@ -58,6 +59,7 @@ class _SpyController extends AppController {
   Future<void> completeOnboarding({
     required String password,
     required StorageMode mode,
+    StorageProtection? protection,
     String? displayName,
     String? identityPhrase,
     bool restoringIdentity = false,
@@ -73,6 +75,7 @@ class _SpyController extends AppController {
     return super.completeOnboarding(
       password: password,
       mode: mode,
+      protection: protection,
       displayName: displayName,
       identityPhrase: identityPhrase,
       restoringIdentity: restoringIdentity,
