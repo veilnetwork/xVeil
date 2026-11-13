@@ -145,8 +145,8 @@ PID markers, successful kill requests and exit `-9` were observed for both cuts.
 This is a private macOS fixture, not the application compaction controller,
 the original damaged-phone scenario, a power-loss test or a multi-process
 managed-directory admission test. The probe serializes its own files; admission
-and the production worker still need integration before a mode can be enabled.
-The file factory below now enforces the identity lease for its sessions. No existing container or onboarding choice changed.
+and application bootstrap still need mode selection before a mode can be enabled.
+The factory/worker binding below now enforces the identity lease for its sessions. No existing container or onboarding choice changed.
 
 The native `ManagedKeybox` port now initializes role and 64 random internal
 password bytes in one transaction. User-password-derived outer keys remain
@@ -182,7 +182,7 @@ anchor and exact fixture records remain valid. All six native cases pass on
 the signed published macOS arm64 library. This verifies the keybox boundary
 needed for biometric entry, not an actual OS biometric prompt or a connected
 application backend. Filesystem admission and file-factory opening are now
-qualified below on macOS; worker ownership, actual mode selection, password
+qualified below on macOS; application mode selection, password
 rotation, erase and platform qualification remain
 unfinished; these ports are not selectable in the application yet.
 
@@ -192,7 +192,8 @@ handles. It returns stable **outer** keys, validates encrypted role/checkpoint
 state and durably settles PREPARED metadata before returning an application
 handle. It does not discover/open paths or prove directory admission; callers
 must open the inner files with the keybox's internal passwords and transfer
-exclusive ownership. Production worker/bootstrap selection is still pending.
+exclusive ownership. The managed worker below now opens these files; production
+application bootstrap selection is still pending.
 
 All app operations target content. Namespaces 254/255 are reserved; the entire
 batch is checked before a native mutation. App-data erase therefore keeps the
@@ -238,8 +239,8 @@ hidden-volume 2.7.2 macOS arm64 asset was selected and its SHA rechecked; no
 native source, ABI or release pin changed. All fixtures/processes are disposable
 and contain no user data. This port is a working domain-storage boundary, not
 a completed three-mode feature. Filesystem/catalog admission and managed-file
-opening are implemented below; production worker open/close, automatic
-reclamation, all-online routing, mode/unlock UI,
+opening and the managed worker binding are implemented below; application
+selection, automatic reclamation, all-online routing, mode/unlock UI,
 biometric-vault scope, password rotation, recovery and erase still need wiring
 and platform qualification. Existing containers are not converted.
 
@@ -278,7 +279,7 @@ This remains an **owned-connection port**. The root/catalog admission wrapper
 below now handles first initialization, and the managed-file factory handles
 identity creation/opening. Catalog membership never authorizes file
 ownership or cleanup; actual stores must authenticate their identity and role.
-Worker boot, migration, reclamation, password/biometric and application routing
+Application mode selection, migration, reclamation, password/biometric and routing
 remain unfinished.
 
 ## Managed root admission and bootstrap
@@ -351,7 +352,7 @@ falling back to ordinary rename. Bionic exposes that libc symbol only from
 The Linux/Android binder now uses libc's variadic `syscall` when that symbol is
 absent; this retains the same no-replace kernel operation. Native
 Android/Windows/iOS managed-file operations and full Linux backend integration,
-power failure, worker boot and the mode/identity UI remain unqualified or
+power failure, application bootstrap and the mode/identity UI remain unqualified or
 unwired. Identity reservation/publication and keybox/content opening are now
 qualified below on macOS. The existing
 onboarding default and legacy stores are unchanged.
@@ -419,7 +420,7 @@ root/catalog crash tests also run in the joint set. A first factory crash run
 with an unarmed bootstrap hook failed in the harness and was not credited.
 
 This is the managed file ownership layer, not the enabled application feature.
-UI/default selection, worker open/close barriers, orphan recovery UI, automatic
+UI/default selection, application lifecycle routing, orphan recovery UI, automatic
 bounded encrypted reclamation, all-online routing, password rotation, erase,
 biometric integration and native qualification on other platforms remain.
 Power failure and abrupt shared-group worker-isolate cleanup are not qualified.
@@ -485,7 +486,59 @@ error path and now pass. The related facade/file/roster lifecycle suite reports
 then explicitly enabled and passed separately, preserving master/child keys
 through promotion, shrink and cold key-based reopen. No skipped case is counted
 as passed. Focused analysis of the three changed facade/test files is clean.
-The managed factory is not yet wired into worker boot or the application's UI.
+The managed factory's worker binding is qualified below; the application's
+mode selection and UI remain unwired.
+
+## Managed worker binding
+
+`ManagedWorkerIdentity` now exposes explicit visible-mode create, password/key
+open and interrupted-creation resume APIs through the existing supervised
+`WorkerKvLogStore`. Each worker opens/adopts its own root and identity session,
+then retains both until store and root close complete. No native owner crosses
+the isolate boundary. Password KDF and data I/O use the worker; there is no
+inline fallback or hidden-container probe on failure. Key-based open requires
+the caller's selected protection mode and checks it against catalog membership
+before opening the payload, including plaintext locators.
+
+Credentials and initial KV/log operations are snapshotted before asynchronous
+spawn; caller mutation cannot change the request. The parent and child wipe
+their owned copies after their opening/registration work settles. Worker error
+messages for managed storage carry a bounded category, not raw backend text,
+paths, locators, keys or SQL. Existing legacy error handling is preserved.
+
+A failed open whose cleanup also fails keeps a cleanup-only worker alive. Its
+close capability is transferred to the caller's private retirement registry,
+which attempts release and retains the owner on timeout/refusal. A later request
+for that profile/local ID must drain these owners before spawning again. The
+registry normalizes lexical profile aliases; actual filesystem admission still
+runs in the worker. It does not claim to resolve hostile filesystem aliases or
+repair native handles after abrupt worker death. Unknown close replies never
+count as release.
+
+Six real macOS worker cases pass: mutation-safe plaintext creation; actual
+independent-process lease contention/release; encrypted and plaintext profile/
+file round-trips through the domain facade; cold password/outer-key reopen;
+wrong credentials/mode without replacement; multiple active identities with one
+closing while the other stays usable; missing/hidden refusal; idempotent resume
+and all-or-nothing reserved-namespace rejection. This is six grouped test cases,
+not six devices or a full all-online qualification. Two additional gated worker
+checks cover invalid close acknowledgements and failed-bootstrap retirement
+without filesystem access before release. The latter uses a disposable stub
+owner; it does not manufacture a real native close failure.
+
+The final joint storage/worker/lifecycle suite reports **157 PASS, one opt-in
+native skip**. That skipped roster lifecycle case passed in a separate explicitly
+enabled native run. The worker/headless/native subset reports 40 PASS with no
+skips; headless import traversal follows parts and transitive packages. Focused
+analysis is clean. The selected published hidden-volume and ordinary-SQLite
+libraries retain their independently checked hashes; no Rust build, native ABI,
+release pin, installed application or real identity changed.
+
+Application bootstrap/default and mode UI are still not enabled. Automatic
+bounded encrypted reclamation, all-online sessions, recovery UI, password
+rotation, erase semantics and packaged/platform/AOT/biometric qualification
+remain required. A compiled native-worker application and native Android
+storage behavior are not qualified by these macOS Flutter test-VM cases.
 
 ## Implementation boundaries
 
