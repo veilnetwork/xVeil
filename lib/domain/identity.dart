@@ -1,9 +1,9 @@
 import '../core/ids.dart';
 
-/// How the user chose to store their data at first run.
-///
-/// [hiddenSpace] = deniable hidden-volume container (default, recommended).
-/// [plain] = unencrypted-at-rest local store (explicit opt-in, warned).
+/// Legacy onboarding preference. Both values historically selected the same
+/// hidden-volume backend; `plain` is NOT permission to reinterpret existing
+/// bytes as plaintext. New backend selection uses `StorageProtection` and an
+/// explicit managed locator, independently of this historical preference.
 enum StorageMode { hiddenSpace, plain }
 
 /// What a space stores ABOUT its owner: the parts a person chose, and nothing
