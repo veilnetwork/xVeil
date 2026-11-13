@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -10,12 +11,21 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
+import 'managed_catalog_store.dart';
+import 'managed_directory_catalog.dart';
+import 'managed_fs_contract.dart';
+import 'managed_identity_catalog.dart';
+import 'managed_identity_lease.dart';
+import 'managed_sqlite_connection.dart';
+import '../../domain/storage_protection.dart';
 import 'rollback_anchor.dart';
 import 'storage_write_census.dart';
 import 'worker_death.dart';
 import 'package:xveil/core/log.dart';
 
 export 'kv_log_store.dart' show LogReadGroup;
+
+part 'worker_managed_identity.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -487,6 +497,7 @@ void _workerEntry(_OpenConfig cfg) {
   ensureHiddenVolumeLoaded();
 
   final KvLogStore store;
+  void Function()? closeOwner;
   try {
     final preset = _paddingPresetFromTag(cfg.paddingPresetTag);
     final opened = switch (cfg) {
@@ -498,39 +509,66 @@ void _workerEntry(_OpenConfig cfg) {
         cfg.path,
         paddingPreset: preset,
       )(keys),
+      _OpenManagedIdentity() => _openManagedWorker(cfg),
     };
     if (opened == null) {
       cfg.reply.send(const _Null()); // AuthFailed → no/ wrong space
       return;
     }
-    store = opened;
+    if (opened is _ManagedWorkerOwner) {
+      final failure = opened.failure;
+      if (failure != null) {
+        cfg.reply.send(
+          _ManagedOpenFailed(failure, _serveManagedCleanup(opened)),
+        );
+        return;
+      }
+      store = opened.store!;
+      closeOwner = opened.close;
+    } else {
+      store = opened as KvLogStore;
+    }
   } on hv.HvException catch (e) {
-    cfg.reply.send(_Err(e.kind, e.message));
+    cfg.reply.send(_workerErrorReply(e, managed: cfg is _OpenManagedIdentity));
     return;
   } catch (e) {
-    cfg.reply.send(_Err('Internal', e.toString()));
+    cfg.reply.send(_workerErrorReply(e, managed: cfg is _OpenManagedIdentity));
     return;
   }
 
-  cfg.reply.send(_Ok(_serveWorker(store)));
+  cfg.reply.send(
+    _Ok(
+      _serveWorker(
+        store,
+        closeOwner: closeOwner,
+        managed: cfg is _OpenManagedIdentity,
+      ),
+    ),
+  );
 }
 
-SendPort _serveWorker(KvLogStore store) {
+SendPort _serveWorker(
+  KvLogStore store, {
+  void Function()? closeOwner,
+  bool managed = false,
+}) {
   final rx = ReceivePort();
   var closing = false;
   rx.listen((dynamic msg) {
     if (msg is! _Req) return;
     if (closing && msg is! _CloseReq) {
-      msg.reply.send(const _Err('Internal', 'storage worker is closing'));
+      msg.reply.send(
+        managed
+            ? const _ManagedWorkerErr(ManagedWorkerFailureKind.closed)
+            : const _Err('Internal', 'storage worker is closing'),
+      );
       return;
     }
     void run<T>(T Function() body) {
       try {
         msg.reply.send(_Ok(body()));
-      } on hv.HvException catch (e) {
-        msg.reply.send(_Err(e.kind, e.message));
       } catch (e) {
-        msg.reply.send(_Err('Internal', e.toString()));
+        msg.reply.send(_workerErrorReply(e, managed: managed));
       }
     }
 
@@ -612,16 +650,14 @@ SendPort _serveWorker(KvLogStore store) {
       case _CloseReq():
         closing = true;
         try {
-          store.close();
+          (closeOwner ?? store.close)();
           msg.reply.send(const _Ok(null));
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
-        } on hv.HvException catch (e) {
+        } catch (e) {
           // Retain the owner and serving port: native close may be retryable.
           // Killing here strands any handles whose release failed.
-          msg.reply.send(_Err(e.kind, e.message));
-        } catch (e) {
-          msg.reply.send(_Err('Internal', e.toString()));
+          msg.reply.send(_workerErrorReply(e, managed: managed));
         }
     }
   });
@@ -780,6 +816,16 @@ class WorkerKvLogStore
       case _Err(:final kind, :final message):
         abandon();
         throw hv.HvException(kind, message);
+      case _ManagedWorkerErr(:final kind):
+        abandon();
+        throw ManagedWorkerFailure(kind);
+      case _ManagedOpenFailed(:final kind, :final cleanup):
+        // This worker still owns a failed open's native resources. Transfer
+        // its close capability instead of abandoning/killing the owner.
+        throw _ManagedBootstrapCleanup(
+          kind,
+          WorkerKvLogStore._(isolate, cleanup, death),
+        );
       case _Ok(:final value):
         return WorkerKvLogStore._(isolate, value as SendPort, death);
       default:
@@ -818,6 +864,7 @@ class WorkerKvLogStore
       // worker leaves this pending forever, and every later call joins it.
       final r = await _watch.race(reply.first);
       if (r is _Err) throw hv.HvException(r.kind, r.message);
+      if (r is _ManagedWorkerErr) throw ManagedWorkerFailure(r.kind);
       return (r as _Ok).value as T;
     } finally {
       reply.close();
@@ -963,6 +1010,9 @@ class WorkerKvLogStore
         // Keep the worker/watch alive for a fresh close attempt. Ordinary I/O
         // remains disabled; the worker's native owners are still authoritative.
         throw hv.HvException(result.kind, result.message);
+      }
+      if (result is _ManagedWorkerErr) {
+        throw ManagedWorkerFailure(result.kind);
       }
       if (result is! _Ok) {
         throw hv.HvException(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -6,11 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/managed_fs_platform.dart';
+import 'package:xveil/data/storage/managed_identity_catalog.dart';
 import 'package:xveil/data/storage/worker_death.dart';
 
 class _Release {
   const _Release(this.fail);
-  final bool fail;
+  final bool? fail;
 }
 
 class _Barrier {
@@ -46,7 +49,9 @@ void _controlledWorker((SendPort, SendPort) args) {
   requests.listen((dynamic message) {
     if (message is _Release) {
       pending!.send(
-        message.fail
+        message.fail == null
+            ? true
+            : message.fail!
             ? WorkerKvLogStore.debugFailureReply(
                 'Busy',
                 'synthetic close refusal',
@@ -71,6 +76,12 @@ void main() {
   late ReceivePort events;
   late StreamSubscription<dynamic> subscription;
   late List<int> seen;
+  final arrivals = <int, Completer<void>>{};
+
+  Future<void> arrived(int count) {
+    if (seen.contains(count)) return Future.value();
+    return (arrivals[count] ??= Completer<void>()).future;
+  }
 
   Future<int> barrier() async {
     final reply = ReceivePort();
@@ -84,8 +95,12 @@ void main() {
 
   setUp(() async {
     seen = [];
+    arrivals.clear();
     events = ReceivePort();
-    subscription = events.listen((dynamic count) => seen.add(count as int));
+    subscription = events.listen((dynamic count) {
+      seen.add(count as int);
+      arrivals.remove(count)?.complete();
+    });
     final boot = ReceivePort();
     watch = WorkerDeath();
     isolate = await Isolate.spawn(
@@ -173,6 +188,86 @@ void main() {
       port.send(const _Release(false));
       await retry;
       expect(watch.debugWatching, isFalse);
+    },
+  );
+
+  test('an unknown acknowledgement does not prove release', () async {
+    final invalid = expectLater(store.close(), throwsA(isA<hv.HvException>()));
+    expect(await barrier(), 1);
+    port.send(const _Release(null));
+    await invalid;
+    expect(watch.debugWatching, isTrue);
+    final retry = store.close();
+    expect(await barrier(), 2);
+    port.send(const _Release(false));
+    await retry;
+    expect(watch.debugWatching, isFalse);
+  });
+
+  test(
+    'failed bootstrap ownership blocks another open until release is confirmed',
+    () async {
+      final temporary = Directory.systemTemp.createTempSync(
+        'xveil-worker-retirement-',
+      );
+      final profile = '${temporary.path}/profile';
+      expect(const ManagedFsPlatform().createPrivateDirectory(profile), isTrue);
+      final id = ManagedIdentityId('1' * 32);
+      try {
+        expect(ManagedWorkerIdentity.debugRetiringOwnerCount, 0);
+        final first = expectLater(
+          ManagedWorkerIdentity.debugFailedBootstrap(
+            profileDirectory: profile,
+            id: id,
+            owner: store,
+          ),
+          throwsA(isA<ManagedWorkerFailure>()),
+        );
+        await arrived(1);
+        port.send(const _Release(true));
+        await first;
+        expect(ManagedWorkerIdentity.debugRetiringOwnerCount, 1);
+        final blocked = expectLater(
+          ManagedWorkerIdentity.openUnencrypted(
+            profileDirectory: '$profile/.',
+            id: id,
+          ),
+          throwsA(
+            isA<ManagedWorkerFailure>().having(
+              (e) => e.kind,
+              'kind',
+              ManagedWorkerFailureKind.busy,
+            ),
+          ),
+        );
+        await arrived(2);
+        expect(Directory(profile).listSync(), isEmpty);
+        port.send(const _Release(true));
+        await blocked;
+        expect(ManagedWorkerIdentity.debugRetiringOwnerCount, 1);
+        final released = expectLater(
+          ManagedWorkerIdentity.openUnencrypted(
+            profileDirectory: '$profile/',
+            id: id,
+          ),
+          throwsA(
+            isA<ManagedWorkerFailure>().having(
+              (e) => e.kind,
+              'kind',
+              ManagedWorkerFailureKind.missing,
+            ),
+          ),
+        );
+        await arrived(3);
+        expect(Directory(profile).listSync(), isEmpty);
+        port.send(const _Release(false));
+        await released;
+        expect(ManagedWorkerIdentity.debugRetiringOwnerCount, 0);
+        expect(watch.debugWatching, isFalse);
+        expect(Directory(profile).listSync(), isEmpty);
+      } finally {
+        temporary.deleteSync(recursive: true);
+      }
     },
   );
 
