@@ -53,6 +53,42 @@ void main() {
     temp.deleteSync(recursive: true);
   });
 
+  test(
+    'removal reloads peers, clears only its selection and is idempotent',
+    () {
+      final first = open('catalog', create: true);
+      first.register(entry(1));
+      first.register(entry(2));
+      first.select(entry(1));
+      final stale = open('catalog');
+      first.register(entry(3));
+      final removed = stale.remove(entry(1));
+      expect(removed.catalog.selectedId, isNull);
+      expect(removed.catalog.identities.map((e) => e.id), [
+        entry(2).id,
+        entry(3).id,
+      ]);
+      expect(first.remove(entry(1)).revision, removed.revision);
+      first.select(entry(3));
+      final next = stale.remove(entry(2));
+      expect(next.catalog.selectedId, entry(3).id);
+      expect(next.catalog.identities.single.id, entry(3).id);
+    },
+  );
+
+  test('removal refuses wrong mode without changing public metadata', () {
+    final store = open('catalog', create: true);
+    store.register(entry(1));
+    store.select(entry(1));
+    final before = store.snapshot();
+    expect(
+      () => store.remove(entry(1, StorageProtection.unencrypted)),
+      throwsA(failure(ManagedCatalogFailureKind.conflict)),
+    );
+    expect(store.snapshot().catalog.encode(), before.catalog.encode());
+    expect(store.snapshot().revision, before.revision);
+  });
+
   test('visible catalog reopens; idempotent retry does not add a revision', () {
     final store = open('catalog', create: true);
     expect(store.snapshot().catalog.identities, isEmpty);

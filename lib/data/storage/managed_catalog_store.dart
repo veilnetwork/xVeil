@@ -149,6 +149,35 @@ final class ManagedCatalogStore {
     }),
   );
 
+  /// Removes PUBLIC metadata only. The filesystem owner must separately
+  /// authenticate and delete payloads; catalog membership is not authority.
+  /// Reload under the write lock and retain every unrelated registration.
+  ManagedCatalogSnapshot remove(ManagedIdentityEntry entry) => _use(
+    (db) => _transaction(db, write: true, () {
+      final current = _read(db);
+      final matches = current.catalog.identities.where((e) => e.id == entry.id);
+      if (matches.isEmpty) return current;
+      if (matches.single.protection != entry.protection) {
+        throw const ManagedCatalogFailure(ManagedCatalogFailureKind.conflict);
+      }
+      if (current.revision == _maxRevision) {
+        throw const ManagedCatalogFailure(ManagedCatalogFailureKind.exhausted);
+      }
+      final next = ManagedIdentityCatalog(
+        current.catalog.identities.where((e) => e.id != entry.id),
+        selectedId: current.catalog.selectedId == entry.id
+            ? null
+            : current.catalog.selectedId,
+      );
+      final revision = current.revision + 1;
+      db.execute(
+        'UPDATE managed_catalog SET revision = ?, payload = ? WHERE id = 1',
+        [revision, next.encode()],
+      );
+      return ManagedCatalogSnapshot(next, revision);
+    }),
+  );
+
   static int _pragma(Database db, String name) =>
       db.select('PRAGMA $name').single.values.single as int;
 

@@ -23,12 +23,14 @@ import 'managed_metadata_blob.dart';
 import 'managed_reclaim_budget.dart';
 import 'managed_sqlite_connection.dart';
 import 'managed_store_tag.dart';
+import 'native_handle_close.dart';
 import 'plain_sqlite_kv_log_store.dart';
 import 'rollback_anchor.dart';
 
 part 'managed_identity_files.dart';
 part 'managed_identity_reclaim.dart';
 part 'managed_identity_usage.dart';
+part 'managed_identity_erase.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
@@ -53,6 +55,7 @@ final class ManagedDirectoryCatalog {
   final ManagedCatalogStore _catalog;
   final ManagedFsPlatform _fs;
   bool _closed = false;
+  late final _catalogRelease = NativeHandleClose(_catalog.close);
   final _identityOwners = <ManagedIdentityId, _ManagedIdentityResources>{};
 
   void _reserveIdentity(_ManagedIdentityResources owner) {
@@ -236,7 +239,7 @@ final class ManagedDirectoryCatalog {
     if (_identityOwners.isNotEmpty) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
-    _catalog.close();
+    _catalogRelease.close();
     _closed = true;
   }
 

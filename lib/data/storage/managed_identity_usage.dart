@@ -34,6 +34,7 @@ final class _ManagedUsageInventory {
   final _ManagedIdentityResources resources;
   int data = 0, blobs = 0, metadata = 0, other = 0, files = 0, unknown = 0;
   int total = 0;
+  int dataFiles = 0, blobFiles = 0;
   final seen = <String>{};
   static final _blobName = RegExp(r'^[A-Za-z0-9_-]{16}$');
   static final _pieceName = RegExp(r'^p(0|[1-9][0-9]*)(\.tmp)?$');
@@ -47,9 +48,10 @@ final class _ManagedUsageInventory {
   bool _sqliteSidecar(String name, String base) =>
       name == '$base-journal' || name == '$base-wal' || name == '$base-shm';
 
-  Future<StorageUsage> measure() async {
+  Future<StorageUsage> measure({bool requireComplete = true}) async {
     await _directory(resources.path!, const [], 0);
-    if (!seen.containsAll({..._metadata, ..._data, 'blobs'})) {
+    if (requireComplete &&
+        !seen.containsAll({..._metadata, ..._data, 'blobs'})) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
     return StorageUsage(
@@ -138,8 +140,10 @@ final class _ManagedUsageInventory {
           metadata += length;
         } else if (dataFile) {
           data += length;
+          dataFiles++;
         } else if (blobFile) {
           blobs += length;
+          blobFiles++;
         } else {
           other += length;
         }

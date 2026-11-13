@@ -8,6 +8,7 @@ import '../../core/posix_file_facts.dart';
 import '../../domain/storage_protection.dart';
 import 'managed_identity_catalog.dart';
 import 'managed_sqlite_connection.dart';
+import 'native_handle_close.dart';
 
 enum ManagedLeaseFailureKind { invalid, mismatch, closed, busy }
 
@@ -35,6 +36,7 @@ final class ManagedIdentityLease {
   bool _closed = false;
   bool _transactionHeld = false;
   _PosixIdentityLock? _posixLock;
+  late final _connectionRelease = NativeHandleClose(_connection.close);
 
   static const _applicationId = 0x58564c53;
   static const _schema =
@@ -185,7 +187,7 @@ final class ManagedIdentityLease {
       });
       _transactionHeld = false;
     }
-    _connection.close();
+    _connectionRelease.close();
     _posixLock?.close();
     _posixLock = null;
     _closed = true;
