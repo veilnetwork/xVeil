@@ -643,6 +643,43 @@ recovery/accounting is a remaining boundary. New storage modes remain disabled i
 the application; all-online routing, password rotation, erase/recovery UI and
 packaged/platform/biometric qualification still precede enabling the default.
 
+## Application storage binding
+
+`ManagedIdentityStorage` now binds the existing domain `Storage` facade to one
+immutable catalog entry and its independently owned blob directory. The normal
+domain-open path performs deletion/ratchet recovery, and the facade retains a
+failed-close worker for retry. Credentials and keys pass through the managed
+worker; KDF, native data operations and maintenance stay off the UI isolate.
+The binding wipes its owned UTF-8 password buffer while preserving borrowed
+roster/vault keys.
+
+Creation is a separate explicit intent: an existing binding cannot create data,
+and a creation binding cannot adopt an already occupied locator. Only an actual
+authentication refusal returns `false` from the domain open method. Missing
+files, invalid metadata and mode/ownership errors remain errors; no alternate
+ID, hidden-container probe, plaintext fallback or replacement creation follows
+them. After a successful creation the same facade reopens only that existing
+identity. An interrupted creation still uses the separate explicit worker
+resume API; the binding does not guess how to recover it.
+
+Seven native macOS cases exercise this through the application's domain port:
+both modes create and cold-reopen by key and password, failed credentials and
+duplicate/wrong-mode/missing selections preserve files, and two simultaneously
+open identities store distinct large files under the same logical file ID.
+Erasing one leaves the sibling's blob bytes unchanged and readable after cold
+reopen. This tests owned data erasure, not removal of a whole catalog entry or
+power-loss secure deletion. Plaintext storage's existing large-file tier still
+uses sealed pieces with their decryption keys in the plaintext database; this
+provides no protection against filesystem readers and is not an encrypted mode.
+The focused domain/lifecycle joint suite reports **99 PASS and one opt-in native
+skip**; analysis of the new binding and native test is clean.
+
+Production onboarding/defaults remain unchanged. Entry selection, persisted
+locators, master rosters, all-online ownership, quick-unlock scoping and
+mode-aware maintenance/erase/password-change UI must be wired consistently
+before switching the application to this binding. Historical `StorageMode.plain`
+is still a legacy preference and never selects the new plaintext backend.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

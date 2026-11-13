@@ -119,7 +119,10 @@ Future<AsyncKvLogStore?> _noOpener({
   required bool create,
 }) async => null;
 
-/// Domain [Storage] mapped onto a single hidden-volume space:
+/// Domain [Storage] mapping over a single KV/log store. The class name reflects
+/// its original hidden-volume backend; at-rest protection is selected by the
+/// opener, not by this domain mapping. Managed bindings also use it over an
+/// independently owned encrypted store or an explicitly plaintext database:
 /// - SETTINGS (KV): identity blob, app settings, the message-log counter
 /// - CONTACTS (KV): one entry per peer, keyed by node id bytes
 /// - MESSAGE_LOG (append-log family): deterministic capacity shards; every
