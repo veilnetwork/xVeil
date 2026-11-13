@@ -70,8 +70,8 @@ void main() {
           'believing the container was shut',
     );
 
-    // And the cleanup happened anyway: the ports and the isolate go either
-    // way, because what is in doubt is the container, not this side.
+    // A failed close blocks ordinary I/O. The owner remains available for a
+    // retry instead of being killed before its handles can be released.
     expect(
       () => store.get(0, Uint8List(1)),
       throwsA(isA<StateError>()),
@@ -487,7 +487,7 @@ void _stubWorkerEntry(List<Object> args) {
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
         case 'answer-close':
-          pendingClose?.send(true);
+          pendingClose?.send(WorkerKvLogStore.debugSuccessReply());
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
       }
@@ -511,10 +511,12 @@ void _stubWorkerEntry(List<Object> args) {
                 'Internal',
                 'the container refused to close',
               )
-            : true,
+            : WorkerKvLogStore.debugSuccessReply(),
       );
-      rx.close();
-      Isolate.current.kill(priority: Isolate.immediate);
+      if (!failClose) {
+        rx.close();
+        Isolate.current.kill(priority: Isolate.immediate);
+      }
       return;
     }
     events.send('call');
