@@ -123,6 +123,16 @@ void main() {
         File(layout.catalogPath).uri,
         root.resolve('identities/catalog.sqlite3'),
       );
+      expect(
+        File(layout.leasePath(a)).uri,
+        root.resolve('identities/$first/identity.meta'),
+      );
+      expect(layout.leasePath(a), isNot(layout.leasePath(b)));
+      expect(
+        File(layout.leaseLockPath(a)).uri,
+        root.resolve('identities/$first/identity.meta.lock'),
+      );
+      expect(layout.leaseLockPath(a), isNot(layout.leaseLockPath(b)));
       final owned = [
         layout.dataPath(a),
         layout.keyboxPath(a),
