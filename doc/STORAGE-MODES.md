@@ -559,6 +559,66 @@ malformed/future/conflicting roots still fail closed. The encoded maximum grows
 by one 40-byte root and remains below the existing 64-KiB metadata limit.
 These adapters remain disabled in application mode selection.
 
+## File-owned encrypted reclamation
+
+`ManagedIdentityStore.reclaim` now checks separately persisted content and
+maintenance growth budgets inside the authenticated maintenance file. Explicit
+force can repack both payload files. Plaintext stays on SQLite FULL auto-vacuum;
+this API does not create encrypted side files or request a password for it.
+The eligibility hints are not authorization state: missing means never repacked,
+malformed records are preserved/refused, and new baselines are recorded only
+after payload reattachment completes. Growth hysteresis uses a 64-MiB content floor and 8-MiB maintenance
+growth allowance; substantial observed live-chunk deletion can also qualify a
+large content file. A force operation on a small file may grow it slightly;
+processed/repacked is not a claim that bytes were freed.
+
+The file owner consumes the data adapter, closes its payload handles and retains
+the identity lease and immutable keybox throughout native prepared compaction.
+Staged paths must remain private siblings. The new content generation is accepted
+only after durable PREPARED metadata; reattachment settles the actual authenticated
+generation and checks the in-memory source head. Maintenance copies must retain
+exact checkpoint and budget bytes. Failure keeps owned handles tracked for close
+retry, and a refused operation can still have advanced maintenance state.
+Ordinary I/O and close cannot cross a pending reclamation operation.
+
+A source-replay regression found an important defect in the first maintenance
+candidate: generation/role checks alone accepted an old, valid content image
+restored in place after source-close. A controlled negative run returned the old
+fixture value while its host-anchor verdict was clean. The implementation now
+commits a fresh 32-byte source seal in the same native authenticated state before
+closing content and requires its exact value in the staged copy. A replayed image
+cannot supply that seal. Reattachment cannot expose a source behind the verified
+head. Removing just the seal comparison reproduced the old-value/clean-anchor
+failure; restoring it passed. The seal is a snapshot witness, not an encryption
+key or a new cipher. Application writes cannot access its reserved namespace.
+
+A successful content repack advances the logical head by two maintenance commits:
+the source seal and the new generation. Abort before publication retains the seal
+commit; it never resets the logical counter. Previous in-range host roots remain
+recognizable and exported outer/biometric keys and keybox bytes remain unchanged.
+Seven native file-owner cases cover real growth/deletion/shrink, exact records,
+key/password cold reopen, sibling isolation, pending-operation exclusion, refusal
+at publication stages, plaintext behavior and in-place replay. The first small-
+churn shrink oracle was rejected: native slot reuse already bounded that workload,
+and forced repack added metadata. The qualified shrink fixture grows a real live
+log, deletes it and verifies actual file-size reduction.
+
+One further native case SIGKILLs five owned process groups: after source sealing/
+close, after durable content preparation, after content publication, and before/
+after maintenance publication. Fresh key-based opens preserve exact records,
+immutable keybox bytes, the prior host anchor and the next durable write. The final
+joint suite reports **192 PASS and one opt-in native skip**; that skipped native
+roster case is also run explicitly. Focused analysis is clean. These are macOS
+process-crash checks, not power-loss or native Android/Windows qualification.
+
+This is the admitted file-owner API and its eligibility policy. Scheduling it
+from the worker's mutation queue and exposing mode-aware maintenance in the UI
+remain to be wired. No automatic legacy conversion or unknown-space sweep exists.
+Abandoned native temporary copies after process death are preserved; their safe
+recovery/accounting is a remaining boundary. New storage modes remain disabled in
+the application; all-online routing, password rotation, erase/recovery UI and
+packaged/platform/biometric qualification still precede enabling the default.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

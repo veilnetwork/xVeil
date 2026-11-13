@@ -4,22 +4,29 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../../domain/storage_protection.dart';
+import '../native_libs.dart' show envLibPath;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
 import 'managed_encrypted_kv_log_store.dart';
+import 'managed_anchor_state.dart';
 import 'managed_catalog_store.dart';
 import 'managed_fs_platform.dart';
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_keybox.dart';
+import 'managed_metadata_blob.dart';
+import 'managed_reclaim_budget.dart';
 import 'managed_sqlite_connection.dart';
+import 'managed_store_tag.dart';
 import 'plain_sqlite_kv_log_store.dart';
 import 'rollback_anchor.dart';
 
 part 'managed_identity_files.dart';
+part 'managed_identity_reclaim.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space

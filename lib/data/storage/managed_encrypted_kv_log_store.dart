@@ -8,6 +8,16 @@ import 'managed_metadata_blob.dart';
 import 'managed_store_tag.dart';
 import 'rollback_anchor.dart';
 
+/// Consumes the data adapter after both payload handles close. The admitted
+/// file owner now owns this still-open keybox and the exact source witness.
+/// This token stays on the owning worker; it is never an IPC payload.
+final class ManagedRepackTransfer {
+  ManagedRepackTransfer._(this.keybox, this.state, this.source);
+  final ManagedKeybox keybox;
+  final ManagedAnchorState state;
+  final ManagedAnchorSnapshot source;
+}
+
 /// Native encrypted application-data port for one enumerable identity.
 ///
 /// All three handles transfer ownership on entry, including failed opens.
@@ -295,6 +305,24 @@ final class ManagedEncryptedKvLogStore
     _content.acknowledgeHardeningWarning();
     _maintenance.acknowledgeHardeningWarning();
     _keybox.acknowledgeHardeningWarning();
+  }
+
+  /// The caller retains its identity lease throughout maintenance and must
+  /// reattach payloads or close [ManagedRepackTransfer.keybox]. A failed close
+  /// leaves this adapter closing and retryable via [close], without transfer.
+  ManagedRepackTransfer releasePayloadsForRepack() {
+    _requireOpen();
+    final state = _state!;
+    final source = _anchor();
+    _closing = true;
+    _content.close();
+    _contentClosed = true;
+    _maintenance.close();
+    _maintenanceClosed = true;
+    _keyboxClosed = true; // ownership transfers; native keybox remains open
+    _closed = true;
+    _state = null;
+    return ManagedRepackTransfer._(_keybox, state, source);
   }
 
   @override
