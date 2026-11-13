@@ -80,6 +80,36 @@ adapter. Remove unused experimental packaging before shipping the new modes.
 Fresh-process crash, filesystem admission, bounded managed-file reclamation,
 password/biometric handling, UI and worker integration remain unqualified.
 
+A bounded maintenance blob is now implemented for the future dedicated
+managed-encrypted maintenance space. Two fixed log banks stage at most 64 KiB;
+a small authenticated-store head selects the complete payload only after all
+chunks commit. It uses a log-only namespace rather than mixing KV and logs,
+keeps at most 129 logical records, and refuses missing/corrupt published state
+instead of silently initializing it. The extra SHA-256 binds the complete
+chunk set; it does not replace hidden-volume authentication or make the rejected
+encrypted SQLite prototype acceptable. Callers must serialize the exclusively
+owned maintenance space and validate its managed role before using this port.
+
+Six focused cases cover all before/after commit interruptions of a five-chunk
+update, lost head responses, incomplete initialization, input buffer mutation,
+malformed/missing/mismatching chunks, size limits and repeated maximum rewrites.
+A seventh native case actually SIGKILLs three owned writer processes: before
+the first new chunk, before publishing the complete new head, and immediately
+after that native commit. Cold reopen returns the exact old or new 49,155-byte
+payload, and a subsequent write succeeds. The final fixture is seeded random
+data, not a trivially compressible repeated pattern. This qualifies selected
+POSIX commit boundaries on macOS, not interruption inside native commit, power
+loss, content repack, or Android/Windows managed storage.
+
+The test library is the published macOS arm64 hidden-volume **2.7.2** asset,
+SHA-256 `eb7c89a517464f059c2b8603a10b9b063b61cc5333d7188035a119bf66483571`.
+Its checksum manifest passed cosign verification for the tagged release
+workflow; the submodule/tag resolves to
+`072b402de7435884973edac7e95a360679e8ea89`. No Rust build or cached-library
+provenance assumption was needed. Temporary fixture files were deleted and
+each writer's PID/exit status was observed after SIGKILL. No application or
+real identity was opened. This primitive is not wired to the current app.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
