@@ -1,0 +1,4 @@
+phase,checkpoint,sender_ack_before_kill,cold_target_count,first_cold_read_without_sources,post_recovery_cold_rows,result
+before,storage adapter before real append,no,0,no,5,PASS
+after,storage adapter after real append before handler continues,no,1,no,5,PASS
+acknowledged,observer suspends receiver after actual sender receipt,yes,1,yes,5,PASS
