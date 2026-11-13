@@ -1,0 +1,36 @@
+{
+  "schema": "xveil-release-qualification/1",
+  "verifiedAt": "2026-11-13T00:54:51+00:00",
+  "versions": {
+    "xVeil": "0.13.99",
+    "veil": "0.11.51",
+    "hidden-volume": "2.7.2"
+  },
+  "applicationBuild": 118,
+  "sourceCommits": {
+    "xVeil": "d942015f61971cc528d4871a6d3aa4fa3461867d",
+    "veil": "952e0c292eb8edae976c8d3d527e202f18b85dbb",
+    "hidden-volume": "072b402de7435884973edac7e95a360679e8ea89"
+  },
+  "sourceCIRuns": {
+    "veil": 43302623904,
+    "hidden-volume": 43308195274,
+    "xVeil": 43314602221
+  },
+  "applicationAssets": 17,
+  "applicationArchives": 15,
+  "androidNormalArtifactsMatched": 3,
+  "androidSignaturesVerified": 6,
+  "sourceTestsPassed": 8530,
+  "sourceTestsSkipped": 584,
+  "fleet": {
+    "production": 6,
+    "testnet": 3,
+    "allHealthy": true,
+    "configurationsUnchanged": true,
+    "automaticRestarts": 0,
+    "dhtCommandsPassed": 9
+  },
+  "privacyChecksPassed": true,
+  "localMacNativeLibrariesLoaded": 5
+}
