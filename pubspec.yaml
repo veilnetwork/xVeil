@@ -21,6 +21,13 @@ version: 0.13.101+120
 environment:
   sdk: ^3.12.0
 
+# Experimental managed-identity backend; legacy hidden storage stays unchanged.
+# The lockfile pins the hook and the package verifies native asset SHA-256.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlcipher
+
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
 # consider running `flutter pub upgrade --major-versions`. Alternatively,
@@ -143,6 +150,7 @@ dependencies:
   local_auth: ^3.0.0
   image: ^4.8.0
   flutter_secure_storage: ^10.0.0
+  sqlite3: 3.5.2
 
 dev_dependencies:
   flutter_test:

@@ -38,6 +38,21 @@ fields, duplicate locators and paths outside a strict local ID format. It
 does not silently replace malformed existing metadata with an empty catalog.
 The pure layout does not claim to solve filesystem symlink races.
 
+An isolated native connection prototype now uses `sqlite3` **3.5.2** with its
+SQLCipher hook. The current Flutter SDK pins a dependency that prevents using
+3.7.1; no SDK constraint was overridden. The actual macOS arm64 asset matches
+the package-pinned SHA-256 and passed GitHub attestation verification against
+the upstream repository. This does not qualify the engine on other platforms.
+
+Four native tests cover encrypted readback without plaintext in the database,
+wrong-key/wrong-mode attempts preserving the encrypted file, actual plaintext
+readback, and errors omitting SQL, bound values and local paths. Keying uses
+`sqlite3_key` with a wiped native buffer rather than SQL containing the raw key.
+The key is followed by an actual database read. These tests use fixture keys;
+password derivation, durable schema, reclamation and application integration
+remain unfinished. Together with the five catalog checks, nine focused tests
+pass. Neither the existing onboarding default nor existing stores are changed.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
@@ -51,7 +66,8 @@ The pure layout does not claim to solve filesystem symlink races.
    encryption for the encrypted mode and actual plaintext for the unencrypted
    mode. Existing domain storage can remain above `AsyncKvLogStore`; a new
    backend must preserve atomic multi-operation commits and commit anchors.
-   No database or KDF dependency has been added by this foundation change.
+   The isolated connection probe has a pinned database dependency; no new KDF
+   dependency or application adapter has been enabled.
 4. Use reviewed encryption and a bounded memory-hard password KDF. Verify the
    packaged cipher provider before encrypted creation; a missing provider must
    fail closed. SQLCipher raw-key semantics require an actual database read
