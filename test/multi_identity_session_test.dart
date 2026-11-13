@@ -14,6 +14,7 @@ import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_locator.dart';
@@ -181,11 +182,40 @@ void main() {
     expect(await backing.exportKeys(specs[1].spaceId), _keys(2));
   });
 
+  test('an incomplete managed roster member never reaches node boot', () async {
+    final owned = _ManagedStorage(FakeKvLogStore());
+    final raw = FakeMultiSpaceBacking();
+    var boots = 0;
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(raw),
+      runtimeDirBase: '/synthetic',
+      listenPortBase: 9000,
+      managedStorageFactory: (_) => (storage: owned, vacuum: () async {}),
+      boot: (_, _) async {
+        boots++;
+        throw StateError('unexpected boot');
+      },
+    );
+    addTearDown(session.disposeAll);
+    await expectLater(session.bootAll([managedEntry()]), throwsStateError);
+    expect(boots, 0);
+    expect(raw.opened, isEmpty);
+    expect(await owned.loadNodeConfig(), isNull);
+    await session.disposeAll();
+    expect(owned.isOpen, isFalse);
+    expect(session.containerLockReleased, isTrue);
+  });
+
   test(
     'failed managed close retains the exact owner for disposal retry',
     () async {
       final raw = FakeMultiSpaceBacking();
-      final owned = _ManagedStorage(FakeKvLogStore())..refuseClose = true;
+      final owned = _ManagedStorage(FakeKvLogStore());
+      await owned.open(password: 'synthetic');
+      await owned.saveProfile(const UserProfile(displayName: 'synthetic'));
+      await owned.close();
+      owned.closes = 0;
+      owned.refuseClose = true;
       var vacuumed = 0;
       final session = MultiIdentitySession(
         SyncWrappedAsyncMultiSpaceBacking(raw),

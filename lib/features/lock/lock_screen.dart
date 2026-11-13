@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../core/error_journal.dart';
+import '../../domain/storage_locator.dart';
+import '../../domain/storage_protection.dart';
+import '../../state/storage_router_providers.dart';
 import '../settings/error_report.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
@@ -26,12 +29,36 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   Future<void> _unlock() async {
     if (_busy) return;
-    if (_ctrl.text.trim().isEmpty) {
+    final router = ref.read(profileStorageRouterProvider);
+    if (router?.selectionRequired == true) return;
+    final access = router?.access;
+    final plain =
+        access is ManagedStorageLocator &&
+        access.protection == StorageProtection.unencrypted;
+    if (!plain && _ctrl.text.trim().isEmpty) {
       return;
     }
     setState(() => _busy = true);
-    await ref.read(appControllerProvider.notifier).unlock(_ctrl.text);
+    await ref
+        .read(appControllerProvider.notifier)
+        .unlock(plain ? '' : _ctrl.text);
     if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _select(IdentityStorageLocator? locator) async {
+    if (locator == null || _busy) return;
+    setState(() => _busy = true);
+    final selected = await ref
+        .read(appControllerProvider.notifier)
+        .selectStorageIdentity(locator);
+    if (!mounted) return;
+    _ctrl.clear();
+    setState(() => _busy = false);
+    if (!selected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).storageSelectionFailed)),
+      );
+    }
   }
 
   Future<void> _startOver() async {
@@ -49,13 +76,19 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           // Surface the irreversible delete right here: "start over" keeps the
           // container (deniability), so a user who actually wants a clean slate
           // would otherwise never find the corner-tucked wipe.
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(ctx).colorScheme.error,
+          if (!(ref
+                  .read(profileStorageRouterProvider)
+                  ?.catalog
+                  .identities
+                  .isNotEmpty ??
+              false))
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(ctx).colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.delete),
+              child: Text(l.lockWipe),
             ),
-            onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.delete),
-            child: Text(l.lockWipe),
-          ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.keep),
             child: Text(l.lockStartOver),
@@ -125,6 +158,21 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
+    ref.watch(storageRouteRevisionProvider);
+    final router = ref.watch(profileStorageRouterProvider);
+    final access = router?.access;
+    final selected = router == null || router.selectionRequired
+        ? null
+        : access is LegacyStorageLocator ||
+              router.catalog.identities.any((entry) => entry.locator == access)
+        ? access
+        : null;
+    final choiceRequired = router != null && selected == null;
+    final plain =
+        !choiceRequired &&
+        access is ManagedStorageLocator &&
+        access.protection == StorageProtection.unencrypted;
+    final canWipe = router == null || router.catalog.identities.isEmpty;
     final hasError = ref.watch(
       appControllerProvider.select((s) => s.unlockError),
     );
@@ -154,28 +202,55 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 32),
-                    TextField(
-                      controller: _ctrl,
-                      obscureText: true,
-                      autofocus: true,
-                      onSubmitted: (_) => _unlock(),
-                      decoration: InputDecoration(
-                        labelText: l.lockPasswordHint,
-                        errorText: hasError ? l.lockWrong : null,
+                    if (router != null) ...[
+                      DropdownButtonFormField<IdentityStorageLocator>(
+                        key: ValueKey((router.access, selected)),
+                        initialValue: selected,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: l.storageChooseIdentity,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: const LegacyStorageLocator(),
+                            child: Text(l.storageHiddenTitle),
+                          ),
+                          for (final entry in router.catalog.identities)
+                            DropdownMenuItem(
+                              value: entry.locator,
+                              child: Text(
+                                '${entry.protection == StorageProtection.encrypted ? l.storageEncryptedTitle : l.storageUnencryptedTitle} · ${entry.id.value.substring(0, 8)}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: _busy ? null : _select,
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (!plain)
+                      TextField(
+                        controller: _ctrl,
+                        obscureText: true,
+                        autofocus: true,
+                        onSubmitted: (_) => _unlock(),
+                        decoration: InputDecoration(
+                          labelText: l.lockPasswordHint,
+                          errorText: hasError ? l.lockWrong : null,
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     FilledButton(
-                      onPressed: _busy ? null : _unlock,
+                      onPressed: _busy || choiceRequired ? null : _unlock,
                       child: _busy
                           ? const SizedBox(
                               height: 20,
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : Text(l.lockUnlock),
+                          : Text(plain ? l.storageOpenPlain : l.lockUnlock),
                     ),
-                    const StartupQuickUnlock(),
+                    if (!plain && !choiceRequired) const StartupQuickUnlock(),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: _busy ? null : _startOver,
@@ -253,30 +328,31 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                         // Low-emphasis, corner-tucked destructive action
                         // (typed-phrase gated) so it can't be hit by an
                         // accidental double-tap.
-                        Flexible(
-                          child: TextButton.icon(
-                            onPressed: _busy ? null : _wipe,
-                            icon: Icon(
-                              Icons.delete_forever_outlined,
-                              size: 16,
-                              color: scheme.error.withValues(alpha: 0.7),
-                            ),
-                            label: Text(
-                              l.lockWipe,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
+                        if (canWipe)
+                          Flexible(
+                            child: TextButton.icon(
+                              onPressed: _busy ? null : _wipe,
+                              icon: Icon(
+                                Icons.delete_forever_outlined,
+                                size: 16,
                                 color: scheme.error.withValues(alpha: 0.7),
                               ),
-                            ),
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                              label: Text(
+                                l.lockWipe,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.error.withValues(alpha: 0.7),
+                                ),
+                              ),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ],

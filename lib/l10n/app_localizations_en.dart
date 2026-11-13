@@ -142,7 +142,7 @@ class AppL10nEn extends AppL10n {
   String get storageTitle => 'How should we store your data?';
 
   @override
-  String get storageHiddenTitle => 'Hidden space (recommended)';
+  String get storageHiddenTitle => 'Hidden space';
 
   @override
   String get storageHiddenBody =>
@@ -8099,4 +8099,40 @@ class AppL10nEn extends AppL10n {
   @override
   String get folderSyncSavedRemoveFailed =>
       'Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere.';
+
+  @override
+  String get storageEncryptedTitle => 'Encrypted storage';
+
+  @override
+  String get storageEncryptedBrief =>
+      'Separate encrypted storage for each identity.';
+
+  @override
+  String get storageEncryptedBody =>
+      'The number of identities is visible. Space is reclaimed for this identity without touching hidden spaces.';
+
+  @override
+  String get storageChooseIdentity => 'Choose an identity';
+
+  @override
+  String get storageSelectionFailed =>
+      'Could not change storage. Please try again.';
+
+  @override
+  String get storageOpenPlain => 'Open unencrypted storage';
+
+  @override
+  String get storageOwnedCleanup =>
+      'Space is reclaimed automatically for this identity.';
+
+  @override
+  String get storageUnencryptedTitle => 'Unencrypted storage';
+
+  @override
+  String get storageUnencryptedBrief =>
+      'Files on this device are not protected by a password.';
+
+  @override
+  String get storageUnencryptedWarning =>
+      'Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.';
 }

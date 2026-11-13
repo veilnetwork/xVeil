@@ -31,9 +31,11 @@ default. Hidden-volume also reuses retired slots under its churn rules
 necessary definition of hidden storage. A snapshot cannot, however, safely
 attribute every unknown chunk to garbage: another hidden identity may own it.
 
-The new `StorageProtection` contract and managed catalog are not yet connected
-to production onboarding/unlock. Experimental persistence ports now exist,
-as qualified below; the application still selects the legacy backend.
+Production onboarding/unlock still select the legacy backend. An isolated QA
+build can opt into the initial application wiring with
+`--dart-define=XVEIL_MANAGED_STORAGE=true`, as qualified below. This is not
+a release switch: master mutations, mode-aware erase/rotation/recovery and
+packaged-platform qualification remain incomplete.
 The catalog rejects hidden entries, credentials, network identifiers, unknown
 fields, duplicate locators and paths outside a strict local ID format. It
 does not silently replace malformed existing metadata with an empty catalog.
@@ -772,6 +774,52 @@ native free error; none of them is relabeled as successful resource release.
 Single-active locator routing, durable active selection, vault scoping and
 mode-aware UI remain required before enabling the new application default.
 
+## Initial application wiring (QA only)
+
+`ProfileStorageRouter` owns immutable storage facades and the public catalog
+actor. A transition joins accepted native preparation and confirms closure of
+its predecessor before publishing another facade. Failed closes remain owned
+and block same-profile reopening until release is confirmed. A late write keeps
+its original facade; selection never retargets it into another identity.
+
+The QA onboarding presents all three modes, initially choosing encrypted. Plain
+storage explicitly warns that messages, files and identity keys are readable by
+anyone who can read the app's files. It skips the password step and offers an
+explicit **Open** action on restart. Historical `StorageMode.plain` retains its
+old meaning and is not reinterpreted as unencrypted data.
+
+The lock screen can choose a visible opaque ID plus mode, or the legacy hidden
+container. The latter is always offered, without probing whether hidden spaces
+exist. Only an authenticated selection of a visible identity is remembered in
+catalog v2; unselected catalogs retain their exact v1 encoding. A catalog with
+visible entries and no remembered selection requires an explicit choice. Lost
+soft onboarding preferences cannot hide this catalog and restart onboarding
+silently. No names, credentials or hidden-space locators enter it.
+
+OS quick-entry namespaces include the managed root, local ID and mode. Legacy
+namespace bytes remain identical to installed versions. A biometric result from
+a prior selection cannot open the newly chosen store. These are host tests of
+scope/lifecycle behavior, not a physical biometric qualification.
+
+Host tests now drive actual application onboarding and cold unlock against both
+native managed backends, with network boot replaced by a no-op node. They prove
+backend selection, profile persistence, wrong-password refusal, isolation of
+legacy preferences and startup with lost preferences. An incomplete managed
+profile refuses session boot rather than silently minting a new network
+identity. This does not yet cover interruption after profile publication but
+before all onboarding credentials have settled.
+
+During this staging phase, mixed-master mutations and legacy whole-profile
+compaction/wipe are refused before writes when visible catalog entries exist.
+Managed settings show automatic owned reclamation instead of legacy
+unknown-space maintenance. These temporary restrictions are reasons to keep the
+QA switch off in production, not a completed mode-aware management feature.
+
+Remaining before default activation: full single-active/master editing paths,
+owned accounting and erase, interrupted-onboarding recovery, password rotation,
+explicit migration/recovery, and packaged Android/Windows/macOS runs including
+one-prompt OS entry. Existing containers are never converted automatically.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
@@ -786,7 +834,7 @@ mode-aware UI remain required before enabling the new application default.
    Preserve its Merkle/rollback and ratchet
    guarantees. Evaluate SQLite only for genuinely unencrypted identity data;
    page authentication plus a command hash chain is insufficient for encrypted
-   ratchet-state freshness. Neither backend is enabled in the application yet.
+   ratchet-state freshness. Neither backend is enabled in production builds.
 4. Reuse reviewed encryption and bounded memory-hard password derivation for
    encrypted identities. Managed-file reclamation must also work when a user
    entered using biometric pre-derived keys rather than a password; it must

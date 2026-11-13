@@ -74,7 +74,7 @@ abstract final class ManagedWorkerIdentity {
   // Failed-open owners remain reachable until their actual native release.
   // A later request for this local ID must drain them before another spawn.
   static final _retiring =
-      <(String, ManagedIdentityId), Set<WorkerKvLogStore>>{};
+      <(String, ManagedIdentityId?), Set<WorkerKvLogStore>>{};
 
   @visibleForTesting
   static int get debugRetiringOwnerCount =>
@@ -96,7 +96,7 @@ abstract final class ManagedWorkerIdentity {
 
   static Future<void> _drainRetired(
     String profile,
-    ManagedIdentityId id,
+    ManagedIdentityId? id,
   ) async {
     final key = (profile, id);
     final owners = _retiring[key];
@@ -254,7 +254,7 @@ abstract final class ManagedWorkerIdentity {
 
   static Future<WorkerKvLogStore?> _spawnOwned(
     String profile,
-    ManagedIdentityId id,
+    ManagedIdentityId? id,
     Future<WorkerKvLogStore?> Function() spawn,
   ) async {
     await _drainRetired(profile, id);

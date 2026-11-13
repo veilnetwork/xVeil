@@ -330,7 +330,7 @@ abstract class AppL10n {
   /// No description provided for @storageHiddenTitle.
   ///
   /// In en, this message translates to:
-  /// **'Hidden space (recommended)'**
+  /// **'Hidden space'**
   String get storageHiddenTitle;
 
   /// No description provided for @storageHiddenBody.
@@ -14051,6 +14051,66 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not remove this copy. It may still be needed for recovery. Refresh the list or save it elsewhere.'**
   String get folderSyncSavedRemoveFailed;
+
+  /// No description provided for @storageEncryptedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted storage'**
+  String get storageEncryptedTitle;
+
+  /// No description provided for @storageEncryptedBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Separate encrypted storage for each identity.'**
+  String get storageEncryptedBrief;
+
+  /// No description provided for @storageEncryptedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The number of identities is visible. Space is reclaimed for this identity without touching hidden spaces.'**
+  String get storageEncryptedBody;
+
+  /// No description provided for @storageChooseIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an identity'**
+  String get storageChooseIdentity;
+
+  /// No description provided for @storageSelectionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not change storage. Please try again.'**
+  String get storageSelectionFailed;
+
+  /// No description provided for @storageOpenPlain.
+  ///
+  /// In en, this message translates to:
+  /// **'Open unencrypted storage'**
+  String get storageOpenPlain;
+
+  /// No description provided for @storageOwnedCleanup.
+  ///
+  /// In en, this message translates to:
+  /// **'Space is reclaimed automatically for this identity.'**
+  String get storageOwnedCleanup;
+
+  /// No description provided for @storageUnencryptedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unencrypted storage'**
+  String get storageUnencryptedTitle;
+
+  /// No description provided for @storageUnencryptedBrief.
+  ///
+  /// In en, this message translates to:
+  /// **'Files on this device are not protected by a password.'**
+  String get storageUnencryptedBrief;
+
+  /// No description provided for @storageUnencryptedWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.'**
+  String get storageUnencryptedWarning;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

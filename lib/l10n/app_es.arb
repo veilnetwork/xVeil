@@ -38,7 +38,7 @@
   "startupFailedBody": "Algo falló mientras la aplicación se preparaba, antes de tocar ninguno de tus datos. No se abrió nada, no se escribió nada y no se envió nada.",
   "startupFailedAction": "Cierra xVeil y vuelve a abrirlo. Si sigue ocurriendo, reinstálalo desde la página de descargas.",
   "storageTitle": "¿Cómo quieres guardar tus datos?",
-  "storageHiddenTitle": "Espacio oculto (recomendado)",
+  "storageHiddenTitle": "Espacio oculto",
   "storageHiddenBody": "Tus chats y tus claves viven en un contenedor cifrado con negación plausible. Un adversario que se apodere de tu dispositivo no puede demostrar siquiera que los datos existen.",
   "storagePlainTitle": "Almacenamiento normal",
   "storagePlainBody": "Más rápido de configurar, pero la existencia de tus datos queda a la vista de cualquiera que inspeccione el dispositivo.",
@@ -3250,5 +3250,15 @@
   "folderSyncSavedRemove": "Eliminar copia guardada",
   "folderSyncSavedRemoveConfirm": "La copia seleccionada se eliminará definitivamente. Guárdala en otro lugar si la necesitas. Se conserva el archivo sincronizado actual. Las copias necesarias para la recuperación no se pueden eliminar.",
   "folderSyncSavedRemoved": "Copia guardada eliminada",
-  "folderSyncSavedRemoveFailed": "No se pudo eliminar esta copia. Puede ser necesaria para la recuperación. Actualiza la lista o guárdala en otro lugar."
+  "folderSyncSavedRemoveFailed": "No se pudo eliminar esta copia. Puede ser necesaria para la recuperación. Actualiza la lista o guárdala en otro lugar.",
+  "storageEncryptedTitle": "Almacenamiento cifrado",
+  "storageEncryptedBrief": "Un almacén cifrado independiente por identidad.",
+  "storageEncryptedBody": "El número de identidades es visible. Se libera espacio de esta identidad sin tocar los espacios ocultos.",
+  "storageChooseIdentity": "Elige una identidad",
+  "storageSelectionFailed": "No se pudo cambiar el almacenamiento. Inténtalo de nuevo.",
+  "storageOpenPlain": "Abrir sin contraseña",
+  "storageOwnedCleanup": "El espacio de esta identidad se libera automáticamente.",
+  "storageUnencryptedTitle": "Almacenamiento sin cifrar",
+  "storageUnencryptedBrief": "Los datos del dispositivo no están protegidos con contraseña.",
+  "storageUnencryptedWarning": "Quien pueda leer los archivos de la aplicación podrá leer mensajes, archivos y claves de identidad. Úsalo solo en un dispositivo de confianza."
 }

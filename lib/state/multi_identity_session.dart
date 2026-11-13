@@ -499,6 +499,12 @@ class MultiIdentitySession {
         throw StateError('managed roster credential refused');
       }
       if (_stopping) throw StateError('identity session is stopping');
+      // A visible catalog entry is not proof of completed onboarding. Never
+      // bootstrap a fresh network identity from an incomplete managed store.
+      if (await host.storage.loadProfile() == null) {
+        throw StateError('managed identity profile is incomplete');
+      }
+      if (_stopping) throw StateError('identity session is stopping');
       return id;
     }
 

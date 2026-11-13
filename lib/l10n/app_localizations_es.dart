@@ -143,7 +143,7 @@ class AppL10nEs extends AppL10n {
   String get storageTitle => '¿Cómo quieres guardar tus datos?';
 
   @override
-  String get storageHiddenTitle => 'Espacio oculto (recomendado)';
+  String get storageHiddenTitle => 'Espacio oculto';
 
   @override
   String get storageHiddenBody =>
@@ -8199,4 +8199,40 @@ class AppL10nEs extends AppL10n {
   @override
   String get folderSyncSavedRemoveFailed =>
       'No se pudo eliminar esta copia. Puede ser necesaria para la recuperación. Actualiza la lista o guárdala en otro lugar.';
+
+  @override
+  String get storageEncryptedTitle => 'Almacenamiento cifrado';
+
+  @override
+  String get storageEncryptedBrief =>
+      'Un almacén cifrado independiente por identidad.';
+
+  @override
+  String get storageEncryptedBody =>
+      'El número de identidades es visible. Se libera espacio de esta identidad sin tocar los espacios ocultos.';
+
+  @override
+  String get storageChooseIdentity => 'Elige una identidad';
+
+  @override
+  String get storageSelectionFailed =>
+      'No se pudo cambiar el almacenamiento. Inténtalo de nuevo.';
+
+  @override
+  String get storageOpenPlain => 'Abrir sin contraseña';
+
+  @override
+  String get storageOwnedCleanup =>
+      'El espacio de esta identidad se libera automáticamente.';
+
+  @override
+  String get storageUnencryptedTitle => 'Almacenamiento sin cifrar';
+
+  @override
+  String get storageUnencryptedBrief =>
+      'Los datos del dispositivo no están protegidos con contraseña.';
+
+  @override
+  String get storageUnencryptedWarning =>
+      'Quien pueda leer los archivos de la aplicación podrá leer mensajes, archivos y claves de identidad. Úsalo solo en un dispositivo de confianza.';
 }

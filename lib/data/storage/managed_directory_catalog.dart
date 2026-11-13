@@ -200,6 +200,13 @@ final class ManagedDirectoryCatalog {
     return result;
   });
 
+  ManagedCatalogSnapshot select(ManagedIdentityEntry? entry) => _safe(() {
+    _validate();
+    final result = _catalog.select(entry);
+    _validate();
+    return result;
+  });
+
   /// Pure names, not an opening/deletion capability. Catalog membership alone
   /// cannot authorize cleanup. A backend factory still has to validate its
   /// mode, role and authenticated identity before using its data.

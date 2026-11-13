@@ -143,7 +143,7 @@ class AppL10nRu extends AppL10n {
   String get storageTitle => 'Как хранить ваши данные?';
 
   @override
-  String get storageHiddenTitle => 'Скрытое пространство (рекомендуется)';
+  String get storageHiddenTitle => 'Скрытое пространство';
 
   @override
   String get storageHiddenBody =>
@@ -8167,4 +8167,40 @@ class AppL10nRu extends AppL10n {
   @override
   String get folderSyncSavedRemoveFailed =>
       'Не удалось удалить копию. Возможно, она ещё нужна для восстановления. Обновите список или сохраните её в другом месте.';
+
+  @override
+  String get storageEncryptedTitle => 'Зашифрованное хранение';
+
+  @override
+  String get storageEncryptedBrief =>
+      'Отдельное зашифрованное хранилище для каждой личности.';
+
+  @override
+  String get storageEncryptedBody =>
+      'Количество личностей видно. Освобождённое место очищается отдельно, не затрагивая скрытые пространства.';
+
+  @override
+  String get storageChooseIdentity => 'Выберите личность';
+
+  @override
+  String get storageSelectionFailed =>
+      'Не удалось сменить хранилище. Повторите попытку.';
+
+  @override
+  String get storageOpenPlain => 'Открыть без пароля';
+
+  @override
+  String get storageOwnedCleanup =>
+      'Место очищается автоматически для этой личности.';
+
+  @override
+  String get storageUnencryptedTitle => 'Незашифрованное хранение';
+
+  @override
+  String get storageUnencryptedBrief =>
+      'Данные на устройстве не защищены паролем.';
+
+  @override
+  String get storageUnencryptedWarning =>
+      'Любой, кто получит доступ к файлам приложения, сможет прочитать переписку, файлы и ключи личности. Используйте только на доверенном устройстве.';
 }

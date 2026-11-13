@@ -139,6 +139,7 @@ Future<AsyncKvLogStore?> _noOpener({
 class HiddenVolumeStorage
     implements
         Storage,
+        StorageOpeningOwner,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
@@ -195,6 +196,28 @@ class HiddenVolumeStorage
   // A failed/uncertain close blocks use but must retain its native owner for
   // retry. Never open another identity until this handle confirms release.
   AsyncKvLogStore? _retiringStore;
+  Future<bool>? _openingStore;
+
+  Future<bool> _trackOpening(Future<bool> Function() action) {
+    if (_openingStore != null) {
+      return Future.error(StateError('storage opening is already in progress'));
+    }
+    late final Future<bool> result;
+    result = action().whenComplete(() {
+      if (identical(_openingStore, result)) _openingStore = null;
+    });
+    _openingStore = result;
+    return result;
+  }
+
+  @override
+  Future<void> settleOpening() async {
+    try {
+      await _openingStore;
+    } catch (_) {
+      // The opening caller receives its error. Retirement only joins it.
+    }
+  }
 
   // One encrypted flag, committed WITH a message tombstone. A tombstone makes
   // the body logically absent; it does not prove its orphaned chunks were
@@ -364,7 +387,9 @@ class HiddenVolumeStorage
   Future<bool> open({
     required String password,
     bool createIfMissing = false,
-  }) async {
+  }) => _trackOpening(() => _openPassword(password, createIfMissing));
+
+  Future<bool> _openPassword(String password, bool createIfMissing) async {
     final closing = _closePending;
     if (closing != null) await closing;
     if (_store != null || _retiringStore != null) {
@@ -387,7 +412,10 @@ class HiddenVolumeStorage
   /// Returns false if the keys match no space, or if this handle has no
   /// keys-opener configured.
   @override
-  Future<bool> openWithKeys(Uint8List keys) async {
+  Future<bool> openWithKeys(Uint8List keys) =>
+      _trackOpening(() => _openKeys(keys));
+
+  Future<bool> _openKeys(Uint8List keys) async {
     if (keysOpener == null) return false;
     final closing = _closePending;
     if (closing != null) await closing;
