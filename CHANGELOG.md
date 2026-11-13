@@ -8,6 +8,12 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep endpoint binds from blocking the Dart event loop while local IPC is
+  pending. Preserve native errors, callback ownership and app-handle cleanup,
+  including a bind completing after its parent client closes.
+
 ## [0.13.100] - 2026-11-13
 
 ### Fixed
