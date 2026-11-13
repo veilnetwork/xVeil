@@ -5,6 +5,7 @@ import 'package:ffi/ffi.dart';
 
 import '../../core/posix_file_facts.dart';
 import 'managed_fs_contract.dart';
+import 'managed_linux_rename.dart';
 import 'managed_fs_windows.dart' as windows;
 
 export 'managed_fs_contract.dart';
@@ -134,18 +135,7 @@ class ManagedFsPlatform {
             >('renamex_np');
         rc = rename(from, to, 4); // RENAME_EXCL
       } else if (Platform.isLinux || Platform.isAndroid) {
-        final rename = lib
-            .lookupFunction<
-              Int32 Function(
-                Int32,
-                Pointer<Utf8>,
-                Int32,
-                Pointer<Utf8>,
-                Uint32,
-              ),
-              int Function(int, Pointer<Utf8>, int, Pointer<Utf8>, int)
-            >('renameat2');
-        rc = rename(-100, from, -100, to, 1); // AT_FDCWD, RENAME_NOREPLACE
+        rc = managedLinuxRenameNoReplace(from, to);
       } else {
         throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
       }
