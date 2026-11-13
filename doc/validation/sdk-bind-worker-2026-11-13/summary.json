@@ -1,0 +1,23 @@
+{
+  "schema": "xveil-sdk-bind-worker/1",
+  "status": "fixed_locally",
+  "releasedBaseline": "0.13.100+119",
+  "releasedSdkSource": "952e0c292eb8edae976c8d3d527e202f18b85dbb",
+  "baselineAssertionFailures": 12,
+  "controlledCandidateCasesPassed": 12,
+  "sdkTestsPassed": 81,
+  "sdkTestsSkipped": 6,
+  "relatedAppTestsPassed": 358,
+  "relatedAppTestsSkipped": 0,
+  "nativeMediaIpcTestsPassed": 1,
+  "hostAotCasesPassed": 12,
+  "analysisPassed": true,
+  "nativeLibraryProvenanceVerified": true,
+  "nativeCodeChanged": false,
+  "abiChanged": false,
+  "callTimeoutsChanged": false,
+  "hardwareHandoverQualified": false,
+  "originalNetcallResolved": false,
+  "pushed": false,
+  "released": false
+}
