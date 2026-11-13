@@ -8,6 +8,12 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep a slow network notification for one online identity from delaying other
+  identities' later handovers. Share OS observations while preserving independent
+  bounded retries and safe retirement of each node's admitted notification.
+
 ## [0.13.99] - 2026-11-12
 
 ### Fixed

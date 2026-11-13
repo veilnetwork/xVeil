@@ -144,16 +144,47 @@ final networkConnectivityProvider = Provider<Connectivity>(
 
 final networkReconnectProvider = Provider<void>((ref) {
   final connectivity = ref.watch(networkConnectivityProvider);
-  final applied = Map<NetworkChangeTransport, int>.identity();
   final diagnostics = DiagnosticBackgroundSampler();
-  final observer = NetworkReconnect(
-    current: connectivity.checkConnectivity,
-    changes: connectivity.onConnectivityChanged,
-    onAttachmentChanged: diagnostics.request,
-    notify: (attachment, generation) async {
-      final active = ref.read(realStackProvider);
-      final session = ref.read(sessionProvider);
-      final transports = <NetworkChangeTransport>{
+  final observations = StreamController<List<ConnectivityResult>>.broadcast(
+    sync: true,
+  );
+  final observers = Map<NetworkChangeTransport, NetworkReconnect>.identity();
+  final notifying = Set<NetworkChangeTransport>.identity();
+  List<ConnectivityResult>? latest;
+  Future<List<ConnectivityResult>>? initialQuery;
+  NetworkAttachment? diagnosticAttachment;
+  var disposed = false;
+
+  void remember(List<ConnectivityResult> results) {
+    latest = List<ConnectivityResult>.unmodifiable(results);
+    final attachment = networkAttachmentOf(results);
+    if (attachment != diagnosticAttachment) {
+      diagnosticAttachment = attachment;
+      diagnostics.request();
+    }
+  }
+
+  Future<List<ConnectivityResult>> current() async {
+    final observed = latest;
+    if (observed != null) return observed;
+    final pending = initialQuery ??= connectivity.checkConnectivity();
+    try {
+      final results = await pending;
+      // An event received during the platform query is newer. New identity
+      // nodes also start from that latest observation, not the old query.
+      if (!disposed && latest == null) remember(results);
+      return latest ?? results;
+    } finally {
+      if (identical(initialQuery, pending)) initialQuery = null;
+    }
+  }
+
+  void synchronize() {
+    if (disposed) return;
+    final active = ref.read(realStackProvider);
+    final session = ref.read(sessionProvider);
+    final transports = Set<NetworkChangeTransport>.identity()
+      ..addAll([
         if (active?.transport case final NetworkChangeTransport transport)
           transport,
         if (session != null)
@@ -161,23 +192,64 @@ final networkReconnectProvider = Provider<void>((ref) {
             if (session.stackFor(label)?.transport
                 case final NetworkChangeTransport transport)
               transport,
-      };
-      applied.removeWhere((transport, _) => !transports.contains(transport));
-      // All online identities are separate nodes. Notify each once, including
-      // the active identity that is also present in an all-online session.
-      await Future.wait([
-        for (final transport in transports)
-          if (applied[transport] != generation)
-            () async {
-              await transport.networkChanged(attachment);
-              applied[transport] = generation;
-            }(),
       ]);
-    },
-  );
+    for (final transport in observers.keys.toList()) {
+      if (!transports.contains(transport)) {
+        unawaited(observers.remove(transport)!.dispose());
+      }
+    }
+    for (final transport in transports) {
+      if (observers.containsKey(transport) || notifying.contains(transport)) {
+        continue;
+      }
+      // Separate identity nodes need independent receipt/retry queues. A slow
+      // node must not hold the next handover of an otherwise healthy node.
+      // Reuse the same OS subscription/snapshot and deduplicate an active node
+      // that also appears in the all-online session by object identity.
+      late final NetworkReconnect observer;
+      observer = NetworkReconnect(
+        current: current,
+        changes: observations.stream,
+        notify: (attachment, _) async {
+          if (disposed || !identical(observers[transport], observer)) return;
+          notifying.add(transport);
+          try {
+            await transport.networkChanged(attachment);
+          } finally {
+            notifying.remove(transport);
+            // Removal retires its observer, not the already admitted native
+            // operation. If that same node returns before completion, start
+            // its fresh observer only once this operation has settled.
+            if (!disposed && !observers.containsKey(transport)) synchronize();
+          }
+        },
+      );
+      observers[transport] = observer;
+      unawaited(observer.start());
+    }
+  }
+
+  final subscription = connectivity.onConnectivityChanged.listen((results) {
+    if (disposed) return;
+    remember(results);
+    // Keep the original fresh target lookup even if a session updated its
+    // node set without replacing the provider's session object.
+    synchronize();
+    observations.add(latest!);
+  }, onError: (Object _) {});
+
+  ref.listen(realStackProvider, (_, _) => synchronize());
+  ref.listen(sessionProvider, (_, _) => synchronize());
   ref.onDispose(() {
+    disposed = true;
     diagnostics.dispose();
-    unawaited(observer.dispose());
+    unawaited(subscription.cancel());
+    unawaited(
+      Future.wait([
+        for (final observer in observers.values) observer.dispose(),
+      ]).whenComplete(observations.close),
+    );
+    observers.clear();
   });
-  unawaited(observer.start());
+  synchronize();
 });

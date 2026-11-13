@@ -18,10 +18,14 @@ import 'package:xveil/state/providers.dart';
 
 class _Connectivity implements Connectivity {
   final changes = StreamController<List<ConnectivityResult>>(sync: true);
+  int currentReads = 0;
+  Completer<List<ConnectivityResult>>? currentGate;
   @override
-  Future<List<ConnectivityResult>> checkConnectivity() async => [
-    ConnectivityResult.wifi,
-  ];
+  Future<List<ConnectivityResult>> checkConnectivity() async {
+    currentReads++;
+    return currentGate?.future ?? [ConnectivityResult.wifi];
+  }
+
   @override
   Stream<List<ConnectivityResult>> get onConnectivityChanged => changes.stream;
 }
@@ -29,9 +33,12 @@ class _Connectivity implements Connectivity {
 class _Transport extends LoopbackTransport implements NetworkChangeTransport {
   final observed = <NetworkAttachment>[];
   int failures = 0;
+  Completer<void>? notificationGate;
   @override
   Future<void> networkChanged(NetworkAttachment attachment) async {
     observed.add(attachment);
+    final gate = notificationGate;
+    if (gate != null) await gate.future;
     if (failures > 0) {
       failures--;
       throw StateError('transient IPC outage');
@@ -200,6 +207,67 @@ void main() {
     });
   });
 
+  for (final blockedActive in [false, true]) {
+    test('a blocked identity cannot delay another handover '
+        '(active=$blockedActive)', () {
+      fakeAsync((clock) {
+        final connectivity = _Connectivity();
+        final a = _Transport();
+        final b = _Transport();
+        final gate = Completer<void>();
+        final blocked = blockedActive ? a : b;
+        final healthy = blockedActive ? b : a;
+        blocked.notificationGate = gate;
+        final stackA = _stack(a), stackB = _stack(b);
+        final container = ProviderContainer(
+          overrides: [
+            networkConnectivityProvider.overrideWithValue(connectivity),
+            realStackProvider.overrideWith((_) => stackA),
+            sessionProvider.overrideWith(
+              (_) => _Session({'a': stackA, 'b': stackB}),
+            ),
+          ],
+        );
+        container.read(networkReconnectProvider);
+        clock.flushMicrotasks();
+        expect(blocked.observed, [NetworkAttachment.wifi]);
+        expect(healthy.observed, [NetworkAttachment.wifi]);
+
+        connectivity.changes.add([ConnectivityResult.mobile]);
+        clock.flushMicrotasks();
+        expect(
+          healthy.observed,
+          [NetworkAttachment.wifi, NetworkAttachment.cellular],
+          reason: 'another node still owns its previous IPC operation',
+        );
+        expect(blocked.observed, [NetworkAttachment.wifi]);
+
+        connectivity.changes.add([ConnectivityResult.wifi]);
+        clock.flushMicrotasks();
+        expect(healthy.observed, [
+          NetworkAttachment.wifi,
+          NetworkAttachment.cellular,
+          NetworkAttachment.wifi,
+        ]);
+        expect(blocked.observed, [NetworkAttachment.wifi]);
+        gate.complete();
+        clock.flushMicrotasks();
+        expect(
+          blocked.observed,
+          [NetworkAttachment.wifi, NetworkAttachment.wifi],
+          reason: 'the occupied lane coalesces to the latest generation',
+        );
+
+        container.dispose();
+        unawaited(connectivity.changes.close());
+        unawaited(a.dispose());
+        unawaited(b.dispose());
+        clock.flushMicrotasks();
+        expect(clock.pendingTimers, isEmpty);
+      });
+    });
+  }
+
   test('fanout retries only failed identities in the same generation', () {
     fakeAsync((clock) {
       final connectivity = _Connectivity();
@@ -242,6 +310,273 @@ void main() {
       unawaited(a.dispose());
       unawaited(b.dispose());
       clock.flushMicrotasks();
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('returning identity waits for its retired notification', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final a = _Transport();
+      final gate = Completer<void>();
+      final b = _Transport()..notificationGate = gate;
+      final stackA = _stack(a), stackB = _stack(b);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith(
+            (_) => _Session({'a': stackA, 'b': stackB}),
+          ),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.wifi]);
+      container.read(sessionProvider.notifier).state = _Session({'a': stackA});
+      clock.flushMicrotasks();
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      container.read(sessionProvider.notifier).state = _Session({
+        'a': stackA,
+        'b': stackB,
+      });
+      clock.flushMicrotasks();
+      expect(
+        b.observed,
+        [NetworkAttachment.wifi],
+        reason: 'the returning node still owns its original native operation',
+      );
+      gate.complete();
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      expect(a.observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('new node uses the latest shared observation without replay', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final a = _Transport(), b = _Transport();
+      final stackA = _stack(a), stackB = _stack(b);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith((_) => _Session({'a': stackA})),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      container.read(sessionProvider.notifier).state = _Session({
+        'a': stackA,
+        'b': stackB,
+      });
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.cellular]);
+      container.read(realStackProvider.notifier).state = stackB;
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.cellular]);
+      expect(a.observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      expect(connectivity.currentReads, 1);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('network events refresh a session whose node set changed in place', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final a = _Transport(), b = _Transport();
+      final stackA = _stack(a), stackB = _stack(b);
+      final stacks = {'a': stackA};
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith((_) => _Session(stacks)),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      stacks['b'] = stackB;
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.cellular]);
+      stacks.remove('b');
+      connectivity.changes.add([ConnectivityResult.wifi]);
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.cellular]);
+      expect(a.observed, [
+        NetworkAttachment.wifi,
+        NetworkAttachment.cellular,
+        NetworkAttachment.wifi,
+      ]);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('removed node cancels retries and does not block new identities', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final a = _Transport(), b = _Transport()..failures = 1;
+      final stackA = _stack(a), stackB = _stack(b);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith(
+            (_) => _Session({'a': stackA, 'b': stackB}),
+          ),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      expect(clock.pendingTimers, hasLength(1));
+      container.read(sessionProvider.notifier).state = _Session({'a': stackA});
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(minutes: 1));
+      expect(b.observed, [NetworkAttachment.wifi]);
+      expect(clock.pendingTimers, isEmpty);
+      container.read(sessionProvider.notifier).state = _Session({
+        'a': stackA,
+        'b': stackB,
+      });
+      clock.flushMicrotasks();
+      expect(b.observed, [NetworkAttachment.wifi, NetworkAttachment.wifi]);
+      expect(a.observed, [NetworkAttachment.wifi]);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('a late shared query cannot regress existing or newly added nodes', () {
+    fakeAsync((clock) {
+      final query = Completer<List<ConnectivityResult>>();
+      final connectivity = _Connectivity()..currentGate = query;
+      final a = _Transport(), b = _Transport(), c = _Transport();
+      final stackA = _stack(a), stackB = _stack(b), stackC = _stack(c);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith(
+            (_) => _Session({'a': stackA, 'b': stackB}),
+          ),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      expect(a.observed, isEmpty);
+      expect(b.observed, isEmpty);
+      expect(connectivity.currentReads, 1);
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      container.read(sessionProvider.notifier).state = _Session({
+        'a': stackA,
+        'b': stackB,
+        'c': stackC,
+      });
+      clock.flushMicrotasks();
+      query.complete([ConnectivityResult.wifi]);
+      clock.flushMicrotasks();
+      for (final transport in [a, b, c]) {
+        expect(transport.observed, [NetworkAttachment.cellular]);
+      }
+      expect(connectivity.currentReads, 1);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      for (final transport in [a, b, c]) {
+        unawaited(transport.dispose());
+      }
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('first node uses an event observed while no identities were online', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final transport = _Transport();
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => null),
+          sessionProvider.overrideWith((_) => null),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      container.read(realStackProvider.notifier).state = _stack(transport);
+      clock.flushMicrotasks();
+      expect(transport.observed, [NetworkAttachment.cellular]);
+      expect(connectivity.currentReads, 0);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(transport.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('provider disposal discards pending initial observations', () {
+    fakeAsync((clock) {
+      final query = Completer<List<ConnectivityResult>>();
+      final connectivity = _Connectivity()..currentGate = query;
+      final a = _Transport(), b = _Transport();
+      final stackA = _stack(a), stackB = _stack(b);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith(
+            (_) => _Session({'a': stackA, 'b': stackB}),
+          ),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      expect(connectivity.currentReads, 1);
+      container.dispose();
+      query.complete([ConnectivityResult.wifi]);
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      expect(a.observed, isEmpty);
+      expect(b.observed, isEmpty);
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(connectivity.changes.hasListener, isFalse);
       expect(clock.pendingTimers, isEmpty);
     });
   });
