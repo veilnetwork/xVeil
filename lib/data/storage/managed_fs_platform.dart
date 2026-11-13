@@ -1,0 +1,247 @@
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:ffi/ffi.dart';
+
+import '../../core/posix_file_facts.dart';
+import 'managed_fs_contract.dart';
+import 'managed_fs_windows.dart' as windows;
+
+export 'managed_fs_contract.dart';
+
+/// Android's AID_SYSTEM (1000) owns the app-data ancestors and its protected
+/// system group may write them. It is an OS authority, not an application UID.
+/// This exception is Android-only and never grants privacy/ownership to a
+/// system-owned identity file. Ordinary shared/OEM/media groups remain refused.
+({bool ownerOnly, bool ownedByCurrentUser, bool safeAncestor})
+managedPosixPathPolicy(
+  PosixFileFacts facts, {
+  required int currentUid,
+  bool android = false,
+}) {
+  final trustedOwner =
+      facts.uid == currentUid ||
+      facts.uid == 0 ||
+      (android && facts.uid == 1000);
+  final otherWrite = facts.permissions & 2 != 0;
+  final groupWrite =
+      facts.permissions & 0x10 != 0 && !(android && facts.gid == 1000);
+  return (
+    ownerOnly: facts.permissions & 0x3f == 0,
+    ownedByCurrentUser: facts.uid == currentUid,
+    safeAncestor:
+        trustedOwner &&
+        (!(otherWrite || groupWrite) || (facts.isDirectory && facts.isSticky)),
+  );
+}
+
+/// Filesystem primitives for managed PUBLIC storage only. No recursive delete,
+/// overwrite publication, hidden-space scan or subprocess permission oracle.
+class ManagedFsPlatform {
+  const ManagedFsPlatform();
+
+  ManagedPathWitness inspect(String path) {
+    // POSIX lstat("link/") follows the link despite lstat's usual contract.
+    // Inspect the final component itself, retaining only the filesystem root.
+    if (!Platform.isWindows) {
+      while (path.length > 1 && path.endsWith('/')) {
+        path = path.substring(0, path.length - 1);
+      }
+    }
+    try {
+      if (Platform.isWindows) return windows.inspect(path);
+      final current = posixEuid();
+      final facts = posixLstat(path);
+      if (current == null || facts == null) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+      }
+      if (!facts.isDirectory && !facts.isRegularFile) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      }
+      if ((Platform.isMacOS || Platform.isIOS) &&
+          !_darwinAclSafe(path, facts)) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      }
+      final policy = managedPosixPathPolicy(
+        facts,
+        currentUid: current,
+        android: Platform.isAndroid,
+      );
+      return ManagedPathWitness(
+        identity: '${facts.deviceId}:${facts.inode}:${facts.uid}',
+        directory: facts.isDirectory,
+        ownerOnly: policy.ownerOnly,
+        ownedByCurrentUser: policy.ownedByCurrentUser,
+        safeAncestor: policy.safeAncestor,
+      );
+    } on ManagedFsFailure {
+      rethrow;
+    } catch (_) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+  }
+
+  /// The caller has already admitted the parent. Fails if any entry exists.
+  bool createPrivateDirectory(String path) {
+    if (Platform.isWindows) return windows.createPrivateDirectory(path);
+    final rc = posixMkdir(path, 0x1c0);
+    if (rc == null) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    if (rc == 0) return true;
+    if (FileSystemEntity.typeSync(path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      return false;
+    }
+    throw const ManagedFsFailure(ManagedFsFailureKind.io);
+  }
+
+  /// Only for a newly reserved, still-empty file, before writing any payload.
+  void restrictNewFile(String path) {
+    if (!Platform.isWindows && posixChmod(path, 0x180) != 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+    requirePrivateFile(path);
+  }
+
+  ManagedPathWitness requirePrivateFile(String path) {
+    final facts = inspect(path);
+    if (facts.directory || !facts.ownerOnly || !facts.ownedByCurrentUser) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    return facts;
+  }
+
+  /// Whole-directory bootstrap: the final root becomes visible only after its
+  /// catalog is complete. No check-then-rename fallback on unsupported hosts.
+  bool publishDirectoryNoReplace(String source, String destination) {
+    if (Directory(source).parent.path != Directory(destination).parent.path) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    if (Platform.isWindows) {
+      return windows.publishNoReplace(source, destination);
+    }
+    final from = source.toNativeUtf8();
+    final to = destination.toNativeUtf8();
+    try {
+      final lib = DynamicLibrary.process();
+      final int rc;
+      if (Platform.isMacOS || Platform.isIOS) {
+        final rename = lib
+            .lookupFunction<
+              Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Uint32),
+              int Function(Pointer<Utf8>, Pointer<Utf8>, int)
+            >('renamex_np');
+        rc = rename(from, to, 4); // RENAME_EXCL
+      } else if (Platform.isLinux || Platform.isAndroid) {
+        final rename = lib
+            .lookupFunction<
+              Int32 Function(
+                Int32,
+                Pointer<Utf8>,
+                Int32,
+                Pointer<Utf8>,
+                Uint32,
+              ),
+              int Function(int, Pointer<Utf8>, int, Pointer<Utf8>, int)
+            >('renameat2');
+        rc = rename(-100, from, -100, to, 1); // AT_FDCWD, RENAME_NOREPLACE
+      } else {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+      }
+      if (rc == 0) return true;
+      if (FileSystemEntity.typeSync(destination, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        return false;
+      }
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    } on ManagedFsFailure {
+      rethrow;
+    } catch (_) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    } finally {
+      calloc.free(from);
+      calloc.free(to);
+    }
+  }
+
+  void syncDirectory(String path) {
+    // Windows publication uses MOVEFILE_WRITE_THROUGH. There is no portable
+    // Windows directory-fsync equivalent; power-loss qualification is separate.
+    if (Platform.isWindows) return;
+    if (posixFsyncDir(path) != 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+  }
+}
+
+/// POSIX mode bits bound named ACL grants on Linux. Darwin extended ACLs are
+/// independent of those bits. Conservatively accept only empty/deny-only ACLs,
+/// including the standard home-directory deny-delete entry; never ignore an
+/// allow just because chmod reports 0700. No owner UUID/name is logged.
+bool _darwinAclSafe(String path, PosixFileFacts before) {
+  final lib = DynamicLibrary.process();
+  final name = path.toNativeUtf8();
+  Pointer<Void> acl = nullptr;
+  final entry = calloc<Pointer<Void>>();
+  final tag = calloc<Int32>();
+  try {
+    final get = lib
+        .lookupFunction<
+          Pointer<Void> Function(Pointer<Utf8>, Int32),
+          Pointer<Void> Function(Pointer<Utf8>, int)
+        >('acl_get_link_np');
+    final next = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Int32, Pointer<Pointer<Void>>),
+          int Function(Pointer<Void>, int, Pointer<Pointer<Void>>)
+        >('acl_get_entry');
+    final readTag = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Pointer<Int32>),
+          int Function(Pointer<Void>, Pointer<Int32>)
+        >('acl_get_tag_type');
+    final errno = lib
+        .lookupFunction<Pointer<Int32> Function(), Pointer<Int32> Function()>(
+          '__error',
+        );
+    acl = get(name, 0x100); // ACL_TYPE_EXTENDED
+    if (acl == nullptr) {
+      final error = errno().value;
+      // Darwin reports ENOENT for an absent extended ACL as well as an absent
+      // path. Accept only if the same previously inspected object still exists.
+      if (error != 2 && error != 45) return false;
+      final after = posixLstat(path);
+      return after != null &&
+          before.sameObjectAs(after) &&
+          before.uid == after.uid &&
+          before.mode == after.mode;
+    }
+    final valid = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('acl_valid');
+    if (valid(acl) != 0) return false;
+    for (var index = 0; index <= 1024; index++) {
+      final rc = next(acl, index == 0 ? 0 : -1, entry);
+      // Darwin's documented end-of-list is EINVAL, not Linux's return 0.
+      // The ACL was validated above; other errors and allow/unknown tags refuse.
+      if (rc != 0) return rc == -1 && errno().value == 22;
+      if (readTag(entry.value, tag) != 0 || tag.value != 2) return false;
+    }
+    return false;
+  } catch (_) {
+    return false;
+  } finally {
+    if (acl != nullptr) {
+      lib.lookupFunction<
+        Int32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)
+      >('acl_free')(acl);
+    }
+    calloc.free(tag);
+    calloc.free(entry);
+    calloc.free(name);
+  }
+}

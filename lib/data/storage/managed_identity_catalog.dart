@@ -120,7 +120,7 @@ final class ManagedIdentityLayout {
       File.fromUri(_root.uri.resolve('identities/catalog.sqlite3')).path;
 
   String directory(ManagedIdentityId id) =>
-      Directory.fromUri(_root.uri.resolve('identities/${id.value}/')).path;
+      File.fromUri(_root.uri.resolve('identities/${id.value}')).path;
 
   /// Plaintext identities use a single SQLite database. Encrypted identities
   /// instead own the three role-bound files below; no mode is inferred by
