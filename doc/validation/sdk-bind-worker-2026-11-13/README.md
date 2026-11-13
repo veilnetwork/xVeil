@@ -1,7 +1,8 @@
 # Keep endpoint binds off the calling Dart isolate
 
-Status: **confirmed mechanism, fixed locally after xVeil 0.13.100+119**.
-Not pushed or released. Native code, ABI, wire format and timeouts are unchanged.
+Status: **confirmed mechanism, released in Veil 0.11.52 and xVeil 0.13.101+120**.
+[Release qualification](../release-0.13.101-2026-11-13/README.md).
+Native bind implementation, ABI, wire format and timeouts are unchanged.
 
 ## Failure and scope
 
