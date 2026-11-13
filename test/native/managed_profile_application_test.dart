@@ -124,6 +124,7 @@ void main() {
         final locator = router.location as ManagedStorageLocator;
         expect(locator.protection, mode);
         expect(router.catalog.selected, locator);
+        expect(await controller.containerSizeBytes(), greaterThan(0));
         expect(await router.storage.loadProfile(), isNotNull);
         expect(
           (await router.storage.loadProfile())!.displayName,

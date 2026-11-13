@@ -22,6 +22,7 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/domain/storage_locator.dart';
+import 'package:xveil/domain/storage_usage.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
@@ -230,6 +231,14 @@ void main() {
               isTrue,
             );
             expect(controller.usesManagedStorage, row.label != 'hidden');
+            if (row.label != 'hidden') {
+              final active =
+                  container.read(storageProvider) as StorageUsageSource;
+              expect(
+                await controller.containerSizeBytes(),
+                (await active.storageUsage())!.totalBytes,
+              );
+            }
             if (!allOnline) expect(live.location, row.storageLocator);
             expect(live.access, masterLocator);
             expect(container.read(storageAccessLocatorProvider), masterLocator);

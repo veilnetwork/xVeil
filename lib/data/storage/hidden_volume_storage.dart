@@ -19,6 +19,7 @@ import '../../domain/p2p_policy.dart';
 import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
 import '../../domain/storage_locator.dart';
+import '../../domain/storage_usage.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
@@ -140,6 +141,7 @@ class HiddenVolumeStorage
     implements
         Storage,
         StorageOpeningOwner,
+        StorageUsageSource,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
@@ -7248,6 +7250,17 @@ class HiddenVolumeStorage
     _fileGate = result.then((_) {}, onError: (_) {});
     return result;
   }
+
+  @override
+  Future<StorageUsage?> storageUsage() => _fileSerialized(() async {
+    // Join the same gate as blob writers. The native worker also serializes
+    // its inventory with KV writes/repacking/close. No late file write can
+    // cross this measurement into another identity's facade.
+    final store = _store!;
+    return store is StorageUsageSource
+        ? await (store as StorageUsageSource).storageUsage()
+        : null;
+  });
 
   Future<T> _drainFileIo<T>(Future<T> Function() body) async {
     _fileIoFences++;
