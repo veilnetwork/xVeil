@@ -12,6 +12,33 @@ class _PrivateValue {
 }
 
 void main() {
+  test('call alert outcome survives dismissal and busy transport', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    journal.record(
+      DiagnosticEvent.callAlert,
+      values: {DiagnosticMetric.state: 1, DiagnosticMetric.success: 1},
+    );
+    journal.record(
+      DiagnosticEvent.callAlertDismissed,
+      values: {DiagnosticMetric.state: 2},
+    );
+    journal.record(DiagnosticEvent.transportSent);
+    final report = journal.toJson();
+    expect(((report['last_evidence'] as Map)['callAlert'] as Map)['values'], {
+      'state': 1,
+      'success': 1,
+    });
+    expect(
+      (report['last_evidence'] as Map).containsKey('callAlertDismissed'),
+      isFalse,
+    );
+    journal.clear();
+    expect(journal.toJson()['last_evidence'], isEmpty);
+    final disabled = DiagnosticJournal(enabled: false);
+    disabled.record(DiagnosticEvent.callAlert);
+    expect(disabled.toJson()['last_evidence'], isEmpty);
+  });
+
   test('public search evidence has stages without query or error text', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
     final cases = <Object, SpaceDiscoveryFailureKind>{

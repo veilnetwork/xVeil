@@ -52,6 +52,8 @@ enum DiagnosticEvent {
   folderSavedFailure,
   cameraStopped,
   spaceDiscoveryFailed,
+  callAlert,
+  callAlertDismissed,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -480,6 +482,7 @@ class DiagnosticJournal {
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
+    DiagnosticEvent.callAlert,
     DiagnosticEvent.spaceDiscoveryFailed,
     DiagnosticEvent.callHistoryRestore,
     DiagnosticEvent.mediaSample,
