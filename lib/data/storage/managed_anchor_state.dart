@@ -92,12 +92,12 @@ final class ManagedAnchorState {
        ) {
     if (checkpoint < 0 ||
         checkpoint < active.logicalFloor - 1 ||
-        roots.length > anchorHorizon ||
+        roots.length > anchorHorizon + 1 ||
         roots.entries.any(
           (e) =>
               e.key < 0 ||
               e.key > checkpoint ||
-              checkpoint - e.key >= anchorHorizon ||
+              checkpoint - e.key > anchorHorizon ||
               e.value.length != 64 ||
               !_rootPattern.hasMatch(e.value),
         ) ||
@@ -138,7 +138,9 @@ final class ManagedAnchorState {
     required int innerSequence,
     required Map<int, String> innerRoots,
   }) {
-    if (identity != contentIdentity || innerRoots.length > anchorHorizon) {
+    // Native live sessions can retain more authenticated eras than a cold
+    // open's window. Bound our output, not that valid native input history.
+    if (identity != contentIdentity) {
       throw StateError('Managed content does not match its maintenance state');
     }
     final next = prepared;
@@ -155,7 +157,7 @@ final class ManagedAnchorState {
         !innerRoots.containsKey(innerSequence)) {
       throw StateError('Managed content head does not match its checkpoint');
     }
-    final lower = max(0, sequence - anchorHorizon + 1);
+    final lower = max(0, sequence - anchorHorizon);
     final roots = <int, String>{
       for (final entry in retainedRoots.entries)
         if (entry.key >= lower) entry.key: entry.value,
@@ -263,7 +265,7 @@ final class ManagedAnchorState {
       final count = ByteData.sublistView(
         reader.take(2),
       ).getUint16(0, Endian.big);
-      if (count > anchorHorizon) {
+      if (count > anchorHorizon + 1) {
         throw const FormatException('Managed anchor history exceeds its limit');
       }
       final roots = <int, String>{};

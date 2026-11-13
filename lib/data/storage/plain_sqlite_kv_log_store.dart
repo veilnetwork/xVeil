@@ -212,7 +212,7 @@ final class PlainSqliteKvLogStore
           root,
         ]);
         db.execute('INSERT INTO store_epochs VALUES (?, ?)', [seq, root]);
-        db.execute('DELETE FROM store_epochs WHERE seq <= ?', [
+        db.execute('DELETE FROM store_epochs WHERE seq < ?', [
           seq - anchorHorizon,
         ]);
         db.execute('COMMIT');
@@ -376,7 +376,7 @@ final class PlainSqliteKvLogStore
           root,
         ]);
         db.execute('INSERT INTO store_epochs VALUES (?, ?)', [seq, root]);
-        db.execute('DELETE FROM store_epochs WHERE seq <= ?', [
+        db.execute('DELETE FROM store_epochs WHERE seq < ?', [
           seq - anchorHorizon,
         ]);
         db.execute('COMMIT');

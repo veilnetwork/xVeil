@@ -58,7 +58,7 @@ callers must still own the containing directory, handle unpublished stubs and
 protect against ancestor/rename races before exposing the backend.
 
 The plaintext KV/log adapter keeps payload mutations, the commit sequence
-and a bounded 1024-entry branch-root history in one transaction. It selects
+and a bounded 1025-entry inclusive branch-root history in one transaction. It selects
 `synchronous=EXTRA`, rollback journals, secure deletion and full auto-vacuum.
 Namespace erasure does not load the whole history into Dart. Five host cases
 cover connection reopen, failed COMMIT rollback, bounded growth under 64
@@ -120,8 +120,8 @@ real identity was opened. This primitive is not wired to the current app.
 Managed generation/checkpoint state and encrypted role tags are now implemented.
 A role tag binds a keybox, content or maintenance space to its opaque local
 identity; existing files with absent/wrong tags are refused, not adopted.
-The checkpoint codec shares one 1024-root history between active/prepared
-generations, fitting in 41,090 bytes at maximum. It rejects malformed counts,
+The checkpoint codec shares one 1025-root inclusive history between active/prepared
+generations, fitting in 41,130 bytes at maximum. It rejects malformed counts,
 integer overflow, trailing data, contradictory checkpoints and unordered roots.
 Roots from the copy phase before the new generation's floor are filtered rather
 than assigned logical numbers belonging to the original content history.
@@ -539,6 +539,25 @@ bounded encrypted reclamation, all-online sessions, recovery UI, password
 rotation, erase semantics and packaged/platform/AOT/biometric qualification
 remain required. A compiled native-worker application and native Android
 storage behavior are not qualified by these macOS Flutter test-VM cases.
+
+## Inclusive anchor-window correction
+
+A larger native workload exposed two unreleased managed-adapter errors. A live
+native session can return more authenticated historical eras than its cold-open
+window; rejecting that valid input made managed anchor reads fail after enough
+commits. The resolver now validates those eras and retains only the bounded
+logical output window. That window is inclusive: an anchor exactly 1024 commits
+behind remains valid, requiring 1025 entries. Both managed maintenance encoding
+and plaintext SQL retention now match the existing host/native policy, including
+the plaintext namespace-erasure commit path. No native library was changed.
+
+Three boundary regressions failed before the correction. The final focused
+suite passes **26 cases, no skips**, including a real native session beyond the
+horizon and cold reopen with the remembered boundary hash. Prepared/settled
+metadata round-trips preserve that boundary; older anchors still age out and
+malformed/future/conflicting roots still fail closed. The encoded maximum grows
+by one 40-byte root and remains below the existing 64-KiB metadata limit.
+These adapters remain disabled in application mode selection.
 
 ## Implementation boundaries
 

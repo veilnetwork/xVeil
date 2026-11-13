@@ -154,13 +154,40 @@ void main() {
       b.commit([PutOp(1, bytes('profile'), bytes('branch-b'))]);
       expect(a.commitSeq(), b.commitSeq());
       expect(a.commitRoots()[2], isNot(b.commitRoots()[2]));
+      final anchorSeq = a.commitSeq() + 2;
+      String? anchorRoot;
       for (var i = 0; i < anchorHorizon + 2; i++) {
         a.commit([PutOp(1, bytes('counter'), bytes('$i'))]);
+        if (a.commitSeq() == anchorSeq) anchorRoot = a.commitRoots()[anchorSeq];
       }
-      expect(a.commitHistory().length, anchorHorizon);
+      expect(a.commitHistory().length, anchorHorizon + 1);
       expect(a.commitHistory().last, a.commitSeq());
-      expect(a.commitRoots().length, anchorHorizon);
-      expect(a.commitHistory().first, a.commitSeq() - anchorHorizon + 1);
+      expect(a.commitRoots().length, anchorHorizon + 1);
+      expect(a.commitHistory().first, a.commitSeq() - anchorHorizon);
+      expect(a.commitSeq() - anchorSeq, anchorHorizon);
+      expect(
+        checkRollbackAnchor(
+          anchorSeq: anchorSeq,
+          anchorRoot: anchorRoot,
+          currentSeq: a.commitSeq(),
+          history: a.commitHistory(),
+          roots: a.commitRoots(),
+        ).verdict,
+        AnchorVerdict.clean,
+      );
+      final nextRoot = a.commitRoots()[anchorSeq + 1];
+      a.eraseNamespace(1);
+      expect(a.commitHistory().length, anchorHorizon + 1);
+      expect(
+        checkRollbackAnchor(
+          anchorSeq: anchorSeq + 1,
+          anchorRoot: nextRoot,
+          currentSeq: a.commitSeq(),
+          history: a.commitHistory(),
+          roots: a.commitRoots(),
+        ).verdict,
+        AnchorVerdict.clean,
+      );
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
