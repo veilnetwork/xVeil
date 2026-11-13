@@ -345,11 +345,12 @@ or installed application were changed; no Rust build or release pin changed.
 Remaining boundaries are explicit. These path witnesses do not claim descriptor-
 relative backend access or defense against hostile same-user ABA substitution.
 They require a private root and trusted platform ancestors. Linux/Android use
-renameat2 with NOREPLACE, refusing unsupported hosts rather than falling back
-to ordinary rename. Bionic exposes that libc symbol only from
-[API 30](https://android.googlesource.com/platform/bionic/+/master/libc/include/stdio.h);
-support for older supported Android versions still needs an atomic implementation
-before enabling the feature. Native Android/Linux/Windows/iOS file operations,
+renameat2 with NOREPLACE, refusing unsupported kernels/filesystems rather than
+falling back to ordinary rename. Bionic exposes that libc symbol only from
+[API 30](https://android.googlesource.com/platform/bionic/+/master/libc/include/stdio.h).
+The Linux/Android binder now uses libc's variadic `syscall` when that symbol is
+absent; this retains the same no-replace kernel operation. Native
+Android/Windows/iOS managed-file operations and full Linux backend integration,
 power failure, worker boot and the mode/identity UI remain unqualified or
 unwired. Identity reservation/publication and keybox/content opening are now
 qualified below on macOS. The existing
@@ -423,6 +424,36 @@ bounded encrypted reclamation, all-online routing, password rotation, erase,
 biometric integration and native qualification on other platforms remain.
 Power failure and abrupt shared-group worker-isolate cleanup are not qualified.
 No real identity, installed application, native source or release pin changed.
+
+## Older Android atomic publication
+
+The Linux binder now admits only known ARM EABI, arm64, IA32 and x64 ABIs;
+UAPI syscall numbers were cross-checked against the Android NDK headers.
+Only an absent libc `renameat2` symbol selects the direct syscall path. A failed
+wrapper call is returned as a failure, never retried through another mechanism.
+Missing syscall support or an unknown ABI fails closed, before guessing a call
+number. The binding uses machine-width `long` values, native pointers and
+[Dart's explicit variadic FFI signature](https://api.dart.dev/dart-ffi/VarArgs-class.html).
+`AT_FDCWD` and `RENAME_NOREPLACE` remain unchanged in both native paths.
+
+A standalone real Linux arm64 probe passed ten filesystem scenarios in JIT and
+again as an AOT executable: existing empty/populated directories and symlinks
+are preserved, successful publication moves exact payload, and a missing source
+cannot create a destination. Each set runs first through libc and then with
+only its rename wrapper hidden from symbol resolution, forcing the actual
+syscall. The old wrapper-only candidate passed five cases then failed at the
+first forced-syscall case; that is the recorded red control. A first AOT build
+failed because its ephemeral compiler home was read-only; it was not credited.
+Both successful runs used an immutable official Dart 3.12.0 Linux image, with
+network disabled and source/FFI package mounted read-only. The source needs no
+new native build, main binary feature or dependency.
+
+The macOS joint suite now passes **76 cases, no skips**, adding four ABI/binder
+checks to the preceding 72. Focused analysis is clean. These probes qualify the
+Linux arm64 publication primitive, not Android libc/seccomp/OEM behavior, other
+architectures, the full managed backend on Linux or power-loss durability.
+No connected Android was available in this round. Android packaging/runtime
+qualification still precedes enabling new storage modes in the application.
 
 ## Implementation boundaries
 
