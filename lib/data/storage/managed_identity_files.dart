@@ -22,6 +22,32 @@ final class ManagedIdentityFailure implements Exception {
 /// File factory for the two ENUMERABLE modes. No hidden-container opener or
 /// automatic migration/fallback lives here. Run on a storage worker.
 abstract final class ManagedIdentityFiles {
+  /// Explicit whole-identity deletion. Every cooperating data owner must be
+  /// closed first; a live lease refuses deletion. Does not scan hidden stores.
+  /// Repeating the same immutable ID/mode finishes interrupted deletion.
+  static Future<void> erase(
+    ManagedDirectoryCatalog owner, {
+    required ManagedIdentityEntry entry,
+    Uint8List? password,
+    Uint8List? keys,
+  }) =>
+      _ManagedIdentityEraser.run(owner, entry, password: password, keys: keys);
+
+  @visibleForTesting
+  static Future<void> debugErase(
+    ManagedDirectoryCatalog owner, {
+    required ManagedIdentityEntry entry,
+    Uint8List? password,
+    Uint8List? keys,
+    required ManagedEraseObserver observer,
+  }) => _ManagedIdentityEraser.run(
+    owner,
+    entry,
+    password: password,
+    keys: keys,
+    observer: observer,
+  );
+
   static ManagedIdentityId newId() {
     final random = Random.secure();
     return ManagedIdentityId(
@@ -194,6 +220,7 @@ abstract final class ManagedIdentityFiles {
       resources.open(
         password: password == null ? null : copied,
         keys: keys == null ? null : copied,
+        requireListed: true,
       );
       return resources.handOff();
     } catch (_) {
@@ -305,6 +332,14 @@ abstract final class ManagedIdentityFiles {
       );
     }
   }
+
+  static Future<T> _safeAsync<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } catch (error, trace) {
+      return _safe(() => Error.throwWithStackTrace(error, trace));
+    }
+  }
 }
 
 /// Resources remain attached to their root even if an open's cleanup fails.
@@ -326,6 +361,7 @@ final class _ManagedIdentityResources {
   bool closed = false;
   bool reclaiming = false;
   bool inspecting = false;
+  bool erasing = false;
   HvKvLogStore? reclaimStaged;
 
   String file(String name) => ManagedDirectoryCatalog._child(path!, name);
@@ -453,12 +489,29 @@ final class _ManagedIdentityResources {
     }
   }
 
-  void open({Uint8List? password, Uint8List? keys}) {
+  void acquireLease() {
     owner._fs.requirePrivateFile(file('identity.meta.lock'));
     lease = ManagedIdentityLease.openOwned(
       _sql('identity.meta'),
       expected: entry,
     );
+  }
+
+  void open({
+    Uint8List? password,
+    Uint8List? keys,
+    bool requireListed = false,
+  }) {
+    acquireLease();
+    // A delete may have finished while this opener held an old catalog view.
+    // Do not open payloads or recreate any files after winning that stale race.
+    if (requireListed) {
+      final current = ManagedIdentityFiles._listed(owner, entry.id);
+      if (current == null) {
+        throw const ManagedIdentityFailure(ManagedIdentityFailureKind.missing);
+      }
+      ManagedIdentityFiles._sameMode(current, entry);
+    }
     ManagedDirectoryCatalog._privateDirectory(file('blobs'), owner._fs);
     if (entry.protection == StorageProtection.unencrypted) {
       final expected = _plainKeys();
@@ -534,6 +587,12 @@ final class _ManagedIdentityResources {
 
   void closePayloads() {
     // Never release the identity lease before every payload close succeeds.
+    closeDataHandles();
+    lease?.close();
+    lease = null;
+  }
+
+  void closeDataHandles() {
     reclaimStaged?.close();
     reclaimStaged = null;
     backend?.close();
@@ -546,8 +605,6 @@ final class _ManagedIdentityResources {
     keybox = null;
     rawKeybox?.close();
     rawKeybox = null;
-    lease?.close();
-    lease = null;
   }
 
   ManagedIdentityStore handOff() {
@@ -559,7 +616,7 @@ final class _ManagedIdentityResources {
   }
 
   void requireOwned() {
-    if (reclaiming || inspecting) {
+    if (reclaiming || inspecting || erasing) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     if (closing ||
@@ -573,7 +630,7 @@ final class _ManagedIdentityResources {
 
   void close() {
     if (closed) return;
-    if (reclaiming || inspecting) {
+    if (reclaiming || inspecting || erasing) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     closing = true;

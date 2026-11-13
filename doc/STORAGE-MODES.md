@@ -884,8 +884,43 @@ sibling/legacy exclusion, unsafe paths and recovery after a failed inventory.
 Gate-based tests cover ordering with accepted file writes, KV operations and
 close, including a caller's close timeout.
 
-Remaining before default activation: mode-aware deletion/decoy paths, whole
-identity erase, interrupted-onboarding recovery, password rotation,
+The worker/file layer now provides explicit whole-identity erasure for visible
+stores. It reserves the immutable local ID, acquires the exact role lease and
+preflights the entire owned tree. A public catalog entry alone never authorizes
+private-payload deletion. Encrypted erasure authenticates the ID-bound keybox
+without opening possibly damaged content/maintenance files; plaintext erasure
+requires explicit mode selection and checks any supplied roster keys. A live
+data owner, mismatched mode, unknown entry or symlink refuses the operation.
+Fresh IDs identify one creation and must never be reused for another identity.
+
+Payload handles close before unlinking names, while the role lease stays held.
+Blob pieces and content are removed before the final keybox (or plaintext data
+file), with directory synchronization at publication boundaries. Catalog
+removal clears only that identity's selection and precedes releasing the lease.
+Ordinary listed openers recheck catalog membership after acquiring their lease,
+so an old enumeration cannot reopen payloads after deletion. Remaining public
+role files and empty directories are removed nonrecursively. Even a zero-byte
+payload file prevents unauthenticated metadata-only cleanup. A metadata-only
+tail, or an already absent directory, can be finalized by an explicit retry;
+these are not claims of successful password authentication. Unknown creation
+staging directories are retained and refuse erasure until separately recovered.
+
+Requests snapshot borrowed credentials, erase their owned copies on completion,
+and preserve FIFO ordering with catalog operations and close. Failed native
+closes remain owned; the consuming catalog/lease connection releases have their
+own guards instead of caching errors around the entire retryable protocol.
+These are logical deletions, not forensic erasure or power-loss guarantees.
+Host-native tests include credential refusal without file changes, another live
+owner, stale catalog admission, all deletion checkpoints, forced process death,
+sibling/legacy byte preservation, idempotent retry and queued worker close.
+
+Application management still refuses mixed-master deletion: integrating this
+kernel must also persist/recover the master-roster obligation if a process dies
+between child removal and roster publication. The kernel alone does not close
+that application boundary or enable the QA switch in production.
+
+Remaining before default activation: mode-aware deletion/decoy application
+flows, whole-profile erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 
