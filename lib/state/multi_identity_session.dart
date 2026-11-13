@@ -5,6 +5,7 @@ import '../data/serve_source.dart';
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../data/node/bundled_seeds.dart'
     show IdentityPeers, kBundledSeedsDefault;
@@ -12,6 +13,8 @@ import '../data/node/bundled_seeds_prefs.dart' show planIdentitySeeds;
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
+import '../data/storage/managed_identity_catalog.dart';
+import '../data/storage/managed_identity_storage.dart';
 import '../data/storage/multi_space_store.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
@@ -20,6 +23,7 @@ import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/peer_authorization.dart';
 import '../domain/roster.dart';
+import '../domain/storage_locator.dart';
 import 'messaging.dart';
 import '../domain/verified_device_contact.dart' show policyContactFor;
 import 'ratchet_persistence.dart' show ratchetPersistenceFor;
@@ -135,6 +139,57 @@ class IdentityNode {
 /// one the boot then uses.
 typedef IdentityStorage = Storage Function(int spaceId);
 
+typedef IdentityEntryOpener = Future<int> Function(RosterEntry entry);
+
+/// A session owns this storage before starting its async open. The separate
+/// vacuum capability preserves native post-unlock deletion cleanup without
+/// exposing backend handles or routing managed IDs through the hidden backing.
+typedef ManagedIdentityHost = ({
+  Storage storage,
+  Future<void> Function() vacuum,
+});
+typedef ManagedIdentityHostFactory =
+    ManagedIdentityHost Function(ManagedStorageLocator locator);
+
+ManagedIdentityHostFactory? _managedFactory(String? profileDirectory) {
+  if (profileDirectory == null) return null;
+  return (locator) {
+    final binding = ManagedIdentityStorage.existing(
+      profileDirectory: profileDirectory,
+      entry: ManagedIdentityEntry.fromLocator(locator),
+    );
+    return (storage: binding.storage, vacuum: binding.scrub);
+  };
+}
+
+void _validateRoster(List<RosterEntry> roster) {
+  final labels = <String>{};
+  final managed = <ManagedIdentityId>{};
+  final legacy = <Uint8List>[];
+  for (final entry in roster) {
+    if (!labels.add(entry.label) || entry.spaceKeys.length != 64) {
+      throw StateError('invalid or duplicate roster entry');
+    }
+    final locator = entry.storageLocator;
+    if (locator is ManagedStorageLocator) {
+      if (!managed.add(locator.id)) {
+        throw StateError('duplicate managed identity in roster');
+      }
+    } else {
+      for (final previous in legacy) {
+        var difference = 0;
+        for (var i = 0; i < 64; i++) {
+          difference |= previous[i] ^ entry.spaceKeys[i];
+        }
+        if (difference == 0) {
+          throw StateError('duplicate legacy space in roster');
+        }
+      }
+      legacy.add(entry.spaceKeys);
+    }
+  }
+}
+
 /// Plan the boots for a whole roster over a shared [backing]: open each
 /// identity's space (hosting it), read that identity's own shared-seed answer
 /// out of it, and assign it a distinct runtime dir + listen port (offset by
@@ -154,60 +209,84 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   required int listenPortBase,
   required IdentityStorage storageFor,
   required IdentityPeers peersFor,
+  IdentityEntryOpener? openEntry,
   String? obfs4Psk,
   List<String> udpReflectors = const [],
   bool lazyMining = false,
   ProxyRouting proxy = ProxyRouting.disabled,
 }) async {
-  final out = <IdentityBootSpec>[];
-  for (var i = 0; i < roster.length; i++) {
-    final spaceId = await backing.openSpace(roster[i].spaceKeys);
-    final storage = storageFor(spaceId);
-    final seeds = await planIdentitySeeds(storage: storage, peersFor: peersFor);
-    // THIS identity's P2P posture, from THIS identity's space — the same
-    // question the one-active boot asks, asked the same way. An unreadable
-    // setting denies: an open LAN port is not something to grant on a guess.
-    bool lanListen;
-    try {
-      lanListen = lanListenAllowed(
-        storedPolicy: await storage.getSetting(kP2PGlobalPolicySettingKey),
-        readFailed: false,
-      );
-    } catch (_) {
-      lanListen = lanListenAllowed(storedPolicy: null, readFailed: true);
-    }
-    out.add(
-      IdentityBootSpec(
-        label: roster[i].label,
-        spaceId: spaceId,
-        lanListen: lanListen,
-        useBundledSeeds: seeds.useBundledSeeds,
-        meetingPoints: seeds.meetingPoints,
-        meetingPolicy: seeds.meetingPolicy,
-        bootstrapPeers: seeds.bootstrapPeers,
-        obfs4Psk: obfs4Psk,
-        udpReflectors: udpReflectors,
-        lazyMining: lazyMining,
-        proxy: proxy,
-        // Deniability: the runtime dir name must NOT be the human-readable
-        // label — a device seized while running would otherwise read identity
-        // names straight off the filesystem. Every node now creates its own
-        // randomly-named directory under this shared base, which is opaque AND
-        // unstable across runs; the hash of the label this used to interpose
-        // was opaque but the SAME every time, so leftovers from a crash
-        // correlated one run's identities with the next one's. The directory is
-        // released on teardown ([RealVeilStack.dispose]), so nothing survives
-        // at rest either way.
-        runtimeBase: runtimeDirBase,
-        // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
-        // port a just-stopped one-active node held, whose lingering teardown
-        // would otherwise stall the first identity's bind for ~90s.
-        listenPort: listenPortBase + 1 + i,
-        anonymous: roster[i].anonymous,
-      ),
-    );
+  _validateRoster(roster);
+  if (openEntry == null &&
+      roster.any((entry) => entry.storageLocator is ManagedStorageLocator)) {
+    throw StateError('managed roster requires an explicit storage opener');
   }
-  return out;
+  // Freeze the entire selection before the first await. A lock or roster edit
+  // may wipe its borrowed buffers while an earlier entry is still opening.
+  final selected = [
+    for (final entry in roster)
+      entry.copyWith(spaceKeys: Uint8List.fromList(entry.spaceKeys)),
+  ];
+  try {
+    final out = <IdentityBootSpec>[];
+    for (var i = 0; i < selected.length; i++) {
+      final entry = selected[i];
+      final spaceId = openEntry != null
+          ? await openEntry(entry)
+          : await backing.openSpace(entry.spaceKeys);
+      final storage = storageFor(spaceId);
+      final seeds = await planIdentitySeeds(
+        storage: storage,
+        peersFor: peersFor,
+      );
+      // THIS identity's P2P posture, from THIS identity's space — the same
+      // question the one-active boot asks, asked the same way. An unreadable
+      // setting denies: an open LAN port is not something to grant on a guess.
+      bool lanListen;
+      try {
+        lanListen = lanListenAllowed(
+          storedPolicy: await storage.getSetting(kP2PGlobalPolicySettingKey),
+          readFailed: false,
+        );
+      } catch (_) {
+        lanListen = lanListenAllowed(storedPolicy: null, readFailed: true);
+      }
+      out.add(
+        IdentityBootSpec(
+          label: entry.label,
+          spaceId: spaceId,
+          lanListen: lanListen,
+          useBundledSeeds: seeds.useBundledSeeds,
+          meetingPoints: seeds.meetingPoints,
+          meetingPolicy: seeds.meetingPolicy,
+          bootstrapPeers: seeds.bootstrapPeers,
+          obfs4Psk: obfs4Psk,
+          udpReflectors: udpReflectors,
+          lazyMining: lazyMining,
+          proxy: proxy,
+          // Deniability: the runtime dir name must NOT be the human-readable
+          // label — a device seized while running would otherwise read identity
+          // names straight off the filesystem. Every node now creates its own
+          // randomly-named directory under this shared base, which is opaque AND
+          // unstable across runs; the hash of the label this used to interpose
+          // was opaque but the SAME every time, so leftovers from a crash
+          // correlated one run's identities with the next one's. The directory is
+          // released on teardown ([RealVeilStack.dispose]), so nothing survives
+          // at rest either way.
+          runtimeBase: runtimeDirBase,
+          // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
+          // port a just-stopped one-active node held, whose lingering teardown
+          // would otherwise stall the first identity's bind for ~90s.
+          listenPort: listenPortBase + 1 + i,
+          anonymous: entry.anonymous,
+        ),
+      );
+    }
+    return out;
+  } finally {
+    for (final entry in selected) {
+      entry.spaceKeys.fillRange(0, entry.spaceKeys.length, 0);
+    }
+  }
 }
 
 /// Boots an [IdentityNode] from [storage] for one [spec] — defaults to the real
@@ -244,8 +323,9 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
   );
 }
 
-/// Runs ALL of a master's identities at once. Every identity's space is hosted
-/// open over one [MultiSpaceBacking] (one container/lock), its veil node runs
+/// Runs ALL of a master's identities at once. Legacy spaces share one
+/// [MultiSpaceBacking] (one container/lock); visible identities own independent
+/// worker stores selected by their roster locators. Each identity's veil node runs
 /// simultaneously (own port + runtime dir), AND it has its own
 /// [MessagingService] wired to its node's transport + its storage — so EVERY
 /// identity receives and persists messages concurrently, not just the active
@@ -261,6 +341,8 @@ class MultiIdentitySession {
     required String runtimeDirBase,
     required int listenPortBase,
     Directory? blobRoot,
+    String? managedProfileDirectory,
+    ManagedIdentityHostFactory? managedStorageFactory,
     Duration bootTimeout = _defaultBootTimeout,
     Duration disposeBudget = _defaultDisposeBudget,
     IdentityPeers peersFor = _noPeers,
@@ -272,6 +354,8 @@ class MultiIdentitySession {
   }) : _runtimeDirBase = runtimeDirBase,
        _listenPortBase = listenPortBase,
        _blobRoot = blobRoot,
+       _managedStorageFactory =
+           managedStorageFactory ?? _managedFactory(managedProfileDirectory),
        _bootTimeout = bootTimeout,
        _disposeBudget = disposeBudget,
        _peersFor = peersFor,
@@ -296,6 +380,13 @@ class MultiIdentitySession {
   /// in v3. Ownership is resolved inside each space instead: `eraseSpace`
   /// deletes only the blob names its own volume names (XV-01).
   final Directory? _blobRoot;
+  final ManagedIdentityHostFactory? _managedStorageFactory;
+  final _managedOwners = <int, ManagedIdentityHost>{};
+  int _nextManagedId = -1;
+  bool _bootStarted = false;
+  bool _stopping = false;
+  Future<void>? _bootInFlight;
+  Future<void>? _disposeInFlight;
 
   final String _runtimeDirBase;
   final int _listenPortBase;
@@ -348,6 +439,27 @@ class MultiIdentitySession {
   /// concurrently. Best-effort per identity: a boot failure logs and skips that
   /// identity's node/messaging but keeps its storage view hosted.
   Future<void> bootAll(List<RosterEntry> roster) async {
+    if (_bootStarted || _stopping) {
+      throw StateError('identity session already started or stopping');
+    }
+    _validateRoster(roster);
+    if (_managedStorageFactory == null &&
+        roster.any((entry) => entry.storageLocator is ManagedStorageLocator)) {
+      throw StateError('managed roster requires an admitted profile');
+    }
+    _bootStarted = true;
+    _containerLockReleased = false;
+    final finished = Completer<void>();
+    _bootInFlight = finished.future;
+    try {
+      await _bootAllOwned(roster);
+    } finally {
+      _bootInFlight = null;
+      finished.complete();
+    }
+  }
+
+  Future<void> _bootAllOwned(List<RosterEntry> roster) async {
     // One view per space, made where the space is opened and reused by the boot.
     //
     // The plan needs it: an identity's shared-seed answer lives in ITS space,
@@ -368,12 +480,35 @@ class MultiIdentitySession {
       if (blobRoot != null) storage.useOnDiskTier(blobRoot);
       return storage;
     });
+    Future<int> openEntry(RosterEntry entry) async {
+      if (_stopping) throw StateError('identity session is stopping');
+      final locator = entry.storageLocator;
+      if (locator is LegacyStorageLocator) {
+        final id = await _backing.openSpace(entry.spaceKeys);
+        if (id < 0) throw StateError('invalid legacy space handle');
+        if (_stopping) throw StateError('identity session is stopping');
+        return id;
+      }
+      final id = _nextManagedId--;
+      final host = _managedStorageFactory!(locator as ManagedStorageLocator);
+      // Retain before awaiting: even a preparation failure can own a worker
+      // whose close must be retried. A failed plan must not lose that owner.
+      _managedOwners[id] = host;
+      views[id] = host.storage;
+      if (!await host.storage.openWithKeys(entry.spaceKeys)) {
+        throw StateError('managed roster credential refused');
+      }
+      if (_stopping) throw StateError('identity session is stopping');
+      return id;
+    }
+
     final specs = await planIdentityBoots(
       roster,
       _backing,
       runtimeDirBase: _runtimeDirBase,
       listenPortBase: _listenPortBase,
       storageFor: viewOf,
+      openEntry: openEntry,
       peersFor: _peersFor,
       obfs4Psk: _obfs4Psk,
       udpReflectors: _udpReflectors,
@@ -381,6 +516,7 @@ class MultiIdentitySession {
       proxy: _proxy,
     );
     for (final spec in specs) {
+      if (_stopping) throw StateError('identity session is stopping');
       final storage = viewOf(spec.spaceId);
       _storages[spec.label] = storage;
       _bundledSeeds[spec.label] = spec.useBundledSeeds;
@@ -417,6 +553,7 @@ class MultiIdentitySession {
           rethrow;
         }
         _nodes[spec.label] = node;
+        if (_stopping) continue;
         late final MessagingService messaging;
         final Object? authority = node.stack?.ratchetState;
         messaging = MessagingService(
@@ -484,8 +621,14 @@ class MultiIdentitySession {
   /// not cost the user the identities that opened fine.
   Future<void> _vacuumOpenedSpaces(List<IdentityBootSpec> specs) async {
     for (final spec in specs) {
+      if (_stopping) return;
       try {
-        await _backing.vacuumOrphans(spec.spaceId);
+        final host = _managedOwners[spec.spaceId];
+        if (host != null) {
+          await host.vacuum();
+        } else {
+          await _backing.vacuumOrphans(spec.spaceId);
+        }
       } catch (_) {
         /* the space is open and usable; the scrub retries next unlock */
       }
@@ -533,10 +676,10 @@ class MultiIdentitySession {
   List<String> get abandonedTeardowns => List.unmodifiable(_abandoned);
   final List<String> _abandoned = [];
 
-  /// Whether the container's lock was RELEASED, as opposed to attempted.
+  /// Whether ALL storage locks were RELEASED, as opposed to attempted.
   ///
   /// The close is best-effort by design; what it must not be is invisible. A
-  /// close that failed or ran out of time leaves the lock held, and every
+  /// close that failed or ran out of time may leave a lock held, and every
   /// caller that goes on to declare the session gone — lock, wipe, start over
   /// — is making a claim about exactly this (report17 XV17-M14).
   bool get containerLockReleased => _containerLockReleased;
@@ -567,9 +710,29 @@ class MultiIdentitySession {
     }
   }
 
-  Future<void> disposeAll() async {
+  Future<void> disposeAll() {
+    final pending = _disposeInFlight;
+    if (pending != null) return pending;
+    late final Future<void> result;
+    result = _disposeOwned().whenComplete(() {
+      if (identical(_disposeInFlight, result)) _disposeInFlight = null;
+    });
+    _disposeInFlight = result;
+    return result;
+  }
+
+  Future<void> _disposeOwned() async {
+    _stopping = true;
     _abandoned.clear();
     _containerLockReleased = true;
+    // Never close/dismiss a host while its asynchronous opener can still adopt
+    // a new handle. Timeout retains ownership for a later disposal retry.
+    final booting = _bootInFlight;
+    if (booting != null &&
+        !await _bounded('identity storage opening', () => booting)) {
+      _containerLockReleased = false;
+      return;
+    }
     for (final entry in _messaging.entries) {
       await _bounded('messaging dispose (${entry.key})', entry.value.dispose);
     }
@@ -580,6 +743,12 @@ class MultiIdentitySession {
     _nodes.clear();
     _storages.clear();
     _bundledSeeds.clear();
+    for (final entry in _managedOwners.entries.toList()) {
+      if (await _bounded('managed storage close', entry.value.storage.close)) {
+        _managedOwners.remove(entry.key);
+      }
+    }
+    if (_managedOwners.isNotEmpty) _containerLockReleased = false;
     try {
       await _backing.close().timeout(_disposeBudget);
     } catch (e) {

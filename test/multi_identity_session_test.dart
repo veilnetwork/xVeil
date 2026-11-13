@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:xveil/data/storage/file_store.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,8 @@ import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
+import 'package:xveil/domain/storage_locator.dart';
+import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/state/multi_identity_session.dart';
 
 import 'support/fake_multi_space.dart';
@@ -73,6 +76,206 @@ class _FakeTransport implements VeilTransport {
 }
 
 void main() {
+  final managed = ManagedStorageLocator(
+    id: ManagedIdentityId('c' * 32),
+    protection: StorageProtection.encrypted,
+  );
+  RosterEntry managedEntry() =>
+      _e('managed', 3).copyWith(storageLocator: managed);
+
+  test('a managed locator cannot fall through to the legacy planner', () async {
+    final raw = FakeMultiSpaceBacking();
+    final backing = SyncWrappedAsyncMultiSpaceBacking(raw);
+    await expectLater(
+      planIdentityBoots(
+        [_e('legacy', 1), managedEntry()],
+        backing,
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        storageFor: (id) => _viewOf(backing, id),
+        peersFor: (_) => const [],
+      ),
+      throwsStateError,
+    );
+    final session = MultiIdentitySession(
+      backing,
+      runtimeDirBase: '/synthetic',
+      listenPortBase: 9000,
+    );
+    addTearDown(session.disposeAll);
+    await expectLater(
+      session.bootAll([_e('legacy', 1), managedEntry()]),
+      throwsStateError,
+    );
+    expect(raw.opened, isEmpty);
+  });
+
+  test(
+    'duplicate managed IDs cannot acquire two owners in different modes',
+    () async {
+      final raw = FakeMultiSpaceBacking();
+      final backing = SyncWrappedAsyncMultiSpaceBacking(raw);
+      var factories = 0;
+      final session = MultiIdentitySession(
+        backing,
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        managedStorageFactory: (_) {
+          factories++;
+          throw StateError('unexpected factory');
+        },
+      );
+      addTearDown(session.disposeAll);
+      await expectLater(
+        session.bootAll([
+          managedEntry(),
+          _e('other', 4).copyWith(
+            storageLocator: ManagedStorageLocator(
+              id: managed.id,
+              protection: StorageProtection.unencrypted,
+            ),
+          ),
+        ]),
+        throwsStateError,
+      );
+      expect(factories, 0);
+      expect(raw.opened, isEmpty);
+    },
+  );
+
+  test('planning snapshots all borrowed keys before any async open', () async {
+    final raw = FakeMultiSpaceBacking();
+    final backing = SyncWrappedAsyncMultiSpaceBacking(raw);
+    final entered = Completer<void>(), release = Completer<void>();
+    final original = [_e('first', 1), _e('second', 2)];
+    final originalKeys = [for (final entry in original) entry.spaceKeys];
+    final borrowed = <Uint8List>[];
+    final seen = <Uint8List>[];
+    final plan = planIdentityBoots(
+      original,
+      backing,
+      runtimeDirBase: '/synthetic',
+      listenPortBase: 9000,
+      storageFor: (id) => _viewOf(backing, id),
+      peersFor: (_) => const [],
+      openEntry: (entry) async {
+        borrowed.add(entry.spaceKeys);
+        if (borrowed.length == 1) {
+          entered.complete();
+          await release.future;
+        }
+        seen.add(Uint8List.fromList(entry.spaceKeys));
+        return backing.openSpace(entry.spaceKeys);
+      },
+    );
+    await entered.future;
+    for (final key in originalKeys) {
+      key.fillRange(0, key.length, 0);
+    }
+    original.clear();
+    release.complete();
+    final specs = await plan;
+    expect(specs.map((s) => s.label), ['first', 'second']);
+    expect(seen, [_keys(1), _keys(2)]);
+    expect(borrowed.every((key) => key.every((byte) => byte == 0)), isTrue);
+    expect(await backing.exportKeys(specs[1].spaceId), _keys(2));
+  });
+
+  test(
+    'failed managed close retains the exact owner for disposal retry',
+    () async {
+      final raw = FakeMultiSpaceBacking();
+      final owned = _ManagedStorage(FakeKvLogStore())..refuseClose = true;
+      var vacuumed = 0;
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(raw),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        managedStorageFactory: (_) => (
+          storage: owned,
+          vacuum: () async {
+            vacuumed++;
+          },
+        ),
+        boot: (spec, storage) async => IdentityNode(
+          transport: _FakeTransport(_nid(10)),
+          dispose: () async {},
+        ),
+      );
+      addTearDown(() async {
+        owned.refuseClose = false;
+        await session.disposeAll();
+      });
+      await session.bootAll([managedEntry()]);
+      expect(vacuumed, 1);
+      expect(raw.opened, isEmpty);
+      await session.disposeAll();
+      expect(session.containerLockReleased, isFalse);
+      expect(owned.closes, 1);
+      owned.refuseClose = false;
+      await session.disposeAll();
+      expect(owned.closes, 2);
+      expect(session.containerLockReleased, isTrue);
+      expect(owned.isOpen, isFalse);
+    },
+  );
+
+  test(
+    'disposal never forgets an opener that can adopt a late managed handle',
+    () async {
+      final raw = FakeMultiSpaceBacking();
+      final owned = _ManagedStorage(FakeKvLogStore())
+        ..holdOpen = Completer<void>();
+      var boots = 0;
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(raw),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        disposeBudget: Duration.zero,
+        managedStorageFactory: (_) => (storage: owned, vacuum: () async {}),
+        boot: (_, _) async {
+          boots++;
+          throw StateError('unexpected boot');
+        },
+      );
+      addTearDown(session.disposeAll);
+      final boot = session.bootAll([managedEntry()]);
+      final refused = expectLater(boot, throwsStateError);
+      await owned.openEntered.future;
+      await session.disposeAll();
+      expect(session.containerLockReleased, isFalse);
+      expect(owned.closes, 0);
+      owned.holdOpen!.complete();
+      await refused;
+      await session.disposeAll();
+      expect(boots, 0);
+      expect(raw.opened, isEmpty);
+      expect(owned.closes, 1);
+      expect(session.containerLockReleased, isTrue);
+      expect(owned.isOpen, isFalse);
+    },
+  );
+
+  test(
+    'duplicate labels are refused before opening any roster space',
+    () async {
+      final raw = FakeMultiSpaceBacking();
+      final backing = SyncWrappedAsyncMultiSpaceBacking(raw);
+      await expectLater(
+        planIdentityBoots(
+          [_e('same', 1), _e('same', 2)],
+          backing,
+          runtimeDirBase: '/synthetic',
+          listenPortBase: 9000,
+          storageFor: (id) => _viewOf(backing, id),
+          peersFor: (_) => const [],
+        ),
+        throwsStateError,
+      );
+      expect(raw.opened, isEmpty);
+    },
+  );
+
   test('every always-online node is told whether it may bind the LAN', () async {
     // `RealVeilStack.startDeniable` takes `lanListen` and defaults it to false.
     // The one-active boot resolves it from the P2P policy; this plan did not
@@ -126,7 +329,9 @@ void main() {
     // second is the one that was missing. `_realBoot` needs a real stack, so
     // the link is asserted over the source: a spec field nobody forwards is a
     // field that reads correct and does nothing.
-    final src = File('lib/state/multi_identity_session.dart').readAsStringSync();
+    final src = File(
+      'lib/state/multi_identity_session.dart',
+    ).readAsStringSync();
     final at = src.indexOf('Future<IdentityNode> _realBoot(');
     expect(at, isNot(-1), reason: '_realBoot was renamed');
     final body = src.substring(at, src.indexOf('\n}', at));
@@ -545,4 +750,26 @@ class _ClosingFake extends FakeMultiSpaceBacking {
 
   @override
   void close() => onClose();
+}
+
+class _ManagedStorage extends HiddenVolumeStorage {
+  _ManagedStorage(FakeKvLogStore raw)
+    : super(({required password, required create}) => raw);
+  bool refuseClose = false;
+  int closes = 0;
+  Completer<void>? holdOpen;
+  final openEntered = Completer<void>();
+  @override
+  Future<bool> openWithKeys(Uint8List keys) async {
+    openEntered.complete();
+    await holdOpen?.future;
+    return open(password: 'synthetic');
+  }
+
+  @override
+  Future<void> close() async {
+    closes++;
+    if (refuseClose) throw StateError('synthetic retained owner');
+    await super.close();
+  }
 }

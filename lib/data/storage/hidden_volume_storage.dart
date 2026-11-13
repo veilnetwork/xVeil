@@ -18,6 +18,7 @@ import '../../domain/message_history_key_index.dart';
 import '../../domain/p2p_policy.dart';
 import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
+import '../../domain/storage_locator.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
@@ -622,6 +623,8 @@ class HiddenVolumeStorage
             'l': e.label,
             'k': base64.encode(e.spaceKeys),
             if (e.anonymous) 'a': 1,
+            if (e.storageLocator is! LegacyStorageLocator)
+              's': e.storageLocator.encode(),
           },
       ]),
     );
@@ -772,7 +775,8 @@ class HiddenVolumeStorage
     }
   });
 
-  /// The roster in [raw], or null if it does not parse.
+  /// The roster in [raw], or null for historical parse failures. An invalid
+  /// explicit storage locator throws rather than becoming legacy/absent.
   static List<RosterEntry>? _decodeRoster(Uint8List raw) {
     try {
       final list = jsonDecode(utf8.decode(raw)) as List;
@@ -782,8 +786,15 @@ class HiddenVolumeStorage
             label: e['l'] as String,
             spaceKeys: base64.decode(e['k'] as String),
             anonymous: e['a'] == 1,
+            storageLocator: e.containsKey('s')
+                ? IdentityStorageLocator.decode(e['s'])
+                : const LegacyStorageLocator(),
           ),
       ];
+    } on InvalidStorageLocator {
+      // Never reinterpret a malformed explicit location as a missing roster
+      // or as permission to open these keys in the legacy container.
+      rethrow;
     } catch (_) {
       return null;
     }

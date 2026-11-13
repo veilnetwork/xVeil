@@ -235,12 +235,16 @@ typedef _AllOnline = ({
   AppController controller,
   _RecordingBacking backing,
   List<String> disposedNodes,
+  List<String> startedNodes,
   Completer<void> gate,
   bool Function() booting,
   _GatedNotifications notifications,
 });
 
-Future<_AllOnline> _allOnlineHarness({bool rebuildable = false}) async {
+Future<_AllOnline> _allOnlineHarness({
+  bool rebuildable = false,
+  Duration disposeBudget = const Duration(seconds: 10),
+}) async {
   SharedPreferences.setMockInitialValues({
     'onboarded': true,
     'keep_all_online': true,
@@ -269,12 +273,15 @@ Future<_AllOnline> _allOnlineHarness({bool rebuildable = false}) async {
   final notifications = _GatedNotifications();
   final gate = Completer<void>();
   final disposedNodes = <String>[];
+  final startedNodes = <String>[];
   var entered = false;
   MultiIdentitySession newSession() => MultiIdentitySession(
     backing,
     runtimeDirBase: '/run',
     listenPortBase: 9000,
+    disposeBudget: disposeBudget,
     boot: (spec, storage) async {
+      startedNodes.add(spec.label);
       entered = true;
       await gate.future;
       return IdentityNode(
@@ -323,6 +330,7 @@ Future<_AllOnline> _allOnlineHarness({bool rebuildable = false}) async {
     controller: ctrl,
     backing: backing,
     disposedNodes: disposedNodes,
+    startedNodes: startedNodes,
     gate: gate,
     booting: () => entered,
     notifications: notifications,
@@ -469,11 +477,12 @@ void main() {
 
   test('all-online: a lock during bootAll disposes the session instead of '
       'publishing it — no node stays up, the shared lock goes back', () async {
-    final h = await _allOnlineHarness();
+    final h = await _allOnlineHarness(disposeBudget: Duration.zero);
     final c = h.container;
 
     final unlocking = h.controller.unlock('masterpw');
     await _pumpUntil(h.booting, 'the all-online node boot');
+    expect(h.startedNodes, ['alice']);
 
     await h.controller.lock();
     expect(c.read(appControllerProvider).phase, AppPhase.locked);
@@ -490,9 +499,12 @@ void main() {
     );
     expect(
       h.disposedNodes.toSet(),
-      {'alice', 'bob'},
+      h.startedNodes.toSet(),
       reason: 'always-online nodes stayed on the network after the lock',
     );
+    expect(h.startedNodes, [
+      'alice',
+    ], reason: 'a cancelled boot must not start the next node');
     expect(
       h.backing.closed,
       greaterThan(0),

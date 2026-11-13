@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'storage_locator.dart';
 
 /// One child identity managed by a **master** space.
 ///
@@ -18,10 +19,15 @@ class RosterEntry {
     required this.label,
     required this.spaceKeys,
     this.anonymous = false,
+    this.storageLocator = const LegacyStorageLocator(),
   });
 
   final String label;
   final Uint8List spaceKeys;
+
+  /// Inside the master's protected roster, alongside the keys. Absence in a
+  /// historical roster means its legacy container, never a plaintext store.
+  final IdentityStorageLocator storageLocator;
 
   /// Route this identity's node through veil's anonymizing overlay (onion /
   /// multi-hop) so its network activity is not linkable to the user's other
@@ -29,12 +35,17 @@ class RosterEntry {
   /// the default (false) uses direct routing (lower latency).
   final bool anonymous;
 
-  RosterEntry copyWith({String? label, Uint8List? spaceKeys, bool? anonymous}) =>
-      RosterEntry(
-        label: label ?? this.label,
-        spaceKeys: spaceKeys ?? this.spaceKeys,
-        anonymous: anonymous ?? this.anonymous,
-      );
+  RosterEntry copyWith({
+    String? label,
+    Uint8List? spaceKeys,
+    bool? anonymous,
+    IdentityStorageLocator? storageLocator,
+  }) => RosterEntry(
+    label: label ?? this.label,
+    spaceKeys: spaceKeys ?? this.spaceKeys,
+    anonymous: anonymous ?? this.anonymous,
+    storageLocator: storageLocator ?? this.storageLocator,
+  );
 }
 
 /// Whether [candidateKeys] names a space this master already knows.

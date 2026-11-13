@@ -138,4 +138,14 @@ final class ManagedIdentityStorage {
     }
     return ManagedWorkerIdentity.reclaim(worker, force: force);
   }
+
+  /// Run native post-unlock deletion cleanup on this identity's worker. This
+  /// is separate from eligibility-based repacking and never scans a sibling.
+  Future<void> scrub() {
+    final worker = _worker;
+    if (!storage.isOpen || worker == null) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);
+    }
+    return worker.scrub();
+  }
 }

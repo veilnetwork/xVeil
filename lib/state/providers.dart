@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
 import 'dart:convert';
 import 'dart:typed_data';
@@ -135,6 +136,7 @@ MultiIdentitySession _realSessionBuilder({
   // The SAME large-file tier the single-identity boot opens — one directory
   // beside the container, shared by every space (XV-02).
   blobRoot: blobRootFor(storePath),
+  managedProfileDirectory: File(storePath).parent.path,
   // A BUILDER, not a finished list: every identity in the session resolves its
   // own shared-seed answer from its own space, and its peer list is built from
   // that. One list for the session is what let a refuser be handed the seeds

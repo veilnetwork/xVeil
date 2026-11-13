@@ -35,6 +35,7 @@ import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/p2p_policy.dart' as p2p;
 import '../domain/roster.dart';
+import '../domain/storage_locator.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
@@ -45,6 +46,7 @@ import 'vnote_record_controller.dart';
 import 'voice_play_controller.dart';
 import 'voice_record_controller.dart';
 import 'providers.dart';
+import 'multi_identity_session.dart';
 import 'screen_lock_controller.dart';
 import 'storage_preferences.dart';
 import 'vpn_controller.dart';
@@ -521,6 +523,8 @@ class AppController extends Notifier<AppState> {
       }
 
       requireCurrent();
+      await _drainRetiringSessions();
+      requireCurrent();
       // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
       // dropped and the profile write ran anyway, against a storage that was not
       // open — so a failure here surfaced later, somewhere else, as a confusing
@@ -749,6 +753,7 @@ class AppController extends Notifier<AppState> {
     );
     _identityEditOwner = edit;
     try {
+      await edit.step(_drainRetiringSessions);
       edit.keepAllOnline = ref.read(sessionProvider) != null;
       edit.own(ref.read(storageProvider));
       return await run(edit);
@@ -997,6 +1002,8 @@ class AppController extends Notifier<AppState> {
     final storage = ref.read(storageProvider);
     bool ok;
     try {
+      await _drainRetiringSessions();
+      if (!ref.mounted || _supersededSince(gen)) return;
       ok = await storage.open(password: password);
       if (!ref.mounted || _supersededSince(gen)) {
         // The opener may finish after lock() has already closed the previous
@@ -1983,6 +1990,10 @@ class AppController extends Notifier<AppState> {
     final storage = ref.read(storageProvider);
     final unsettled = <String>[];
     for (final entry in spaces) {
+      // Only legacy spaces share this container and its keep-known-spaces
+      // attestation. Managed identities own separate files; do not try their
+      // keys in the hidden container or change their independent policy.
+      if (entry.storageLocator is ManagedStorageLocator) continue;
       if (!current()) {
         unsettled.add(entry.label);
         continue;
@@ -2266,6 +2277,8 @@ class AppController extends Notifier<AppState> {
     );
     final leanPadding = await leanStoragePaddingEnabled();
     if (!ref.mounted || _supersededSince(gen)) return;
+    await _drainRetiringSessions();
+    if (!ref.mounted || _supersededSince(gen)) return;
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
@@ -2294,6 +2307,7 @@ class AppController extends Notifier<AppState> {
     // leave booted nodes running and the lock held, with the only reference to
     // them going out of scope — unreachable for cleanup, and the next unlock
     // then failed on the lock it could no longer release.
+    _retiringSessions.add(session); // Own an unpublished boot before its await.
     try {
       await session.bootAll(roster);
       await ref
@@ -2303,7 +2317,7 @@ class AppController extends Notifier<AppState> {
       // Best-effort: a teardown failure must not mask the original error, and
       // the original is what the caller needs to see.
       try {
-        await session.disposeAll();
+        await _disposeTrackedSession(session);
       } catch (_) {}
       rethrow;
     }
@@ -2319,7 +2333,7 @@ class AppController extends Notifier<AppState> {
             'instead of publishing it',
       );
       try {
-        await session.disposeAll();
+        await _disposeTrackedSession(session);
       } catch (e) {
         devLog(() => 'xVeil[all-online]: rollback disposeAll failed: $e');
       }
@@ -2328,6 +2342,7 @@ class AppController extends Notifier<AppState> {
     // Published only once it is whole. From here `disposeAll` is reachable
     // through the provider, so lock/teardown can find it.
     ref.read(sessionProvider.notifier).state = session;
+    _retiringSessions.remove(session); // The published provider now owns it.
     final first = roster.first.label;
     await _activateOnline(first, [for (final e in roster) e.label]);
   }
@@ -2536,6 +2551,7 @@ class AppController extends Notifier<AppState> {
       await previous;
       await mutation;
       work.check();
+      await work.step(_drainRetiringSessions);
       _identityViewOwner = work;
       work.interrupted = true;
       final boot = ref.read(deniableBootProvider);
@@ -2980,11 +2996,7 @@ class AppController extends Notifier<AppState> {
       final updated = [
         for (final e in onDisk)
           if (e.label == label)
-            RosterEntry(
-              label: e.label,
-              spaceKeys: e.spaceKeys,
-              anonymous: anonymous,
-            )
+            e.copyWith(anonymous: anonymous)
           else
             e,
       ];
@@ -3930,6 +3942,9 @@ class AppController extends Notifier<AppState> {
   /// Legs of the CURRENT teardown that did not confirm they finished. Each
   /// teardown entry point clears it first; [lastTeardown] is what it became.
   final List<String> _incomplete = [];
+  // An unpublished boot or unconfirmed close still owns native resources.
+  // Keep it reachable after providers are cleared, until actual release.
+  final Set<MultiIdentitySession> _retiringSessions = {};
 
   /// The verdict of the last [lock], [startOver] or [wipeContainers].
   ///
@@ -4187,38 +4202,63 @@ class AppController extends Notifier<AppState> {
   /// and clear its providers. No-op when there is no session.
   Future<void> _teardownSession() async {
     final session = ref.read(sessionProvider);
-    if (session == null) return;
+    if (session == null && _retiringSessions.isEmpty) return;
     ref.read(sessionProvider.notifier).state = null;
     ref.read(activeIdentityProvider.notifier).state = null;
-    await session.disposeAll();
-    // "Locked" is a claim about the network, not only about the screen. A
-    // teardown step that ran out of its budget was abandoned so the container
-    // lock could still be released — the right trade — but the node it was
-    // stopping keeps its sockets and its network identity, and its handle is
-    // gone from the session, so nothing can ask it to stop again. That has to
-    // be recorded rather than left to a debug log nobody reads.
-    if (!session.containerLockReleased) {
-      // The container is still locked by this process. Whoever is about to say
-      // "locked" or "wiped" has to carry that: it is the fact behind every
-      // later "correct password but won't unlock".
-      _incomplete.add('container-lock-unknown');
+    if (session != null) _retiringSessions.add(session);
+    for (final session in _retiringSessions.toList()) {
+      await _disposeTrackedSession(session);
+      // "Locked" is a claim about the network, not only about the screen. A
+      // teardown step that ran out of its budget was abandoned so the container
+      // lock could still be released — the right trade — but the node it was
+      // stopping keeps its sockets and its network identity, and its handle is
+      // gone from the session, so nothing can ask it to stop again. That has to
+      // be recorded rather than left to a debug log nobody reads.
+      if (!session.containerLockReleased) {
+        // The container is still locked by this process. Whoever is about to say
+        // "locked" or "wiped" has to carry that: it is the fact behind every
+        // later "correct password but won't unlock".
+        _incomplete.add('container-lock-unknown');
+      }
+      final abandoned = session.abandonedTeardowns;
+      if (abandoned.isNotEmpty) {
+        _incomplete.add('session');
+        devLog(
+          () =>
+              'xVeil[lock]: ${abandoned.length} teardown step(s) abandoned; a '
+              'node may still hold its sockets: ${abandoned.join(", ")}',
+        );
+        errorJournal.record(
+          kind: 'teardown-abandoned',
+          error: StateError(
+            'teardown abandoned after its budget: ${abandoned.join(", ")} — the '
+            'session is gone from the app while a node may still be running',
+          ),
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
     }
-    final abandoned = session.abandonedTeardowns;
-    if (abandoned.isNotEmpty) {
-      _incomplete.add('session');
-      devLog(
-        () =>
-            'xVeil[lock]: ${abandoned.length} teardown step(s) abandoned; a '
-            'node may still hold its sockets: ${abandoned.join(", ")}',
-      );
-      errorJournal.record(
-        kind: 'teardown-abandoned',
-        error: StateError(
-          'teardown abandoned after its budget: ${abandoned.join(", ")} — the '
-          'session is gone from the app while a node may still be running',
-        ),
-        atMs: DateTime.now().millisecondsSinceEpoch,
-      );
+  }
+
+  Future<void> _disposeTrackedSession(MultiIdentitySession session) async {
+    _retiringSessions.add(session);
+    var completed = false;
+    try {
+      await session.disposeAll();
+      completed = true;
+    } finally {
+      if (completed && session.containerLockReleased) {
+        _retiringSessions.remove(session);
+      }
+    }
+  }
+
+  Future<void> _drainRetiringSessions() async {
+    for (final session in _retiringSessions.toList()) {
+      await _disposeTrackedSession(session);
+      if (_retiringSessions.contains(session)) {
+        throw StateError('previous identity storage did not close');
+      }
     }
   }
 
