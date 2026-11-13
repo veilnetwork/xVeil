@@ -611,9 +611,33 @@ joint suite reports **192 PASS and one opt-in native skip**; that skipped native
 roster case is also run explicitly. Focused analysis is clean. These are macOS
 process-crash checks, not power-loss or native Android/Windows qualification.
 
-This is the admitted file-owner API and its eligibility policy. Scheduling it
-from the worker's mutation queue and exposing mode-aware maintenance in the UI
-remain to be wired. No automatic legacy conversion or unknown-space sweep exists.
+The managed worker now schedules an eligibility check after 128 successfully
+committed operations (including a single batch), after nonempty namespace
+erasure, or after a successful scrub. This is a check against the size and
+garbage budget above, not unconditional compaction every 128 writes. An explicit
+`ManagedWorkerIdentity.reclaim` request uses the same serving queue; legacy
+hidden workers reject it and never schedule this new maintenance.
+
+Reclamation pauses the actual worker command subscription while native payload
+handles are detached, retaining queued reads, writes and close in order until
+reattachment. An already durable mutation gets its successful reply before the
+automatic check; a later maintenance failure cannot turn it into a failed write.
+Failure leaves a bounded warning, and an explicit request returns a bounded
+typed error without native paths or details. A close timeout retains supervision
+until the queued native close really completes. Ten gated worker cases cover
+these queue, retry, warning and legacy boundaries. A native macOS worker case
+uses a synthetic garbage-seeded encrypted content file, crosses the automatic
+threshold, verifies actual file shrink, exact data, unchanged outer keys/keybox,
+the prior host anchor and fresh key-based reopen. It is not a natural-history
+growth benchmark or Android/Windows qualification.
+
+With worker scheduling enabled, the joint storage/worker lifecycle suite reports
+**203 PASS and one opt-in native skip**; that native roster case also passes
+when run explicitly. Focused analysis reports no issues. The earlier file-owner
+crash/replay checks remain in this joint run.
+
+Mode-aware maintenance in the application UI remains to be wired. No automatic
+legacy conversion or unknown-space sweep exists.
 Abandoned native temporary copies after process death are preserved; their safe
 recovery/accounting is a remaining boundary. New storage modes remain disabled in
 the application; all-online routing, password rotation, erase/recovery UI and

@@ -16,6 +16,7 @@ import 'managed_directory_catalog.dart';
 import 'managed_fs_contract.dart';
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
+import 'managed_reclaim_budget.dart';
 import 'managed_sqlite_connection.dart';
 import '../../domain/storage_protection.dart';
 import 'rollback_anchor.dart';
@@ -498,6 +499,7 @@ void _workerEntry(_OpenConfig cfg) {
 
   final KvLogStore store;
   void Function()? closeOwner;
+  Future<ManagedReclaimReport> Function(bool force)? reclaimOwner;
   try {
     final preset = _paddingPresetFromTag(cfg.paddingPresetTag);
     final opened = switch (cfg) {
@@ -525,6 +527,7 @@ void _workerEntry(_OpenConfig cfg) {
       }
       store = opened.store!;
       closeOwner = opened.close;
+      reclaimOwner = (force) => opened.store!.reclaim(force: force);
     } else {
       store = opened as KvLogStore;
     }
@@ -541,6 +544,7 @@ void _workerEntry(_OpenConfig cfg) {
       _serveWorker(
         store,
         closeOwner: closeOwner,
+        reclaim: reclaimOwner,
         managed: cfg is _OpenManagedIdentity,
       ),
     ),
@@ -550,11 +554,39 @@ void _workerEntry(_OpenConfig cfg) {
 SendPort _serveWorker(
   KvLogStore store, {
   void Function()? closeOwner,
+  Future<ManagedReclaimReport> Function(bool force)? reclaim,
   bool managed = false,
 }) {
   final rx = ReceivePort();
   var closing = false;
-  rx.listen((dynamic msg) {
+  var mutationDebt = 0;
+  var reclamationFailed = false;
+  late final StreamSubscription<dynamic> subscription;
+  void maintain(bool force, [SendPort? reply]) {
+    // The file owner detaches payload handles across await points. Pause the
+    // ACTUAL serving stream, so reads, writes and close keep their FIFO order
+    // and cannot observe/tear down an in-progress native prepared operation.
+    subscription.pause();
+    unawaited(() async {
+      try {
+        final report = await reclaim!(force);
+        if (report.changed || force) reclamationFailed = false;
+        reply?.send(_Ok(report));
+      } catch (error) {
+        reclamationFailed = true;
+        if (reply != null) {
+          reply.send(_workerErrorReply(error, managed: true));
+        } else {
+          final kind = _managedFailureKind(error).name;
+          devLog(() => 'xVeil[storage]: managed reclamation failed ($kind)');
+        }
+      } finally {
+        subscription.resume();
+      }
+    }());
+  }
+
+  subscription = rx.listen((dynamic msg) {
     if (msg is! _Req) return;
     if (closing && msg is! _CloseReq) {
       msg.reply.send(
@@ -574,7 +606,16 @@ SendPort _serveWorker(
 
     switch (msg) {
       case _CommitReq(:final ops):
-        run(() => store.commit(ops));
+        run(() {
+          final committed = store.commit(ops);
+          if (reclaim != null) {
+            final count = ops.isEmpty ? 1 : ops.length;
+            mutationDebt = count >= 128 - mutationDebt
+                ? 128
+                : mutationDebt + count;
+          }
+          return committed;
+        });
       case _GetReq(:final namespace, :final key):
         run(() => store.get(namespace, key));
       case _GetBatchReq(:final namespace, :final keys):
@@ -608,10 +649,15 @@ SendPort _serveWorker(
       case _KvKeysReq(:final namespace):
         run(() => store.kvKeys(namespace));
       case _EraseReq(:final namespace):
-        run(() => store.eraseNamespace(namespace));
+        run(() {
+          final count = store.eraseNamespace(namespace);
+          if (reclaim != null && count > 0) mutationDebt = 128;
+          return count;
+        });
       case _ScrubReq():
         run<Object?>(() {
           store.scrub();
+          if (reclaim != null) mutationDebt = 128;
           return null;
         });
       case _ExportKeysReq():
@@ -641,12 +687,27 @@ SendPort _serveWorker(
               : const <int, String>{},
         );
       case _HardeningWarningReq():
-        run(() => store.hardeningWarning());
+        run(() {
+          final native = store.hardeningWarning();
+          if (!reclamationFailed) return native;
+          const warning = 'managed reclamation failed; retry maintenance';
+          return native == null ? warning : '$native\n$warning';
+        });
       case _AckHardeningReq():
         run(() {
           store.acknowledgeHardeningWarning();
+          reclamationFailed = false;
           return null;
         });
+      case _ManagedReclaimReq(:final force):
+        if (reclaim == null) {
+          msg.reply.send(
+            const _ManagedWorkerErr(ManagedWorkerFailureKind.mode),
+          );
+        } else {
+          mutationDebt = 0;
+          maintain(force, msg.reply);
+        }
       case _CloseReq():
         closing = true;
         try {
@@ -659,6 +720,12 @@ SendPort _serveWorker(
           // Killing here strands any handles whose release failed.
           msg.reply.send(_workerErrorReply(e, managed: managed));
         }
+    }
+    if (!closing && reclaim != null && mutationDebt >= 128) {
+      mutationDebt = 0;
+      // The ordinary durable write reply above remains authoritative. A
+      // maintenance failure is separate and reported as a bounded warning.
+      maintain(false);
     }
   });
   return rx.sendPort;
@@ -852,7 +919,10 @@ class WorkerKvLogStore
   /// Runs the same command server with a disposable test store. The test must
   /// create that store inside its worker, never transfer native handles.
   @visibleForTesting
-  static SendPort debugServeStore(KvLogStore store) => _serveWorker(store);
+  static SendPort debugServeStore(
+    KvLogStore store, {
+    Future<ManagedReclaimReport> Function(bool force)? reclaim,
+  }) => _serveWorker(store, reclaim: reclaim, managed: reclaim != null);
 
   Future<T> _call<T>(_Req Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerKvLogStore is closed');

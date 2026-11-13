@@ -6,13 +6,19 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/managed_identity_catalog.dart';
+import 'package:xveil/data/storage/managed_keybox.dart';
+import 'package:xveil/data/storage/managed_store_tag.dart';
+import 'package:xveil/data/storage/managed_reclaim_budget.dart';
+import 'package:xveil/data/storage/rollback_anchor.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/storage_protection.dart';
 
@@ -132,6 +138,13 @@ void main() {
         );
         await storage.storeFile('fixture-file', b('managed fixture bytes'));
         final keys = await storage.exportSpaceKeys();
+        final before = await worker.commitSeq();
+        final rootHash = (await worker.commitRoots())[before];
+        final report = await ManagedWorkerIdentity.reclaim(worker, force: true);
+        expect(report.changed, protection == StorageProtection.encrypted);
+        expect(await worker.commitSeq(), before + (report.changed ? 2 : 0));
+        expect((await worker.commitRoots())[before], rootHash);
+        expect(await worker.exportKeys(), keys);
         await storage.close();
 
         final reopened = HiddenVolumeStorage.async(
@@ -327,6 +340,118 @@ void main() {
       await successor.close();
       expect(await independent.get(1, b('survivor')), b('after-peer-close'));
       await independent.close();
+    },
+  );
+
+  test(
+    'automatic worker check really shrinks a garbage-seeded encrypted file',
+    () async {
+      final created = await ManagedWorkerIdentity.createEncrypted(
+        profileDirectory: profile,
+        id: id,
+        password: b('synthetic auto reclaim password'),
+      );
+      stores.add(created);
+      final keys = await created.exportKeys();
+      await created.close();
+      final layout = ManagedIdentityLayout(profile);
+      final keyboxBytes = File(layout.keyboxPath(id)).readAsBytesSync();
+      // Construct a synthetic pre-existing bloated source, while every managed
+      // owner is closed. No original application records/host anchor exist.
+      final rawBox = hv.HvSpace.openWithKeys(
+        path: layout.keyboxPath(id),
+        keys: keys,
+      )..cancelDeferredVacuum();
+      final box = ManagedKeybox.openOwned(HvKvLogStore(rawBox), identity: id);
+      final contentPassword = box.copyContentPassword();
+      try {
+        final source = HvKvLogStore(
+          hv.HvSpace.open(
+            path: layout.contentPath(id),
+            password: contentPassword,
+          )..cancelDeferredVacuum(),
+        );
+        late final ManagedStoreTag tag;
+        try {
+          tag = ManagedStoreTag.read(
+            source,
+            identity: id,
+            role: ManagedStoreRole.content,
+          );
+        } finally {
+          source.close();
+        }
+        final staged = '${layout.directory(id)}/fixture-bloated.hv';
+        final bloated = hv.HvSpace.create(
+          path: staged,
+          password: contentPassword,
+          argon: hv.ArgonPreset.defaults,
+          initialGarbageChunks: 16384,
+        );
+        try {
+          bloated.setPaddingPolicy(hv.PaddingPreset.none);
+          HvKvLogStore(
+            bloated,
+          ).commit([tag.putOp(), PutOp(1, b('seed'), b('kept fixture data'))]);
+        } finally {
+          bloated.close();
+        }
+        File(staged).renameSync(layout.contentPath(id));
+      } finally {
+        contentPassword.fillRange(0, contentPassword.length, 0);
+        box.close();
+      }
+      final beforeBytes = File(layout.contentPath(id)).lengthSync();
+      expect(
+        beforeBytes,
+        greaterThanOrEqualTo(ManagedReclaimBudget.contentFloor),
+      );
+      final worker = await ManagedWorkerIdentity.openWithKeys(
+        profileDirectory: profile,
+        id: id,
+        protection: StorageProtection.encrypted,
+        keys: keys,
+      );
+      stores.add(worker);
+      for (var i = 1; i <= 127; i++) {
+        await worker.commit([PutOp(1, b('counter'), b('$i'))]);
+      }
+      final anchorSeq = await worker.commitSeq();
+      final anchorRoot = (await worker.commitRoots())[anchorSeq];
+      final committed = await worker.commit([PutOp(1, b('counter'), b('128'))]);
+      expect(committed, anchorSeq + 1);
+      // This read queues behind automatic maintenance and proves reattachment.
+      expect(await worker.get(1, b('counter')), b('128'));
+      expect(await worker.get(1, b('seed')), b('kept fixture data'));
+      final afterBytes = File(layout.contentPath(id)).lengthSync();
+      expect(afterBytes, lessThan(beforeBytes ~/ 2));
+      expect(await worker.commitSeq(), committed + 2);
+      expect(
+        checkRollbackAnchor(
+          anchorSeq: anchorSeq,
+          anchorRoot: anchorRoot,
+          currentSeq: await worker.commitSeq(),
+          history: await worker.commitHistory(),
+          roots: await worker.commitRoots(),
+        ).verdict,
+        AnchorVerdict.clean,
+      );
+      expect(await worker.hardeningWarning(), isNull);
+      expect((await ManagedWorkerIdentity.reclaim(worker)).changed, isFalse);
+      expect(await worker.exportKeys(), keys);
+      expect(File(layout.keyboxPath(id)).readAsBytesSync(), keyboxBytes);
+      await worker.close();
+      final cold = await ManagedWorkerIdentity.openWithKeys(
+        profileDirectory: profile,
+        id: id,
+        protection: StorageProtection.encrypted,
+        keys: keys,
+      );
+      stores.add(cold);
+      expect(await cold.get(1, b('counter')), b('128'));
+      expect(await cold.get(1, b('seed')), b('kept fixture data'));
+      await cold.close();
+      keys.fillRange(0, keys.length, 0);
     },
   );
 
