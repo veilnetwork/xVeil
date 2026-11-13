@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/storage_router_providers.dart';
+import '../../domain/storage_locator.dart';
+import '../../domain/storage_protection.dart';
 
 /// Explicit identity management for a master: bind an existing identity into
 /// this master, unbind one (keep its space), or delete one (forensically erase
@@ -116,10 +119,10 @@ class _ManageIdentitiesScreenState
   }
 
   Future<void> _bind() async {
-    final result = await showDialog<({String password, String label})>(
-      context: context,
-      builder: (ctx) => const _BindDialog(),
-    );
+    final result =
+        await showDialog<
+          ({String password, String label, IdentityStorageLocator locator})
+        >(context: context, builder: (ctx) => const _BindDialog());
     if (result == null) return;
     // The dialog above is an async gap — bail if this screen was disposed while
     // it was open, rather than touching a dead BuildContext.
@@ -131,6 +134,7 @@ class _ManageIdentitiesScreenState
           .bindExistingIdentity(
             identityPassword: result.password,
             label: result.label,
+            identityStorageLocator: result.locator,
           ),
       l.manageBindError,
     );
@@ -230,14 +234,15 @@ class _ManageIdentitiesScreenState
 }
 
 /// Asks for an existing identity's own password + the name to list it under.
-class _BindDialog extends StatefulWidget {
+class _BindDialog extends ConsumerStatefulWidget {
   const _BindDialog();
 
   @override
-  State<_BindDialog> createState() => _BindDialogState();
+  ConsumerState<_BindDialog> createState() => _BindDialogState();
 }
 
-class _BindDialogState extends State<_BindDialog> {
+class _BindDialogState extends ConsumerState<_BindDialog> {
+  IdentityStorageLocator _locator = const LegacyStorageLocator();
   final _password = TextEditingController();
   final _label = TextEditingController();
 
@@ -251,22 +256,68 @@ class _BindDialogState extends State<_BindDialog> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    ref.watch(storageRouteRevisionProvider);
+    final router = ref.watch(profileStorageRouterProvider);
+    final locator = _locator;
+    final access = router?.access;
+    final plainMaster =
+        access is ManagedStorageLocator &&
+        access.protection == StorageProtection.unencrypted;
+    final unencrypted =
+        locator is ManagedStorageLocator &&
+        locator.protection == StorageProtection.unencrypted;
     return AlertDialog(
       title: Text(l.manageBind),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(l.manageBindBody, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _password,
-            obscureText: true,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: l.manageBindPassword,
-              border: const OutlineInputBorder(),
+          if (plainMaster)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                l.storagePlainMasterWarning,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
-          ),
+          const SizedBox(height: 12),
+          if (router != null) ...[
+            DropdownButtonFormField<IdentityStorageLocator>(
+              initialValue: _locator,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: l.storageChooseIdentity),
+              items: [
+                DropdownMenuItem(
+                  value: const LegacyStorageLocator(),
+                  child: Text(l.storageHiddenTitle),
+                ),
+                for (final entry in router.catalog.identities)
+                  DropdownMenuItem(
+                    value: entry.locator,
+                    child: Text(
+                      '${entry.protection == StorageProtection.encrypted ? l.storageEncryptedTitle : l.storageUnencryptedTitle} · ${entry.id.value.substring(0, 8)}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                _password.clear();
+                setState(() => _locator = value);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (!unencrypted)
+            TextField(
+              controller: _password,
+              obscureText: true,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: l.manageBindPassword,
+                border: const OutlineInputBorder(),
+              ),
+            ),
           const SizedBox(height: 12),
           TextField(
             controller: _label,
@@ -284,10 +335,12 @@ class _BindDialogState extends State<_BindDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final pw = _password.text;
+            final pw = unencrypted ? '' : _password.text;
             final label = _label.text.trim();
-            if (pw.isEmpty || label.isEmpty) return;
-            Navigator.of(context).pop((password: pw, label: label));
+            if ((!unencrypted && pw.isEmpty) || label.isEmpty) return;
+            Navigator.of(
+              context,
+            ).pop((password: pw, label: label, locator: _locator));
           },
           child: Text(l.manageBind),
         ),

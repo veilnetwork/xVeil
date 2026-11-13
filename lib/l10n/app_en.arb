@@ -3742,5 +3742,6 @@
   "storageOwnedCleanup": "Space is reclaimed automatically for this identity.",
   "storageUnencryptedTitle": "Unencrypted storage",
   "storageUnencryptedBrief": "Files on this device are not protected by a password.",
-  "storageUnencryptedWarning": "Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device."
+  "storageUnencryptedWarning": "Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.",
+  "storagePlainMasterWarning": "This unencrypted master will store the keys of every linked identity without encryption."
 }

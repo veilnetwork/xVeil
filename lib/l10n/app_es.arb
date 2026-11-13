@@ -3260,5 +3260,6 @@
   "storageOwnedCleanup": "El espacio de esta identidad se libera automáticamente.",
   "storageUnencryptedTitle": "Almacenamiento sin cifrar",
   "storageUnencryptedBrief": "Los datos del dispositivo no están protegidos con contraseña.",
-  "storageUnencryptedWarning": "Quien pueda leer los archivos de la aplicación podrá leer mensajes, archivos y claves de identidad. Úsalo solo en un dispositivo de confianza."
+  "storageUnencryptedWarning": "Quien pueda leer los archivos de la aplicación podrá leer mensajes, archivos y claves de identidad. Úsalo solo en un dispositivo de confianza.",
+  "storagePlainMasterWarning": "Este maestro sin cifrar guardará sin cifrar las claves de todas las identidades vinculadas."
 }

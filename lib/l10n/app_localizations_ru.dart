@@ -8203,4 +8203,8 @@ class AppL10nRu extends AppL10n {
   @override
   String get storageUnencryptedWarning =>
       'Любой, кто получит доступ к файлам приложения, сможет прочитать переписку, файлы и ключи личности. Используйте только на доверенном устройстве.';
+
+  @override
+  String get storagePlainMasterWarning =>
+      'Этот незашифрованный мастер будет хранить ключи всех привязанных личностей без шифрования.';
 }

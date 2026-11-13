@@ -14111,6 +14111,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.'**
   String get storageUnencryptedWarning;
+
+  /// No description provided for @storagePlainMasterWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This unencrypted master will store the keys of every linked identity without encryption.'**
+  String get storagePlainMasterWarning;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

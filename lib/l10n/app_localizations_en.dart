@@ -8135,4 +8135,8 @@ class AppL10nEn extends AppL10n {
   @override
   String get storageUnencryptedWarning =>
       'Anyone who can read this app’s files can read your messages, files and identity keys. Use this only on a trusted device.';
+
+  @override
+  String get storagePlainMasterWarning =>
+      'This unencrypted master will store the keys of every linked identity without encryption.';
 }
