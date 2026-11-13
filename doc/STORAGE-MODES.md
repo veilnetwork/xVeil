@@ -110,6 +110,37 @@ provenance assumption was needed. Temporary fixture files were deleted and
 each writer's PID/exit status was observed after SIGKILL. No application or
 real identity was opened. This primitive is not wired to the current app.
 
+Managed generation/checkpoint state and encrypted role tags are now implemented.
+A role tag binds a keybox, content or maintenance space to its opaque local
+identity; existing files with absent/wrong tags are refused, not adopted.
+The checkpoint codec shares one 1024-root history between active/prepared
+generations, fitting in 41,090 bytes at maximum. It rejects malformed counts,
+integer overflow, trailing data, contradictory checkpoints and unordered roots.
+Roots from the copy phase before the new generation's floor are filtered rather
+than assigned logical numbers belonging to the original content history.
+
+A prepared state chooses the old or new mapping by the generation tag actually
+authenticated from content. It never guesses publication from a callback or
+resets the logical anchor. Current roots must agree with retained roots; wrong
+owner/generation or content below the recorded checkpoint fails closed. The
+existing external host-anchor policy still judges the resulting logical head;
+this metadata is not an additional independent external anti-rollback device.
+
+Thirteen policy/codec/role cases and one real native compaction case pass.
+The native case covers normal completion plus actual process SIGKILL after
+the durable PREPARED state and after native publication, before completion was
+recorded. Cold-open preserves all four fixture records and the old host anchor,
+selects the expected generation and permits the next durable write/reopen.
+The first attempt was not qualified: an unresolved Future let the Dart VM exit
+before the requested kill. The corrected writer retains a live event source;
+PID markers, successful kill requests and exit `-9` were observed for both cuts.
+
+This is a private macOS fixture, not the application compaction controller,
+the original damaged-phone scenario, a power-loss test or a multi-process
+managed-directory lease test. The probe serializes its own files; admission
+and an identity lease across source-close/prepare still need implementation
+before a mode can be enabled. No existing container or onboarding choice changed.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
