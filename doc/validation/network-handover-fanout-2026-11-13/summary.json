@@ -1,6 +1,6 @@
 {
   "schema": "xveil-network-handover-fanout/1",
-  "status": "fixed_locally",
+  "status": "released",
   "releasedBaseline": "0.13.99+118",
   "releasedProviderRegressionFailures": 2,
   "correctedCandidateLifecycleFailures": 2,
@@ -11,6 +11,7 @@
   "nativeDependenciesChanged": false,
   "hardwareHandoverQualified": false,
   "originalNetcallResolved": false,
-  "pushed": false,
-  "released": false
+  "pushed": true,
+  "released": true,
+  "release": "0.13.100+119"
 }
