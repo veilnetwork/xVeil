@@ -78,7 +78,8 @@ filesystem access already exposes the identity secrets. The SQLCipher
 connection remains an isolated evaluation primitive, not an encrypted identity
 adapter. Remove unused experimental packaging before shipping the new modes.
 Fresh-process crash, filesystem admission, bounded managed-file reclamation,
-password/biometric handling, UI and worker integration remain unqualified.
+application password/biometric handling, UI and worker integration remain
+unqualified except for the selected native boundaries described below.
 
 A bounded maintenance blob is now implemented for the future dedicated
 managed-encrypted maintenance space. Two fixed log banks stage at most 64 KiB;
@@ -137,9 +138,46 @@ PID markers, successful kill requests and exit `-9` were observed for both cuts.
 
 This is a private macOS fixture, not the application compaction controller,
 the original damaged-phone scenario, a power-loss test or a multi-process
-managed-directory lease test. The probe serializes its own files; admission
-and an identity lease across source-close/prepare still need implementation
+managed-directory admission test. The probe serializes its own files; admission
+and a production owner enforcing the identity lease still need implementation
 before a mode can be enabled. No existing container or onboarding choice changed.
+
+The native `ManagedKeybox` port now initializes role and 64 random internal
+password bytes in one transaction. User-password-derived outer keys remain
+those of the keybox; the actual user password is not persisted by this port.
+Owned secret copies and the port's buffers are wiped at the defined close/
+failure boundaries. A caller must retain copies until async native work settles
+and then wipe them. Internal content and maintenance passwords are separate
+32-byte CSPRNG values, not user-derived weak passwords or a plaintext key file.
+
+Initialization requires the native bootstrap sequence **1** and refuses
+already-written spaces. An earlier prototype incorrectly expected zero; the
+published native test exposed that mistake before integration. A missing/wrong
+role or unreadable keybox never invokes initialization as a fallback. The
+native fresh-space test is not directory admission: creation ownership must
+still be established by the future file owner. The port accepts already-opened
+HV handles, chooses no KDF preset, and cannot replace the requirement that the
+future user-password owner select the existing HEAVY preset. Tests use MIN
+only for synthetic fixtures.
+
+Five native keybox cases pass: password and pre-derived-key reopen with exact
+secret preservation, caller-buffer ownership and at-rest ciphertext checks;
+wrong password/keys/owner without replacement or a leaked lock; refusal to
+adopt existing data/wrong roles; and atomic role+secret initialization when a
+commit response is lost before or after the native write. Existing written
+spaces retain their original data. No real container or OS vault was used.
+
+The compaction fixture now uses all three files with actual keybox-generated
+internal passwords. The child opens its keybox by password and retains that
+lock while content is closed/prepared/published. At both kill barriers a second
+process's key-based open returns `Busy`; after SIGKILL, key-based cold-open
+works, supplies the original internal passwords, and the previous logical
+anchor and exact fixture records remain valid. All six native cases pass on
+the signed published macOS arm64 library. This verifies the keybox boundary
+needed for biometric entry, not an actual OS biometric prompt or a connected
+application backend. Filesystem/catalog admission, worker ownership, actual
+mode selection, password rotation, erase and platform qualification remain
+unfinished; these ports are not selectable in the application yet.
 
 ## Implementation boundaries
 
