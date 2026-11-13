@@ -8,11 +8,25 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.100] - 2026-11-13
+
 ### Fixed
 
 - Keep a slow network notification for one online identity from delaying other
   identities' later handovers. Share OS observations while preserving independent
   bounded retries and safe retirement of each node's admitted notification.
+
+### Dependencies
+
+- Keep Veil 0.11.51, hidden-volume 2.7.2 and the verified
+  `engine-2026.11.12.2` media engines.
+
+### Known limits
+
+- The original ongoing-call network-handover interruption remains under
+  investigation. This fix removes a confirmed delay between independent online
+  identities; it does not establish the cause of the single-identity report.
+- Other qualification limits from 0.13.99 remain unchanged.
 
 ## [0.13.99] - 2026-11-12
 
