@@ -2,8 +2,11 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:sqlite3/sqlite3.dart';
+
+import '../../domain/storage_protection.dart';
 
 @Native<Int Function(Pointer<Void>, Pointer<Uint8>, Int)>(
   symbol: 'sqlite3_key',
@@ -31,8 +34,23 @@ final class ManagedSqliteFailure implements Exception {
 /// Call on a storage worker. Parent-directory ownership, persistence schema,
 /// durable commits and the password KDF belong to the managed-store adapter.
 final class ManagedSqliteConnection {
-  ManagedSqliteConnection._(this._database);
+  ManagedSqliteConnection._(this._database, this.protection, this._keyDigest);
   Database? _database;
+  final StorageProtection protection;
+  final Uint8List? _keyDigest;
+
+  /// Bind exported credentials to the key actually used by this connection,
+  /// without retaining another plaintext encryption key buffer.
+  bool keyedBy(Uint8List key) {
+    final expected = _keyDigest;
+    if (expected == null || _database == null || key.length != 32) return false;
+    final actual = sha256.convert(key).bytes;
+    var difference = 0;
+    for (var i = 0; i < expected.length; i++) {
+      difference |= expected[i] ^ actual[i];
+    }
+    return difference == 0;
+  }
 
   static ManagedSqliteConnection openEncrypted(
     String path, {
@@ -120,7 +138,13 @@ final class ManagedSqliteConnection {
       // Keying is lazy: only an actual schema read authenticates an existing
       // encrypted database. A successful sqlite3_key alone proves nothing.
       database.select('SELECT count(*) FROM sqlite_master');
-      return ManagedSqliteConnection._(database);
+      return ManagedSqliteConnection._(
+        database,
+        key == null
+            ? StorageProtection.unencrypted
+            : StorageProtection.encrypted,
+        key == null ? null : Uint8List.fromList(sha256.convert(key).bytes),
+      );
     } catch (error) {
       database?.close();
       if (error is ManagedSqliteFailure) rethrow;
@@ -155,6 +179,10 @@ final class ManagedSqliteConnection {
     final database = _database;
     if (database == null) return;
     _database = null;
-    database.close();
+    try {
+      database.close();
+    } finally {
+      _keyDigest?.fillRange(0, _keyDigest.length, 0);
+    }
   }
 }
