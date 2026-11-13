@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';
+import 'native_handle_close.dart';
 import 'rollback_anchor.dart';
 import 'multi_space_store.dart';
 import 'package:xveil/core/log.dart';
@@ -159,8 +160,9 @@ class HvKvLogStore
     _space.acknowledgeHardeningError();
   }
 
+  late final _nativeClose = NativeHandleClose(_space.close);
   @override
-  void close() => _space.close();
+  void close() => _nativeClose.close();
 }
 
 /// Builds a real [SpaceOpener] over a hidden-volume container file at [path].
@@ -376,6 +378,7 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
   @override
   void vacuumOrphans(int id) => _multi.vacuumSpace(id);
 
+  late final _nativeClose = NativeHandleClose(_multi.close);
   @override
-  void close() => _multi.close();
+  void close() => _nativeClose.close();
 }

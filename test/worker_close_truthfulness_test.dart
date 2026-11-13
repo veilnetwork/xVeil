@@ -476,6 +476,7 @@ void _stubWorkerEntry(List<Object> args) {
   // The close's reply port, kept for the tests that make the worker settle
   // AFTER the caller has already been told the close timed out.
   SendPort? pendingClose;
+  var pendingMulti = false;
   rx.listen((dynamic msg) {
     // `reply` is a public field on the (library-private) request classes, so it
     // is reachable dynamically without importing them.
@@ -487,7 +488,11 @@ void _stubWorkerEntry(List<Object> args) {
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
         case 'answer-close':
-          pendingClose?.send(WorkerKvLogStore.debugSuccessReply());
+          pendingClose?.send(
+            pendingMulti
+                ? WorkerMultiSpaceBacking.debugSuccessReply()
+                : WorkerKvLogStore.debugSuccessReply(),
+          );
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);
       }
@@ -496,6 +501,7 @@ void _stubWorkerEntry(List<Object> args) {
     if (msg.runtimeType.toString().contains('Close')) {
       events.send('close-requested');
       pendingClose = reply;
+      pendingMulti = msg.runtimeType.toString().startsWith('_M');
       if (dieOnClose) {
         // A worker that faults on the way out: quietly gone, no reply ever.
         rx.close();
@@ -507,11 +513,18 @@ void _stubWorkerEntry(List<Object> args) {
       // real worker answers exactly this, and it used to be read as success.
       reply.send(
         failClose
-            ? WorkerKvLogStore.debugFailureReply(
-                'Internal',
-                'the container refused to close',
-              )
-            : WorkerKvLogStore.debugSuccessReply(),
+            ? (pendingMulti
+                  ? WorkerMultiSpaceBacking.debugFailureReply(
+                      'Internal',
+                      'the container refused to close',
+                    )
+                  : WorkerKvLogStore.debugFailureReply(
+                      'Internal',
+                      'the container refused to close',
+                    ))
+            : (pendingMulti
+                  ? WorkerMultiSpaceBacking.debugSuccessReply()
+                  : WorkerKvLogStore.debugSuccessReply()),
       );
       if (!failClose) {
         rx.close();
