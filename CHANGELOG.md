@@ -8,11 +8,24 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.101] - 2026-11-13
+
 ### Fixed
 
 - Keep endpoint binds from blocking the Dart event loop while local IPC is
   pending. Preserve native errors, callback ownership and app-handle cleanup,
   including a bind completing after its parent client closes.
+
+### Dependencies
+
+- Use Veil 0.11.52. Keep hidden-volume 2.7.2 and the verified
+  `engine-2026.11.12.2` media engines; container and wire formats are unchanged.
+
+### Known limits
+
+- The ongoing-call network-handover interruption remains under investigation.
+  Moving binds off the UI isolate does not establish its cause or prove that
+  mobile audio recovery has improved. Other limits from 0.13.100 remain.
 
 ## [0.13.100] - 2026-11-13
 
