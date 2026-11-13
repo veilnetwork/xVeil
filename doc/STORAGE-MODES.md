@@ -53,6 +53,33 @@ password derivation, durable schema, reclamation and application integration
 remain unfinished. Together with the five catalog checks, nine focused tests
 pass. Neither the existing onboarding default nor existing stores are changed.
 
+The plaintext KV/log adapter now keeps payload mutations, the commit sequence
+and a bounded 1024-entry branch-root history in one transaction. It selects
+`synchronous=EXTRA`, rollback journals, secure deletion and full auto-vacuum.
+Namespace erasure does not load the whole history into Dart. Six host cases
+cover connection reopen, failed COMMIT rollback, bounded growth under 64
+rewrites of a fixed 2 MiB log set, shrink after deletion with a sibling file
+unchanged, fork/history retention, locator mismatch and encrypted rejection.
+
+**The encrypted SQLite prototype was rejected before application integration.**
+A native qualification replayed an old data page while leaving fresh metadata
+and commit roots intact: the experimental store accepted the old reservation
+under the new anchor. The first probe failed on a PRAGMA result type and was
+not counted; after correcting the probe it failed on the intended old-value
+assertion. The current test retains a native negative control demonstrating
+that page replay remains possible and checks that `PlainSqliteKvLogStore`
+refuses an encrypted connection. Passing this guard does not mean SQLCipher
+page replay was fixed. No released application selected this prototype.
+
+Ordinary encrypted identities will therefore retain hidden-volume's existing
+authenticated-state foundation, separately owned per visible identity. The
+SQLite adapter is limited to explicitly unencrypted storage, where hostile
+filesystem access already exposes the identity secrets. The SQLCipher
+connection remains an isolated evaluation primitive, not an encrypted identity
+adapter. Remove unused experimental packaging before shipping the new modes.
+Fresh-process crash, filesystem admission, bounded managed-file reclamation,
+password/biometric handling, UI and worker integration remain unqualified.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
@@ -62,16 +89,15 @@ pass. Neither the existing onboarding default nor existing stores are changed.
    protection mode. Keys, passwords, public network addresses and decrypted
    display names remain outside it. Hidden-space availability is not inferred
    from this catalog; the hidden-unlock action remains independently available.
-3. Evaluate SQLite for managed KV/log persistence, with authenticated database
-   encryption for the encrypted mode and actual plaintext for the unencrypted
-   mode. Existing domain storage can remain above `AsyncKvLogStore`; a new
-   backend must preserve atomic multi-operation commits and commit anchors.
-   The isolated connection probe has a pinned database dependency; no new KDF
-   dependency or application adapter has been enabled.
-4. Use reviewed encryption and a bounded memory-hard password KDF. Verify the
-   packaged cipher provider before encrypted creation; a missing provider must
-   fail closed. SQLCipher raw-key semantics require an actual database read
-   to authenticate opening, not merely a successful `PRAGMA key` statement.
+3. Use the existing authenticated-state engine for encrypted identities, one
+   independently owned file each. Preserve its Merkle/rollback and ratchet
+   guarantees. Evaluate SQLite only for genuinely unencrypted identity data;
+   page authentication plus a command hash chain is insufficient for encrypted
+   ratchet-state freshness. Neither backend is enabled in the application yet.
+4. Reuse reviewed encryption and bounded memory-hard password derivation for
+   encrypted identities. Managed-file reclamation must also work when a user
+   entered using biometric pre-derived keys rather than a password; it must
+   not guess that unknown spaces belong to the active identity.
 5. Run database operations, KDF and reclamation off the UI isolate. Do not
    weaken delivery ACK, authorization-floor, ratchet or teardown barriers to
    improve storage speed. Measure steady-state growth with repeated overwrite
