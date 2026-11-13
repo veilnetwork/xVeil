@@ -19,8 +19,9 @@ class HelpLabel extends StatelessWidget {
         onPressed: () => showDialog<void>(
           context: context,
           builder: (dialog) => AlertDialog(
+            scrollable: true,
             title: Text(title),
-            content: SingleChildScrollView(child: Text(help)),
+            content: Text(help),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialog),

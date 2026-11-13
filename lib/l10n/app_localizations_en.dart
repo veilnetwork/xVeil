@@ -4132,7 +4132,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get decoySubtitle =>
-      'A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.';
+      'A separate password that opens only the identities you select below.';
 
   @override
   String get decoyWarning =>
@@ -4155,7 +4155,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get decoyClash =>
-      'That password is already in use — choose a different one.';
+      'Could not create the duress master. Try again or choose a different password.';
 
   @override
   String get languageSystem => 'System default';
@@ -8182,4 +8182,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get identityEraseReviewConfirm => 'Delete everything in this identity';
+
+  @override
+  String get decoyStorageTitle => 'Sign-in and storage';
+
+  @override
+  String get decoyStorageHint =>
+      'To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it.';
 }
