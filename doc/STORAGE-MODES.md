@@ -31,8 +31,9 @@ default. Hidden-volume also reuses retired slots under its churn rules
 necessary definition of hidden storage. A snapshot cannot, however, safely
 attribute every unknown chunk to garbage: another hidden identity may own it.
 
-The new `StorageProtection` contract and managed catalog are a foundation only:
-they are not yet connected to onboarding, unlock or the persistence adapters.
+The new `StorageProtection` contract and managed catalog are not yet connected
+to production onboarding/unlock. Experimental persistence ports now exist,
+as qualified below; the application still selects the legacy backend.
 The catalog rejects hidden entries, credentials, network identifiers, unknown
 fields, duplicate locators and paths outside a strict local ID format. It
 does not silently replace malformed existing metadata with an empty catalog.
@@ -178,6 +179,62 @@ needed for biometric entry, not an actual OS biometric prompt or a connected
 application backend. Filesystem/catalog admission, worker ownership, actual
 mode selection, password rotation, erase and platform qualification remain
 unfinished; these ports are not selectable in the application yet.
+
+`ManagedEncryptedKvLogStore` now implements the actual `KvLogStore`, logical
+commit-anchor and grouped-log-read ports over owned keybox/content/maintenance
+handles. It returns stable **outer** keys, validates encrypted role/checkpoint
+state and durably settles PREPARED metadata before returning an application
+handle. It does not discover/open paths or prove directory admission; callers
+must open the inner files with the keybox's internal passwords and transfer
+exclusive ownership. Production worker/bootstrap selection is still pending.
+
+All app operations target content. Namespaces 254/255 are reserved; the entire
+batch is checked before a native mutation. App-data erase therefore keeps the
+backend role/checkpoint records rather than making the remaining file look
+uninitialized. Full identity/directory deletion is a separate unfinished owner
+operation. Slot occupancy and hardening warnings include all three files.
+A close attempts every owned handle, blocks new I/O immediately, reports an
+error if one close fails and allows retrying the remaining handle.
+
+Eight native adapter cases and the existing native compaction/blob crash cases
+pass together: **10 PASS, no skips** on macOS. The selected checks cover:
+
+- KV/log/grouped reads, durable cold reopen, logical commit results, stable
+  outer keys and aggregate occupancy/warning routing.
+- Reserved namespace protection, all-or-nothing rejection, malformed/wrong
+  owner state preserved without reset, and recovery with a lost response.
+- A controlled close failure leaving the content lock until retry while the
+  other handles close; blocked app I/O during that interval.
+- The current schema's 8 live base namespaces + 86 log shards + 1 role root
+  fit the native limit of 95. Adding the retired namespace 3 at that ceiling
+  fails atomically. Explicit migration must rebuild retired layouts as needed;
+  blindly copying every historical namespace is not qualified.
+- Real `HiddenVolumeStorage` profile/message operations, a 17,000-byte native
+  attachment, chunked outbox and opaque synthetic ratchet-state persistence.
+  Wrong password/outer keys return failure. A foreign peer's ACK does not
+  retire the frame; the intended peer's ACK does. This is not a real ratchet
+  handshake or a network-delivery test.
+- Erasing one identity leaves its application data absent on cold reopen and
+  preserves its backend roles. A second identity retains its profile, message,
+  attachment, outbox and ratchet bytes; its three native files are byte-for-byte
+  unchanged by the first identity's erase. External blob-tier ownership and
+  actual filesystem cleanup are not exercised by this internal attachment.
+- After two actual compaction SIGKILL cuts, the new adapter itself resolves
+  the prepared state, recognizes the previous host root, writes new data and
+  cold-opens by the original outer keys. The blob case adds three actual
+  SIGKILL boundaries. Writer PIDs, kill results and terminal statuses were
+  observed. The earlier shared run exposed an empty-marker race in the test
+  harness; markers now publish by flushed temporary file + atomic rename.
+  That failing run was not credited as adapter/crash qualification.
+
+Focused analysis of seven changed files is clean. The same signed published
+hidden-volume 2.7.2 macOS arm64 asset was selected and its SHA rechecked; no
+native source, ABI or release pin changed. All fixtures/processes are disposable
+and contain no user data. This port is a working domain-storage boundary, not
+a completed three-mode feature: production filesystem/catalog admission,
+worker open/close, automatic reclamation, all-online routing, mode/unlock UI,
+biometric-vault scope, password rotation, recovery and erase still need wiring
+and platform qualification. Existing containers are not converted.
 
 ## Implementation boundaries
 

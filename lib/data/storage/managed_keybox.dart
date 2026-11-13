@@ -119,6 +119,21 @@ final class ManagedKeybox {
     return _store.exportKeys();
   }
 
+  SlotUtilization? slotUtilization() {
+    _requireOpen();
+    return _store.slotUtilization();
+  }
+
+  String? hardeningWarning() {
+    _requireOpen();
+    return _store.hardeningWarning();
+  }
+
+  void acknowledgeHardeningWarning() {
+    _requireOpen();
+    _store.acknowledgeHardeningWarning();
+  }
+
   void close() {
     if (_closed) return;
     _closing = true;
