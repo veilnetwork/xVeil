@@ -14,7 +14,6 @@ Uint8List bytes(String s) => Uint8List.fromList(utf8.encode(s));
 void main() {
   late Directory temp;
   final keys = Uint8List.fromList(List.generate(64, (i) => i + 1));
-  final salt = Uint8List.fromList(List.generate(16, (i) => i + 97));
   final live = <PlainSqliteKvLogStore>[];
 
   PlainSqliteKvLogStore open(String name, {bool create = false}) {
@@ -180,20 +179,4 @@ void main() {
     final reopened = open('identity');
     expect(reopened.get(1, bytes('profile')), bytes('preserved'));
   });
-
-  test(
-    'the plaintext adapter refuses an encrypted connection before initialization',
-    () {
-      final connection = ManagedSqliteConnection.openEncrypted(
-        '${temp.path}/cipher',
-        key: Uint8List.sublistView(keys, 0, 32),
-        salt: salt,
-        create: true,
-      );
-      expect(
-        () => PlainSqliteKvLogStore(connection, keys: keys, initialize: true),
-        throwsUnsupportedError,
-      );
-    },
-  );
 }

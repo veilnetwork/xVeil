@@ -116,11 +116,22 @@ final class ManagedIdentityLayout {
 
   final Directory _root;
 
+  String get catalogPath =>
+      File.fromUri(_root.uri.resolve('identities/catalog.sqlite3')).path;
+
   String directory(ManagedIdentityId id) =>
       Directory.fromUri(_root.uri.resolve('identities/${id.value}/')).path;
 
-  String dataPath(ManagedIdentityId id) =>
-      File.fromUri(Directory(directory(id)).uri.resolve('data.store')).path;
+  /// Plaintext identities use a single SQLite database. Encrypted identities
+  /// instead own the three role-bound files below; no mode is inferred by
+  /// trying these paths after an unlock fails.
+  String dataPath(ManagedIdentityId id) => _file(id, 'data.store');
+  String keyboxPath(ManagedIdentityId id) => _file(id, 'keybox.hv');
+  String contentPath(ManagedIdentityId id) => _file(id, 'content.hv');
+  String maintenancePath(ManagedIdentityId id) => _file(id, 'maintenance.hv');
+
+  String _file(ManagedIdentityId id, String name) =>
+      File.fromUri(Directory(directory(id)).uri.resolve(name)).path;
 
   String blobDirectory(ManagedIdentityId id) =>
       Directory.fromUri(Directory(directory(id)).uri.resolve('blobs/')).path;

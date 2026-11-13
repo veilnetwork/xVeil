@@ -14,65 +14,93 @@ void main() {
   setUp(() => temp = Directory.systemTemp.createTempSync('managed-sqlite-'));
   tearDown(() => temp.deleteSync(recursive: true));
 
-  test('native cipher reopens the exact value; disk contains no plaintext', () {
-    final path = '${temp.path}/encrypted.store';
-    final created = ManagedSqliteConnection.openEncrypted(
-      path,
-      key: key,
-      salt: salt,
-      create: true,
+  Matcher getUnsupportedProtection() => isA<ManagedSqliteFailure>().having(
+    (error) => error.kind,
+    'kind',
+    ManagedSqliteFailureKind.unsupportedProtection,
+  );
+
+  test('encrypted requests never create or modify a database', () {
+    final absent = '${temp.path}/must-not-exist';
+    expect(
+      () => ManagedSqliteConnection.openEncrypted(
+        absent,
+        key: key,
+        salt: salt,
+        create: true,
+      ),
+      throwsA(getUnsupportedProtection()),
     );
-    try {
-      created.use((db) {
-        db.execute('CREATE TABLE fixture (value TEXT NOT NULL)');
-        db.execute('INSERT INTO fixture VALUES (?)', [marker]);
-      });
-    } finally {
-      created.close();
-    }
+    expect(FileSystemEntity.typeSync(absent), FileSystemEntityType.notFound);
+
+    final path = '${temp.path}/plain.store';
+    final created = ManagedSqliteConnection.openUnencrypted(path, create: true);
+    created.use((db) {
+      db.execute('CREATE TABLE fixture (value TEXT NOT NULL)');
+      db.execute('INSERT INTO fixture VALUES (?)', [marker]);
+    });
+    created.close();
     final snapshot = File(path).readAsBytesSync();
-    expect(snapshot.sublist(0, 16), salt);
-    expect(latin1.decode(snapshot).contains(marker), isFalse);
-    final opened = ManagedSqliteConnection.openEncrypted(
-      path,
-      key: key,
-      salt: salt,
-    );
+    for (final create in [false, true]) {
+      expect(
+        () => ManagedSqliteConnection.openEncrypted(
+          path,
+          key: key,
+          salt: salt,
+          create: create,
+        ),
+        throwsA(getUnsupportedProtection()),
+      );
+      expect(File(path).readAsBytesSync(), snapshot);
+    }
+    final reopened = ManagedSqliteConnection.openUnencrypted(path);
     try {
       expect(
-        opened.use(
+        reopened.use(
           (db) => db.select('SELECT value FROM fixture').single['value'],
         ),
         marker,
       );
     } finally {
-      opened.close();
+      reopened.close();
     }
   });
 
-  test('wrong key and wrong mode preserve the encrypted file unchanged', () {
-    final path = '${temp.path}/encrypted.store';
-    final created = ManagedSqliteConnection.openEncrypted(
-      path,
-      key: key,
-      salt: salt,
-      create: true,
-    );
+  test('create refuses existing files, directories and symbolic links', () {
+    final path = '${temp.path}/existing.store';
+    final created = ManagedSqliteConnection.openUnencrypted(path, create: true);
     created.use((db) => db.execute('CREATE TABLE fixture (value TEXT)'));
     created.close();
     final snapshot = File(path).readAsBytesSync();
-    for (final open in [
-      () => ManagedSqliteConnection.openEncrypted(
-        path,
-        key: Uint8List(32),
-        salt: salt,
-      ),
-      () => ManagedSqliteConnection.openUnencrypted(path),
-      () => ManagedSqliteConnection.openUnencrypted(path, create: true),
-    ]) {
-      expect(open, throwsA(isA<ManagedSqliteFailure>()));
-      expect(File(path).readAsBytesSync(), snapshot);
+    final directory = Directory('${temp.path}/directory')..createSync();
+    final link = Link('${temp.path}/link')..createSync(path);
+    final dangling = Link('${temp.path}/dangling')
+      ..createSync('${temp.path}/absent');
+    for (final target in [path, directory.path, link.path, dangling.path]) {
+      expect(
+        () => ManagedSqliteConnection.openUnencrypted(target, create: true),
+        throwsA(isA<ManagedSqliteFailure>()),
+      );
     }
+    for (final target in [directory.path, link.path, dangling.path]) {
+      expect(
+        () => ManagedSqliteConnection.openUnencrypted(target),
+        throwsA(isA<ManagedSqliteFailure>()),
+      );
+    }
+    expect(File(path).readAsBytesSync(), snapshot);
+    expect(link.targetSync(), path);
+    expect(dangling.targetSync(), '${temp.path}/absent');
+    expect(File('${temp.path}/absent').existsSync(), isFalse);
+  });
+
+  test('open without create never recreates a missing database', () {
+    final path = '${temp.path}/missing';
+    expect(
+      () => ManagedSqliteConnection.openUnencrypted(path),
+      throwsA(isA<ManagedSqliteFailure>()),
+    );
+    expect(File(path).existsSync(), isFalse);
   });
 
   test('unencrypted is genuinely plaintext and is reopened explicitly', () {

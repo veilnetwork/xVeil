@@ -1,26 +1,19 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/managed_sqlite_connection.dart';
-import 'package:xveil/data/storage/plain_sqlite_kv_log_store.dart';
 
-// Negative control: SQLCipher page authentication is NOT replay protection.
+// Boundary of explicit plaintext storage: hostile filesystem page edits are
+// not authenticated. Historical SQLCipher replay evidence is documented in
+// STORAGE-MODES.md; this ordinary SQLite case does not requalify that engine.
 void main() {
   test(
-    'native page replay remains possible; encrypted identity use is refused',
+    'plaintext storage does not claim authenticated protection from page replay',
     () {
       final dir = Directory.systemTemp.createTempSync('managed-replay-probe-');
       final path = '${dir.path}/identity';
-      final keys = Uint8List.fromList(List.generate(64, (i) => i + 1));
-      final salt = Uint8List.fromList(List.generate(16, (i) => i + 97));
       ManagedSqliteConnection open({bool create = false}) =>
-          ManagedSqliteConnection.openEncrypted(
-            path,
-            key: Uint8List.sublistView(keys, 0, 32),
-            salt: salt,
-            create: create,
-          );
+          ManagedSqliteConnection.openUnencrypted(path, create: create);
       ManagedSqliteConnection? connection;
       try {
         connection = open(create: true);
@@ -68,13 +61,6 @@ void main() {
             1,
           );
         });
-        final beforeRejection = File(path).readAsBytesSync();
-        final owned = connection;
-        expect(
-          () => PlainSqliteKvLogStore(owned, keys: keys),
-          throwsUnsupportedError,
-        );
-        expect(File(path).readAsBytesSync(), beforeRejection);
       } finally {
         connection?.close();
         dir.deleteSync(recursive: true);

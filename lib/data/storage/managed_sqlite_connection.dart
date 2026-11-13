@@ -1,24 +1,11 @@
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
-import 'package:ffi/ffi.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../../domain/storage_protection.dart';
 
-@Native<Int Function(Pointer<Void>, Pointer<Uint8>, Int)>(
-  symbol: 'sqlite3_key',
-  assetId: 'package:sqlite3/src/ffi/libsqlite3.g.dart',
-)
-external int _setCipherKey(
-  Pointer<Void> database,
-  Pointer<Uint8> key,
-  int length,
-);
-
-enum ManagedSqliteFailureKind { unavailableCipher, open, operation, closed }
+enum ManagedSqliteFailureKind { unsupportedProtection, open, operation, closed }
 
 /// Deliberately excludes SQL text, parameters, paths and native error messages.
 final class ManagedSqliteFailure implements Exception {
@@ -30,59 +17,25 @@ final class ManagedSqliteFailure implements Exception {
   String toString() => 'ManagedSqliteFailure(${kind.name}, $sqliteCode)';
 }
 
-/// Low-level experimental connection, not yet wired into application storage.
-/// Call on a storage worker. Parent-directory ownership, persistence schema,
-/// durable commits and the password KDF belong to the managed-store adapter.
+/// Plaintext-only connection for explicitly enumerable, unencrypted stores.
+/// Call on a storage worker. The caller must admit and exclusively own the
+/// containing directory; leaf checks below do not prevent ancestor/rename races.
 final class ManagedSqliteConnection {
-  ManagedSqliteConnection._(this._database, this.protection, this._keyDigest);
+  ManagedSqliteConnection._(this._database);
   Database? _database;
-  final StorageProtection protection;
-  final Uint8List? _keyDigest;
+  StorageProtection get protection => StorageProtection.unencrypted;
 
-  /// Bind exported credentials to the key actually used by this connection,
-  /// without retaining another plaintext encryption key buffer.
-  bool keyedBy(Uint8List key) {
-    final expected = _keyDigest;
-    if (expected == null || _database == null || key.length != 32) return false;
-    final actual = sha256.convert(key).bytes;
-    var difference = 0;
-    for (var i = 0; i < expected.length; i++) {
-      difference |= expected[i] ^ actual[i];
-    }
-    return difference == 0;
-  }
-
-  static ManagedSqliteConnection openEncrypted(
+  /// Deliberate architectural rejection, independent of the native provider.
+  /// Authenticated pages alone did not protect encrypted ratchet state from
+  /// page replay. Never create a file or try plaintext as an unlock fallback.
+  static Never openEncrypted(
     String path, {
     required Uint8List key,
     required Uint8List salt,
     bool create = false,
-  }) {
-    if (key.length != 32 || salt.length != 16) {
-      throw ArgumentError('Expected a 32-byte key and 16-byte salt');
-    }
-    // Check an in-memory connection first. No on-disk file may be created if
-    // the packaged provider lacks encryption; never fall back to plain SQLite.
-    Database? probe;
-    try {
-      probe = sqlite3.openInMemory();
-      final version = probe.select('PRAGMA cipher_version');
-      if (version.isEmpty ||
-          version.first.values.first is! String ||
-          (version.first.values.first as String).isEmpty) {
-        throw const ManagedSqliteFailure(
-          ManagedSqliteFailureKind.unavailableCipher,
-        );
-      }
-    } catch (_) {
-      throw const ManagedSqliteFailure(
-        ManagedSqliteFailureKind.unavailableCipher,
-      );
-    } finally {
-      probe?.close();
-    }
-    return _open(path, create: create, key: key, salt: salt);
-  }
+  }) => throw const ManagedSqliteFailure(
+    ManagedSqliteFailureKind.unsupportedProtection,
+  );
 
   /// Actual plaintext storage, explicitly selected; never an unlock fallback.
   static ManagedSqliteConnection openUnencrypted(
@@ -90,12 +43,7 @@ final class ManagedSqliteConnection {
     bool create = false,
   }) => _open(path, create: create);
 
-  static ManagedSqliteConnection _open(
-    String path, {
-    required bool create,
-    Uint8List? key,
-    Uint8List? salt,
-  }) {
+  static ManagedSqliteConnection _open(String path, {required bool create}) {
     Database? database;
     try {
       final type = FileSystemEntity.typeSync(path, followLinks: false);
@@ -103,48 +51,14 @@ final class ManagedSqliteConnection {
           (!create && type != FileSystemEntityType.file)) {
         throw const ManagedSqliteFailure(ManagedSqliteFailureKind.open);
       }
-      database = sqlite3.open(
-        path,
-        mode: create ? OpenMode.readWriteCreate : OpenMode.readWrite,
-      );
-      if (key != null) {
-        // Use the C API, not a SQL statement containing the raw key. Native
-        // SQLite errors and query traces must never receive a key-bearing SQL
-        // string. SQLCipher's documented x'<key><salt>' form is 99 bytes.
-        final buffer = calloc<Uint8>(100);
-        try {
-          final bytes = buffer.asTypedList(100);
-          bytes[0] = 0x78;
-          bytes[1] = 0x27;
-          var offset = 2;
-          for (final source in [key, salt!]) {
-            for (final value in source) {
-              final hi = value >> 4;
-              final lo = value & 15;
-              bytes[offset++] = hi < 10 ? 48 + hi : 87 + hi;
-              bytes[offset++] = lo < 10 ? 48 + lo : 87 + lo;
-            }
-          }
-          bytes[98] = 0x27;
-          if (_setCipherKey(database.handle.cast<Void>(), buffer, 99) != 0) {
-            throw const ManagedSqliteFailure(ManagedSqliteFailureKind.open);
-          }
-        } finally {
-          buffer.asTypedList(100).fillRange(0, 100, 0);
-          calloc.free(buffer);
-        }
-        database.execute('PRAGMA cipher_memory_security = ON');
-      }
-      // Keying is lazy: only an actual schema read authenticates an existing
-      // encrypted database. A successful sqlite3_key alone proves nothing.
+      // Reserve the leaf with O_EXCL (or its platform equivalent). SQLite's
+      // CREATE flag would otherwise adopt a file created after the check above.
+      // No cleanup on failure: a separate path owner must decide whether this
+      // still names its own stub before deleting it.
+      if (create) File(path).createSync(exclusive: true);
+      database = sqlite3.open(path, mode: OpenMode.readWrite);
       database.select('SELECT count(*) FROM sqlite_master');
-      return ManagedSqliteConnection._(
-        database,
-        key == null
-            ? StorageProtection.unencrypted
-            : StorageProtection.encrypted,
-        key == null ? null : Uint8List.fromList(sha256.convert(key).bytes),
-      );
+      return ManagedSqliteConnection._(database);
     } catch (error) {
       database?.close();
       if (error is ManagedSqliteFailure) rethrow;
@@ -154,8 +68,7 @@ final class ManagedSqliteConnection {
           sqliteCode: error.resultCode,
         );
       }
-      // In particular, a missing native cipher symbol must not expose loader
-      // paths or cause an attempt to reopen this file without encryption.
+      // Do not expose filesystem, native loader or database error text.
       throw const ManagedSqliteFailure(ManagedSqliteFailureKind.open);
     }
   }
@@ -179,10 +92,6 @@ final class ManagedSqliteConnection {
     final database = _database;
     if (database == null) return;
     _database = null;
-    try {
-      database.close();
-    } finally {
-      _keyDigest?.fillRange(0, _keyDigest.length, 0);
-    }
+    database.close();
   }
 }

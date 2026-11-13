@@ -39,48 +39,53 @@ fields, duplicate locators and paths outside a strict local ID format. It
 does not silently replace malformed existing metadata with an empty catalog.
 The pure layout does not claim to solve filesystem symlink races.
 
-An isolated native connection prototype now uses `sqlite3` **3.5.2** with its
-SQLCipher hook. The current Flutter SDK pins a dependency that prevents using
-3.7.1; no SDK constraint was overridden. The actual macOS arm64 asset matches
+The plaintext-only connection now uses `sqlite3` **3.5.2** with the ordinary
+SQLite hook. The current Flutter SDK pins a dependency that prevents using
+3.7.1; no SDK constraint was overridden. The selected macOS arm64 asset matches
 the package-pinned SHA-256 and passed GitHub attestation verification against
-the upstream repository. This does not qualify the engine on other platforms.
+the upstream repository. Flutter and Dart rewrite install names and ad-hoc
+sign the library on macOS. Both actually loaded copies were independently
+reconstructed from the verified download with those transformations and matched
+byte for byte. This does not qualify the engine on other platforms.
+The SQLCipher hook, C keying symbol and key-digest code were removed. Requests
+to open encrypted storage through this connection fail before filesystem I/O;
+there is no fallback to plaintext.
 
-Four native tests cover encrypted readback without plaintext in the database,
-wrong-key/wrong-mode attempts preserving the encrypted file, actual plaintext
-readback, and errors omitting SQL, bound values and local paths. Keying uses
-`sqlite3_key` with a wiped native buffer rather than SQL containing the raw key.
-The key is followed by an actual database read. These tests use fixture keys;
-password derivation, durable schema, reclamation and application integration
-remain unfinished. Together with the five catalog checks, nine focused tests
-pass. Neither the existing onboarding default nor existing stores are changed.
+New-file creation reserves the leaf exclusively, then opens it without SQLite's
+CREATE flag. Reopen never recreates a missing file. Existing files, directories
+and final-component links are refused for creation. This is not path admission:
+callers must still own the containing directory, handle unpublished stubs and
+protect against ancestor/rename races before exposing the backend.
 
-The plaintext KV/log adapter now keeps payload mutations, the commit sequence
+The plaintext KV/log adapter keeps payload mutations, the commit sequence
 and a bounded 1024-entry branch-root history in one transaction. It selects
 `synchronous=EXTRA`, rollback journals, secure deletion and full auto-vacuum.
-Namespace erasure does not load the whole history into Dart. Six host cases
+Namespace erasure does not load the whole history into Dart. Five host cases
 cover connection reopen, failed COMMIT rollback, bounded growth under 64
 rewrites of a fixed 2 MiB log set, shrink after deletion with a sibling file
-unchanged, fork/history retention, locator mismatch and encrypted rejection.
+unchanged, fork/history retention and locator mismatch. Five connection cases
+cover encrypted-request refusal without file creation or modification, explicit
+plaintext readback, creation/open boundaries and errors omitting SQL, bound
+values and paths. One further ordinary-SQLite negative control demonstrates
+that plaintext storage does not authenticate data-page replay.
 
 **The encrypted SQLite prototype was rejected before application integration.**
-A native qualification replayed an old data page while leaving fresh metadata
-and commit roots intact: the experimental store accepted the old reservation
-under the new anchor. The first probe failed on a PRAGMA result type and was
-not counted; after correcting the probe it failed on the intended old-value
-assertion. The current test retains a native negative control demonstrating
-that page replay remains possible and checks that `PlainSqliteKvLogStore`
-refuses an encrypted connection. Passing this guard does not mean SQLCipher
-page replay was fixed. No released application selected this prototype.
+A historical SQLCipher qualification replayed an old data page while leaving
+fresh metadata and commit roots intact: the experimental store accepted the
+old reservation under the new anchor. The first probe failed on a PRAGMA result
+type and was not counted; after correcting the probe it failed on the intended
+old-value assertion. That prototype and its evidence were archived before the
+provider cleanup. The current plaintext replay control is not a rerun of the
+removed cipher. Neither refusing encrypted requests nor changing the provider
+fixes SQLCipher page replay. No released application selected this prototype.
 
-Ordinary encrypted identities will therefore retain hidden-volume's existing
+Ordinary encrypted identities therefore retain hidden-volume's existing
 authenticated-state foundation, separately owned per visible identity. The
 SQLite adapter is limited to explicitly unencrypted storage, where hostile
-filesystem access already exposes the identity secrets. The SQLCipher
-connection remains an isolated evaluation primitive, not an encrypted identity
-adapter. Remove unused experimental packaging before shipping the new modes.
-Fresh-process crash, filesystem admission, bounded managed-file reclamation,
-application password/biometric handling, UI and worker integration remain
-unqualified except for the selected native boundaries described below.
+filesystem access already exposes the identity secrets. Fresh-process crash,
+filesystem admission, bounded managed-file reclamation, application
+password/biometric handling, UI and worker integration remain unqualified
+except for the selected native boundaries described below.
 
 A bounded maintenance blob is now implemented for the future dedicated
 managed-encrypted maintenance space. Two fixed log banks stage at most 64 KiB;
@@ -236,6 +241,45 @@ worker open/close, automatic reclamation, all-online routing, mode/unlock UI,
 biometric-vault scope, password rotation, recovery and erase still need wiring
 and platform qualification. Existing containers are not converted.
 
+## Public managed catalog persistence
+
+`ManagedCatalogStore` now persists the strict visible-only catalog in an owned
+ordinary-SQLite connection. Each registration reloads the current bounded
+payload under `BEGIN IMMEDIATE`, updates payload and local revision together,
+and returns after COMMIT. Independent owners do not overwrite each other's
+old snapshots. Repeating an ID/mode after a lost response is idempotent; changing
+the mode of an existing ID is rejected, never treated as a plaintext fallback.
+Contention is an explicit retryable SQLite failure, not an empty catalog.
+
+Opening verifies an exact versioned catalog schema and public application tag.
+Missing rows, corrupt/oversized JSON, hidden entries, credential fields, extra
+schema objects, future versions and non-DELETE journal modes fail closed. A
+new initializer refuses an existing catalog/schema. Invalid open consumes and
+closes its connection without resetting metadata. Public revision counters are
+not cryptographic freshness witnesses. No automatic orphan removal or deletion
+API exists at this stage.
+
+Seven host cases exercise cold reopen, exact public payload, duplicate retry,
+independent owners with stale initial snapshots, native write-lock contention,
+rejected native COMMIT, count/mode/revision bounds, corrupt metadata, foreign
+schemas and close/privacy boundaries. A further macOS native case actually
+SIGKILLs two writer process groups: once at SQLite's pre-COMMIT hook and once
+after the registration returns. Fresh processes read the complete old/new
+catalog respectively, and retrying the lost response creates no duplicate.
+This is process-crash qualification, not physical power-failure qualification.
+The layout also names the plaintext database, all three encrypted role files
+and identity-local blobs separately. A final joint run passed 32 cases with no
+skips, including the existing real encrypted domain adapter; focused analysis
+of 11 changed/affected Dart files is clean.
+
+This is still an **owned-connection port**, not production filesystem admission
+or a ready identity picker. The future owner must establish a private root,
+reserve/publish identity directories safely, refuse a missing catalog over
+existing managed directories and handle catalog/filesystem publication across
+crashes. Catalog membership never authorizes file ownership or cleanup; actual
+stores must authenticate their identity and role. Worker boot, migration,
+reclamation, password/biometric and application routing remain unfinished.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
@@ -246,7 +290,8 @@ and platform qualification. Existing containers are not converted.
    display names remain outside it. Hidden-space availability is not inferred
    from this catalog; the hidden-unlock action remains independently available.
 3. Use the existing authenticated-state engine for encrypted identities, one
-   independently owned file each. Preserve its Merkle/rollback and ratchet
+   separately owned keybox, content and maintenance files per identity.
+   Preserve its Merkle/rollback and ratchet
    guarantees. Evaluate SQLite only for genuinely unencrypted identity data;
    page authentication plus a command hash chain is insufficient for encrypted
    ratchet-state freshness. Neither backend is enabled in the application yet.

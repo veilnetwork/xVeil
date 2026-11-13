@@ -119,6 +119,29 @@ void main() {
         Directory(layout.blobDirectory(a)).uri,
         root.resolve('identities/$first/blobs/'),
       );
+      expect(
+        File(layout.catalogPath).uri,
+        root.resolve('identities/catalog.sqlite3'),
+      );
+      final owned = [
+        layout.dataPath(a),
+        layout.keyboxPath(a),
+        layout.contentPath(a),
+        layout.maintenancePath(a),
+      ];
+      expect(owned.map((path) => File(path).uri), [
+        for (final name in [
+          'data.store',
+          'keybox.hv',
+          'content.hv',
+          'maintenance.hv',
+        ])
+          root.resolve('identities/$first/$name'),
+      ]);
+      expect(owned.toSet().length, 4);
+      expect(layout.keyboxPath(a), isNot(layout.keyboxPath(b)));
+      expect(layout.contentPath(a), isNot(layout.contentPath(b)));
+      expect(layout.maintenancePath(a), isNot(layout.maintenancePath(b)));
       expect(layout.dataPath(a), isNot(layout.dataPath(b)));
     },
   );
