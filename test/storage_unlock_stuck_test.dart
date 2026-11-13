@@ -47,19 +47,24 @@ void main() {
     expect(storage.isOpen, isTrue);
   });
 
-  test('close() clears the handle even when the native close throws', () async {
-    final throwing = FakeKvLogStore();
-    throwing.onClose = () => throw StateError('native close fault');
-    final storage = HiddenVolumeStorage(
-      ({required Uint8List password, required bool create}) => throwing,
-    );
-    expect(await storage.open(password: 'pw'), isTrue);
+  test(
+    'close() blocks use on failure and retains retirement for retry',
+    () async {
+      final throwing = FakeKvLogStore();
+      throwing.onClose = () => throw StateError('native close fault');
+      final storage = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => throwing,
+      );
+      expect(await storage.open(password: 'pw'), isTrue);
 
-    // Must not throw, and must not leave a stale handle that would wedge the
-    // next open behind the flock.
-    await storage.close();
-    expect(storage.isOpen, isFalse);
-  });
+      // Failed close is not a released flock. Block ordinary use, report the
+      // error, and retain the owner so release can actually be retried.
+      await expectLater(storage.close(), throwsA(isA<StateError>()));
+      expect(storage.isOpen, isFalse);
+      throwing.onClose = null;
+      await storage.close();
+    },
+  );
 
   test('concurrent unlock() calls run the container open only once', () async {
     var opens = 0;
