@@ -15,9 +15,22 @@ final class _CatalogSelectReq extends _Req {
 }
 
 final class _CatalogEraseReq extends _Req {
-  const _CatalogEraseReq(this.entry, this.password, this.keys, super.reply);
+  const _CatalogEraseReq(
+    this.entry,
+    this.password,
+    this.keys,
+    this.review,
+    super.reply,
+  );
   final ManagedIdentityEntry entry;
   final Uint8List? password, keys;
+  final IdentityEraseReview? review;
+}
+
+final class _CatalogReviewEraseReq extends _Req {
+  const _CatalogReviewEraseReq(this.entry, this.keys, super.reply);
+  final ManagedIdentityEntry entry;
+  final Uint8List keys;
 }
 
 /// Off-UI profile owner. Enumeration/selection never opens identities or
@@ -51,17 +64,30 @@ final class ManagedCatalogWorker {
     ManagedIdentityEntry entry, {
     Uint8List? password,
     Uint8List? keys,
+    IdentityEraseReview? review,
   }) {
     final pass = password == null ? null : Uint8List.fromList(password);
     final key = keys == null ? null : Uint8List.fromList(keys);
     return _worker
         ._call<ManagedCatalogSnapshot>(
-          (reply) => _CatalogEraseReq(entry, pass, key, reply),
+          (reply) => _CatalogEraseReq(entry, pass, key, review, reply),
         )
         .whenComplete(() {
           pass?.fillRange(0, pass.length, 0);
           key?.fillRange(0, key.length, 0);
         });
+  }
+
+  Future<IdentityEraseReview> reviewErasure(
+    ManagedIdentityEntry entry,
+    Uint8List keys,
+  ) {
+    final copy = Uint8List.fromList(keys);
+    return _worker
+        ._call<IdentityEraseReview>(
+          (reply) => _CatalogReviewEraseReq(entry, copy, reply),
+        )
+        .whenComplete(() => copy.fillRange(0, copy.length, 0));
   }
 
   Future<void> close() => _worker.close();
@@ -91,6 +117,9 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
         message.password?.fillRange(0, message.password!.length, 0);
         message.keys?.fillRange(0, message.keys!.length, 0);
       }
+      if (message is _CatalogReviewEraseReq) {
+        message.keys.fillRange(0, message.keys.length, 0);
+      }
       message.reply.send(
         const _ManagedWorkerErr(ManagedWorkerFailureKind.closed),
       );
@@ -112,17 +141,28 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
           }
           message.reply.send(_Ok(owner?.select(entry) ?? absent()));
-        case _CatalogEraseReq(:final entry, :final password, :final keys):
+        case _CatalogEraseReq(
+          :final entry,
+          :final password,
+          :final keys,
+          :final review,
+        ):
           subscription.pause();
           unawaited(() async {
             try {
               final owner = current();
+              if (owner == null && review != null) {
+                throw const ManagedWorkerFailure(
+                  ManagedWorkerFailureKind.missing,
+                );
+              }
               if (owner != null) {
                 await ManagedIdentityFiles.erase(
                   owner,
                   entry: entry,
                   password: password,
                   keys: keys,
+                  review: review,
                 );
               }
               message.reply.send(_Ok(owner?.snapshot() ?? absent()));
@@ -131,6 +171,32 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
             } finally {
               password?.fillRange(0, password.length, 0);
               keys?.fillRange(0, keys.length, 0);
+              subscription.resume();
+            }
+          }());
+        case _CatalogReviewEraseReq(:final entry, :final keys):
+          subscription.pause();
+          unawaited(() async {
+            try {
+              final owner = current();
+              if (owner == null) {
+                throw const ManagedWorkerFailure(
+                  ManagedWorkerFailureKind.missing,
+                );
+              }
+              message.reply.send(
+                _Ok(
+                  await ManagedIdentityFiles.reviewErasure(
+                    owner,
+                    entry: entry,
+                    keys: keys,
+                  ),
+                ),
+              );
+            } catch (error) {
+              message.reply.send(_workerErrorReply(error, managed: true));
+            } finally {
+              keys.fillRange(0, keys.length, 0);
               subscription.resume();
             }
           }());

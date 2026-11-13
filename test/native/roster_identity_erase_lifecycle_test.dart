@@ -158,7 +158,7 @@ void main() {
             entry: parent.entry,
           );
           final held = _GatedParent(native.storage);
-          if (duringRetry) held.pauseAt = 3;
+          if (duringRetry) held.pauseAt = 4;
           gate = held;
           router = await ProfileStorageRouter.open(
             profileDirectory: profile,
@@ -192,8 +192,13 @@ void main() {
               container.read(appControllerProvider).phase,
               AppPhase.identityEraseRecovery,
             );
-            foreign.deleteSync();
-            unlocking = controller.retryIdentityErasure().then((_) {});
+            final review = await controller.reviewIdentityErasure();
+            expect(review, isNotNull);
+            expect(review!.files, 1);
+            expect(foreign.existsSync(), isTrue);
+            unlocking = controller
+                .retryIdentityErasure(review: review)
+                .then((_) {});
           } else {
             unlocking = controller.unlock('');
           }

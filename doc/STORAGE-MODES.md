@@ -954,10 +954,40 @@ A later authenticated unlock resumes any durable intent. Retry success restores
 the prior active identity/hosting policy when available. The RU/EN/ES recovery
 screen is exercised at a narrow viewport with large text.
 
-Unknown files remain preserved. Tests simulate their external repair before a
-successful retry; they do not prove an in-app way to review/export/purge those
-files. A safe explicit disposition workflow for them is still required before
-default activation.
+Ordinary retry still preserves unrecognized entries. A separate review button
+can authenticate the journaled managed target and report counts/size of its
+unrecognized regular files and directories. Review is read-only, releases the
+role lease before showing confirmation, and returns no paths or credentials to
+the UI. Confirmation explicitly authorizes irreversible deletion of those
+entries together with the selected identity; cancel performs no deletion.
+
+The storage actor keeps at most eight opaque, single-attempt consents for ten
+monotonic minutes. Each binds the exact immutable ID/mode, authenticated keys,
+root/ancestor object witnesses and the complete unknown-entry manifest (names,
+type, object identity, file length and modification time). A newer review of
+the same target invalidates the old one. Confirmation reacquires the role lease,
+authenticates again and compares a full fresh manifest before its first
+mutation. A changed directory or restarted actor requires another review.
+The parent deletion intent is durable before any confirmed removal, including
+when the original intent write had failed. Lock cannot publish a late session;
+it also prevents initiating a new confirmation without fresh authentication.
+
+Reviewed entries are removed deepest-first with repeated no-follow witnesses
+and nonrecursive directory deletion. New/unreviewed entries are never swept;
+errors retain the parent intent for another review/retry. This is not a
+transactional rollback of already approved removals or hostile same-user ABA
+protection. Review is bounded to 4096 unknown entries / 2 MiB of manifest and
+refuses an oversized set in full. Normal owned-data inventory/erasure stays
+streamed. Symlinks, unsafe paths, ambiguous staging, missing role and lost
+encrypted keybox refuse review; catalog membership alone never authorizes
+removing private payload. Metadata-only ordinary deletion tails remain
+retryable without inventing credentials. Export/recovery of unknown content
+is not provided by this destructive confirmation. Host-native process tests
+SIGKILL the lease owner after the first approved unlink/directory sync in both
+managed modes; remaining files require a fresh review, siblings and legacy data
+remain byte-identical. This qualifies process interruption, not power loss.
+Absent-target review preserves its catalog reference; a confirmation against an
+absent catalog refuses rather than reporting a successful reviewed deletion.
 
 Host-native application cases cover all three master modes, visible and legacy
 child removal, single-active and all-online restoration, cold intent-only /
@@ -968,7 +998,7 @@ Separate native processes exercise SIGKILL after intent persistence, child
 removal, roster publication and intent clear for encrypted and plaintext parents.
 These do not qualify packaged platform behavior or filesystem power loss.
 
-Remaining before default activation: disposition of preserved unknown files, mixed decoy
+Remaining before default activation: mixed decoy
 creation, whole-profile erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.

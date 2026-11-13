@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../domain/identity_erase_review.dart';
 import '../../domain/storage_locator.dart';
 import '../../domain/storage_protection.dart';
 import 'async_kv_log_store.dart';
@@ -115,7 +116,11 @@ final class ProfileStorageRouter {
 
   /// Explicit target only. The caller has stopped/closed its data owner and
   /// durably journaled the parent's roster obligation before invoking this.
-  Future<void> eraseManaged(ManagedStorageLocator target, Uint8List keys) {
+  Future<void> eraseManaged(
+    ManagedStorageLocator target,
+    Uint8List keys, {
+    IdentityEraseReview? review,
+  }) {
     final copied = Uint8List.fromList(keys);
     return _enqueue(() async {
       if (_closing) throw StateError('storage router is closing');
@@ -123,12 +128,27 @@ final class ProfileStorageRouter {
         _snapshot = (await _catalog.erase(
           ManagedIdentityEntry.fromLocator(target),
           keys: copied,
+          review: review,
         )).catalog;
       } finally {
         // A late metadata-cleanup error may follow the durable catalog remove.
         // Refresh does not adopt another access root or redirect an old facade.
         _snapshot = (await _catalog.snapshot()).snapshot.catalog;
       }
+    }).whenComplete(() => copied.fillRange(0, copied.length, 0));
+  }
+
+  Future<IdentityEraseReview> reviewManagedErasure(
+    ManagedStorageLocator target,
+    Uint8List keys,
+  ) {
+    final copied = Uint8List.fromList(keys);
+    return _enqueue(() async {
+      if (_closing) throw StateError('storage router is closing');
+      return await _catalog.reviewErasure(
+        ManagedIdentityEntry.fromLocator(target),
+        copied,
+      );
     }).whenComplete(() => copied.fillRange(0, copied.length, 0));
   }
 

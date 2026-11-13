@@ -3268,5 +3268,23 @@
   "identityEraseRecoveryBody": "Reintenta para terminar la operación. Las identidades permanecerán desconectadas hasta entonces.",
   "identityEraseRecoveryHint": "Si vuelve a fallar, guarda un informe de errores.",
   "identityEraseRecoveryLock": "Bloquear",
-  "identityEraseRecoveryFailed": "No se pudo terminar la eliminación. Puedes volver a intentarlo."
+  "identityEraseRecoveryFailed": "No se pudo terminar la eliminación. Puedes volver a intentarlo.",
+  "identityEraseReview": "Revisar otros archivos",
+  "identityEraseReviewTitle": "Otros archivos en la carpeta de esta identidad",
+  "identityEraseReviewSummary": "Archivos: {files}. Carpetas: {directories}. Tamaño: {bytes} bytes.",
+  "identityEraseReviewWarning": "xVeil no reconoce estos archivos. ¿Eliminarlos junto con esta identidad? Esta acción no se puede deshacer. No se eliminarán otras identidades.",
+  "identityEraseReviewConfirm": "Eliminar todo en esta identidad",
+  "@identityEraseReviewSummary": {
+    "placeholders": {
+      "files": {
+        "type": "int"
+      },
+      "directories": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  }
 }

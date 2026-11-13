@@ -41,6 +41,7 @@ import '../domain/storage_protection.dart';
 import '../domain/storage_usage.dart';
 import '../domain/storage_setup.dart';
 import '../domain/pending_identity_erase.dart';
+import '../domain/identity_erase_review.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
@@ -465,16 +466,20 @@ class AppController extends Notifier<AppState> {
     Storage master,
     Uint8List masterKeys,
     RosterEntry target,
-    void Function() check,
-  ) async {
+    void Function() check, {
+    IdentityEraseReview? review,
+  }) async {
     check();
     final router = ref.read(profileStorageRouterProvider);
     if (router == null) throw StateError('storage router unavailable');
     final locator = target.storageLocator;
     if (locator is ManagedStorageLocator) {
-      await router.eraseManaged(locator, target.spaceKeys);
+      await router.eraseManaged(locator, target.spaceKeys, review: review);
       check();
       return;
+    }
+    if (review != null) {
+      throw StateError('managed review cannot erase a hidden space');
     }
     // Hidden spaces share one native container, so release the parent while
     // erasing its authenticated child. Reopen the SAME immutable parent port.
@@ -3650,7 +3655,94 @@ class AppController extends Notifier<AppState> {
     state = const AppState(AppPhase.identityEraseRecovery);
   }
 
-  Future<bool> retryIdentityErasure() {
+  /// Reopens the authenticated parent only to locate the journaled target.
+  /// No target paths/keys leave the storage worker; review grants no deletion
+  /// until retry persists/validates the original intent again.
+  Future<IdentityEraseReview?> reviewIdentityErasure() async {
+    if (state.phase != AppPhase.identityEraseRecovery ||
+        _masterKeys == null ||
+        _pendingRoster == null ||
+        ref.read(profileStorageRouterProvider) == null) {
+      return null;
+    }
+    IdentityEraseReview? result;
+    final accepted = await _withIdentityEdit(
+      (edit) async {
+        final masterKeys = edit.copyKeys(_masterKeys)!;
+        final router = ref.read(profileStorageRouterProvider)!;
+        Storage? parent;
+        edit.interrupted = true;
+        try {
+          parent = await _masterStorageForEdit(edit);
+          final master = parent;
+          await edit.step(master.close);
+          if (!await edit.step(() => master.openWithKeys(masterKeys))) {
+            throw StateError('master credential refused during erase review');
+          }
+          final roster = await edit.step(master.loadRoster);
+          if (roster == null || roster.isEmpty) {
+            throw const IdentityEraseFailure(IdentityEraseFailureKind.invalid);
+          }
+          final raw = await edit.step(
+            () => master.getSetting(kPendingIdentityErase),
+          );
+          final pending = raw != null && raw.isNotEmpty
+              ? PendingIdentityErase.decode(raw)
+              : null;
+          RosterEntry target;
+          try {
+            final intent = pending ?? _eraseRecoveryIntent;
+            if (intent == null) {
+              throw const IdentityEraseFailure(
+                IdentityEraseFailureKind.invalid,
+              );
+            }
+            intent.validate(router.access, masterKeys);
+            target = intent.copyTarget();
+            edit.keys.add(target.spaceKeys);
+            if (pending == null && !roster.any(intent.matches)) {
+              throw const IdentityEraseFailure(
+                IdentityEraseFailureKind.conflict,
+              );
+            }
+          } finally {
+            pending?.destroy();
+          }
+          final locator = target.storageLocator;
+          if (locator is! ManagedStorageLocator) {
+            throw StateError('hidden erasure has no enumerable review');
+          }
+          final reviewed = await edit.step(
+            () => router.reviewManagedErasure(locator, target.spaceKeys),
+          );
+          await edit.step(master.close);
+          result = reviewed;
+          return true;
+        } on _IdentityEditEnded {
+          rethrow;
+        } catch (error, stack) {
+          errorJournal.record(
+            kind: 'identity-erase',
+            error: StateError('identity deletion review unavailable'),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+          try {
+            await parent?.close();
+          } catch (_) {}
+          edit.check();
+          // Keep return/hosting policy and existing authority; inspection errors
+          // never invoke ordinary cached-roster recovery.
+          return false;
+        }
+      },
+      supportsManagedMaster: true,
+      allowEraseRecovery: true,
+    );
+    return accepted ? result : null;
+  }
+
+  Future<bool> retryIdentityErasure({IdentityEraseReview? review}) {
     if (state.phase != AppPhase.identityEraseRecovery ||
         _masterKeys == null ||
         _pendingRoster == null ||
@@ -3693,8 +3785,13 @@ class AppController extends Notifier<AppState> {
                 masterKeys: masterKeys,
                 roster: roster,
                 check: edit.check,
-                erase: (entry) =>
-                    _eraseRosterTarget(master, masterKeys, entry, edit.check),
+                erase: (entry) => _eraseRosterTarget(
+                  master,
+                  masterKeys,
+                  entry,
+                  edit.check,
+                  review: review,
+                ),
                 retainRoster: (rows) =>
                     edit.keys.addAll(rows.map((e) => e.spaceKeys)),
               ),
@@ -3709,8 +3806,13 @@ class AppController extends Notifier<AppState> {
                 roster: roster,
                 target: target,
                 check: edit.check,
-                erase: (entry) =>
-                    _eraseRosterTarget(master, masterKeys, entry, edit.check),
+                erase: (entry) => _eraseRosterTarget(
+                  master,
+                  masterKeys,
+                  entry,
+                  edit.check,
+                  review: review,
+                ),
                 retainRoster: (rows) =>
                     edit.keys.addAll(rows.map((e) => e.spaceKeys)),
               ),

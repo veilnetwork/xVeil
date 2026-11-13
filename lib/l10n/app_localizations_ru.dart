@@ -8231,4 +8231,22 @@ class AppL10nRu extends AppL10n {
   @override
   String get identityEraseRecoveryFailed =>
       'Не удалось завершить удаление. Можно повторить попытку.';
+
+  @override
+  String get identityEraseReview => 'Проверить другие файлы';
+
+  @override
+  String get identityEraseReviewTitle => 'Другие файлы в папке личности';
+
+  @override
+  String identityEraseReviewSummary(int files, int directories, int bytes) {
+    return 'Файлов: $files. Папок: $directories. Размер: $bytes байт.';
+  }
+
+  @override
+  String get identityEraseReviewWarning =>
+      'xVeil не распознаёт эти файлы. Удалить их вместе с этой личностью? Это действие необратимо. Другие личности удалены не будут.';
+
+  @override
+  String get identityEraseReviewConfirm => 'Удалить всё в этой личности';
 }
