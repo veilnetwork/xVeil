@@ -272,13 +272,85 @@ and identity-local blobs separately. A final joint run passed 32 cases with no
 skips, including the existing real encrypted domain adapter; focused analysis
 of 11 changed/affected Dart files is clean.
 
-This is still an **owned-connection port**, not production filesystem admission
-or a ready identity picker. The future owner must establish a private root,
-reserve/publish identity directories safely, refuse a missing catalog over
-existing managed directories and handle catalog/filesystem publication across
-crashes. Catalog membership never authorizes file ownership or cleanup; actual
-stores must authenticate their identity and role. Worker boot, migration,
-reclamation, password/biometric and application routing remain unfinished.
+This remains an **owned-connection port**. The root/catalog admission wrapper
+below now handles first initialization, but identity-directory creation and
+backend opening still need wiring. Catalog membership never authorizes file
+ownership or cleanup; actual stores must authenticate their identity and role.
+Worker boot, migration, reclamation, password/biometric and application routing
+remain unfinished.
+
+## Managed root admission and bootstrap
+
+`ManagedDirectoryCatalog` now owns a catalog connection inside an admitted local
+profile. `openExisting` returns null only when the entire managed root is absent.
+An existing root with a missing catalog always fails, including a root already
+containing identity directories. A corrupt catalog is preserved and refused;
+neither case is silently reset to an empty list.
+
+Explicit `createOrOpen` initializes a catalog in a newly reserved PRIVATE sibling
+directory, closes it, syncs the directory and publishes the entire directory
+without replacing any existing destination. Another creator's complete root
+wins; the loser opens it without overwriting its catalog. A process killed
+before publication leaves an unpublished sibling, never a final root with a
+half-initialized catalog. Unpublished siblings are neither adopted nor swept.
+Normal failed bootstrap cleanup is non-recursive and removes only the same
+fresh directory and exact recorded file; a replacement or unexpected child is
+preserved. Failure after publication leaves the complete root available to retry.
+
+On POSIX the new root is created as 0700 and its catalog is restricted to 0600
+before schema/payload writes. Existing ownership, permission/type and ancestor
+checks refuse symlinks and unsafe paths. A trailing slash is removed before
+`lstat` so it cannot turn a final-component link into an apparently ordinary
+directory. Observable root/catalog replacement invalidates an open owner.
+SQLite recovery sidecars (`-journal`, `-wal`, `-shm`) are admitted before SQLite
+can open them. The sidecar regression's pre-guard control reached SQLite and
+failed with CANTOPEN; it did **not** demonstrate an accepted escape in the pinned
+SQLite engine. It verifies the earlier explicit filesystem-admission boundary.
+
+Darwin extended ACLs are checked independently from mode bits: only empty or
+deny-only ACLs are admitted, including the usual deny-delete entry. An allow
+ACL is conservatively refused even if chmod still reports 0700. Initial tests
+caught incorrect treatment of Darwin's absent-ACL/end-of-list results; those
+failing runs were not credited. A separate headless run created and reopened a
+fixture beneath the real home-directory ancestors, outside the temp fixture tree.
+This remains a conservative policy, not a complete Darwin effective-ACL evaluator.
+
+The Android ancestor policy recognizes the platform's protected `system`
+UID/GID 1000, as defined by [AOSP filesystem permissions](https://source.android.com/docs/core/permissions/filesystem).
+The identity root/catalog still must belong to the current application and be
+private. Other application, media/OEM groups and non-sticky world writes remain
+refused. Actual ancestor ownership/modes were read from an attached Android;
+this is not an Android application-backend qualification.
+
+Windows code uses the process token's SID, the existing handle-bound ACL probe,
+file identity/attributes, normalized final-path comparison and protected
+current-user/System/Administrators directory ACLs. Reparse leaves and remote
+profile roots are refused. Publication uses
+[MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)
+without REPLACE_EXISTING, with WRITE_THROUGH; protected ACL construction follows
+[Microsoft's security descriptor format](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format).
+The existing pinned win32 dependency is now direct; its version did not change.
+The Windows policy/path tests run on the host; native Windows filesystem
+behavior has **not** yet been qualified by these tests.
+
+A final macOS joint run passes 54 cases with no skips: the prior 32 plus 14
+root/admission cases, five Windows policy/path cases, two POSIX/Android policy
+cases and one actual process-crash case with two SIGKILL boundaries around root
+publication. The earlier catalog-COMMIT crash case also runs in this set.
+Focused analysis of ten changed/affected Dart files is clean. No user stores
+or installed application were changed; no Rust build or release pin changed.
+
+Remaining boundaries are explicit. These path witnesses do not claim descriptor-
+relative backend access or defense against hostile same-user ABA substitution.
+They require a private root and trusted platform ancestors. Linux/Android use
+renameat2 with NOREPLACE, refusing unsupported hosts rather than falling back
+to ordinary rename. Bionic exposes that libc symbol only from
+[API 30](https://android.googlesource.com/platform/bionic/+/master/libc/include/stdio.h);
+support for older supported Android versions still needs an atomic implementation
+before enabling the feature. Native Android/Linux/Windows/iOS file operations,
+power failure, actual identity reservation/publication, keybox/content opening,
+worker boot and the mode/identity UI remain unqualified or unwired. The existing
+onboarding default and legacy stores are unchanged.
 
 ## Implementation boundaries
 

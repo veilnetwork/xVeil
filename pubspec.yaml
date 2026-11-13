@@ -151,6 +151,8 @@ dependencies:
   image: ^4.8.0
   flutter_secure_storage: ^10.0.0
   sqlite3: 3.5.2
+  # Native private-directory creation and no-replace publication on Windows.
+  win32: 5.15.0
 
 dev_dependencies:
   flutter_test:
