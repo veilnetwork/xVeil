@@ -18,7 +18,11 @@ ManagedAnchorSnapshot _source(ManagedAnchorState state, {int sequence = 20}) =>
       contentMarker: 'a' * 64,
       innerSequence: sequence,
       innerRoots: {
-        for (var i = sequence > 1023 ? sequence - 1023 : 1; i <= sequence; i++)
+        for (
+          var i = sequence > anchorHorizon ? sequence - anchorHorizon : 1;
+          i <= sequence;
+          i++
+        )
           i: _root(i),
       },
     );
@@ -165,10 +169,10 @@ void main() {
       contentIdentity: _id,
       contentMarker: 'b' * 64,
       innerSequence: 1028,
-      innerRoots: {for (var i = 5; i <= 1028; i++) i: _root(i + 10000)},
+      innerRoots: {for (var i = 4; i <= 1028; i++) i: _root(i + 10000)},
     );
-    expect(snapshot.roots.length, 1024);
-    expect(snapshot.history.first, 2003);
+    expect(snapshot.roots.length, anchorHorizon + 1);
+    expect(snapshot.history.first, 2002);
     expect(snapshot.sequence, 3026);
     expect(
       checkRollbackAnchor(

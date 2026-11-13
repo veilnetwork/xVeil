@@ -13,6 +13,7 @@ import 'package:xveil/data/storage/managed_encrypted_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_identity_catalog.dart';
 import 'package:xveil/data/storage/managed_metadata_blob.dart';
 import 'package:xveil/data/storage/managed_store_tag.dart';
+import 'package:xveil/data/storage/rollback_anchor.dart';
 import 'package:xveil/data/storage/storage.dart' show RatchetStateEntry;
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
@@ -21,6 +22,57 @@ import 'support/managed_store_fixture.dart';
 
 void main() {
   setUp(() => expect(ensureHiddenVolumeLoaded(), isTrue));
+  test(
+    'long native sessions and cold reopen preserve the inclusive anchor boundary',
+    () async {
+      final fixture = await ManagedStoreFixture.create();
+      final store = fixture.initialize();
+      final anchorSeq = store.commitSeq() + 4;
+      String? anchorRoot;
+      for (var i = 0; i < anchorHorizon + 4; i++) {
+        final sequence = store.commit([
+          PutOp(
+            Ns.settings,
+            Uint8List.fromList([7]),
+            Uint8List.fromList([i & 255]),
+          ),
+        ]);
+        if (sequence == anchorSeq) anchorRoot = store.commitRoots()[sequence];
+      }
+      expect(store.commitSeq() - anchorSeq, anchorHorizon);
+      expect(store.commitRoots().length, anchorHorizon + 1);
+      expect(
+        checkRollbackAnchor(
+          anchorSeq: anchorSeq,
+          anchorRoot: anchorRoot,
+          currentSeq: store.commitSeq(),
+          history: store.commitHistory(),
+          roots: store.commitRoots(),
+        ).verdict,
+        AnchorVerdict.clean,
+      );
+      store.close();
+      final cold = fixture.open();
+      try {
+        expect(cold.commitRoots().length, anchorHorizon + 1);
+        expect(
+          checkRollbackAnchor(
+            anchorSeq: anchorSeq,
+            anchorRoot: anchorRoot,
+            currentSeq: cold.commitSeq(),
+            history: cold.commitHistory(),
+            roots: cold.commitRoots(),
+          ).verdict,
+          AnchorVerdict.clean,
+        );
+        expect(cold.get(Ns.settings, Uint8List.fromList([7])), [
+          (anchorHorizon + 3) & 255,
+        ]);
+      } finally {
+        cold.close();
+      }
+    },
+  );
   test(
     'native KV/log groups, anchors and outer keys survive cold reopen',
     () async {
