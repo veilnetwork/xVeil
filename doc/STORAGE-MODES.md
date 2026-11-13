@@ -145,8 +145,8 @@ PID markers, successful kill requests and exit `-9` were observed for both cuts.
 This is a private macOS fixture, not the application compaction controller,
 the original damaged-phone scenario, a power-loss test or a multi-process
 managed-directory admission test. The probe serializes its own files; admission
-and a production owner enforcing the identity lease still need implementation
-before a mode can be enabled. No existing container or onboarding choice changed.
+and the production worker still need integration before a mode can be enabled.
+The file factory below now enforces the identity lease for its sessions. No existing container or onboarding choice changed.
 
 The native `ManagedKeybox` port now initializes role and 64 random internal
 password bytes in one transaction. User-password-derived outer keys remain
@@ -181,8 +181,9 @@ works, supplies the original internal passwords, and the previous logical
 anchor and exact fixture records remain valid. All six native cases pass on
 the signed published macOS arm64 library. This verifies the keybox boundary
 needed for biometric entry, not an actual OS biometric prompt or a connected
-application backend. Filesystem/catalog admission, worker ownership, actual
-mode selection, password rotation, erase and platform qualification remain
+application backend. Filesystem admission and file-factory opening are now
+qualified below on macOS; worker ownership, actual mode selection, password
+rotation, erase and platform qualification remain
 unfinished; these ports are not selectable in the application yet.
 
 `ManagedEncryptedKvLogStore` now implements the actual `KvLogStore`, logical
@@ -236,8 +237,9 @@ Focused analysis of seven changed files is clean. The same signed published
 hidden-volume 2.7.2 macOS arm64 asset was selected and its SHA rechecked; no
 native source, ABI or release pin changed. All fixtures/processes are disposable
 and contain no user data. This port is a working domain-storage boundary, not
-a completed three-mode feature: production filesystem/catalog admission,
-worker open/close, automatic reclamation, all-online routing, mode/unlock UI,
+a completed three-mode feature. Filesystem/catalog admission and managed-file
+opening are implemented below; production worker open/close, automatic
+reclamation, all-online routing, mode/unlock UI,
 biometric-vault scope, password rotation, recovery and erase still need wiring
 and platform qualification. Existing containers are not converted.
 
@@ -273,8 +275,8 @@ skips, including the existing real encrypted domain adapter; focused analysis
 of 11 changed/affected Dart files is clean.
 
 This remains an **owned-connection port**. The root/catalog admission wrapper
-below now handles first initialization, but identity-directory creation and
-backend opening still need wiring. Catalog membership never authorizes file
+below now handles first initialization, and the managed-file factory handles
+identity creation/opening. Catalog membership never authorizes file
 ownership or cleanup; actual stores must authenticate their identity and role.
 Worker boot, migration, reclamation, password/biometric and application routing
 remain unfinished.
@@ -348,9 +350,79 @@ to ordinary rename. Bionic exposes that libc symbol only from
 [API 30](https://android.googlesource.com/platform/bionic/+/master/libc/include/stdio.h);
 support for older supported Android versions still needs an atomic implementation
 before enabling the feature. Native Android/Linux/Windows/iOS file operations,
-power failure, actual identity reservation/publication, keybox/content opening,
-worker boot and the mode/identity UI remain unqualified or unwired. The existing
+power failure, worker boot and the mode/identity UI remain unqualified or
+unwired. Identity reservation/publication and keybox/content opening are now
+qualified below on macOS. The existing
 onboarding default and legacy stores are unchanged.
+
+## Managed identity file factory
+
+`ManagedIdentityFiles` now creates and opens the actual encrypted/plaintext
+backends under an admitted root. A fresh random local ID owns a private
+staging directory, role metadata, permanent empty lock marker and private blob
+directory. Encrypted identities own `keybox.hv`, `content.hv` and
+`maintenance.hv`; plaintext identities own `data.store`. Creation commits its
+initial payload, closes the files, syncs the staging directory and publishes
+without replacing an existing identity. It then reopens and validates the
+backend before durably registering the catalog entry and returning a handle.
+A catalog entry alone never grants permission to initialize a missing backend.
+
+The outer keybox selects the existing HEAVY password KDF (256 MiB, time 4,
+parallelism 4). The two independent random internal passwords use the native
+DEFAULT preset. Exported 64-byte keys remain the keybox's stable outer keys.
+Plaintext reopen uses a public deterministic locator, not a password or an
+assertion of encryption. Credentials are copied for synchronous native calls
+and owned copies are wiped afterwards. No raw native error text, path or local
+locator is included in factory failures; safe original stack locations remain.
+
+Each session retains its root ownership and an `identity.meta` lease until
+all payload handles close. Role metadata contains only local ID and mode.
+An exact-schema EXCLUSIVE SQL transaction is held on all platforms. POSIX also
+holds `flock` on the separate permanent `identity.meta.lock` inode; Windows
+uses SQLite's handle-bound locks. Neither open nor contention recreates a
+missing/invalid marker. A second root, isolate or process cannot cooperate as a
+second owner while the first lease is held. Closing the root with an active
+session reports busy. Failed open/close resources remain attached for retry;
+the lease is released last.
+
+A new regression reproduced an important POSIX limitation in the initial
+SQL-only lease: opening and closing the database through a raw file descriptor
+released SQLite's process-scoped lock, permitting a second process to open.
+[SQLite documents this close/locking behavior](https://sqlite.org/howtocorrupt.html).
+The independent marker lock preserves ownership when unrelated descriptors to
+either metadata or marker are closed. Placing flock on the metadata inode itself
+was rejected after the macOS test exposed self-contention with SQLite locking.
+A native `FILE*` finalizer supplies a GC safety net; it does not replace explicit
+worker teardown or promise prompt release after killing one shared-group isolate.
+Live database backup must still use a coordinated, quiescent owner boundary.
+
+Interrupted creation leaves complete pending/final files intact. Explicit
+`resumeEncrypted`/`resumeUnencrypted` requires a known local ID and correct mode;
+encrypted recovery authenticates the existing role and payload before publication
+or registration. Retrying after a lost registration response is idempotent.
+Both pending and final directories present is an ambiguous recovery failure,
+with both copies preserved. No automatic orphan discovery/sweep, recursive
+cleanup, hidden-store fallback or legacy conversion is performed.
+
+The final joint macOS run passes **72 cases, no skips**, including eight lease
+cases, a native independent-process contention case, eight file-factory cases
+and a factory process-crash case in addition to the previous 54. Actual native
+checks cover exact KV/log/anchor data, cold password/key reopening, HEAVY outer
+KDF parameters, plaintext/ciphertext boundaries, duplicate/root contention,
+wrong credentials, foreign role files, payload symlinks and four publication/
+registration fault boundaries. The factory crash case performs three actual
+SIGKILL cuts: before directory publication, after publication and after catalog
+commit before handoff. Each explicitly resumed identity retains exact payload
+and one catalog entry, then cold-opens by its original outer keys. The earlier
+root/catalog crash tests also run in the joint set. A first factory crash run
+with an unarmed bootstrap hook failed in the harness and was not credited.
+
+This is the managed file ownership layer, not the enabled application feature.
+UI/default selection, worker open/close barriers, orphan recovery UI, automatic
+bounded encrypted reclamation, all-online routing, password rotation, erase,
+biometric integration and native qualification on other platforms remain.
+Power failure and abrupt shared-group worker-isolate cleanup are not qualified.
+No real identity, installed application, native source or release pin changed.
 
 ## Implementation boundaries
 

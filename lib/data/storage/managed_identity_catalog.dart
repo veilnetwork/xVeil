@@ -125,6 +125,8 @@ final class ManagedIdentityLayout {
   /// Plaintext identities use a single SQLite database. Encrypted identities
   /// instead own the three role-bound files below; no mode is inferred by
   /// trying these paths after an unlock fails.
+  String leasePath(ManagedIdentityId id) => _file(id, 'identity.meta');
+  String leaseLockPath(ManagedIdentityId id) => _file(id, 'identity.meta.lock');
   String dataPath(ManagedIdentityId id) => _file(id, 'data.store');
   String keyboxPath(ManagedIdentityId id) => _file(id, 'keybox.hv');
   String contentPath(ManagedIdentityId id) => _file(id, 'content.hv');

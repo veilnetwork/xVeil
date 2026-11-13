@@ -1,13 +1,29 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
+
+import '../../domain/storage_protection.dart';
+import 'hv_kv_log_store.dart';
+import 'hv_native.dart';
+import 'kv_log_store.dart';
+import 'managed_encrypted_kv_log_store.dart';
 import 'managed_catalog_store.dart';
 import 'managed_fs_platform.dart';
 import 'managed_identity_catalog.dart';
+import 'managed_identity_lease.dart';
+import 'managed_keybox.dart';
 import 'managed_sqlite_connection.dart';
+import 'plain_sqlite_kv_log_store.dart';
+import 'rollback_anchor.dart';
 
-/// Admits the filesystem root and owns its catalog connection. No identity
-/// backend, migration, hidden-space discovery or recursive cleanup occurs here.
+part 'managed_identity_files.dart';
+
+/// Admits the filesystem root and owns its catalog connection. The companion
+/// managed file factory owns identity sessions. No migration, hidden-space
+/// discovery or recursive cleanup occurs here.
 /// Must run on a storage worker. Existing legacy containers are never touched.
 final class ManagedDirectoryCatalog {
   ManagedDirectoryCatalog._(
@@ -28,6 +44,21 @@ final class ManagedDirectoryCatalog {
   final ManagedCatalogStore _catalog;
   final ManagedFsPlatform _fs;
   bool _closed = false;
+  final _identityOwners = <ManagedIdentityId, _ManagedIdentityResources>{};
+
+  void _reserveIdentity(_ManagedIdentityResources owner) {
+    _validate();
+    if (_identityOwners.containsKey(owner.entry.id)) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
+    _identityOwners[owner.entry.id] = owner;
+  }
+
+  void _releaseIdentity(_ManagedIdentityResources owner) {
+    if (identical(_identityOwners[owner.entry.id], owner)) {
+      _identityOwners.remove(owner.entry.id);
+    }
+  }
 
   static const _catalogName = 'catalog.sqlite3';
   String get _catalogPath => _child(directory, _catalogName);
@@ -181,8 +212,16 @@ final class ManagedDirectoryCatalog {
 
   void close() {
     if (_closed) return;
-    _closed = true;
+    // Failed opens/closes remain owned until cleanup succeeds. An ordinary
+    // active session must be drained before the catalog itself can close.
+    for (final resource in _identityOwners.values.toList()) {
+      if (!resource.handedOff || resource.closing) resource.close();
+    }
+    if (_identityOwners.isNotEmpty) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
     _catalog.close();
+    _closed = true;
   }
 
   static ({String path, ManagedPathWitness witness}) _admitProfile(

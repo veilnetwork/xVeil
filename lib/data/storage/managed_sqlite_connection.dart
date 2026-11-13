@@ -21,8 +21,12 @@ final class ManagedSqliteFailure implements Exception {
 /// Call on a storage worker. The caller must admit and exclusively own the
 /// containing directory; leaf checks below do not prevent ancestor/rename races.
 final class ManagedSqliteConnection {
-  ManagedSqliteConnection._(this._database);
+  ManagedSqliteConnection._(this._database, this.filePath);
   Database? _database;
+
+  /// Admitted local name for resource owners, not a cleanup capability.
+  /// Never include this path in diagnostics or public metadata.
+  final String filePath;
   StorageProtection get protection => StorageProtection.unencrypted;
 
   /// Deliberate architectural rejection, independent of the native provider.
@@ -46,6 +50,7 @@ final class ManagedSqliteConnection {
   static ManagedSqliteConnection _open(String path, {required bool create}) {
     Database? database;
     try {
+      path = File(path).absolute.path;
       final type = FileSystemEntity.typeSync(path, followLinks: false);
       if ((create && type != FileSystemEntityType.notFound) ||
           (!create && type != FileSystemEntityType.file)) {
@@ -58,7 +63,7 @@ final class ManagedSqliteConnection {
       if (create) File(path).createSync(exclusive: true);
       database = sqlite3.open(path, mode: OpenMode.readWrite);
       database.select('SELECT count(*) FROM sqlite_master');
-      return ManagedSqliteConnection._(database);
+      return ManagedSqliteConnection._(database, path);
     } catch (error) {
       database?.close();
       if (error is ManagedSqliteFailure) rethrow;
