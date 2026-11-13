@@ -26,7 +26,7 @@ environment:
 hooks:
   user_defines:
     sqlite3:
-      source: sqlcipher
+      source: sqlite3
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
