@@ -4435,111 +4435,217 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Create a **decoy (duress) master** under [duressPassword], whose roster
-  /// lists ONLY the chosen existing identities ([includeLabels]). Under coercion
-  /// the user gives the duress password → it opens this decoy, showing a
-  /// believable set while the real master and any sensitive identity stay
-  /// hidden. SHARE ONLY GENUINELY INNOCUOUS IDENTITIES — opening the decoy
-  /// exposes the full content of every identity it lists.
-  ///
-  /// Master-mode only (there must be identities to share). Returns false if the
-  /// duress password collides with an existing identity OR an existing master
-  /// (it must never overwrite either). Does not change the active session.
+  /// Create a hidden duress master containing only explicitly selected rows.
+  /// Enumerable storage remains enumerable; a plaintext parent still exposes
+  /// every linked key. No hidden pointer is added to the public catalog.
   Future<bool> createDecoyMaster({
     required String duressPassword,
     required List<String> includeLabels,
-  }) => _withIdentityEdit(
-    (edit) => _createDecoyMasterOwned(
-      edit,
-      duressPassword: duressPassword,
-      includeLabels: includeLabels,
-    ),
-  );
+  }) {
+    // Caller-owned lists must not widen authorization during the first await.
+    final selected = List<String>.unmodifiable(includeLabels);
+    return _withIdentityEdit(
+      (edit) => _createDecoyMasterOwned(
+        edit,
+        duressPassword: duressPassword,
+        includeLabels: selected,
+      ),
+      supportsManagedMaster: true,
+    );
+  }
 
   Future<bool> _createDecoyMasterOwned(
     _IdentityEdit edit, {
     required String duressPassword,
     required List<String> includeLabels,
   }) async {
-    final roster = edit.copyRoster(_pendingRoster);
-    if (roster == null) return false; // need a master session to share from
-    final decoy = [
-      for (final e in roster)
-        if (includeLabels.contains(e.label)) e,
-    ];
-    if (decoy.isEmpty) return false;
-    // FAIL-CLOSED: never write a decoy roster that references an identity the
-    // user did not explicitly include — under duress, one leaked real identity
-    // is catastrophic. If the filter is ever widened (roster-model change), bail
-    // rather than create a decoy that exposes a hidden identity.
+    var roster = edit.copyRoster(_pendingRoster);
+    final masterKeys = edit.copyKeys(_masterKeys);
     final included = includeLabels.toSet();
-    if (!decoy.every((e) => included.contains(e.label))) return false;
-
-    // Only one space open at a time: close the active identity, write the decoy
-    // master, then restore the active identity.
-    final activeLabel = _activeLabel;
+    if (roster == null ||
+        masterKeys == null ||
+        duressPassword.isEmpty ||
+        included.isEmpty ||
+        !included.every((label) => roster!.any((e) => e.label == label)) ||
+        (_accessVerifier?.matches(duressPassword) ?? false)) {
+      return false;
+    }
+    final previous = _activeLabel;
+    final hosted = ref.read(sessionProvider) != null;
+    final router = ref.read(profileStorageRouterProvider);
+    var verified = false, written = false, settled = true;
+    Storage? current;
+    _stopMediaCapture();
     edit.interrupted = true;
-    await edit.step(() => _teardownRealStack());
-    await edit.step(() => edit.own(ref.read(storageProvider)).close());
-
-    var ok = false;
     try {
-      final storage = edit.own(ref.read(storageProvider));
-      if (await edit.step(
-        () => storage.open(password: duressPassword, createIfMissing: true),
-      )) {
-        // Refuse to write into anything that already exists — a clash means the
-        // password opened a real identity (has an identity) or an existing
-        // master (has a roster); the decoy roster would clobber it.
-        //
-        // An UNREADABLE identity record counts as "something is there": it
-        // throws into the catch below, which leaves `ok` false and writes
-        // nothing (audit XV-13). It used to read as `null` — no clash — so the
-        // decoy roster was written over a damaged but possibly recoverable
-        // identity space.
-        final clash =
-            await edit.step(() => storage.loadProfile()) != null ||
-            await edit.step(() => storage.loadRoster()) != null;
-        if (!clash) {
-          await edit.step(() => storage.saveRoster(decoy));
-          ok = true;
-        }
-        await edit.step(() => storage.close());
-        // A decoy is one more space in this container, and every identity it
-        // lists can be unlocked on its own. None of them may go on claiming to
-        // be alone here: auto-compaction in any of them would take the decoy
-        // with it, and a duress password that stops working is the one failure
-        // this feature cannot afford.
-        if (ok) await edit.step(() => revokeAutoCompactAcross(roster));
+      await edit.step(_teardownSession);
+      await edit.step(_teardownRealStack);
+      await edit.step(() => edit.own(ref.read(storageProvider)).close());
+      current = await _masterStorageForEdit(edit);
+      final parent = current;
+      if (!await edit.step(() => parent.openWithKeys(masterKeys))) {
+        throw StateError('duress parent credential refused');
       }
-    } catch (e) {
-      devLog(() => 'xVeil[identity]: createDecoyMaster write failed: $e');
-      ok = false;
-      // The `close()` above is inside the try, so a throw between open and it
-      // would leave the duress space OPEN and holding the container's exclusive
-      // lock — and the restore below would then fail to reopen the user's own
-      // identity. Release it here.
-      try {
-        await edit.step(() => edit.own(ref.read(storageProvider)).close());
-      } catch (_) {}
-    }
-
-    // Restore the user's active identity — ALWAYS, even if the decoy write
-    // threw, so a fault never leaves the user session-less behind a closed
-    // container.
-    try {
-      if (activeLabel != null) {
-        _activeLabel = null;
-        await edit.step(() => _pickIdentityOwned(activeLabel, edit: edit));
-      }
-    } catch (e) {
-      devLog(
-        () =>
-            'xVeil[identity]: createDecoyMaster restore failed -> recover: $e',
+      final actual = await edit.step(parent.loadRoster);
+      final erasing = await edit.step(
+        () => parent.getSetting(kPendingIdentityErase),
       );
-      await edit.step(() => _recoverToActive(edit: edit));
+      final pending = await edit.step(
+        () => parent.getSetting(kPendingMasterSetupSetting),
+      );
+      // Never publish a duress copy from a stale/replaced cached roster or
+      // over a parent with unfinished maintenance. A fresh sign-in can recover.
+      if (actual == null ||
+          actual.length != roster.length ||
+          (erasing != null && erasing.isNotEmpty) ||
+          (pending != null && pending.isNotEmpty && pending != '0') ||
+          !List.generate(
+            roster.length,
+            (i) =>
+                actual[i].label == roster![i].label &&
+                actual[i].storageLocator == roster[i].storageLocator &&
+                actual[i].anonymous == roster[i].anonymous &&
+                listEquals(actual[i].spaceKeys, roster[i].spaceKeys),
+          ).every((same) => same)) {
+        throw StateError('duress parent changed or unfinished');
+      }
+      roster = actual;
+      _setPendingRoster(actual);
+      await edit.step(parent.close);
+      verified = true;
+
+      Future<bool> publish() async {
+        // Check ONLY encrypted stores this authenticated parent already knows.
+        // Never scan the public catalog or probe unrelated hidden passwords.
+        final visible = <ManagedStorageLocator>{
+          if (router?.access case ManagedStorageLocator(
+            :final protection,
+          ) when protection == StorageProtection.encrypted)
+            router!.access as ManagedStorageLocator,
+          for (final row in roster!)
+            if (row.storageLocator case ManagedStorageLocator(
+              :final protection,
+            ) when protection == StorageProtection.encrypted)
+              row.storageLocator as ManagedStorageLocator,
+        };
+        for (final locator in visible) {
+          final candidate = await _storageForIdentityEdit(locator, edit);
+          current = candidate;
+          final collision = await edit.step(
+            () => candidate.open(password: duressPassword),
+          );
+          await edit.step(candidate.close);
+          if (collision) return false;
+        }
+        final hidden = await _storageForIdentityEdit(
+          const LegacyStorageLocator(),
+          edit,
+        );
+        current = hidden;
+        // Every hidden space in the known roster shares this container. Disable
+        // its one-space auto-compaction BEFORE publishing another hidden root.
+        final unsettled = await edit.step(
+          () => revokeAutoCompactAcross([
+            ...roster!,
+            if (router == null || router.access is LegacyStorageLocator)
+              RosterEntry(label: '', spaceKeys: masterKeys),
+          ]),
+        );
+        if (unsettled.isNotEmpty) return false;
+        if (!await edit.step(
+          () => hidden.open(password: duressPassword, createIfMissing: true),
+        )) {
+          return false;
+        }
+        final candidateKeys = await edit.step(hidden.exportSpaceKeys);
+        final profile = await edit.step(hidden.loadProfile);
+        final existing = await edit.step(hidden.loadRoster);
+        final config = await edit.step(hidden.loadNodeConfig);
+        final hasCredential = await edit.step(() async {
+          final credential = await readSovereignCredential(hidden);
+          try {
+            return credential.corrupt ||
+                (credential.bundle?.isNotEmpty ?? false);
+          } finally {
+            // Retire even a late read BEFORE edit.step checks cancellation.
+            final bundle = credential.bundle;
+            if (bundle != null) wipeSecretBytes(bundle);
+          }
+        });
+        final setup = await edit.step(
+          () => hidden.getSetting(kPendingMasterSetupSetting),
+        );
+        final erase = await edit.step(
+          () => hidden.getSetting(kPendingIdentityErase),
+        );
+        if (identitySpaceCollides(
+              masterKeys: masterKeys,
+              roster: roster,
+              candidateKeys: candidateKeys,
+            ) ||
+            profile != null ||
+            existing != null ||
+            config != null ||
+            hasCredential ||
+            (setup != null && setup.isNotEmpty && setup != '0') ||
+            (erase != null && erase.isNotEmpty)) {
+          return false;
+        }
+        final decoy = [
+          for (final row in roster)
+            if (included.contains(row.label)) row,
+        ];
+        if (decoy.length != included.length) return false;
+        // A first durable marker prevents a failed roster write from becoming
+        // an ordinary blank identity. The native create-before-marker window
+        // remains part of interrupted-creation qualification, not solved here.
+        await edit.step(
+          () => hidden.putSetting(kPendingMasterSetupSetting, '1'),
+        );
+        await edit.step(() => hidden.putSetting(_autoCompactKey, '0'));
+        await edit.step(() => hidden.saveRoster(decoy));
+        await edit.step(
+          () => hidden.putSetting(kPendingMasterSetupSetting, '0'),
+        );
+        await edit.step(hidden.close);
+        return true;
+      }
+
+      written = await publish();
+    } on _IdentityEditEnded {
+      rethrow;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'identity-edit',
+        error: StateError('duress setup incomplete'),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      written = false;
+    } finally {
+      try {
+        await current?.close();
+      } catch (_) {
+        settled = false;
+      }
     }
-    return ok;
+    edit.check();
+    if (!verified || !settled) {
+      _endLifecycle();
+      _clearMasterSession();
+      state = const AppState(AppPhase.locked, unlockError: true);
+      return false;
+    }
+    await edit.step(
+      () => _reEnterAfterRosterEdit(roster!, previous, hosted, edit: edit),
+    );
+    final restored = previous == null
+        ? state.phase == AppPhase.pickingIdentity ||
+              (hosted && ref.read(sessionProvider) != null)
+        : state.phase == AppPhase.ready &&
+              _activeLabel == previous &&
+              (!hosted || ref.read(sessionProvider) != null);
+    return written && restored;
   }
 
   /// Restore the hosting policy and active view after a failed roster edit,

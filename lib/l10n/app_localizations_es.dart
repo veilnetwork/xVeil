@@ -4174,7 +4174,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get decoySubtitle =>
-      'Una contraseña aparte que, bajo coacción, abre solo las identidades que marques abajo. Tu maestra real y el resto de identidades siguen ocultas.';
+      'Una contraseña aparte que abre solo las identidades que selecciones abajo.';
 
   @override
   String get decoyWarning =>
@@ -4197,7 +4197,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get decoyClash =>
-      'Esa contraseña ya está en uso: elige otra distinta.';
+      'No se pudo crear la maestra de coacción. Inténtalo de nuevo o elige otra contraseña.';
 
   @override
   String get languageSystem => 'Como el sistema';
@@ -8283,4 +8283,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get identityEraseReviewConfirm => 'Eliminar todo en esta identidad';
+
+  @override
+  String get decoyStorageTitle => 'Acceso y almacenamiento';
+
+  @override
+  String get decoyStorageHint =>
+      'Para usar esta contraseña, elige Espacio oculto al iniciar sesión. Las identidades cifradas y sin cifrar siguen en el catálogo público. Una maestra sin cifrar expone las claves de todas las identidades vinculadas.';
 }

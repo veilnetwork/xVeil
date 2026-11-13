@@ -4169,7 +4169,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get decoySubtitle =>
-      'Отдельный пароль, который под принуждением открывает только отмеченные ниже личности. Ваш настоящий мастер и остальные личности остаются скрытыми.';
+      'Отдельный пароль для доступа только к выбранным ниже личностям.';
 
   @override
   String get decoyWarning =>
@@ -4191,7 +4191,8 @@ class AppL10nRu extends AppL10n {
   String get decoyPickOne => 'Выберите хотя бы одну личность.';
 
   @override
-  String get decoyClash => 'Этот пароль уже занят — выберите другой.';
+  String get decoyClash =>
+      'Не удалось создать маскировочный мастер. Повторите попытку или выберите другой пароль.';
 
   @override
   String get languageSystem => 'Системный';
@@ -8249,4 +8250,11 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get identityEraseReviewConfirm => 'Удалить всё в этой личности';
+
+  @override
+  String get decoyStorageTitle => 'Вход и хранение';
+
+  @override
+  String get decoyStorageHint =>
+      'Для входа с этим паролем выберите «Скрытое пространство» на экране входа. Зашифрованные и открытые личности остаются в публичном каталоге. Незашифрованный мастер раскрывает ключи всех связанных с ним личностей.';
 }

@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/storage_router_providers.dart';
+import '../common/help_label.dart';
 
 /// Configure a DECOY (duress) master: a separate password that, under coercion,
-/// opens a believable set of identities while the real master and any sensitive
-/// identity stay hidden. The shared identities are exposed in FULL — the screen
-/// warns about this prominently.
+/// opens only the selected identities. Enumeration/unencrypted storage has
+/// separate disclosure limits; the screen explains them without promising
+/// deniability for the public catalog. Shared identities are exposed in FULL.
 class DecoyMasterScreen extends ConsumerStatefulWidget {
   const DecoyMasterScreen({super.key});
 
@@ -88,6 +90,10 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
               l.decoySubtitle,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            if (ref.watch(profileStorageRouterProvider) != null) ...[
+              const SizedBox(height: 8),
+              HelpLabel(title: l.decoyStorageTitle, help: l.decoyStorageHint),
+            ],
             const SizedBox(height: 16),
             Card(
               color: scheme.errorContainer,
@@ -114,6 +120,7 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
             const SizedBox(height: 20),
             TextField(
               controller: _password,
+              enabled: !_busy,
               obscureText: true,
               decoration: InputDecoration(
                 labelText: l.decoyPassword,

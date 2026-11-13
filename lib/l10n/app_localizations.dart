@@ -7253,7 +7253,7 @@ abstract class AppL10n {
   /// No description provided for @decoySubtitle.
   ///
   /// In en, this message translates to:
-  /// **'A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.'**
+  /// **'A separate password that opens only the identities you select below.'**
   String get decoySubtitle;
 
   /// No description provided for @decoyWarning.
@@ -7295,7 +7295,7 @@ abstract class AppL10n {
   /// No description provided for @decoyClash.
   ///
   /// In en, this message translates to:
-  /// **'That password is already in use — choose a different one.'**
+  /// **'Could not create the duress master. Try again or choose a different password.'**
   String get decoyClash;
 
   /// No description provided for @languageSystem.
@@ -14189,6 +14189,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Delete everything in this identity'**
   String get identityEraseReviewConfirm;
+
+  /// No description provided for @decoyStorageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in and storage'**
+  String get decoyStorageTitle;
+
+  /// No description provided for @decoyStorageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it.'**
+  String get decoyStorageHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -998,8 +998,50 @@ Separate native processes exercise SIGKILL after intent persistence, child
 removal, roster publication and intent clear for encrypted and plaintext parents.
 These do not qualify packaged platform behavior or filesystem power loss.
 
-Remaining before default activation: mixed decoy
-creation, whole-profile erase, interrupted-onboarding recovery, password rotation,
+### Mixed-storage duress masters (QA)
+
+A duress master is always a hidden space, even when its authenticated parent or
+selected children use enumerable storage. Creation retains the original access
+root and public catalog selection; its exact selected rows/keys/locators and
+anonymity flags are written only inside the hidden space. The input selection
+is snapshotted before the first await. Before copying, creation reopens the
+actual parent by its cached keys and compares the fresh durable roster with the
+authorized snapshot. A changed/unfinished parent refuses and locks rather than
+booting a stale roster or silently widening the selected set.
+
+The operation stops capture/playback and every hosted identity before changing
+facades. It checks password collisions only against the already authorized
+parent/roster: known encrypted stores may be opened read-only with the supplied
+candidate password, but no public-catalog sweep or unrelated hidden-password
+probe is performed. Existing profiles, rosters, node configuration, sovereign
+credentials, unreadable records and pending setup/erasure markers refuse
+replacement. Hidden one-space auto-compaction is disabled in known shared
+spaces before another hidden root is published; a refusal stops creation.
+
+A protected setup marker precedes the duress roster and is cleared only after
+its durable save. The target closes before success, and the original active
+view/hosting policy is restored. A failed restore/close never reports successful
+creation; a durable duress roster may already exist after a lost reply or
+restore failure, and a retry cannot overwrite it. Lock/dispose fences late
+work and retires temporary keys. Host-native fixtures cover all three parent
+modes, single-active/all-online, managed-only sources with no pre-existing
+hidden container, exact cold selected-roster access, stale parent and collision
+refusal, native accepted open/marker/save/close cancellation, and disposal.
+These fixtures use fake network nodes/recorders and do not qualify packaged
+platform media or OS-vault behavior.
+
+The UI explains that entry uses the always-available hidden-storage selector.
+Enumerable identities remain in the catalog; a plaintext master still exposes
+all linked keys. Duress is not a promise to hide those public/plaintext facts.
+Explanations open on demand, with narrow/large-text RU/EN/ES widget checks.
+
+The native create-before-first-marker window is not solved by the later setup
+marker. A killed/cancelled initial create may leave an empty hidden space;
+interrupted-creation recovery still needs to distinguish that from an ordinary
+identity and offer an explicit safe continuation. Default activation stays off.
+
+Remaining before default activation: whole-profile erase, interrupted creation
+and recovery (including the native pre-marker window), password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

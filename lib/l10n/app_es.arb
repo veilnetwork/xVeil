@@ -1714,14 +1714,14 @@
   "manageDeleteLastError": "No se puede eliminar la última identidad. Usa «Borrar todos los datos» para quitarlo todo.",
   "settingsDecoyMaster": "Configurar el acceso señuelo",
   "decoyTitle": "Acceso señuelo (bajo coacción)",
-  "decoySubtitle": "Una contraseña aparte que, bajo coacción, abre solo las identidades que marques abajo. Tu maestra real y el resto de identidades siguen ocultas.",
+  "decoySubtitle": "Una contraseña aparte que abre solo las identidades que selecciones abajo.",
   "decoyWarning": "Cualquiera a quien le des esta contraseña verá el contenido COMPLETO de cada identidad que marques. Incluye solo las que sean realmente seguras.",
   "decoyPassword": "Contraseña de coacción",
   "decoyInclude": "Identidades que se mostrarán bajo coacción",
   "decoyCreate": "Crear el acceso señuelo",
   "decoyCreated": "Acceso señuelo creado.",
   "decoyPickOne": "Selecciona al menos una identidad.",
-  "decoyClash": "Esa contraseña ya está en uso: elige otra distinta.",
+  "decoyClash": "No se pudo crear la maestra de coacción. Inténtalo de nuevo o elige otra contraseña.",
   "languageSystem": "Como el sistema",
   "chatRequestTitle": "Este contacto quiere conectar contigo",
   "actionAccept": "Aceptar",
@@ -3286,5 +3286,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "decoyStorageTitle": "Acceso y almacenamiento",
+  "decoyStorageHint": "Para usar esta contraseña, elige Espacio oculto al iniciar sesión. Las identidades cifradas y sin cifrar siguen en el catálogo público. Una maestra sin cifrar expone las claves de todas las identidades vinculadas."
 }

@@ -1743,14 +1743,14 @@
   "manageDeleteLastError": "Can't delete the last identity. Use 'Clear all data' to remove everything.",
   "settingsDecoyMaster": "Set up decoy access",
   "decoyTitle": "Decoy (duress) access",
-  "decoySubtitle": "A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.",
+  "decoySubtitle": "A separate password that opens only the identities you select below.",
   "decoyWarning": "Anyone you give this password to sees the FULL content of every identity you tick. Include only genuinely safe ones.",
   "decoyPassword": "Duress password",
   "decoyInclude": "Identities to show under duress",
   "decoyCreate": "Create decoy access",
   "decoyCreated": "Decoy access created.",
   "decoyPickOne": "Select at least one identity.",
-  "decoyClash": "That password is already in use — choose a different one.",
+  "decoyClash": "Could not create the duress master. Try again or choose a different password.",
   "languageSystem": "System default",
   "chatRequestTitle": "This contact wants to connect",
   "actionAccept": "Accept",
@@ -3768,5 +3768,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "decoyStorageTitle": "Sign-in and storage",
+  "decoyStorageHint": "To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it."
 }
