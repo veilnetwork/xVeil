@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../../domain/storage_locator.dart';
 import '../../domain/storage_protection.dart';
@@ -111,6 +112,52 @@ final class ProfileStorageRouter {
     if (_closing) throw StateError('storage router is closing');
     _snapshot = (await _catalog.snapshot()).snapshot.catalog;
   });
+
+  /// Explicit target only. The caller has stopped/closed its data owner and
+  /// durably journaled the parent's roster obligation before invoking this.
+  Future<void> eraseManaged(ManagedStorageLocator target, Uint8List keys) {
+    final copied = Uint8List.fromList(keys);
+    return _enqueue(() async {
+      if (_closing) throw StateError('storage router is closing');
+      try {
+        _snapshot = (await _catalog.erase(
+          ManagedIdentityEntry.fromLocator(target),
+          keys: copied,
+        )).catalog;
+      } finally {
+        // A late metadata-cleanup error may follow the durable catalog remove.
+        // Refresh does not adopt another access root or redirect an old facade.
+        _snapshot = (await _catalog.snapshot()).snapshot.catalog;
+      }
+    }).whenComplete(() => copied.fillRange(0, copied.length, 0));
+  }
+
+  /// Temporary legacy space for an authenticated roster operation. The parent
+  /// sharing this container must be closed first. Retain before any opener
+  /// await; close errors remain in the router's retirement set for retry.
+  Future<void> eraseLegacy(Uint8List keys, {required void Function() check}) {
+    final copied = Uint8List.fromList(keys);
+    return _enqueue(() async {
+      if (_closing) throw StateError('storage router is closing');
+      check();
+      final child = _factory(const LegacyStorageLocator(), false);
+      _retiredStores.add(child);
+      try {
+        if (!await child.openWithKeys(copied)) {
+          throw StateError('legacy roster credential refused');
+        }
+        check();
+        await child.eraseSpace();
+        check();
+      } finally {
+        if (child is StorageOpeningOwner) {
+          await (child as StorageOpeningOwner).settleOpening();
+        }
+        await child.close();
+        _retiredStores.remove(child);
+      }
+    }).whenComplete(() => copied.fillRange(0, copied.length, 0));
+  }
 
   Future<void> select(
     IdentityStorageLocator location, {

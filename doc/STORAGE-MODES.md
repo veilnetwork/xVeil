@@ -859,7 +859,7 @@ These tests do not qualify power loss between creating an unbound child and
 committing its master roster: already published files remain owned/preserved,
 and interrupted-creation discovery/resume still needs implementation.
 
-During staging, mixed-master deletion/decoy operations and legacy whole-profile
+During staging, mixed-master decoy creation and legacy whole-profile
 compaction/wipe remain refused before writes when visible catalog entries exist.
 Managed settings show automatic owned reclamation instead of legacy
 unknown-space maintenance. These temporary restrictions are reasons to keep the
@@ -914,13 +914,42 @@ Host-native tests include credential refusal without file changes, another live
 owner, stale catalog admission, all deletion checkpoints, forced process death,
 sibling/legacy byte preservation, idempotent retry and queued worker close.
 
-Application management still refuses mixed-master deletion: integrating this
-kernel must also persist/recover the master-roster obligation if a process dies
-between child removal and roster publication. The kernel alone does not close
-that application boundary or enable the QA switch in production.
+Application management now journals deletion inside the authenticated master
+before invoking the kernel. The intent contains an immutable target locator
+and keys, bound to the access root and a digest of the master's own keys. It
+contains no display name and never enters the public catalog or preferences.
+Two legacy masters share a locator but have different keys; copying an intent
+between them refuses. Self/master and last-child deletion refuse before writes.
 
-Remaining before default activation: mode-aware deletion/decoy application
-flows, whole-profile erase, interrupted-onboarding recovery, password rotation,
+The app stops hosted children before erasure. It keeps an independent parent
+open for visible-child removal, or closes/reopens the same parent while erasing
+a legacy space in its shared container. After erasure it reloads the current
+roster and removes only the exact locator/key reference, preserving unrelated
+rows and labels reused by a new identity. The new roster is durable before the
+intent is cleared. Lost write replies or process death at either boundary leave
+an idempotent recovery obligation. A cold authenticated master unlock completes
+it before all-online boot planning or presenting its children.
+
+Cancellation fences accepted operations to the same parent/target; they cannot
+publish a ready session after lock. Late roster buffers are adopted before the
+cancellation check and retired if no session keeps them. A pending intent with
+an absent/empty roster or unavailable recovery route cannot boot as an ordinary
+identity. Unresolved erasure errors retain the intent and return to locked state
+with a diagnostic, rather than booting a cached roster that names erased data.
+Retrying the authenticated master unlock retries this work. A usable in-app
+repair path for an erasure blocked by preserved unknown files is still needed.
+
+Host-native application cases cover all three master modes, visible and legacy
+child removal, single-active and all-online restoration, cold intent-only /
+child-removed / roster-published states, and last-child preservation. A gated
+native response checks lock after child removal and before roster publication,
+including retirement of late key buffers and successful subsequent unlock.
+Separate native processes exercise SIGKILL after intent persistence, child
+removal, roster publication and intent clear for encrypted and plaintext parents.
+These do not qualify packaged platform behavior or filesystem power loss.
+
+Remaining before default activation: pending-erasure repair UX, mixed decoy
+creation, whole-profile erase, interrupted-onboarding recovery, password rotation,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

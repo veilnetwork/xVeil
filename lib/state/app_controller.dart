@@ -27,6 +27,7 @@ import '../data/storage/container_rewrite_files.dart';
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/prefs_rollback_anchor.dart';
 import '../data/storage/storage.dart';
+import '../data/storage/roster_identity_erase.dart';
 import '../data/veil_stack.dart';
 import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
 import '../data/whisper_model_store.dart' show WhisperModelStore;
@@ -39,6 +40,7 @@ import '../domain/storage_locator.dart';
 import '../domain/storage_protection.dart';
 import '../domain/storage_usage.dart';
 import '../domain/storage_setup.dart';
+import '../domain/pending_identity_erase.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
@@ -451,6 +453,33 @@ class AppController extends Notifier<AppState> {
             const LegacyStorageLocator(),
         edit,
       );
+
+  Future<void> _eraseRosterTarget(
+    Storage master,
+    Uint8List masterKeys,
+    RosterEntry target,
+    void Function() check,
+  ) async {
+    check();
+    final router = ref.read(profileStorageRouterProvider);
+    if (router == null) throw StateError('storage router unavailable');
+    final locator = target.storageLocator;
+    if (locator is ManagedStorageLocator) {
+      await router.eraseManaged(locator, target.spaceKeys);
+      check();
+      return;
+    }
+    // Hidden spaces share one native container, so release the parent while
+    // erasing its authenticated child. Reopen the SAME immutable parent port.
+    await master.close();
+    check();
+    await router.eraseLegacy(target.spaceKeys, check: check);
+    check();
+    if (!await master.openWithKeys(masterKeys)) {
+      throw StateError('master credential refused after child erase');
+    }
+    check();
+  }
 
   Future<bool> selectStorageIdentity(IdentityStorageLocator locator) async {
     final router = ref.read(profileStorageRouterProvider);
@@ -1203,6 +1232,7 @@ class AppController extends Notifier<AppState> {
     // (exportSpaceKeys, _enterSession's node-config read) can't leave the
     // unlock spinner frozen with the container half-open — bounce back to the
     // lock screen so the user retries cleanly.
+    final unlockRosterKeys = <Uint8List>[];
     try {
       // Reopening from onboarding records its launch marker only after the
       // password actually opens a space, and before any session is published.
@@ -1219,13 +1249,28 @@ class AppController extends Notifier<AppState> {
       }
       // Only a recogniser is kept, never the password or anything on disk.
       _rememberAccessPassword(password);
-      final roster = await storage.loadRoster();
+      var roster = await storage.loadRoster();
+      if (roster != null) {
+        unlockRosterKeys.addAll(roster.map((e) => e.spaceKeys));
+      }
       if (!ref.mounted || _supersededSince(gen)) {
         _releaseKeys([
           for (final entry in roster ?? const <RosterEntry>[]) entry.spaceKeys,
         ]);
         await storage.close();
         return;
+      }
+      final eraseMarker = await storage.getSetting(kPendingIdentityErase);
+      if (!ref.mounted || _supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
+      if (eraseMarker != null &&
+          eraseMarker.isNotEmpty &&
+          (roster == null ||
+              roster.isEmpty ||
+              ref.read(profileStorageRouterProvider) == null)) {
+        throw const IdentityEraseFailure(IdentityEraseFailureKind.invalid);
       }
       devLog(
         () =>
@@ -1234,14 +1279,7 @@ class AppController extends Notifier<AppState> {
             '(+${ms()}ms)',
       );
       if (roster != null && roster.isNotEmpty) {
-        await ref.read(profileStorageRouterProvider)?.rememberAccess();
-        if (!ref.mounted || _supersededSince(gen)) {
-          await storage.close();
-          return;
-        }
-        _setPendingRoster(roster);
-        // Cache the master's keys so roster edits can reopen it without a
-        // password re-prompt (held in memory like the child keys above).
+        // Hold the authenticated parent's keys across pending erase recovery.
         final masterKeys = await storage.exportSpaceKeys();
         if (!ref.mounted || _supersededSince(gen)) {
           _releaseKeys([masterKeys]);
@@ -1249,6 +1287,33 @@ class AppController extends Notifier<AppState> {
           return;
         }
         _setMasterKeys(masterKeys);
+        final router = ref.read(profileStorageRouterProvider);
+        if (router != null) {
+          void check() {
+            if (!ref.mounted || _supersededSince(gen)) {
+              throw _IdentityEditEnded();
+            }
+          }
+
+          roster = await RosterIdentityErase.resume(
+            master: storage,
+            root: router.access,
+            masterKeys: masterKeys,
+            roster: roster,
+            check: check,
+            erase: (target) =>
+                _eraseRosterTarget(storage, masterKeys, target, check),
+            retainRoster: (rows) =>
+                unlockRosterKeys.addAll(rows.map((e) => e.spaceKeys)),
+          );
+          check();
+        }
+        await ref.read(profileStorageRouterProvider)?.rememberAccess();
+        if (!ref.mounted || _supersededSince(gen)) {
+          await storage.close();
+          return;
+        }
+        _setPendingRoster(roster);
         await storage.close(); // release the single-space lock first
         if (!ref.mounted || _supersededSince(gen)) return;
         // Once per install: this container is a master, so no identity in it
@@ -1309,6 +1374,16 @@ class AppController extends Notifier<AppState> {
       devLog(
         () => 'xVeil[unlock]: done, phase=${state.phase.name} (+${ms()}ms)',
       );
+    } on _IdentityEditEnded {
+      try {
+        await storage.close();
+      } catch (_) {
+        errorJournal.record(
+          kind: 'identity-erase-close',
+          error: StateError('interrupted identity recovery close failed'),
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
     } catch (e, st) {
       devLog(
         () =>
@@ -1334,6 +1409,7 @@ class AppController extends Notifier<AppState> {
       // There is no replacement session in a disposed controller. Release any
       // roster adopted before disposal even when its key export arrived later.
       if (!ref.mounted) _clearMasterSession();
+      _releaseKeys(unlockRosterKeys);
     }
   }
 
@@ -3363,17 +3439,23 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// PERMANENTLY delete [label]'s identity: forensically erase its space (its
-  /// keypair, contacts, messages, file blobs — [Storage.eraseSpace]) AND remove
-  /// it from this master's roster. Irreversible — distinct from [unbindIdentity],
+  /// PERMANENTLY delete [label]'s owned data and remove its master-roster link.
+  /// Managed files are unlinked under their lease; legacy spaces use
+  /// [Storage.eraseSpace]. This does not promise physical/backup erasure.
+  /// Irreversible — distinct from [unbindIdentity],
   /// which only removes the roster link and leaves the space openable. Refuses
   /// the last identity (use the lock-screen wipe to remove everything). NOTE: if
   /// the same identity is bound in OTHER masters, those rosters keep a now-stale
   /// entry (the space they point at is erased). Returns false on the guards.
-  Future<bool> deleteIdentity(String label) =>
-      _withIdentityEdit((edit) => _deleteIdentityOwned(edit, label));
+  Future<bool> deleteIdentity(String label) => _withIdentityEdit(
+    (edit) => _deleteIdentityOwned(edit, label),
+    supportsManagedMaster: true,
+  );
 
   Future<bool> _deleteIdentityOwned(_IdentityEdit edit, String label) async {
+    if (ref.read(profileStorageRouterProvider) != null) {
+      return _deleteRoutedIdentityOwned(edit, label);
+    }
     final roster = edit.copyRoster(_pendingRoster);
     final masterKeys = edit.copyKeys(_masterKeys);
     if (roster == null || masterKeys == null) return false;
@@ -3432,6 +3514,80 @@ class AppController extends Notifier<AppState> {
       // instead of stranding the user behind the manage-screen busy overlay.
       devLog(() => 'xVeil[identity]: deleteIdentity failed -> recover: $e');
       await edit.step(() => _recoverToActive(edit: edit));
+      return false;
+    }
+  }
+
+  Future<bool> _deleteRoutedIdentityOwned(
+    _IdentityEdit edit,
+    String label,
+  ) async {
+    final masterKeys = edit.copyKeys(_masterKeys);
+    final cached = edit.copyRoster(_pendingRoster);
+    if (masterKeys == null ||
+        cached == null ||
+        cached.length < 2 ||
+        !cached.any((entry) => entry.label == label)) {
+      return false;
+    }
+    final previous = _activeLabel;
+    final hosted = ref.read(sessionProvider) != null;
+    edit.interrupted = true;
+    await edit.step(_teardownSession);
+    await edit.step(_teardownRealStack);
+    await edit.step(() => edit.own(ref.read(storageProvider)).close());
+    final master = await _masterStorageForEdit(edit);
+    try {
+      if (!await edit.step(() => master.openWithKeys(masterKeys))) {
+        throw StateError('master credential refused');
+      }
+      final roster = await edit.step(master.loadRoster);
+      if (roster == null) throw StateError('master roster absent');
+      RosterEntry? target;
+      for (final entry in roster) {
+        if (entry.label == label) target = entry;
+      }
+      if (target == null) throw StateError('roster target absent');
+      final router = ref.read(profileStorageRouterProvider)!;
+      final updated = await edit.step(
+        () => RosterIdentityErase.start(
+          master: master,
+          root: router.access,
+          masterKeys: masterKeys,
+          roster: roster,
+          target: target!,
+          check: edit.check,
+          erase: (entry) =>
+              _eraseRosterTarget(master, masterKeys, entry, edit.check),
+          retainRoster: (rows) =>
+              edit.keys.addAll(rows.map((e) => e.spaceKeys)),
+        ),
+      );
+      await edit.step(master.close);
+      _setPendingRoster(updated);
+      await edit.step(
+        () => _reEnterAfterRosterEdit(updated, previous, hosted, edit: edit),
+      );
+      return true;
+    } on _IdentityEditEnded {
+      rethrow;
+    } catch (error, stack) {
+      // Do not boot the cached old roster after a possibly completed erase.
+      // The authenticated pending intent is resumed by the next master unlock.
+      devLog(() => 'xVeil[identity]: routed deletion incomplete: $error');
+      errorJournal.record(
+        kind: 'identity-erase',
+        error: StateError('identity deletion incomplete'),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      try {
+        await master.close();
+      } catch (_) {}
+      edit.check();
+      _endLifecycle();
+      _clearMasterSession();
+      state = const AppState(AppPhase.locked, unlockError: true);
       return false;
     }
   }

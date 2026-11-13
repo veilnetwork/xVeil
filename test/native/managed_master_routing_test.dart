@@ -10,6 +10,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/storage/worker_multi_space.dart';
 import 'package:xveil/state/multi_identity_session.dart';
@@ -23,6 +24,8 @@ import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_usage.dart';
+import 'package:xveil/domain/pending_identity_erase.dart';
+import 'package:xveil/data/storage/managed_identity_catalog.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
@@ -376,6 +379,123 @@ void main() {
             ?fourth,
           ]);
           expect(restored.every((r) => r.spaceKeys.length == 64), isTrue);
+          await cold.storage.close();
+          expect(
+            await coldController.selectStorageIdentity(masterLocator),
+            isTrue,
+          );
+          await coldController.unlock(masterPassword);
+          await coldController.pickIdentity('unencrypted');
+          expect(
+            coldApp.read(appControllerProvider).phase,
+            AppPhase.ready,
+            reason: devLogSnapshot(limit: 15).lines.join('\n'),
+          );
+          expect(coldController.debugMasterKeys, isNotNull);
+          expect(
+            await coldController.deleteIdentity('encrypted-again'),
+            isTrue,
+            reason: devLogSnapshot(limit: 15).lines.join('\n'),
+          );
+          final removed = rows[1].storageLocator as ManagedStorageLocator;
+          expect(
+            Directory(
+              ManagedIdentityLayout(profile).directory(removed.id),
+            ).existsSync(),
+            isFalse,
+          );
+          expect(cold.access, masterLocator);
+          // Persist the same accepted intent that a killed application leaves.
+          // Cover before erasure, after child removal, and after roster save.
+          expect(
+            await coldController.addIdentity(
+              masterPassword: masterPassword,
+              label: 'pending-erase',
+              password: 'synthetic pending password',
+              protection: StorageProtection.encrypted,
+            ),
+            isTrue,
+          );
+          await coldController.lock();
+          await cold.select(masterLocator, access: false);
+          expect(await cold.storage.open(password: masterPassword), isTrue);
+          final pendingRoster = (await cold.storage.loadRoster())!;
+          final pendingEntry = pendingRoster.singleWhere(
+            (e) => e.label == 'pending-erase',
+          );
+          final rootKeys = await cold.storage.exportSpaceKeys();
+          keys.add(rootKeys);
+          keys.addAll(pendingRoster.map((e) => e.spaceKeys));
+          final intent = PendingIdentityErase.authorized(
+            root: masterLocator,
+            masterKeys: rootKeys,
+            target: pendingEntry,
+          );
+          await cold.storage.putSetting(kPendingIdentityErase, intent.encode());
+          intent.destroy();
+          if (masterMode != StorageProtection.hidden) {
+            await cold.eraseManaged(
+              pendingEntry.storageLocator as ManagedStorageLocator,
+              pendingEntry.spaceKeys,
+            );
+          }
+          if (masterMode == StorageProtection.unencrypted) {
+            await cold.storage.saveRoster(
+              pendingRoster.where((e) => e.label != 'pending-erase').toList(),
+            );
+          }
+          await cold.storage.close();
+          expect(
+            await coldController.selectStorageIdentity(masterLocator),
+            isTrue,
+          );
+          await coldController.unlock(masterPassword);
+          expect(
+            coldApp.read(appControllerProvider).identities,
+            isNot(contains('pending-erase')),
+          );
+          expect(
+            coldApp.read(appControllerProvider).phase,
+            allOnline ? AppPhase.ready : AppPhase.pickingIdentity,
+          );
+          final pendingLocator =
+              pendingEntry.storageLocator as ManagedStorageLocator;
+          expect(
+            Directory(
+              ManagedIdentityLayout(profile).directory(pendingLocator.id),
+            ).existsSync(),
+            isFalse,
+          );
+          if (allOnline) {
+            expect(
+              coldApp.read(sessionProvider)!.storageFor('pending-erase'),
+              isNull,
+            );
+          }
+          await coldController.pickIdentity('unencrypted');
+          expect(await coldController.deleteIdentity('hidden'), isTrue);
+          if (allOnline) {
+            expect(await coldController.deleteIdentity('fourth'), isTrue);
+            expect(coldApp.read(sessionProvider), isNotNull);
+          }
+          expect(coldApp.read(appControllerProvider).identities, [
+            'unencrypted',
+          ]);
+          expect(coldController.activeIdentity, 'unencrypted');
+          expect(
+            await coldApp.read(storageProvider).getSetting('owner'),
+            'unencrypted',
+          );
+          expect(await coldController.deleteIdentity('unencrypted'), isFalse);
+          await coldController.lock();
+          await cold.select(masterLocator, access: false);
+          expect(await cold.storage.open(password: masterPassword), isTrue);
+          expect(await cold.storage.getSetting(kPendingIdentityErase), '');
+          expect(
+            (await cold.storage.loadRoster())!.single.label,
+            'unencrypted',
+          );
+          expect(await cold.storage.getSetting('master-fixture'), 'preserve');
         } finally {
           for (final container in containers.reversed) {
             await container.read(appControllerProvider.notifier).lock();

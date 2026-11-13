@@ -6,6 +6,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_setup.dart';
+import 'package:xveil/domain/pending_identity_erase.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/multi_identity_session.dart';
 import 'package:xveil/state/providers.dart';
@@ -14,6 +15,51 @@ import 'support/fake_multi_space.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final hasRoster in [false, true]) {
+    test(
+      'pending erase cannot boot without a usable recovery route; roster=$hasRoster',
+      () async {
+        SharedPreferences.setMockInitialValues({'onboarded': true});
+        final storage = FakeHvContainer().storage();
+        expect(
+          await storage.open(
+            password: 'synthetic erase parent',
+            createIfMissing: true,
+          ),
+          isTrue,
+        );
+        if (hasRoster) {
+          await storage.saveRoster([
+            RosterEntry(label: 'child', spaceKeys: Uint8List(64)),
+          ]);
+        }
+        await storage.putSetting(kPendingIdentityErase, '{}');
+        await storage.close();
+        final container = ProviderContainer(
+          overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
+        );
+        try {
+          final controller = container.read(appControllerProvider.notifier);
+          await container.read(prefsProvider.future);
+          await Future<void>.delayed(Duration.zero);
+          await controller.unlock('synthetic erase parent');
+          expect(container.read(appControllerProvider).phase, AppPhase.locked);
+          expect(container.read(appControllerProvider).unlockError, isTrue);
+          expect(controller.debugRoster, isNull);
+          expect(storage.isOpen, isFalse);
+          expect(
+            await storage.open(password: 'synthetic erase parent'),
+            isTrue,
+          );
+          expect(await storage.getSetting(kPendingIdentityErase), '{}');
+          expect(await storage.loadNodeConfig(), isNull);
+        } finally {
+          await storage.close();
+          container.dispose();
+        }
+      },
+    );
+  }
   test(
     'a pending hidden master cannot silently become a new identity',
     () async {
