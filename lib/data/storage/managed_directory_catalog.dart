@@ -8,6 +8,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../../domain/identity_erase_review.dart';
+import '../../core/storage_unlock_scope.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;

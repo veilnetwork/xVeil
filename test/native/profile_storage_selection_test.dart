@@ -100,7 +100,28 @@ void main() {
     final worker = await catalog();
     expect((await worker.snapshot()).exists, isFalse);
     expect((await worker.select(null)).catalog.identities, isEmpty);
-    expect(Directory(profile).listSync(), isEmpty);
+    expect(
+      Directory(
+        profile,
+      ).listSync().map((e) => File(e.path).uri.pathSegments.last).toSet(),
+      {'storage-lifetime'},
+    );
+    final role = Directory('$profile/storage-lifetime');
+    expect(
+      role.listSync().map((e) => File(e.path).uri.pathSegments.last).toSet(),
+      {'profile.meta', 'profile.meta.lock'},
+    );
+    final before = {
+      for (final file in role.listSync().whereType<File>())
+        file.path: file.readAsBytesSync(),
+    };
+    expect((await worker.snapshot()).exists, isFalse);
+    expect((await worker.select(null)).catalog.identities, isEmpty);
+    expect({
+      for (final file in role.listSync().whereType<File>())
+        file.path: file.readAsBytesSync(),
+    }, before);
+    expect(Directory('$profile/identities').existsSync(), isFalse);
     final entry = await plain('a');
     expect(
       (await worker.snapshot()).snapshot.catalog.identities.single.id,
