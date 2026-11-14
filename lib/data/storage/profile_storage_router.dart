@@ -120,6 +120,7 @@ final class ProfileStorageRouter {
     ManagedStorageLocator target,
     Uint8List keys, {
     IdentityEraseReview? review,
+    Future<void> Function()? beforeErase,
   }) {
     final copied = Uint8List.fromList(keys);
     return _enqueue(() async {
@@ -129,6 +130,7 @@ final class ProfileStorageRouter {
           ManagedIdentityEntry.fromLocator(target),
           keys: copied,
           review: review,
+          beforeErase: beforeErase,
         )).catalog;
       } finally {
         // A late metadata-cleanup error may follow the durable catalog remove.

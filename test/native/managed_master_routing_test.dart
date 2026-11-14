@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:xveil/state/startup_unlock.dart';
+import '../support/retirement_secret_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
@@ -137,6 +139,9 @@ void main() {
         Future<ProviderContainer> app(ProfileStorageRouter router) async {
           final container = ProviderContainer(
             overrides: [
+              quickUnlockSecretStoreProvider.overrideWithValue(
+                RetirementSecretStore(),
+              ),
               micPermissionProvider.overrideWithValue(() async => true),
               voiceRecorderFactoryProvider.overrideWithValue(() {
                 final recorder = _Recorder();

@@ -1257,6 +1257,57 @@ and successful explicit later creation. That whole selection file and the new
 scope/retirement/removal/crash files are requalified after this fixture-only
 change; the broad result is not represented as one green final-source run.
 
+### Saved-entry cleanup before individual managed erasure
+
+The inventory audit found a real application gap: managed target removal did
+not retire its own OS quick-entry scope before removing the public catalog
+reference. A later whole-profile wipe could therefore lose the name needed to
+clean that entry. This is fixed at the existing authenticated erasure boundary,
+not by scanning OS keys or changing the hidden-space namespace.
+
+After validating the exact target role/keys and any unknown-entry consent, the
+storage worker closes payload handles, retains the identity role/root leases
+and requests a bounded UI-side admission. The application captures the target's
+own namespace using the same factory as ordinary quick entry, verifies its
+saved-record deletion and checks the original edit lifecycle before replying.
+The current master/other identities and the global opt-in preference are not
+removed. There is no OS side effect during read-only review, wrong-key attempts,
+unapproved unknown content or invalid review tokens.
+
+Refusal preserves payloads, approved unknown entries and catalog membership;
+the existing authenticated parent journal remains retryable. Only success allows
+file/catalog removal. This retains known scope discovery until verified cleanup,
+including after restart or a metadata-only erasure retry. An absent-root retry
+may retire the caller's explicit scope without creating a replacement catalog.
+
+The private callback bridge sends only an operation reply capability and a
+boolean acknowledgement, never paths, keys, plugin text or a new authorization
+claim. It joins accepted UI work before releasing its local endpoint even if the
+worker's RPC fails. Worker close/snapshots stay queued while admission is held;
+no timeout turns an unacknowledged OS operation into permission to unlink.
+The ordinary native authentication/consent gates remain authoritative.
+
+Two application recovery cases are red with the old application wiring and
+green with this callback. The initial fixture used the pre-normalized directory
+spelling; it was corrected to the router's exact namespace and asserts that it
+matches the ordinary parent provider. The corrected fixture was rerun against
+the old wiring to confirm both failures again. Native encrypted/plaintext cases
+cover wrong credentials, refusal/retry, retained sibling bytes, role contention,
+queued close, read-only/forged consent and absence. Explicit managed cleanup
+without its profile context refuses before OS access instead of inventing a
+fallback namespace. All secret-store ports are in memory; real OS integration,
+packaged platforms and whole-profile finalization are still unqualified.
+
+The wider 64-file run passed 432 cases and found two lifecycle fixtures that
+had not injected the newly required OS port. With an explicit in-memory store,
+those original lock/late-roster-key assertions pass unchanged; the fixture also
+checks that target cleanup actually used its port. A protocol-only supervised
+peer is forcibly terminated after requesting UI admission: the production erase
+facade still waits for the accepted cleanup, reports worker death, and does not
+invent a successful close. This does not qualify native FFI death or a real OS
+dialog. Headless import coverage stays Flutter-free. Requalification includes
+the whole affected files, not a claim that the earlier broad run was green.
+
 ### OS quick-entry cleanup before whole-profile erasure
 
 Whole-profile erasure with visible catalog entries is still refused pending

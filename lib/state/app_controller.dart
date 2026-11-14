@@ -524,7 +524,17 @@ class AppController extends Notifier<AppState> {
     if (router == null) throw StateError('storage router unavailable');
     final locator = target.storageLocator;
     if (locator is ManagedStorageLocator) {
-      await router.eraseManaged(locator, target.spaceKeys, review: review);
+      final vault = quickUnlockVaultForLocator(ref, locator);
+      await router.eraseManaged(
+        locator,
+        target.spaceKeys,
+        review: review,
+        beforeErase: () async {
+          check();
+          await vault.forget();
+          check();
+        },
+      );
       check();
       return;
     }

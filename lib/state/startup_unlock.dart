@@ -14,18 +14,51 @@ final quickUnlockSecretStoreProvider = Provider<QuickUnlockSecretStore>(
 );
 final quickUnlockVaultProvider = Provider<QuickUnlockVault>((ref) {
   final locator = ref.watch(storageAccessLocatorProvider);
-  final legacyPath =
-      ref.watch(deniableBootProvider)?.storePath ?? activeProfile;
-  final path = locator is LegacyStorageLocator
-      ? legacyPath
-      : ref.watch(profileStorageRouterProvider)?.profileDirectory ?? legacyPath;
-  final scope = storageUnlockScope(activeProfile, path, locator);
-  return QuickUnlockVault(
+  return _storageVault(
     ref.watch(quickUnlockSecretStoreProvider),
-    scope,
     ref.watch(localScreenAuthenticationProvider),
+    locator,
+    ref.watch(deniableBootProvider)?.storePath ?? activeProfile,
+    ref.watch(profileStorageRouterProvider)?.profileDirectory,
   );
 });
+
+QuickUnlockVault _storageVault(
+  QuickUnlockSecretStore store,
+  LocalScreenAuthentication authentication,
+  IdentityStorageLocator locator,
+  String legacyPath,
+  String? managedPath,
+) {
+  final path = locator is LegacyStorageLocator
+      ? legacyPath
+      : managedPath ?? legacyPath;
+  return QuickUnlockVault(
+    store,
+    storageUnlockScope(activeProfile, path, locator),
+    authentication,
+  );
+}
+
+/// Capture an explicit target without subscribing an ongoing identity edit to
+/// provider changes. Uses exactly the ordinary entry namespace, no OS read.
+QuickUnlockVault quickUnlockVaultForLocator(
+  Ref ref,
+  IdentityStorageLocator locator,
+) {
+  final router = ref.read(profileStorageRouterProvider);
+  if (locator is ManagedStorageLocator && router == null) {
+    throw StateError('Managed saved entry requires its profile context');
+  }
+  return _storageVault(
+    ref.read(quickUnlockSecretStoreProvider),
+    ref.read(localScreenAuthenticationProvider),
+    locator,
+    ref.read(deniableBootProvider)?.storePath ?? activeProfile,
+    router?.profileDirectory,
+  );
+}
+
 final startupUnlockOptionsProvider =
     FutureProvider.autoDispose<StartupUnlockOptions>((ref) async {
       final prefs = await ref.watch(prefsProvider.future);
