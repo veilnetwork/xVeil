@@ -6,6 +6,8 @@ import 'providers.dart';
 import 'storage_router_providers.dart';
 import '../domain/storage_locator.dart';
 import '../core/storage_unlock_scope.dart';
+import '../data/storage/managed_directory_catalog.dart'
+    show ManagedErasureRelease;
 
 const kStartupUnlockOptIn = 'quick_unlock_os_store.v1';
 
@@ -57,6 +59,20 @@ QuickUnlockVault quickUnlockVaultForLocator(
     ref.read(deniableBootProvider)?.storePath ?? activeProfile,
     router?.profileDirectory,
   );
+}
+
+/// The enclosing profile wipe has durably finalized and actually closed its
+/// coordinator. Old wrappers remain sealed; providers recreate owners only
+/// after the receipt has atomically detached the verified retired scope set.
+void admitFreshStartupUnlock(
+  Ref ref,
+  QuickUnlockRetirement retirement,
+  ManagedErasureRelease receipt,
+) {
+  if (!ref.mounted) throw StateError('Saved-entry owner disposed');
+  retirement.admitFreshLifetime(receipt);
+  ref.invalidate(quickUnlockVaultProvider);
+  ref.invalidate(startupUnlockOptionsProvider);
 }
 
 final startupUnlockOptionsProvider =

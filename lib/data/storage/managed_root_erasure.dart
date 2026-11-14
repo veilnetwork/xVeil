@@ -6,15 +6,32 @@ part of 'managed_directory_catalog.dart';
 /// pending enrollment and preferences before finalizing this intent. That
 /// application integration remains disabled. Ordinary startup never bypasses it.
 final class ManagedRootErasure {
-  ManagedRootErasure._(this._gate, this._plan, this._directory, this._file);
-  ManagedRootErasure._finishing(this._gate, this._completion)
-    : _plan = null,
+  ManagedRootErasure._(
+    this._gate,
+    this._plan,
+    this._directory,
+    this._file,
+    this.binding,
+  );
+  ManagedRootErasure._finishing(this._gate, _ErasureCompletion completion)
+    : _completion = completion,
+      _plan = null,
       _directory = null,
-      _file = null;
+      _file = null,
+      binding = ManagedErasureBinding._(
+        completion._record['profile'] as String,
+        completion._record['coordinator'] as String,
+        completion._record['directory'] as String,
+        completion._record['sha256'] as String,
+      );
   static const pendingName = 'erasure-pending';
   static const completionName = 'erasure-complete.json';
   static const _planName = 'plan.json';
   final StorageProfileCoordinator _gate;
+
+  /// Opaque operation binding, stable across explicit pending/terminal recovery.
+  /// It grants no admission and exposes no paths, catalog or scope roster.
+  final ManagedErasureBinding binding;
   final _RootErasePlan? _plan;
   final ManagedPathWitness? _directory, _file;
   _ErasureCompletion? _completion;
@@ -173,7 +190,18 @@ final class ManagedRootErasure {
       }
       ManagedDirectoryCatalog._assertSame(file, witness, fs);
       final plan = _RootErasePlan.decode(bytes);
-      final result = ManagedRootErasure._(gate, plan, directory, witness);
+      final result = ManagedRootErasure._(
+        gate,
+        plan,
+        directory,
+        witness,
+        ManagedErasureBinding._(
+          gate._profileWitness.identity,
+          gate._directoryWitness.identity,
+          directory.identity,
+          sha256.convert(bytes).toString(),
+        ),
+      );
       result._validate();
       plan.validateTree(gate);
       return result;
@@ -319,12 +347,47 @@ final class ManagedRootErasure {
     }
   }
 
+  /// Proof is issued only after durable terminal finalization AND successful
+  /// native role/lock close. A failed close issues no permission for new OS
+  /// scope owners; retry uses the same consuming-close owner.
+  ManagedErasureRelease releaseCompleted() {
+    if (_operating || !_finished) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
+    close();
+    return ManagedErasureRelease._(binding);
+  }
+
   void close() {
     if (_operating || (_completion?.unlinked == true && !_finished)) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
     _gate.close();
   }
+}
+
+/// Opaque binding of the exact immutable intent and its original local role
+/// objects. Public mutable metadata is not an authorization against its owner.
+final class ManagedErasureBinding {
+  const ManagedErasureBinding._(
+    this._profile,
+    this._coordinator,
+    this._pending,
+    this._digest,
+  );
+  final String _profile, _coordinator, _pending, _digest;
+}
+
+/// Cannot be constructed by UI callers or obtained from a merely deleted root.
+/// Its issuer has completed the terminal protocol and actually released locks.
+final class ManagedErasureRelease {
+  const ManagedErasureRelease._(this._binding);
+  final ManagedErasureBinding _binding;
+  bool authorizes(ManagedErasureBinding binding) =>
+      _binding._profile == binding._profile &&
+      _binding._coordinator == binding._coordinator &&
+      _binding._pending == binding._pending &&
+      _binding._digest == binding._digest;
 }
 
 enum ManagedRootErasurePhase { removing, finishing, complete }

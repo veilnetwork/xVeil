@@ -9,6 +9,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'local_authentication.dart';
+import 'storage_unlock_scope.dart';
+import '../data/storage/managed_directory_catalog.dart'
+    show ManagedRootErasure, ManagedErasureBinding, ManagedErasureRelease;
+
+part 'quick_unlock_retirement_impl.dart';
 
 /// Separate namespaces prevent changing cipher policy for an existing key.
 /// This port also makes cancellation, write refusal and restart testable without
@@ -122,7 +127,8 @@ Future<List<int>> _patternKey(Map<String, Object> args) async {
 /// file admission remains the cross-process lifetime boundary.
 final class _QuickUnlockScopeState {
   int generation = 0;
-  bool retired = false;
+  bool retired = false, detached = false;
+  int pending = 0;
   Future<void> tail = Future<void>.value();
   static final _backends =
       Expando<Map<String, WeakReference<_QuickUnlockScopeState>>>();
@@ -155,7 +161,13 @@ class QuickUnlockVault {
       base64Encode(List.generate(n, (_) => Random.secure().nextInt(256)));
 
   Future<T> _serial<T>(Future<T> Function() action) {
-    final next = _scopeState.tail.then((_) => action());
+    if (_scopeState.detached) {
+      return Future.error(StateError('Saved sign-in lifetime retired'));
+    }
+    _scopeState.pending++;
+    final next = _scopeState.tail.then((_) => action()).whenComplete(() {
+      _scopeState.pending--;
+    });
     _scopeState.tail = next.then<void>(
       (_) {},
       onError: (Object error, StackTrace stack) {},
@@ -164,7 +176,15 @@ class QuickUnlockVault {
   }
 
   Future<Map<String, dynamic>?> _read({bool forRemoval = false}) async {
+    if (_scopeState.detached) {
+      if (forRemoval) throw StateError('Saved sign-in lifetime retired');
+      return null;
+    }
     final raw = await store.read(_key);
+    if (_scopeState.detached) {
+      if (forRemoval) throw StateError('Saved sign-in lifetime retired');
+      return null;
+    }
     if (raw == null) return null;
     try {
       if (raw.length > 16000) throw const FormatException();
@@ -211,7 +231,11 @@ class QuickUnlockVault {
 
   Future<StartupUnlockOptions> options() async {
     if (_scopeState.retired) return const StartupUnlockOptions();
+    final generation = _generation;
     final r = await _read();
+    if (_scopeState.retired || generation != _generation) {
+      return const StartupUnlockOptions();
+    }
     final grid = r?['grid'];
     return StartupUnlockOptions(
       grid: grid == 3 || grid == 4 || grid == 5 ? grid as int : null,
@@ -424,7 +448,11 @@ class QuickUnlockVault {
     if (_scopeState.retired) return null;
     final generation = _generation;
     final r = await _read();
-    if (r?['system'] != true) return null;
+    if (_scopeState.retired ||
+        generation != _generation ||
+        r?['system'] != true) {
+      return null;
+    }
     final slot = r?['bioSlot'];
     if (slot is! String || slot.length > 64) return null;
     final raw = await store.readAuthenticated(
@@ -432,9 +460,13 @@ class QuickUnlockVault {
       reason,
       authentication,
     );
-    if (raw == null ||
+    if (raw == null || _scopeState.retired || generation != _generation) {
+      return null;
+    }
+    final current = await _read();
+    if (_scopeState.retired ||
         generation != _generation ||
-        (await _read())?['id'] != r!['id']) {
+        current?['id'] != r!['id']) {
       return null;
     }
     final secret = jsonDecode(raw);

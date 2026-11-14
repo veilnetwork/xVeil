@@ -5,7 +5,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:xveil/core/storage_unlock_scope.dart';
-import 'package:xveil/core/quick_unlock_retirement.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
 import '../support/retirement_secret_store.dart';
 import 'dart:typed_data';
