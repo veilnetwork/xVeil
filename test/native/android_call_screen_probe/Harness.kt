@@ -25,7 +25,9 @@ class Harness : Activity(), CallScreenActivity.Host {
   check(CallScreenActivity.hasHost())
   getSharedPreferences("proof",0).edit().putBoolean("hostRetained",true).commit()
   setContentView(TextView(this).apply { text="QA: waiting for incoming notification" })
-  startForegroundService(Intent(this, VeilDaemonService::class.java).setAction(VeilDaemonService.ACTION_START))
+  startForegroundService(Intent(this, VeilDaemonService::class.java)
+   .setAction(VeilDaemonService.ACTION_START)
+   .putExtra(VeilDaemonService.EXTRA_START_GENERATION, VeilDaemonService.startTicket()!!))
   Handler(Looper.getMainLooper()).postDelayed({ signal(true) }, 7000)
  }
  override fun onDestroy() {
@@ -46,6 +48,7 @@ class Harness : Activity(), CallScreenActivity.Host {
   }
   startForegroundService(Intent(this, VeilDaemonService::class.java).apply {
    action=VeilDaemonService.ACTION_START
+   putExtra(VeilDaemonService.EXTRA_START_GENERATION, VeilDaemonService.startTicket()!!)
    putExtra(VeilDaemonService.EXTRA_NOTIFICATION_TITLE,getString(if(ring) R.string.veil_call_screen_incoming else R.string.veil_call_screen_ongoing))
    putExtra(VeilDaemonService.EXTRA_HANGUP_ACTION,true)
    putExtra(VeilDaemonService.EXTRA_RINGING,ring)
@@ -63,7 +66,9 @@ class Harness : Activity(), CallScreenActivity.Host {
    CallScreenActivity.clear()
    check(!CallScreenActivity.updateCaller(session,"ENDED",null))
    getSharedPreferences("proof",0).edit().putBoolean("latePresentationRejected",true).commit()
-   startService(Intent(this,VeilDaemonService::class.java).setAction(VeilDaemonService.ACTION_STOP))
+   startService(Intent(this,VeilDaemonService::class.java)
+    .setAction(VeilDaemonService.ACTION_STOP)
+    .putExtra(VeilDaemonService.EXTRA_START_GENERATION, VeilDaemonService.commandGeneration()))
   }
   return true
  }

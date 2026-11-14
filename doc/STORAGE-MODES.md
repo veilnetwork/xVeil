@@ -1999,6 +1999,21 @@ VPN route/DNS cleanup. A fresh backend still lacks independent cold discovery of
 an older helper. Cold recovery and the other activation gates remain open; this
 change does not enable managed storage or alter its default.
 
+## Android daemon resource retirement port
+
+The SDK has a separate process-local daemon retirement owner. It seals future
+starts, fences queued old start/stop generations, releases known wake locks and
+foreground state, and verifies this application's daemon component through the
+platform before returning a resource receipt. Failed observation remains sealed;
+read-only recheck and exact-owner release support retry without starting a node.
+Late destruction of a cleaned instance does not revoke replacement presentation.
+
+This port is not yet the application's complete shutdown/recovery boundary.
+Ordinary `stop()` still has its existing accepted-intent contract. App integration,
+actual Android lifecycle qualification, VPN/capture/other-writer retirement and
+cold recovery remain open. The port does not claim completed `onDestroy` and
+does not enable managed storage or alter its default.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

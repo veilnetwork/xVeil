@@ -27,7 +27,7 @@ def main():
     kotlin = source / 'java/com/veil/veil_flutter'
     kotlin.mkdir(parents=True)
     proof = {}
-    for name in ['CallScreenActivity.kt', 'CallActionCapability.kt', 'VeilDaemonService.kt']:
+    for name in ['CallScreenActivity.kt', 'CallActionCapability.kt', 'DaemonRetirementGate.kt', 'VeilDaemonService.kt']:
         original = sdk / 'src/main/kotlin/com/veil/veil_flutter' / name
         shutil.copy2(original, kotlin / name)
         proof[str(original.relative_to(repo))] = hashlib.sha256(original.read_bytes()).hexdigest()
