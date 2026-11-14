@@ -3,15 +3,22 @@ part of 'managed_directory_catalog.dart';
 /// Durable intent for the enumerable portion of a whole-profile wipe. This is
 /// an actor-side port, NOT permission to enable the application wipe/default.
 /// The enclosing wipe must also retire every OS scope, the legacy container,
-/// pending enrollment and preferences before retiring this intent (not yet
-/// implemented). No payload authentication is weakened by ordinary startup.
+/// pending enrollment and preferences before finalizing this intent. That
+/// application integration remains disabled. Ordinary startup never bypasses it.
 final class ManagedRootErasure {
   ManagedRootErasure._(this._gate, this._plan, this._directory, this._file);
+  ManagedRootErasure._finishing(this._gate, this._completion)
+    : _plan = null,
+      _directory = null,
+      _file = null;
   static const pendingName = 'erasure-pending';
+  static const completionName = 'erasure-complete.json';
   static const _planName = 'plan.json';
   final StorageProfileCoordinator _gate;
-  final _RootErasePlan _plan;
-  final ManagedPathWitness _directory, _file;
+  final _RootErasePlan? _plan;
+  final ManagedPathWitness? _directory, _file;
+  _ErasureCompletion? _completion;
+  bool _finished = false;
   bool _operating = false;
   late final _stamp = File(_planPath).statSync();
   String get _intentPath =>
@@ -21,8 +28,21 @@ final class ManagedRootErasure {
 
   /// Public locators survive catalog deletion so the enclosing wipe can derive
   /// their OS-vault scopes. No credential, network ID or hidden-space pointer.
-  ManagedIdentityCatalog get catalog => _plan.catalog;
-  StorageUnlockScopes get unlockScopes => _plan.unlockScopes;
+  ManagedIdentityCatalog get catalog => _removingPlan.catalog;
+  StorageUnlockScopes get unlockScopes => _removingPlan.unlockScopes;
+  _RootErasePlan get _removingPlan {
+    _gate.requireHeld(exclusive: true);
+    if (_completion != null || _finished || _plan == null) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
+    return _plan;
+  }
+
+  ManagedRootErasurePhase get phase => _finished
+      ? ManagedRootErasurePhase.complete
+      : _completion != null
+      ? ManagedRootErasurePhase.finishing
+      : ManagedRootErasurePhase.removing;
 
   /// Caller owns an explicitly confirmed wipe and an exclusive complete root.
   /// Capture no-follow owned entries before publication. All identity roles
@@ -129,6 +149,11 @@ final class ManagedRootErasure {
       fs,
     );
     try {
+      final terminal = _ErasureCompletion.openIfPresent(gate);
+      if (terminal != null) {
+        terminal.validate(gate);
+        return ManagedRootErasure._finishing(gate, terminal);
+      }
       final path = ManagedDirectoryCatalog._child(gate.directory, pendingName);
       final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
       final file = ManagedDirectoryCatalog._child(path, _planName);
@@ -161,9 +186,9 @@ final class ManagedRootErasure {
   void _validate() {
     _gate.requireHeld(exclusive: true);
     ManagedDirectoryCatalog._privateDirectory(_intentPath, _gate._fs);
-    ManagedDirectoryCatalog._assertSame(_intentPath, _directory, _gate._fs);
+    ManagedDirectoryCatalog._assertSame(_intentPath, _directory!, _gate._fs);
     _gate._fs.requirePrivateFile(_planPath);
-    ManagedDirectoryCatalog._assertSame(_planPath, _file, _gate._fs);
+    ManagedDirectoryCatalog._assertSame(_planPath, _file!, _gate._fs);
     final stamp = File(_planPath).statSync();
     if (stamp.size != _stamp.size ||
         stamp.modified != _stamp.modified ||
@@ -172,7 +197,7 @@ final class ManagedRootErasure {
         ).listSync(followLinks: false).any((e) => e.path != _planPath)) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
-    _plan.validateBinding(_gate);
+    _removingPlan.validateBinding(_gate);
   }
 
   /// The enclosing wipe must VERIFY OS absence, including pending enrollment,
@@ -189,19 +214,20 @@ final class ManagedRootErasure {
     }
     _operating = true;
     try {
+      final plan = _removingPlan;
       _validate();
-      _plan.validateTree(_gate);
+      plan.validateTree(_gate);
       await retireScopes(catalog);
       _validate();
-      _plan.validateTree(_gate);
-      final entries = _plan.entries.values.toList()
+      plan.validateTree(_gate);
+      final entries = plan.entries.values.toList()
         ..sort((a, b) {
           final depth = b.parts.length.compareTo(a.parts.length);
           return depth != 0 ? depth : a.path.compareTo(b.path);
         });
       for (final entry in entries) {
         _validate();
-        if (!_plan.validateEntry(_gate, entry)) continue;
+        if (!plan.validateEntry(_gate, entry)) continue;
         final path = entry.absolute(_gate);
         if (entry.directory) {
           Directory(path).deleteSync(); // Never recursive; a new entry refuses.
@@ -212,7 +238,7 @@ final class ManagedRootErasure {
         await afterUnlink?.call(entry.path);
       }
       _validate();
-      _plan.validateTree(_gate);
+      plan.validateTree(_gate);
       if (FileSystemEntity.typeSync(
             ManagedDirectoryCatalog._child(
               _gate.profileDirectory,
@@ -233,12 +259,83 @@ final class ManagedRootErasure {
     }
   }
 
-  void close() {
+  /// Called only by the enclosing whole-profile wipe after it has joined all
+  /// accepted work and verified legacy files, preferences and EVERY OS scope
+  /// absent. A durable terminal witness survives the removal of plan.json.
+  /// Recovered terminal owners do not need (or reconstruct) the old scope list.
+  Future<void> finish({
+    required Future<void> Function() verifyOtherDataAbsent,
+    Future<void> Function(ManagedErasureFinishStage stage)? afterStage,
+  }) async {
     if (_operating) {
+      throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
+    }
+    _operating = true;
+    try {
+      _gate.requireHeld(exclusive: true);
+      _ErasureCompletion.requireRootAbsent(_gate);
+      if (_finished) return; // Lost reply, same still-held lifetime only.
+      _completion ??= _ErasureCompletion.openIfPresent(_gate);
+      if (_completion == null) {
+        _validate();
+        await verifyOtherDataAbsent();
+        _validate();
+        _ErasureCompletion.requireRootAbsent(_gate);
+        await afterStage?.call(ManagedErasureFinishStage.beforeCompletion);
+        _validate();
+        _ErasureCompletion.requireRootAbsent(_gate);
+        _completion = _ErasureCompletion.publish(
+          _gate,
+          _directory!,
+          _file!,
+          _stamp,
+        );
+      }
+      // Record ownership before this sync: a failed sync must never delete the
+      // published witness or permit ordinary admission on this live owner.
+      final completion = _completion!;
+      if (!completion.unlinked) {
+        completion.validate(_gate);
+        _gate._fs.syncDirectory(_gate.directory);
+        await afterStage?.call(ManagedErasureFinishStage.completionPublished);
+        completion.removePlan(_gate);
+        await afterStage?.call(ManagedErasureFinishStage.planRemoved);
+        completion.removePending(_gate);
+        await afterStage?.call(ManagedErasureFinishStage.pendingRemoved);
+        completion.unlink(_gate);
+      }
+      // If the last unlink succeeded but sync failed, retain this exclusive
+      // owner. Retrying only confirms the absent terminal and syncs its parent.
+      completion.confirmUnlinked(_gate);
+      _finished = true;
+      await afterStage?.call(ManagedErasureFinishStage.completionRemoved);
+    } on FileSystemException catch (_, trace) {
+      Error.throwWithStackTrace(
+        const ManagedFsFailure(ManagedFsFailureKind.io),
+        trace,
+      );
+    } finally {
+      _operating = false;
+    }
+  }
+
+  void close() {
+    if (_operating || (_completion?.unlinked == true && !_finished)) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
     _gate.close();
   }
+}
+
+enum ManagedRootErasurePhase { removing, finishing, complete }
+
+/// No local paths or identity/OS-scope names in phase observations.
+enum ManagedErasureFinishStage {
+  beforeCompletion,
+  completionPublished,
+  planRemoved,
+  pendingRemoved,
+  completionRemoved,
 }
 
 final class _RootEraseEntry {

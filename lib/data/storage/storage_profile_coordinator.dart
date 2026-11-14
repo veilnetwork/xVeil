@@ -195,14 +195,14 @@ final class StorageProfileCoordinator {
     }
     _lease.requireHeld(exclusive: exclusive);
     if (!_erasureRecovery &&
-        FileSystemEntity.typeSync(
-              ManagedDirectoryCatalog._child(
-                directory,
-                ManagedRootErasure.pendingName,
-              ),
-              followLinks: false,
-            ) !=
-            FileSystemEntityType.notFound) {
+        [ManagedRootErasure.pendingName, ManagedRootErasure.completionName].any(
+          (name) =>
+              FileSystemEntity.typeSync(
+                ManagedDirectoryCatalog._child(directory, name),
+                followLinks: false,
+              ) !=
+              FileSystemEntityType.notFound,
+        )) {
       throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
     }
     ManagedDirectoryCatalog._assertProfile(

@@ -37,6 +37,7 @@ part 'managed_identity_erase.dart';
 part 'managed_identity_erase_review.dart';
 part 'storage_profile_coordinator.dart';
 part 'managed_root_erasure.dart';
+part 'profile_erasure_completion.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space

@@ -40,6 +40,7 @@ Future<void> main(List<String> args) async {
         'afterIntent',
         'afterCatalog',
         'afterRoot',
+        ...ManagedErasureFinishStage.values.map((stage) => stage.name),
       ].contains(phase)) {
     exit(3);
   }
@@ -68,6 +69,19 @@ Future<void> main(List<String> args) async {
       }
     },
   );
+  if (ManagedErasureFinishStage.values.any((stage) => stage.name == phase)) {
+    await erasure.finish(
+      verifyOtherDataAbsent: () async {
+        File('$fixture/other-verified').writeAsStringSync(
+          'verified synthetic enclosing obligations',
+          flush: true,
+        );
+      },
+      afterStage: (stage) async {
+        if (stage.name == phase) mark(fixture, phase);
+      },
+    );
+  }
   erasure.close();
   exit(6); // Every requested barrier must be reached, never silent success.
 }

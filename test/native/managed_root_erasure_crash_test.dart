@@ -209,4 +209,111 @@ void main() {
     },
     skip: !(Platform.isMacOS || Platform.isLinux),
   );
+  test(
+    'SIGKILL at all five finalization boundaries leaves recoverable or complete state',
+    () async {
+      final temporary = Directory.systemTemp.createTempSync(
+        'xveil-root-erasure-crash-',
+      );
+      const fs = ManagedFsPlatform();
+      try {
+        for (final stage in ManagedErasureFinishStage.values) {
+          final fixture = Directory('${temporary.path}/${stage.name}')
+            ..createSync();
+          final profile = '${fixture.path}/profile';
+          expect(fs.createPrivateDirectory(profile), isTrue);
+          final owner = ManagedDirectoryCatalog.createOrOpen(profile);
+          try {
+            for (final id in ['1' * 32, '2' * 32]) {
+              final store = ManagedIdentityFiles.createUnencrypted(
+                owner,
+                id: ManagedIdentityId(id),
+              );
+              try {
+                store.commit([
+                  PutOp(
+                    1,
+                    Uint8List.fromList([1]),
+                    Uint8List.fromList([9, 8, 7]),
+                  ),
+                ]);
+              } finally {
+                store.close();
+              }
+            }
+          } finally {
+            owner.close();
+          }
+          final sentinel = File('$profile/untouched-fixture')
+            ..writeAsStringSync('not an enclosing app wipe');
+          final coordinator =
+              '$profile/${StorageProfileCoordinator.directoryName}';
+          final pending = '$coordinator/${ManagedRootErasure.pendingName}';
+          final terminal = File(
+            '$coordinator/${ManagedRootErasure.completionName}',
+          );
+          await _killErasureWriter(fixture.path, stage.name, () {
+            expect(Directory('$profile/identities').existsSync(), isFalse);
+            expect(File('${fixture.path}/other-verified').existsSync(), isTrue);
+            expect(
+              terminal.existsSync(),
+              stage != ManagedErasureFinishStage.beforeCompletion &&
+                  stage != ManagedErasureFinishStage.completionRemoved,
+            );
+            expect(
+              File('$pending/plan.json').existsSync(),
+              [
+                ManagedErasureFinishStage.beforeCompletion,
+                ManagedErasureFinishStage.completionPublished,
+              ].contains(stage),
+            );
+            expect(
+              Directory(pending).existsSync(),
+              [
+                ManagedErasureFinishStage.beforeCompletion,
+                ManagedErasureFinishStage.completionPublished,
+                ManagedErasureFinishStage.planRemoved,
+              ].contains(stage),
+            );
+          });
+          if (stage == ManagedErasureFinishStage.completionRemoved) {
+            expect(ManagedDirectoryCatalog.openExisting(profile), isNull);
+          } else {
+            expect(
+              () => ManagedDirectoryCatalog.createOrOpen(profile),
+              throwsA(isA<ManagedFsFailure>()),
+            );
+            final recovered = ManagedRootErasure.openPending(profile);
+            var verified = 0;
+            try {
+              await recovered.finish(
+                verifyOtherDataAbsent: () async {
+                  verified++;
+                },
+              );
+              expect(recovered.phase, ManagedRootErasurePhase.complete);
+            } finally {
+              recovered.close();
+            }
+            expect(
+              verified,
+              stage == ManagedErasureFinishStage.beforeCompletion ? 1 : 0,
+            );
+          }
+          expect(terminal.existsSync(), isFalse);
+          expect(Directory(pending).existsSync(), isFalse);
+          expect(sentinel.readAsStringSync(), 'not an enclosing app wipe');
+          final fresh = ManagedDirectoryCatalog.createOrOpen(profile);
+          try {
+            expect(fresh.snapshot().catalog.identities, isEmpty);
+          } finally {
+            fresh.close();
+          }
+        }
+      } finally {
+        temporary.deleteSync(recursive: true);
+      }
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
 }

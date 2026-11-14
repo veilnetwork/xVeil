@@ -1405,6 +1405,46 @@ applicable, explicit migration and packaged Android/Windows/macOS runs remain
 before default activation. Existing containers are never converted automatically;
 the managed-storage default switch remains off.
 
+## Recoverable erasure finalization primitive
+
+The managed-root erasure actor now has an explicit terminal phase. After the
+managed root is absent, a **required enclosing verifier** must join accepted
+jobs and verify all other profile files, legacy storage, preferences and OS
+quick-entry scopes absent. This is a trusted integration contract, not a new
+permission granted to ordinary startup. Actual whole-profile application
+binding and the new default remain disabled until those obligations and the
+remaining integration below are implemented and qualified.
+
+Under the permanent exclusive coordinator, the actor atomically publishes a
+private `erasure-complete.json` file without replacement and syncs its parent.
+It contains bounded filesystem object witnesses and the immutable plan digest;
+no catalog, scope roster, password or hidden-space locator. It then removes
+only the exact plan, syncs the pending directory, removes that directory
+nonrecursively, and finally unlinks the terminal file and syncs its parent.
+Ordinary admission refuses either marker, including malformed files and links.
+The exclusive grant is held until actual close, even after finalization.
+
+Cold terminal recovery accepts the original plan, an empty original pending
+directory, or its absence; foreign/replaced entries refuse cleanup. It does not
+need a deleted catalog/scope list or repeat the already witnessed enclosing
+verification. A final unlink followed by a failed parent sync retains the live
+exclusive owner: retry confirms absence and syncs; close refuses until that
+succeeds. A fully finished live owner accepts a lost-reply retry, while a closed
+owner cannot finalize a later profile. In-memory phase events expose no paths.
+
+Selected macOS host tests cover normal encrypted/plaintext roots, verifier and
+publication refusals, all tail sync boundaries, stale owners, no-replace file
+publication, malformed/bounded/cross-object metadata, links and late foreign
+entries. Five **actual SIGKILL** boundaries cover before terminal publication,
+after durable publication, after plan unlink, after pending-directory unlink,
+and after synced terminal unlink. These complement the four existing intent /
+managed-root deletion crash boundaries. The new-marker negative control failed
+on the old coordinator (three terminal admission cases), while existing pending
+cases passed; this is an integration guard for the new phase, not an attributed
+released defect. These checks do not qualify power loss or packaged Android /
+Windows, and do not implement legacy cleanup, fresh OS-vault ownership, startup
+recovery UI, migration or the other outstanding three-mode application work.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
