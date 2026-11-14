@@ -57,11 +57,13 @@ final class _AuxiliaryErasureScope {
     'legacy': legacy,
     'speech': speech,
     'translation': translation,
+    'preferences': true,
   };
   static _AuxiliaryErasureScope? decode(Object? raw, String base) {
     if (raw == null) return null;
     if (raw is! Map ||
-        raw.length != 4 ||
+        raw.length != 5 ||
+        raw['preferences'] != true ||
         !_objectId(raw['identity']) ||
         raw['legacy'] is! String ||
         !_leaf(raw['legacy'] as String) ||
@@ -88,6 +90,7 @@ final class _AuxiliaryErasureScope {
             ).uri.pathSegments.where((p) => p.isNotEmpty).last ||
         {
           'blobs',
+          ...ProfilePreferencesLayout.files,
           ProfileModelLayout.translationDirectory,
           ProfileModelLayout.speechFile,
           '${ProfileModelLayout.speechFile}.part',
@@ -113,6 +116,7 @@ final class _AuxiliaryErasureScope {
     final names = <String>{
       legacy,
       'blobs',
+      ...ProfilePreferencesLayout.files,
       if (speech) ...[
         ProfileModelLayout.speechFile,
         '${ProfileModelLayout.speechFile}.part',
@@ -134,6 +138,9 @@ final class _AuxiliaryErasureScope {
 
   bool allowed(List<String> p, bool directory) {
     if (p.isEmpty || p.any((v) => !_leaf(v))) return false;
+    if (ProfilePreferencesLayout.files.contains(p.first)) {
+      return p.length == 1 && !directory;
+    }
     if (p.first == legacy || _rewrite.hasMatch(p.first)) {
       return p.length == 1 && !directory;
     }

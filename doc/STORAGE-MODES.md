@@ -1489,17 +1489,17 @@ erasure worker and lost-reply reconciliation are qualified below. The managed de
 coordinator under an exclusive lifetime grant. It records absence without
 creating an ordinary catalog, identity, payload file or enumerable root. The
 same private no-replace publication path is used by both preparation variants.
-Each current v4 plan retains the fresh 128-bit public operation nonce added in v3. Its digest
-binds the final release proof even when successive empty-root plans otherwise
+Each current v5 plan retains the fresh 128-bit public operation nonce added in
+v3. Its digest binds the final release proof even when successive empty-root plans otherwise
 have identical contents and the filesystem reuses the old directory number.
-The prior v2/v3 layouts are rejected, rather than silently
+The prior v2/v3/v4 layouts are rejected, rather than silently
 upgraded or given fresh authorization. These unpublished feature formats have
 no automatic compatibility migration.
 
 The known saved-entry scope names remain durable even for a hidden-only profile;
 no hidden roster, hidden credentials or hidden-container contents are inspected.
 
-An empty `entries` inventory in the bounded v4 plan is valid only with an empty
+An empty `entries` inventory in the bounded v5 plan is valid only with an empty
 public catalog. It means the root **must remain absent**, including after the
 scope-retirement callback. A directory, regular file or link appearing there
 refuses publication/recovery/removal and is preserved. Recovery still binds the
@@ -1659,9 +1659,10 @@ or complete the still-pending managed full-wipe/external-inventory protocol.
 
 ## Durable inventory for profile-owned auxiliary files
 
-The unpublished intent format is now v4; the terminal witness is v2. Explicit
+The unpublished intent format is now v5; the terminal witness is v3. Explicit
 `ProfileErasureAuxiliaryTargets` opt a profile into inventory of its opaque legacy
-container, exact native rewrite temporaries, encrypted blob pieces, speech
+container, exact native rewrite temporaries, profile preferences and their atomic
+write temporary, encrypted blob pieces, speech
 model/partial/import files and translation pairs/imports/GitHub archive cache.
 Artifact names come from a shared platform-free layout module; the public store
 and bundle APIs retain their existing names and values.
@@ -1691,11 +1692,36 @@ already-owned close; it does not acquire new filesystem or deletion authority.
 
 Host tests cover worker restart, OS retirement refusal, changed content/objects,
 unknown files, malformed manifests, terminal-only recovery and lost final reply.
-Four actual SIGKILL boundaries cover partial auxiliary deletion and terminal
+Five actual SIGKILL boundaries cover partial auxiliary deletion and terminal
 cleanup, including a replacement after plan removal. These qualify the native
-inventory port. Application preference lifetime/cleanup and complete managed
-wipe/recovery UI binding remain required before production activation; optional
+inventory port. Application preference retirement/cleanup binding and complete
+managed wipe/recovery UI binding remain required before production activation; optional
 auxiliary scope is not a substitute for that full application contract.
+
+## Durable preference absence during erasure
+
+Every auxiliary scope now includes both fixed profile preference files. The
+scope explicitly requires `preferences: true`; a missing, disabled or malformed
+field is refused. Intent v5 and terminal v3 reject their previous unpublished
+layouts rather than silently expanding old deletion authority. The installation's
+active-profile pointer and other profiles' preference files remain outside this
+scope. Capture reads only filesystem witnesses, not preference contents.
+
+Preference files and their temporaries are non-recursive leaves subject to the
+same original-object/size/mtime checks as other auxiliary data. Added, changed,
+linked or directory replacements are preserved on refusal. Their absence remains
+part of terminal-only recovery, the final check before native release, and
+read-only lost-reply reconciliation after the per-file inventory has gone.
+The caller must retire and drain its preference owner before capture; the joined
+retirement callback is repeated before unlink. This is not coordination with
+uncooperative external writers or a hostile same-user filesystem attacker.
+
+Host qualification includes actual queued preference writes followed by worker
+erasure, retention of unrelated profile settings and the installation pointer,
+new preference files at each finalization boundary, and SIGKILL after unlink of
+the main preference file while its temporary remains. Application startup
+migration ordering and complete managed-wipe UI/recovery binding are still
+required; these native ports do not enable the new storage modes.
 
 ## Profile preference lifetime
 
@@ -1716,8 +1742,8 @@ not successful persistence, deletion or OS-vault retirement.
 Production access sites and the common provider use this entry point. Host tests
 cover stale references, gated saves/reloads/initialization, failed saves, backend
 replacement, retry and actual queued file writes. Full managed-wipe binding is
-still pending: it must seal this owner before teardown, include preference-file
-absence in durable recovery, prevent migration writes before startup recovery,
+still pending: it must seal this owner before teardown, use the durable
+preference-file absence scope, prevent migration writes before startup recovery,
 and install a fresh backend only after complete erasure release. This work does
 not enable managed storage or turn the existing pending-erasure shell into full
 recovery.

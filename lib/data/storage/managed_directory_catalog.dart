@@ -13,6 +13,7 @@ import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;
 import '../../domain/profile_model_layout.dart';
+import '../../domain/profile_preferences_layout.dart';
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';

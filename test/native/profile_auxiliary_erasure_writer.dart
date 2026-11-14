@@ -19,6 +19,7 @@ Future<void> main(List<String> args) async {
   if (!fixture.startsWith('$temporary/xveil-aux-erasure-crash-') ||
       ![
         'afterPiece',
+        'afterPreferences',
         'afterAuxiliary',
         'planRemoved',
         'completionRemoved',
@@ -50,6 +51,9 @@ Future<void> main(List<String> args) async {
     retireScopes: retire,
     afterUnlink: (path) async {
       if (phase == 'afterPiece' && path.endsWith('/p0')) mark(fixture, phase);
+      if (phase == 'afterPreferences' && path == 'xveil.prefs.json') {
+        mark(fixture, phase);
+      }
     },
   );
   if (phase == 'afterAuxiliary') mark(fixture, phase);

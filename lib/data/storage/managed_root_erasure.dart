@@ -357,8 +357,10 @@ final class ManagedRootErasure {
     }
   }
 
-  /// Remove only the durable auxiliary inventory. The required OS-retirement
-  /// callback is joined before any unlink, just as for the managed root.
+  /// Remove only the durable auxiliary inventory. The required retirement
+  /// callback joins OS scopes and every application writer (including profile
+  /// preferences) before any unlink, just as for the managed root. Writers
+  /// must already be quiescent before capture to keep its witnesses stable.
   Future<void> removeAuxiliaryFiles({
     required Future<void> Function() retireScopes,
     Future<void> Function(String relativePath)? afterUnlink,
@@ -722,7 +724,7 @@ final class _RootErasePlan {
     final result = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': 4,
+          'v': 5,
           'operation': operation,
           'profile': profile,
           'coordinator': coordinator,
@@ -751,7 +753,7 @@ final class _RootErasePlan {
           raw.length != 8 ||
           !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 4 ||
+          raw['v'] != 5 ||
           raw['operation'] is! String ||
           !_id.hasMatch(raw['operation'] as String) ||
           raw['profile'] is! String ||
