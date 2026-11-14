@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../core/log.dart';
+import '../../core/background_service_lifetime.dart';
 import '../../core/ids.dart';
 import '../../data/storage/storage.dart';
 import '../../domain/call.dart';
@@ -316,7 +317,15 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         : 'none';
     if (key == _lastServiceKey) return;
     _lastServiceKey = key;
-    unawaited(_applyForegroundService(call, groupCall, session));
+    unawaited(
+      _applyForegroundService(call, groupCall, session).catchError((
+        Object error,
+        StackTrace trace,
+      ) {
+        if (error is BackgroundServiceRetired) return;
+        Error.throwWithStackTrace(error, trace);
+      }),
+    );
   }
 
   Future<void> _applyForegroundService(
@@ -325,15 +334,16 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     String? session,
   ) async {
     if (!Platform.isAndroid) return;
+    final background = ref.read(backgroundServiceProvider);
     final directLive = call != null && call.status != CallStatus.ended;
     final groupLive = groupCall != null && groupCall.isLive;
     if (!directLive && !groupLive) {
       if (!_ownsForegroundService) return;
       _ownsForegroundService = false;
       if (ref.read(backgroundNodeProvider)) {
-        await VeilBackground.start();
+        await background.start();
       } else {
-        await VeilBackground.stop();
+        await background.stop();
       }
       return;
     }
@@ -355,7 +365,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         CallStatus.dialing => l.callNotificationDialing,
         _ => l.callNotificationActive,
       };
-      await VeilBackground.start(
+      await background.startCall(
         title: title,
         text: call.mediaIdentity.short,
         hangupAction: true,
@@ -376,6 +386,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         _callerPresentationSession = session;
         unawaited(
           _publishCaller(
+            background,
             storage,
             call.mediaIdentity,
             session,
@@ -396,7 +407,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     final groupL = l10nFor(
       ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
     );
-    await VeilBackground.start(
+    await background.startCall(
       title: ringing
           ? groupL.callNotificationGroupIncoming
           : groupL.callNotificationGroup,
@@ -419,6 +430,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       _callerPresentationSession = session;
       unawaited(
         _publishCaller(
+          background,
           storage,
           groupCall.initiator,
           session,
@@ -433,6 +445,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   }
 
   Future<void> _publishCaller(
+    BackgroundServiceActions background,
     Storage storage,
     NodeId peer,
     String session,
@@ -446,7 +459,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       if (!ours()) return;
       final caller = await loadCallScreenCaller(storage, peer);
       if (!ours()) return;
-      await VeilBackground.setCallPresentation(
+      await background.setCallPresentation(
         callSession: session,
         callerName: caller.label,
         avatar: caller.avatar,

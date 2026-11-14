@@ -6306,6 +6306,7 @@ class AppController extends Notifier<AppState> {
           source: source,
           secretStore: ref.read(quickUnlockSecretStoreProvider),
           authentication: ref.read(localScreenAuthenticationProvider),
+          retireBackground: ref.read(backgroundServiceProvider).retireForErasure,
           verifyOtherDataAbsent: verifyRuntime,
           quiesce: () async {
             _incomplete.clear();
@@ -6328,7 +6329,6 @@ class AppController extends Notifier<AppState> {
             takePendingIdentityPhrase();
             await leg('session', _teardownSession);
             await leg('node', _teardownRealStack);
-            await leg('background', _stopBackgroundService);
             await leg('accepted-work', waitForCompaction);
             await leg('late-session', _drainRetiringSessions);
             await leg('model-work', () async => await _managedModelDrain);
@@ -6358,6 +6358,7 @@ class AppController extends Notifier<AppState> {
       ref.invalidate(localeProvider);
       ref.invalidate(themeProvider);
       ref.invalidate(backgroundNodeProvider);
+      ref.invalidate(backgroundServiceProvider);
       ref.invalidate(keepAllOnlineProvider);
       ref.invalidate(proxyRoutingProvider);
       ref.invalidate(vpnControllerProvider);

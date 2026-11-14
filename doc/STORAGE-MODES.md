@@ -2008,11 +2008,22 @@ platform before returning a resource receipt. Failed observation remains sealed;
 read-only recheck and exact-owner release support retry without starting a node.
 Late destruction of a cleaned instance does not revoke replacement presentation.
 
-This port is not yet the application's complete shutdown/recovery boundary.
-Ordinary `stop()` still has its existing accepted-intent contract. App integration,
-actual Android lifecycle qualification, VPN/capture/other-writer retirement and
-cold recovery remain open. The port does not claim completed `onDestroy` and
-does not enable managed storage or alter its default.
+The live managed-profile wipe acquires this owner before quiescence or inventory
+publication. Resource absence is checked around scope retirement, before native
+payload removal and on finalization attempts. Ordinary node and call commands,
+including delayed caller presentation, share a permanently retiring Dart facade.
+Accepted calls are joined, including reentrant requests; the next profile gets a
+fresh facade only after the original native release and preferences/router handoff.
+
+Background readmission failure keeps recovery UI and the same owner. A lost
+successful reply retries that exact native release without probing a consumed
+token or repeating deletion; newly created payloads remain intact. Closing the
+wipe owner never restores service admission by itself.
+
+Ordinary `stop()` still has its accepted-intent contract. Actual Android lifecycle
+qualification, VPN/capture/other-writer retirement and cold recovery remain open.
+This boundary does not claim completed `onDestroy` and does not enable managed
+storage or alter its default.
 
 ## Implementation boundaries
 
