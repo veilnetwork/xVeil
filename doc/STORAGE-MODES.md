@@ -1980,6 +1980,11 @@ The [Android restart follow-up](validation/android-quick-unlock-restart-2026-11-
 adds 40 SIGKILL/fresh-process checks using the actual plugin, preference files
 and Keystore on an Android 15 emulator, including a strong-biometric key. It
 does not qualify physical devices or complete application recovery.
+The [raw-record follow-up](validation/android-saved-entry-records-2026-11-15/README.md)
+also avoids cipher initialization for Android absence checks and explicit
+single-record removal. Removal owns its synchronous data-store commit; unknown
+presence or unconfirmed removal still refuses cleanup. Its runtime qualification
+is separate from the earlier 40-check persistence series.
 
 Terminal admission first joins cleanup already accepted by the worker, while
 refusing new operations. Entering finalization seals that owner's scope-mutation

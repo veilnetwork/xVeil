@@ -85,8 +85,16 @@ class QuickUnlockSecretStore {
   }
 
   Future<void> delete(String key, {bool biometric = false}) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final removed = await const MethodChannel(
+        'xveil/quick_unlock',
+      ).invokeMethod<bool>('remove', {'key': key, 'biometric': biometric});
+      if (removed != true) {
+        throw StateError('Saved sign-in removal not confirmed');
+      }
+      return;
+    }
     await _store(biometric, key).delete(key: key);
-    await _persist(key, biometric);
   }
 
   Future<void> _persist(String key, bool biometric) async {
@@ -102,11 +110,22 @@ class QuickUnlockSecretStore {
     }
   }
 
-  // Darwin containsKey probes synchronizable=true even for a local-only
-  // classic Keychain item; macOS rejects that query. A bounded read verifies
-  // actual absence using the exact same namespace/options as the write.
-  Future<bool> contains(String key, {bool biometric = false}) async =>
-      await _store(biometric, key).read(key: key) != null;
+  Future<bool> contains(String key, {bool biometric = false}) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      // FSS initializes its cipher before containsKey/read/delete. Presence
+      // and explicit removal need no plaintext or biometric authentication.
+      final present = await const MethodChannel(
+        'xveil/quick_unlock',
+      ).invokeMethod<bool>('contains', {'key': key, 'biometric': biometric});
+      if (present == null) {
+        throw StateError('Saved sign-in presence not confirmed');
+      }
+      return present;
+    }
+    // Darwin containsKey probes synchronizable=true even for a local-only
+    // classic Keychain item; macOS rejects that query. Keep the matching read.
+    return await _store(biometric, key).read(key: key) != null;
+  }
 }
 
 class StartupUnlockOptions {

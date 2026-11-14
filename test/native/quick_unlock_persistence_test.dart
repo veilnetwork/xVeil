@@ -61,16 +61,19 @@ class _AppliedSecrets {
       }
     });
     messenger.setMockMethodCallHandler(native, (call) async {
-      expect(call.method, 'flush');
       final args = Map<String, dynamic>.from(call.arguments as Map);
       expect(args.keys.toSet(), {'key', 'biometric'});
+      final biometric = args['biometric'] as bool;
+      final prefix = '${namespace(args['key'] as String, biometric)}:';
+      final address = '$prefix${args['key']}';
+      if (call.method == 'contains') return memory.containsKey(address);
+      expect(call.method, isIn(['flush', 'remove']));
+      if (call.method == 'remove') memory.remove(address);
       flushes.add(args);
       if (!entered.isCompleted) entered.complete();
       if (hold) await release.future;
-      final biometric = args['biometric'] as bool;
       if (biometric && denyProtectedFlush) return false;
       if (flushReply != true) return flushReply;
-      final prefix = '${namespace(args['key'] as String, biometric)}:';
       disk.removeWhere((key, _) => key.startsWith(prefix));
       disk.addEntries(memory.entries.where((e) => e.key.startsWith(prefix)));
       return true;
@@ -177,7 +180,7 @@ void main() {
     () async {
       backend.rejectPlugin = true;
       await expectLater(
-        const QuickUnlockSecretStore().delete(key),
+        const QuickUnlockSecretStore().write(key, 'synthetic value'),
         throwsA(isA<PlatformException>()),
       );
       expect(backend.flushes, isEmpty);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run quick-unlock ownership/persistence checks with cached Kotlin/JVM tools."""
+"""Run quick-unlock ownership, persistence and raw record checks with cached JVM tools."""
 import os
 from pathlib import Path
 import shutil
@@ -45,6 +45,8 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
         str(ROOT / 'test/native/QuickUnlockReadGateSmoke.kt'),
         str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockPersistence.kt'),
         str(ROOT / 'test/native/QuickUnlockPersistenceSmoke.kt'),
+        str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockRecordStore.kt'),
+        str(ROOT / 'test/native/QuickUnlockRecordStoreSmoke.kt'),
     ], check=True)
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
@@ -53,4 +55,8 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
         'network.veil.xveil.QuickUnlockPersistenceSmokeKt',
+    ], check=True, timeout=30)
+    subprocess.run([
+        java, '-cp', output + os.pathsep + classpath,
+        'network.veil.xveil.QuickUnlockRecordStoreSmokeKt',
     ], check=True, timeout=30)
