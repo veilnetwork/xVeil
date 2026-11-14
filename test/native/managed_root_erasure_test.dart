@@ -170,6 +170,7 @@ void main() {
         'entries',
         'unlockScopes',
         'auxiliary',
+        'applicationProfile',
       });
       expect(publicPlan['auxiliary'], isNull);
       expect(

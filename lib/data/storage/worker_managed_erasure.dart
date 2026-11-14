@@ -1,6 +1,13 @@
 part of 'async_kv_log_store.dart';
 
-enum _ErasureOpen { prepare, recover, reconcile, resumeBound }
+enum _ErasureOpen {
+  prepare,
+  prepareApplication,
+  recoverApplicationRequest,
+  recover,
+  reconcile,
+  resumeBound,
+}
 
 final class _OpenManagedErasure extends _OpenConfig {
   const _OpenManagedErasure({
@@ -11,6 +18,7 @@ final class _OpenManagedErasure extends _OpenConfig {
     this.legacyPath,
     this.auxiliary,
     this.binding,
+    this.applicationRequest,
     this.checkpoint,
     this.finishGateStage,
     this.failFinalSyncForTesting = false,
@@ -19,6 +27,7 @@ final class _OpenManagedErasure extends _OpenConfig {
   final String? profileNamespace, legacyPath;
   final ProfileErasureAuxiliaryTargets? auxiliary;
   final ManagedErasureBinding? binding;
+  final ManagedProfileErasureRequest? applicationRequest;
   final SendPort? checkpoint;
   final ManagedErasureFinishStage? finishGateStage;
   final bool failFinalSyncForTesting;
@@ -96,6 +105,35 @@ final class ManagedErasureWorker {
     legacyPath: legacyPath,
     auxiliary: auxiliary,
   );
+
+  /// Called only after the enclosing application's shutdown/admission seal.
+  /// The request survives an ambiguous initial reply; retry uses the distinct
+  /// recovery entrypoint below, which can never publish a replacement intent.
+  static Future<ManagedErasureWorker> beginApplicationProfile({
+    required String profileDirectory,
+    required String profileNamespace,
+    required String legacyPath,
+    required ManagedProfileErasureRequest request,
+    ProfileErasureAuxiliaryTargets? auxiliary,
+  }) => _open(
+    profileDirectory,
+    _ErasureOpen.prepareApplication,
+    profileNamespace: profileNamespace,
+    legacyPath: legacyPath,
+    auxiliary:
+        auxiliary ?? ProfileErasureAuxiliaryTargets(legacyPath: legacyPath),
+    applicationRequest: request,
+  );
+
+  static Future<ManagedErasureWorker> recoverApplicationRequest(
+    String profileDirectory,
+    ManagedProfileErasureRequest request,
+  ) => _open(
+    profileDirectory,
+    _ErasureOpen.recoverApplicationRequest,
+    applicationRequest: request,
+  );
+
   static Future<ManagedErasureWorker> recover(String profileDirectory) =>
       _open(profileDirectory, _ErasureOpen.recover);
   static Future<ManagedErasureWorker> reconcile(
@@ -118,9 +156,13 @@ final class ManagedErasureWorker {
     required String legacyPath,
     required SendPort afterNativeRelease,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   }) => _open(
     profileDirectory,
-    _ErasureOpen.prepare,
+    applicationRequest == null
+        ? _ErasureOpen.prepare
+        : _ErasureOpen.prepareApplication,
+    applicationRequest: applicationRequest,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
     checkpoint: afterNativeRelease,
@@ -135,9 +177,13 @@ final class ManagedErasureWorker {
     required SendPort checkpoint,
     required ManagedErasureFinishStage stage,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   }) => _open(
     profileDirectory,
-    _ErasureOpen.prepare,
+    applicationRequest == null
+        ? _ErasureOpen.prepare
+        : _ErasureOpen.prepareApplication,
+    applicationRequest: applicationRequest,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
     checkpoint: checkpoint,
@@ -151,9 +197,13 @@ final class ManagedErasureWorker {
     required String profileNamespace,
     required String legacyPath,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   }) => _open(
     profileDirectory,
-    _ErasureOpen.prepare,
+    applicationRequest == null
+        ? _ErasureOpen.prepare
+        : _ErasureOpen.prepareApplication,
+    applicationRequest: applicationRequest,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
     auxiliary: auxiliary,
@@ -182,11 +232,21 @@ final class ManagedErasureWorker {
     String? legacyPath,
     ProfileErasureAuxiliaryTargets? auxiliary,
     ManagedErasureBinding? binding,
+    ManagedProfileErasureRequest? applicationRequest,
     SendPort? checkpoint,
     ManagedErasureFinishStage? finishGateStage,
     bool failFinalSyncForTesting = false,
   }) async {
     try {
+      if ((mode == _ErasureOpen.prepareApplication ||
+              mode == _ErasureOpen.recoverApplicationRequest) &&
+          applicationRequest == null) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+      }
+      if (mode == _ErasureOpen.prepareApplication &&
+          (auxiliary == null || !auxiliary.speech || !auxiliary.translation)) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
+      }
       if (auxiliary != null && auxiliary.legacyPath != legacyPath) {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
       }
@@ -218,6 +278,7 @@ final class ManagedErasureWorker {
             legacyPath: legacyPath,
             auxiliary: auxiliary,
             binding: binding,
+            applicationRequest: applicationRequest,
             checkpoint: checkpoint,
             finishGateStage: finishGateStage,
             failFinalSyncForTesting: failFinalSyncForTesting,
@@ -429,6 +490,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
   try {
     switch (config.mode) {
       case _ErasureOpen.prepare:
+      case _ErasureOpen.prepareApplication:
         if (config.profileNamespace == null || config.legacyPath == null) {
           throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
         }
@@ -444,6 +506,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           await ManagedRootErasure.prepareAbsent(
             gate,
             auxiliary: config.auxiliary,
+            applicationRequest: config.applicationRequest,
             unlockScopes: StorageUnlockScopes.forProfile(
               profile: config.profileNamespace!,
               legacyPath: config.legacyPath!,
@@ -462,6 +525,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           await ManagedRootErasure.prepare(
             root,
             auxiliary: config.auxiliary,
+            applicationRequest: config.applicationRequest,
             unlockScopes: StorageUnlockScopes.forProfile(
               profile: config.profileNamespace!,
               legacyPath: config.legacyPath!,
@@ -478,6 +542,11 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
               ? _ErasureFinalSyncFault()
               : const ManagedFsPlatform(),
         );
+      case _ErasureOpen.recoverApplicationRequest:
+        erasure = ManagedRootErasure.openPending(config.path);
+        if (!erasure.matchesApplicationRequest(config.applicationRequest!)) {
+          throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+        }
       case _ErasureOpen.recover:
         erasure = ManagedRootErasure.openPending(config.path);
       case _ErasureOpen.reconcile:

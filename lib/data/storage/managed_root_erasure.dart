@@ -1,5 +1,12 @@
 part of 'managed_directory_catalog.dart';
 
+/// A single explicit application's request, retained before its first await.
+/// This random ID is an operation selector, never a grant to erase or reopen.
+final class ManagedProfileErasureRequest {
+  ManagedProfileErasureRequest() : _operation = _RootErasePlan._newOperation();
+  final String _operation;
+}
+
 /// Durable inventory for the enumerable root and explicitly opted-in auxiliary
 /// files. This actor-side port is NOT permission to enable the application
 /// wipe/default: shutdown, OS retirement, enrollment and preferences still
@@ -23,6 +30,7 @@ final class ManagedRootErasure {
         completion._record['directory'] as String,
         completion._record['sha256'] as String,
         auxiliary: completion.auxiliary,
+        applicationProfile: completion.applicationProfile,
       );
   static const pendingName = 'erasure-pending';
   static const completionName = 'erasure-complete.json';
@@ -81,6 +89,13 @@ final class ManagedRootErasure {
   /// final sync before releasing its native role. No external cleanup is run.
   bool get finalSyncPending => _completion?.unlinked == true && !_finished;
 
+  /// Only the original removing plan can answer an unacknowledged prepare.
+  /// A terminal has no such roster/request authority and is never upgraded.
+  bool matchesApplicationRequest(ManagedProfileErasureRequest request) {
+    final plan = _removingPlan;
+    return plan.applicationProfile && plan.operation == request._operation;
+  }
+
   /// Caller owns an explicitly confirmed wipe and an exclusive complete root.
   /// Capture no-follow owned entries before publication. All identity roles
   /// must close successfully; unknown content is preserved and refuses a plan.
@@ -88,9 +103,10 @@ final class ManagedRootErasure {
     ManagedDirectoryCatalog owner, {
     required StorageUnlockScopes unlockScopes,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   }) async {
     try {
-      await _prepare(owner, unlockScopes, auxiliary);
+      await _prepare(owner, unlockScopes, auxiliary, applicationRequest);
     } on FileSystemException catch (_, trace) {
       Error.throwWithStackTrace(
         const ManagedFsFailure(ManagedFsFailureKind.io),
@@ -103,6 +119,7 @@ final class ManagedRootErasure {
     ManagedDirectoryCatalog owner,
     StorageUnlockScopes unlockScopes,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   ) async {
     owner.requireExclusiveMaintenance();
     final catalog = owner.snapshot().catalog;
@@ -128,6 +145,7 @@ final class ManagedRootErasure {
       catalog,
       unlockScopes,
       auxiliary,
+      applicationRequest,
     );
     plan.validateTree(owner._coordinator);
     _publishPlan(owner._coordinator, plan, owner.requireExclusiveMaintenance);
@@ -142,6 +160,7 @@ final class ManagedRootErasure {
     StorageProfileCoordinator owner, {
     required StorageUnlockScopes unlockScopes,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   }) async {
     try {
       void requireHeld() => owner.requireHeld(exclusive: true);
@@ -153,6 +172,8 @@ final class ManagedRootErasure {
         ManagedIdentityCatalog([]),
         {},
         unlockScopes,
+        applicationProfile: applicationRequest != null,
+        operation: applicationRequest?._operation,
         auxiliary: auxiliary == null
             ? null
             : await _AuxiliaryErasurePlan.capture(owner, auxiliary),
@@ -270,6 +291,7 @@ final class ManagedRootErasure {
           directory.identity,
           sha256.convert(bytes).toString(),
           auxiliary: plan.auxiliary?.scope,
+          applicationProfile: plan.applicationProfile,
         ),
       );
       result._validate();
@@ -508,8 +530,10 @@ final class ManagedErasureSnapshot {
     this._scopes,
   );
   final ManagedErasureBinding binding;
+
   /// Observes the bound auxiliary scope; not a standalone cleanup grant.
   bool get erasesProfilePreferences => binding._auxiliaryScope != null;
+  bool get isApplicationProfile => binding._applicationProfile;
   final ManagedRootErasurePhase phase;
   final ManagedIdentityCatalog? _catalog;
   final StorageUnlockScopes? _scopes;
@@ -530,13 +554,19 @@ final class ManagedErasureBinding {
     this._pending,
     this._digest, {
     _AuxiliaryErasureScope? auxiliary,
+    this._applicationProfile = false,
   }) : _auxiliaryScope = auxiliary;
+
   /// Compare observed operation bindings; this grants no cleanup or release.
   bool sameOperation(ManagedErasureBinding other) =>
-      _profile == other._profile && _coordinator == other._coordinator &&
-      _pending == other._pending && _digest == other._digest;
+      _profile == other._profile &&
+      _coordinator == other._coordinator &&
+      _pending == other._pending &&
+      _digest == other._digest &&
+      _applicationProfile == other._applicationProfile;
   final String _profile, _coordinator, _pending, _digest;
   final _AuxiliaryErasureScope? _auxiliaryScope;
+  final bool _applicationProfile;
 }
 
 /// Cannot be constructed by UI callers or obtained from a merely deleted root.
@@ -587,7 +617,15 @@ final class _RootErasePlan {
     this.unlockScopes, {
     String? operation,
     this.auxiliary,
-  }) : operation = operation ?? _newOperation();
+    this.applicationProfile = false,
+  }) : operation = operation ?? _newOperation() {
+    if (applicationProfile &&
+        (auxiliary == null ||
+            !auxiliary!.scope.speech ||
+            !auxiliary!.scope.translation)) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+  }
   static String _newOperation() {
     final random = Random.secure();
     return List.generate(
@@ -599,6 +637,7 @@ final class _RootErasePlan {
   /// Distinguish successive empty-root intents even if filesystem object IDs
   /// are reused. The plan digest carries this public nonce into release proofs.
   final String operation;
+  final bool applicationProfile;
   static const maxBytes = 8 * 1024 * 1024, maxEntries = 32768;
   final String profile, coordinator;
   final ManagedIdentityCatalog catalog;
@@ -679,6 +718,7 @@ final class _RootErasePlan {
     ManagedIdentityCatalog catalog,
     StorageUnlockScopes unlockScopes,
     ProfileErasureAuxiliaryTargets? auxiliary,
+    ManagedProfileErasureRequest? applicationRequest,
   ) async {
     final entries = <String, _RootEraseEntry>{};
     Future<void> visit(String path, List<String> parts) async {
@@ -717,6 +757,8 @@ final class _RootErasePlan {
       catalog,
       entries,
       unlockScopes,
+      applicationProfile: applicationRequest != null,
+      operation: applicationRequest?._operation,
       auxiliary: auxiliary == null
           ? null
           : await _AuxiliaryErasurePlan.capture(owner._coordinator, auxiliary),
@@ -727,7 +769,8 @@ final class _RootErasePlan {
     final result = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': 5,
+          'v': 6,
+          'applicationProfile': applicationProfile,
           'operation': operation,
           'profile': profile,
           'coordinator': coordinator,
@@ -753,10 +796,11 @@ final class _RootErasePlan {
       if (bytes.length > maxBytes) throw const FormatException();
       final raw = jsonDecode(utf8.decode(bytes));
       if (raw is! Map<String, dynamic> ||
-          raw.length != 8 ||
+          raw.length != 9 ||
+          raw['applicationProfile'] is! bool ||
           !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 5 ||
+          raw['v'] != 6 ||
           raw['operation'] is! String ||
           !_id.hasMatch(raw['operation'] as String) ||
           raw['profile'] is! String ||
@@ -832,6 +876,7 @@ final class _RootErasePlan {
         entries,
         scopes,
         operation: raw['operation'] as String,
+        applicationProfile: raw['applicationProfile'] as bool,
         auxiliary: auxiliary,
       );
     } catch (_) {

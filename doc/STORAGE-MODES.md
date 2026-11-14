@@ -1664,7 +1664,8 @@ or complete the still-pending managed full-wipe/external-inventory protocol.
 
 ## Durable inventory for profile-owned auxiliary files
 
-The unpublished intent format is now v5; the terminal witness is v3. Explicit
+The current unpublished intent format is v6; the terminal witness is v4 (see
+application operation kind below). Explicit
 `ProfileErasureAuxiliaryTargets` opt a profile into inventory of its opaque legacy
 container, exact native rewrite temporaries, profile preferences and their atomic
 write temporary, encrypted blob pieces, speech
@@ -1699,16 +1700,18 @@ Host tests cover worker restart, OS retirement refusal, changed content/objects,
 unknown files, malformed manifests, terminal-only recovery and lost final reply.
 Five actual SIGKILL boundaries cover partial auxiliary deletion and terminal
 cleanup, including a replacement after plan removal. These qualify the native
-inventory port. Application preference retirement/cleanup binding and complete
-managed wipe/recovery UI binding remain required before production activation; optional
-auxiliary scope is not a substitute for that full application contract.
+inventory port. The live application preference/wipe binding is described below;
+cold recovery and complete lifecycle/platform qualification remain required before
+production activation. Optional auxiliary scope is not a substitute for that
+full application contract.
 
 ## Durable preference absence during erasure
 
 Every auxiliary scope now includes both fixed profile preference files. The
 scope explicitly requires `preferences: true`; a missing, disabled or malformed
-field is refused. Intent v5 and terminal v3 reject their previous unpublished
-layouts rather than silently expanding old deletion authority. The installation's
+field is refused. These checks first landed in unpublished intent v5 and terminal
+v3; current v6/v4 also require the explicit application operation kind below,
+rather than silently expanding old deletion authority. The installation's
 active-profile pointer and other profiles' preference files remain outside this
 scope. Capture reads only filesystem witnesses, not preference contents.
 
@@ -1917,10 +1920,36 @@ stale facade writes, owned/external model roots and failed fresh-router handoff.
 It is not a real OS-vault or complete packaged UI/platform qualification. Cold
 restart recovery is still the existing refusal shell. Shutdown of all optional
 application services and late callbacks, cold application-process recovery and
-loss of the initial preparation reply before the live binding is captured,
+cold preparation failures without a published intent,
 shared hidden maintenance, explicit migration and
 all-online/platform qualification remain before activation. No released build
 or default is changed by this binding.
+
+## Application preparation identity and operation kind
+
+An application wipe now creates its random request identity before the first
+worker await, after retaining its original preference/router owners. The first
+native call publishes an application-profile plan; an ambiguous initial reply
+uses a distinct recovery entrypoint and must match that exact request. It never
+publishes another intent. A missing intent, another request, an inventory-only
+operation or an already terminal operation refuses preparation recovery. This
+includes a pre-publication failure: retry cannot silently capture newly appearing
+data into a different wipe. Restart/review is still required for that case.
+
+The unpublished plan format is now strict v6 and its terminal strict v4. Both
+carry an explicit boolean workflow discriminator, included in operation binding
+comparison. Previous experimental v5/v3 records are preserved and refused, never
+interpreted as application shutdown. The application kind requires all known
+profile-owned auxiliary roots. A terminal with its plan still present must agree
+with that plan's kind. It retains no request ID, catalog or OS-scope roster.
+
+The discriminator selects the intended enclosing protocol; it is not by itself
+an external-service shutdown or cleanup grant. Current live shutdown remains
+subject to the activation gates above. This change qualifies initial enclosing
+reply loss and actual worker death before the live job captures its binding. It
+does not yet enable cold-start continuation or instantiate ordinary providers
+while startup sees an intent. The startup refusal shell and disabled managed
+storage default remain in place pending the cold platform/lifecycle owner.
 
 ## Implementation boundaries
 

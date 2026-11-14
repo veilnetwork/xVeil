@@ -177,7 +177,8 @@ void main() {
         File(planPath()).readAsStringSync(),
         isNot(contains(fixture.path)),
       );
-      expect(raw['v'], 5);
+      expect(raw['v'], 6);
+      expect(raw['applicationProfile'], isFalse);
       expect((raw['auxiliary'] as Map)['entries'], isNotEmpty);
       expect(
         ((raw['auxiliary'] as Map)['scope'] as Map)['preferences'],
@@ -430,7 +431,8 @@ void main() {
           case 'extra':
             auxiliary['ignored'] = true;
           case 'old-version':
-            raw['v'] = 4;
+            raw['v'] = 5;
+            raw.remove('applicationProfile');
           case 'missing-preferences':
             (auxiliary['scope'] as Map).remove('preferences');
           case 'disabled-preferences':

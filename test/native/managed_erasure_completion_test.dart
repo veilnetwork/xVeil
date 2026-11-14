@@ -496,6 +496,9 @@ void main() {
     'oversize',
     'version',
     'previousVersion',
+    'missingKind',
+    'numericKind',
+    'mismatchedKind',
     'size',
     'digest',
   ]) {
@@ -506,7 +509,10 @@ void main() {
         final original = jsonDecode(File(terminal()).readAsStringSync()) as Map;
         if (bad == 'missing') original.remove('plan');
         if (bad == 'version') original['v'] = 1.0;
-        if (bad == 'previousVersion') original['v'] = 2;
+        if (bad == 'previousVersion') original['v'] = 3;
+        if (bad == 'missingKind') original.remove('applicationProfile');
+        if (bad == 'numericKind') original['applicationProfile'] = 1;
+        if (bad == 'mismatchedKind') original['applicationProfile'] = true;
         if (bad == 'size') original['size'] = 8 * 1024 * 1024 + 1;
         if (bad == 'digest') original['sha256'] = 'no digest';
         final malformed = bad == 'oversize'
@@ -541,6 +547,7 @@ void main() {
             'modified',
             'sha256',
             'auxiliary',
+            'applicationProfile',
           });
           expect(raw['auxiliary'], isNull);
           for (final secret in [

@@ -71,7 +71,11 @@ final class ManagedProfileWipe {
     required LocalScreenAuthentication authentication,
     required Future<void> Function() quiesce,
     required Future<void> Function() verifyOtherDataAbsent,
-    required Future<ManagedErasureWorker> Function() openWorker,
+    required Future<ManagedErasureWorker> Function(
+      ManagedProfileErasureRequest request,
+      bool retry,
+    )
+    openWorker,
   }) => ManagedProfileWipe(
     router: router,
     preferences: preferences,
@@ -82,7 +86,13 @@ final class ManagedProfileWipe {
     verifyOtherDataAbsent: verifyOtherDataAbsent,
   ).._openForTesting = openWorker;
 
-  Future<ManagedErasureWorker> Function()? _openForTesting;
+  Future<ManagedErasureWorker> Function(
+    ManagedProfileErasureRequest request,
+    bool retry,
+  )?
+  _openForTesting;
+  final _request = ManagedProfileErasureRequest();
+  bool _preparationAttempted = false;
   final ProfileStorageRouterOwner _router;
   final ProfilePreferencesLifetime _preferences;
   final LegacyProfilePreferences _source;
@@ -138,13 +148,17 @@ final class ManagedProfileWipe {
     if (_receipt != null || worker == null) return;
     if (worker.exitedUnexpectedly) {
       final binding = _binding;
-      if (binding == null) throw const ManagedProfileWipeFailure();
       // The worker port joins all accepted callbacks before acquiring a new
       // exclusive native grant. Death alone is never release authorization.
-      worker = await ManagedErasureWorker.resumeBound(
-        _profileDirectory,
-        binding,
-      );
+      // A returned worker can die before this owner captures its binding; only
+      // its original application request, never an unbound generic recovery,
+      // may select that still-removing plan.
+      worker = binding == null
+          ? await ManagedErasureWorker.recoverApplicationRequest(
+              _profileDirectory,
+              _request,
+            )
+          : await ManagedErasureWorker.resumeBound(_profileDirectory, binding);
       _worker = worker; // Retain even if inspection/adoption fails next.
       _recoveryNeedsAdoption = true;
     }
@@ -183,18 +197,32 @@ final class ManagedProfileWipe {
       _preferencesReleased = true;
     }
     await _resumeExitedWorker();
-    final worker = _worker ??=
-        await (_openForTesting?.call() ??
-            ManagedErasureWorker.begin(
-              profileDirectory: _profileDirectory,
-              profileNamespace: _source.profile,
-              legacyPath: _source.legacyPath,
-              auxiliary: ProfileErasureAuxiliaryTargets(
-                legacyPath: _source.legacyPath,
-              ),
-            ));
+    if (_worker == null) {
+      final retry = _preparationAttempted;
+      _preparationAttempted = true;
+      _worker =
+          await (_openForTesting?.call(_request, retry) ??
+              (retry
+                  ? ManagedErasureWorker.recoverApplicationRequest(
+                      _profileDirectory,
+                      _request,
+                    )
+                  : ManagedErasureWorker.beginApplicationProfile(
+                      profileDirectory: _profileDirectory,
+                      profileNamespace: _source.profile,
+                      legacyPath: _source.legacyPath,
+                      request: _request,
+                    )));
+    }
+    final worker = _worker!;
     if (_receipt == null) {
-      _binding ??= worker.scopeLease.snapshot.binding;
+      if (_binding == null) {
+        final snapshot = worker.scopeLease.snapshot;
+        if (!snapshot.isApplicationProfile) {
+          throw const ManagedProfileWipeFailure();
+        }
+        _binding = snapshot.binding;
+      }
       _vault ??= QuickUnlockRetirement.forWorker(
         worker.scopeLease,
         _secretStore,
