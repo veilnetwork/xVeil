@@ -7,7 +7,9 @@ import 'package:shared_preferences_platform_interface/types.dart';
 
 import '../../core/log.dart';
 import '../../domain/profile_preferences_layout.dart';
-import '../../core/posix_file_facts.dart';
+import 'profile_preferences_file.dart';
+
+export 'profile_preferences_file.dart';
 import 'app_profile.dart';
 
 /// App preferences, held in a FILE under the app-support directory instead of
@@ -50,13 +52,14 @@ import 'app_profile.dart';
 /// extraction rules in the manifest); this makes the two platforms agree
 /// instead of relying on one manifest attribute.
 class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
-  ProfilePreferencesStore._(this._file, this._entries);
+  ProfilePreferencesStore._(this._file, this._entries, this._ownedFile);
 
   /// Schema tag, so a future format change can be recognised rather than
   /// guessed at.
   static const int _version = 1;
 
   final File _file;
+  final ProfilePreferencesFile? _ownedFile;
 
   /// value type (the `valueType` tag the plugin already hands to [setValue]) →
   /// value. Kept rather than inferred: a `double` that happens to hold 2.0 and
@@ -75,6 +78,13 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     return _writes.then<void>((_) {}, onError: (Object _, StackTrace _) {});
   }
 
+  /// Separate from retirement: successful settlement does not prove native
+  /// release. A refused close stays owned and can be retried by its caller.
+  Future<void> releaseFile() async {
+    await retire();
+    await _ownedFile?.close();
+  }
+
   void _requireWritable() {
     if (_retired) throw StateError('profile preference store has retired');
   }
@@ -82,12 +92,21 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// Load the store at [path] (an absent or unreadable file is an empty store —
   /// this is preferences, and refusing to start over a corrupt preference file
   /// would be the worse failure).
-  static Future<ProfilePreferencesStore> load(String path) async {
+  static Future<ProfilePreferencesStore> load(
+    String path, {
+    ProfilePreferencesFile? ownedFile,
+  }) async {
+    if (ownedFile != null && ownedFile.path != path) {
+      throw StateError('profile preference file owner mismatch');
+    }
     final file = File(path);
+    // Native admission failure is not a corrupt optional setting. Do not turn
+    // a refused/dead owner into an unguarded local read or an empty backend.
+    final ownedContents = ownedFile == null ? null : await ownedFile.read();
     final entries = <String, ({String type, Object value})>{};
     try {
-      if (file.existsSync()) {
-        final json = jsonDecode(await file.readAsString());
+      if (ownedFile != null ? ownedContents != null : file.existsSync()) {
+        final json = jsonDecode(ownedContents ?? await file.readAsString());
         if (json is Map<String, dynamic> && json['v'] == _version) {
           final raw = json['e'];
           if (raw is Map<String, dynamic>) {
@@ -101,7 +120,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     } catch (e) {
       devLog(() => 'xVeil[prefs]: could not read $path, starting empty: $e');
     }
-    return ProfilePreferencesStore._(file, entries);
+    return ProfilePreferencesStore._(file, entries, ownedFile);
   }
 
   static ({String type, Object value})? _decode(Object? encoded) {
@@ -142,7 +161,9 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     };
     final encoded = jsonEncode(snapshot);
     final next = _writes.then(
-      (_) => writePrivateFileAtomically(_file, encoded),
+      (_) =>
+          _ownedFile?.write(encoded) ??
+          writePrivateFileAtomically(_file, encoded),
     );
     _writes = next;
     return next;
@@ -203,162 +224,6 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   }
 
   static const String _defaultPrefix = 'flutter.';
-}
-
-/// Owner-only permissions for what this file writes: `0600` on the preference
-/// and pointer files, `0700` on the directory holding them.
-///
-/// These files are the app's SECURITY POSTURE in the clear — which profile is
-/// active, the VPN routing policy with its app ids and subnets, whether the
-/// switcher has been found. They must be readable before anything is unlocked,
-/// so they cannot go inside the container; the least that can be asked of them
-/// is that no other local account can read them (audit X-05).
-const int _ownerOnlyFile = 0x180; // 0600
-const int _ownerOnlyDir = 0x1C0; // 0700
-
-/// Whether a failure to make these files owner-only must fail the write.
-///
-/// The same split, for the same reason, as `runtimeDirMustBePrivate` in the
-/// veil stack. On macOS and Linux the app-support path can sit on a filesystem
-/// other local accounts share, so a posture file at a permissive umask is a
-/// real exposure and writing it is worse than not writing it. On Android and
-/// iOS the app sandbox is already the boundary, and on Windows access is
-/// governed by the profile ACL, which a POSIX mode cannot describe and this
-/// code does not attempt to set — refusing there would trade a guarantee those
-/// platforms already give for a broken settings screen.
-bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
-
-/// Create [dir] and make it owner-only.
-///
-/// Best effort on purpose: the file mode below is the check that decides, and
-/// for the default profile this directory is the app-support directory itself,
-/// which the platform already places inside the app's own tree.
-Future<void> _ensurePrivateDir(Directory dir) async {
-  await dir.create(recursive: true);
-  if (Platform.isWindows) return;
-  final rc = posixChmod(dir.path, _ownerOnlyDir);
-  if (rc != null && rc != 0) {
-    devLog(() => 'xVeil[prefs]: could not restrict ${dir.path} to 0700');
-  }
-}
-
-/// Make [path] readable by its owner ONLY, and PROVE it.
-///
-/// Three separate things, none of which the other two cover:
-///
-///   * `chmod` exiting zero means the filesystem accepted the request. Mounted
-///     shares and some vendor mounts accept it and keep the old mode, so the
-///     mode is read back rather than assumed.
-///   * the read-back is an `lstat`, so a symlink swapped in at the name between
-///     the create and here is seen as a symlink instead of being followed.
-///   * the owner is checked against this process, which is what catches a file
-///     that is now somebody else's.
-///
-/// Goes through libc, not `Process.run('chmod', …)`: a bare command name is
-/// resolved through PATH, which is the substitutable oracle audit C-01 was
-/// about.
-bool _restrictToOwner(String path) {
-  if (Platform.isWindows) return true;
-  final rc = posixChmod(path, _ownerOnlyFile);
-  if (!prefsFilesMustBePrivate()) return true;
-  if (rc == null || rc != 0) {
-    devLog(() => 'xVeil[prefs]: chmod 0600 refused $path');
-    return false;
-  }
-  final facts = posixLstat(path);
-  if (facts == null) {
-    devLog(() => 'xVeil[prefs]: could not read the mode back for $path');
-    return false;
-  }
-  if (!facts.isRegularFile) {
-    devLog(() => 'xVeil[prefs]: $path is not a regular file, refusing to write');
-    return false;
-  }
-  if (facts.permissions != _ownerOnlyFile) {
-    devLog(
-      () =>
-          'xVeil[prefs]: $path is ${facts.permissions.toRadixString(8)} after '
-          'chmod, not 600',
-    );
-    return false;
-  }
-  final euid = posixEuid();
-  if (euid != null && facts.uid != euid) {
-    devLog(() => 'xVeil[prefs]: $path is not owned by this process');
-    return false;
-  }
-  return true;
-}
-
-/// Write [contents] to [file] durably, privately and atomically — or return
-/// **false**, which is the entire point of the function.
-///
-/// The version this replaces caught every exception, logged it, and let its
-/// callers report success (audit X-02); the migration then emptied the only
-/// other copy of the data on the strength of that report. What it now
-/// establishes before it says yes:
-///
-///   * **atomic** — the bytes land under a temporary name and are renamed over
-///     the target, so a crash mid-write cannot leave a truncated file that the
-///     next launch reads as "no preferences at all";
-///   * **durable** — the file is fsynced before the rename and the DIRECTORY
-///     after it. Syncing only the file makes the CONTENT survive a power cut
-///     while the rename that gave it its name does not (audit X-02);
-///   * **private** — the mode is applied to the temporary while it is still
-///     empty, so the values never exist on disk at the process umask, not even
-///     between two syscalls (audit X-05);
-///   * **actually there** — the file is read back and compared. A filesystem
-///     that accepted every call is not the same thing as a filesystem that
-///     kept the result.
-Future<bool> writePrivateFileAtomically(File file, String contents) async {
-  final temp = File('${file.path}.tmp');
-  try {
-    await _ensurePrivateDir(file.parent);
-    // Never write THROUGH a link someone else planted at the temporary name:
-    // that is how a 0600 file ends up being somebody else's file, with our
-    // posture in it. A directory in the way is not something to clear out.
-    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
-    if (planted == FileSystemEntityType.link) {
-      await Link(temp.path).delete();
-    } else if (planted == FileSystemEntityType.directory) {
-      devLog(() => 'xVeil[prefs]: ${temp.path} is a directory, refusing');
-      return false;
-    }
-
-    // Create empty, restrict, THEN fill. Reversing these two would put the
-    // values on disk at the umask for as long as the chmod takes to run, and
-    // [_restrictToOwner]'s lstat is also what catches a link that won the race
-    // between the type check above and this open.
-    final handle = await temp.open(mode: FileMode.writeOnly);
-    try {
-      if (!_restrictToOwner(temp.path)) return false;
-      await handle.writeString(contents);
-      await handle.flush(); // fsync(2) on the file
-    } finally {
-      await handle.close();
-    }
-
-    await temp.rename(file.path);
-    // The rename itself, made durable. Null just means no libc binding here.
-    posixFsyncDir(file.parent.path);
-    if (!_restrictToOwner(file.path)) return false;
-
-    // Read it back. This is the difference between "no call reported an error"
-    // and "the bytes are there".
-    if (await file.readAsString() != contents) {
-      devLog(() => 'xVeil[prefs]: ${file.path} did not read back as written');
-      return false;
-    }
-    return true;
-  } catch (e) {
-    devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
-    try {
-      if (temp.existsSync()) await temp.delete();
-    } catch (_) {
-      /* the temporary is litter, not a reason to fail differently */
-    }
-    return false;
-  }
 }
 
 /// Where a profile keeps its preferences.
@@ -422,6 +287,8 @@ Future<String> installProfilePreferences({
   required String supportDir,
   required List<String> args,
   Map<String, String>? environment,
+  OpenProfilePreferencesFile? openOwnedFile,
+  void Function(String path)? validateSelectedFile,
 }) async {
   final legacy = SharedPreferencesStorePlatform.instance;
   final pointer = await readRememberedProfile(supportDir);
@@ -433,60 +300,76 @@ Future<String> installProfilePreferences({
     legacyPointer: legacyPointer,
   );
   final profile = resolved.name;
-
-  // CARRY THE OLD POINTER ACROSS, before anything empties the store it lives
-  // in. Skipping this is what audit X-01 found: the first launch after the
-  // upgrade read `profile.active.v1` from the system store and picked the right
-  // profile, the migration then emptied that store without copying the pointer
-  // anywhere, and the SECOND launch — with neither pointer left — silently
-  // dropped the user into the default profile, a different identity with a
-  // different posture, and offered onboarding for it.
-  //
-  // What is carried is the OLD POINTER'S OWN VALUE, never the resolved name.
-  // That is what keeps `--profile` and `XVEIL_PROFILE` one-shot: launching with
-  // a flag still runs that profile for this process only, and still leaves the
-  // remembered choice exactly as the user left it. It is also why this does not
-  // wait for the flag-less case — clearing the store destroys the pointer no
-  // matter which source won this particular launch.
-  //
-  // The question asked is "would the OLD pointer decide, had this launch been
-  // given no instructions" — deliberately not "did it decide this time". An
-  // empty `args`/`environment` is passed for exactly that reason: a source that
-  // answers here can only be [ProfileSource.legacyPointer], and anything else
-  // means the old pointer held nothing this build would accept and there is
-  // nothing to lose by emptying the store.
-  final carried = pointer == null
-      ? AppProfiles.resolveWithSource(
-          args: const [],
-          environment: const {},
-          legacyPointer: legacyPointer,
-        )
-      : null;
-  var pointerSafe = true;
-  if (carried != null && carried.source == ProfileSource.legacyPointer) {
-    pointerSafe = await writeRememberedProfile(supportDir, carried.name);
-    if (!pointerSafe) {
-      devLog(
-        () =>
-            'xVeil[prefs]: could not carry the remembered profile into '
-            '${activeProfilePath(supportDir)} — leaving the system store alone '
-            'rather than forgetting which profile this install runs on',
-      );
+  final selectedPath = profilePrefsPath(supportDir, profile);
+  validateSelectedFile?.call(selectedPath);
+  // Resolution above is read-only. In managed builds the native owner must
+  // exist before pointer migration, any preference read or any migration write.
+  final ownedFile = await openOwnedFile?.call(selectedPath);
+  ProfilePreferencesStore? installed;
+  try {
+    // CARRY THE OLD POINTER ACROSS, before anything empties the store it lives
+    // in. Skipping this is what audit X-01 found: the first launch after the
+    // upgrade read `profile.active.v1` from the system store and picked the right
+    // profile, the migration then emptied that store without copying the pointer
+    // anywhere, and the SECOND launch — with neither pointer left — silently
+    // dropped the user into the default profile, a different identity with a
+    // different posture, and offered onboarding for it.
+    //
+    // What is carried is the OLD POINTER'S OWN VALUE, never the resolved name.
+    // That is what keeps `--profile` and `XVEIL_PROFILE` one-shot: launching with
+    // a flag still runs that profile for this process only, and still leaves the
+    // remembered choice exactly as the user left it. It is also why this does not
+    // wait for the flag-less case — clearing the store destroys the pointer no
+    // matter which source won this particular launch.
+    //
+    // The question asked is "would the OLD pointer decide, had this launch been
+    // given no instructions" — deliberately not "did it decide this time". An
+    // empty `args`/`environment` is passed for exactly that reason: a source that
+    // answers here can only be [ProfileSource.legacyPointer], and anything else
+    // means the old pointer held nothing this build would accept and there is
+    // nothing to lose by emptying the store.
+    final carried = pointer == null
+        ? AppProfiles.resolveWithSource(
+            args: const [],
+            environment: const {},
+            legacyPointer: legacyPointer,
+          )
+        : null;
+    var pointerSafe = true;
+    if (carried != null && carried.source == ProfileSource.legacyPointer) {
+      pointerSafe = await writeRememberedProfile(supportDir, carried.name);
+      if (!pointerSafe) {
+        devLog(
+          () =>
+              'xVeil[prefs]: could not carry the remembered profile into '
+              '${activeProfilePath(supportDir)} — leaving the system store alone '
+              'rather than forgetting which profile this install runs on',
+        );
+      }
     }
-  }
 
-  final store = await ProfilePreferencesStore.load(
-    profilePrefsPath(supportDir, profile),
-  );
-  await _migrateLegacy(
-    legacy,
-    supportDir,
-    profile,
-    store,
-    mayClearLegacy: pointerSafe,
-  );
-  SharedPreferencesStorePlatform.instance = store;
-  return profile;
+    final store = installed = await ProfilePreferencesStore.load(
+      selectedPath,
+      ownedFile: ownedFile,
+    );
+    await _migrateLegacy(
+      legacy,
+      supportDir,
+      profile,
+      store,
+      mayClearLegacy: pointerSafe,
+      openOwnedFile: openOwnedFile,
+    );
+    SharedPreferencesStorePlatform.instance = store;
+    return profile;
+  } catch (_) {
+    if (installed != null) {
+      await installed.releaseFile();
+    } else {
+      await ownedFile?.close();
+    }
+    rethrow;
+  }
 }
 
 /// [installProfilePreferences], and — when it cannot be done — an EMPTY
@@ -521,14 +404,19 @@ Future<String> installProfilePreferencesOrFallback({
   required List<String> args,
   Map<String, String>? environment,
   void Function(Object error, StackTrace stack)? onError,
+  OpenProfilePreferencesFile? openOwnedFile,
+  void Function(String path)? validateSelectedFile,
 }) async {
   try {
     return await installProfilePreferences(
       supportDir: await supportDir(),
       args: args,
       environment: environment,
+      openOwnedFile: openOwnedFile,
+      validateSelectedFile: validateSelectedFile,
     );
   } catch (e, st) {
+    if (openOwnedFile != null) rethrow;
     onError?.call(e, st);
     installEphemeralPreferences();
     return AppProfiles.defaultName;
@@ -612,6 +500,7 @@ Future<void> _migrateLegacy(
   String profile,
   ProfilePreferencesStore into, {
   required bool mayClearLegacy,
+  OpenProfilePreferencesFile? openOwnedFile,
 }) async {
   Map<String, Object> all;
   try {
@@ -668,13 +557,27 @@ Future<void> _migrateLegacy(
   // is opened (audit X-02).
   var written = await into._flush();
   for (final other in elsewhere.entries) {
-    final store = await ProfilePreferencesStore.load(
-      profilePrefsPath(supportDir, other.key),
-    );
-    for (final kv in other.value.entries) {
-      store._entries.putIfAbsent(kv.key, () => kv.value);
+    final path = profilePrefsPath(supportDir, other.key);
+    ProfilePreferencesFile? owner;
+    ProfilePreferencesStore? store;
+    try {
+      owner = await openOwnedFile?.call(path);
+      store = await ProfilePreferencesStore.load(path, ownedFile: owner);
+      for (final kv in other.value.entries) {
+        store._entries.putIfAbsent(kv.key, () => kv.value);
+      }
+      if (!await store._flush()) written = false;
+    } catch (_) {
+      // A refused destination must not be resurrected by migration. Retain
+      // the complete legacy source so a later admitted launch can try again.
+      written = false;
+    } finally {
+      if (store != null) {
+        await store.releaseFile();
+      } else {
+        await owner?.close();
+      }
     }
-    if (!await store._flush()) written = false;
   }
 
   if (!written || !mayClearLegacy) {

@@ -26,6 +26,8 @@ import '../../domain/storage_usage.dart';
 import 'rollback_anchor.dart';
 import 'storage_write_census.dart';
 import 'worker_death.dart';
+import 'profile_preferences_file.dart';
+import '../../domain/profile_preferences_layout.dart';
 import 'package:xveil/core/log.dart';
 
 export 'kv_log_store.dart' show LogReadGroup;
@@ -33,6 +35,7 @@ export 'kv_log_store.dart' show LogReadGroup;
 part 'worker_managed_identity.dart';
 part 'worker_managed_catalog.dart';
 part 'worker_managed_erasure.dart';
+part 'worker_profile_preferences.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -532,6 +535,10 @@ void _workerEntry(_OpenConfig cfg) {
     unawaited(_managedErasureEntry(cfg));
     return;
   }
+  if (cfg is _OpenProfilePreferences) {
+    _profilePreferencesEntry(cfg);
+    return;
+  }
   if (cfg is _OpenManagedCatalog) {
     _managedCatalogEntry(cfg);
     return;
@@ -559,6 +566,7 @@ void _workerEntry(_OpenConfig cfg) {
       )(keys),
       _OpenManagedIdentity() => _openManagedWorker(cfg),
       _OpenManagedErasure() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
+      _OpenProfilePreferences() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
       _OpenManagedCatalog() => throw StateError(
         'catalog worker was not dispatched',
       ),
@@ -662,7 +670,9 @@ SendPort _serveWorker(
           _ErasureSnapshotReq() ||
           _ErasureRemoveReq() ||
           _ErasureAuxiliaryReq() ||
-          _ErasureFinishReq():
+          _ErasureFinishReq() ||
+          _PreferencesReadReq() ||
+          _PreferencesWriteReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
         run(() {

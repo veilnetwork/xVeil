@@ -124,6 +124,12 @@ class ProfilePreferencesLifetime {
     return result;
   }
 
+  Future<void> releaseFile() async {
+    await retire();
+    final backend = _backend;
+    if (backend is ProfilePreferencesStore) await backend.releaseFile();
+  }
+
   Future<void> retire() {
     final pending = _retirement;
     if (pending != null) return pending;

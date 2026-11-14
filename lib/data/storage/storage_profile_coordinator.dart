@@ -26,6 +26,26 @@ final class StorageProfileCoordinator {
   String get directory =>
       ManagedDirectoryCatalog._child(profileDirectory, directoryName);
 
+  /// Admit the actual application profile before opening its preferences.
+  /// This initializes only the fixed lifetime role, never an identity catalog.
+  static StorageProfileCoordinator forPreferences(
+    String suppliedBase, {
+    ManagedFsPlatform fs = const ManagedFsPlatform(),
+  }) => ManagedDirectoryCatalog._safe(() {
+    final base = ManagedDirectoryCatalog._admitProfile(suppliedBase, fs);
+    final profile = ManagedDirectoryCatalog._child(
+      base.path,
+      'visible-storage',
+    );
+    if (FileSystemEntity.typeSync(profile, followLinks: false) ==
+            FileSystemEntityType.notFound &&
+        !fs.createPrivateDirectory(profile)) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    ManagedDirectoryCatalog._assertProfile(base.path, base.witness, fs);
+    return createOrOpen(profile, fs: fs);
+  });
+
   /// Read-only startup hint, never an ownership grant. Even a malformed file,
   /// directory or dangling link at either intent name blocks ordinary startup.
   /// The native opener repeats this check under its actual role grant.
