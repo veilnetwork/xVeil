@@ -18,6 +18,7 @@ final class QuickUnlockRetirement {
     StorageUnlockScopes scopes,
     LocalScreenAuthentication authentication,
   ) : _binding = null,
+      _requireOwner = null,
       _vaults = List.unmodifiable([
         for (final scope in scopes.ids)
           QuickUnlockVault(store, scope, authentication),
@@ -30,25 +31,37 @@ final class QuickUnlockRetirement {
     ManagedRootErasure erasure,
     QuickUnlockSecretStore store,
     LocalScreenAuthentication authentication,
-  ) : this._bound(erasure.snapshot(), store, authentication);
+  ) : this._bound(
+        erasure.snapshot(),
+        store,
+        authentication,
+        requireOwner: () => erasure.snapshot().unlockScopes,
+      );
 
   /// A live UI-side lease, not a retained progress snapshot, owns OS admission.
   QuickUnlockRetirement.forWorker(
     ManagedErasureScopeLease lease,
     QuickUnlockSecretStore store,
     LocalScreenAuthentication authentication,
-  ) : this._bound(lease.snapshot, store, authentication);
+  ) : this._bound(
+        lease.snapshot,
+        store,
+        authentication,
+        requireOwner: () => lease.snapshot,
+      );
 
   QuickUnlockRetirement._bound(
     ManagedErasureSnapshot snapshot,
     QuickUnlockSecretStore store,
-    LocalScreenAuthentication authentication,
-  ) : _binding = snapshot.binding,
-      _vaults = List.unmodifiable([
-        for (final scope in snapshot.unlockScopes.ids)
-          QuickUnlockVault(store, scope, authentication),
-      ]);
+    LocalScreenAuthentication authentication, {
+    required this._requireOwner,
+  }) : _binding = snapshot.binding,
+       _vaults = List.unmodifiable([
+         for (final scope in snapshot.unlockScopes.ids)
+           QuickUnlockVault(store, scope, authentication),
+       ]);
   final ManagedErasureBinding? _binding;
+  final void Function()? _requireOwner;
   bool _verified = false, _released = false;
   final List<QuickUnlockVault> _vaults;
   Future<void>? _pending;
@@ -57,15 +70,26 @@ final class QuickUnlockRetirement {
     if (_released) return Future.error(const QuickUnlockRetirementFailure());
     final pending = _pending;
     if (pending != null) return pending;
+    try {
+      _requireOwner?.call();
+    } catch (_) {
+      return Future.error(const QuickUnlockRetirementFailure());
+    }
     // Invoke every scope synchronously before awaiting: a slow/refusing first
     // scope cannot leave later scopes accepting stale enrollment in the gap.
     _verified = false;
-    final tasks = [for (final vault in _vaults) vault.retireForErasure()];
+    final tasks = [
+      for (final vault in _vaults)
+        _requireOwner == null
+            ? vault.retireForErasure()
+            : vault._retireBoundForErasure(_requireOwner),
+    ];
     return _pending = () async {
       try {
         // Wait for ALL tasks even if one fails. Every forget verifies absence;
         // soft UI opt-in flags are intentionally never consulted.
         await Future.wait(tasks);
+        _requireOwner?.call();
         _verified = true;
       } catch (_) {
         throw const QuickUnlockRetirementFailure();

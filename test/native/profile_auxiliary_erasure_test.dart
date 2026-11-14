@@ -198,12 +198,19 @@ void main() {
       expect(verificationCalls, 0);
       await w.close();
       final resumed = await recover();
-      await resumed.removeAuxiliaryFiles(retireScopes: r.retire);
+      await expectLater(
+        r.retire(),
+        throwsA(isA<QuickUnlockRetirementFailure>()),
+      );
+      final resumedRetirement = retirement(resumed);
+      await resumed.removeAuxiliaryFiles(
+        retireScopes: resumedRetirement.retire,
+      );
       final release = await resumed.finish(
-        verifyOtherDataAbsent: r.verifyAbsent,
+        verifyOtherDataAbsent: resumedRetirement.verifyAbsent,
       );
       expect(release.authorizes(view.binding), isTrue);
-      r.admitFreshLifetime(release);
+      resumedRetirement.admitFreshLifetime(release);
       expect(Directory('$profile/identities').existsSync(), isFalse);
       expect(
         fixture

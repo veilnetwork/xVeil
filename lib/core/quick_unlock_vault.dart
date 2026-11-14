@@ -486,8 +486,10 @@ class QuickUnlockVault {
         : null;
   }
 
-  Future<void> _eraseRecords() async {
+  Future<void> _eraseRecords({void Function()? requireAuthority}) async {
+    requireAuthority?.call();
     final record = await _read(forRemoval: true);
+    requireAuthority?.call();
     if (record?['bioSlot'] != null) {
       final slot = record?['bioSlot'];
       if (slot is! String || slot.length > 64) {
@@ -510,15 +512,34 @@ class QuickUnlockVault {
           'bioSlot': slot,
         }),
       );
+      requireAuthority?.call();
       await store.delete(_bioKey(slot), biometric: true);
+      requireAuthority?.call();
       if (await store.contains(_bioKey(slot), biometric: true)) {
         throw StateError('Saved sign-in removal not verified');
       }
+      requireAuthority?.call();
     }
     await store.delete(_key);
+    requireAuthority?.call();
     if (await store.contains(_key)) {
       throw StateError('Saved sign-in removal not verified');
     }
+    requireAuthority?.call();
+  }
+
+  // Bound erasure must still own its removing operation when queued work runs
+  // and after every OS await. An already-issued platform call is joined, but
+  // loss of ownership cannot authorize another mutation or successful cleanup.
+  Future<void> _retireBoundForErasure(void Function() requireAuthority) {
+    try {
+      requireAuthority();
+    } catch (error, trace) {
+      return Future.error(error, trace);
+    }
+    _scopeState.retired = true;
+    ++_generation;
+    return _serial(() => _eraseRecords(requireAuthority: requireAuthority));
   }
 
   /// Only after a durable profile-erasure intent. Existing wrappers cannot

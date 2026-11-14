@@ -1951,6 +1951,24 @@ does not yet enable cold-start continuation or instantiate ordinary providers
 while startup sees an intent. The startup refusal shell and disabled managed
 storage default remain in place pending the cold platform/lifecycle owner.
 
+## Saved-entry mutation ownership
+
+An erasure retirement retains its live worker lease or direct native owner,
+rather than only a captured scope roster. It checks that authority when cleanup
+is requested, when queued work starts, after every OS await and before declaring
+success. A closed owner cannot issue later vault mutations. A call already
+issued to the OS is still joined; loss of ownership preserves the public cleanup
+intent instead of issuing another deletion or reporting successful retirement.
+
+Recovering a removing plan rebinds mutation authority to the replacement worker
+of that exact operation. Shared retired scope state retains protected-slot
+witnesses across the replacement. Read-only terminal checks remain possible
+without inventing new deletion authority. Host tests cover stale direct/worker
+owners, closure during an accepted read, owner loss during metadata write or
+protected deletion, and continuation through the recovered durable plan. OS
+ports in these tests are in-memory; actual Keychain/Keystore qualification and
+the complete cold application recovery gates remain open.
+
 ## Windows live helper ownership
 
 Windows VPN status observations distinguish authenticated helper reports from
