@@ -1951,6 +1951,27 @@ does not yet enable cold-start continuation or instantiate ordinary providers
 while startup sees an intent. The startup refusal shell and disabled managed
 storage default remain in place pending the cold platform/lifecycle owner.
 
+## Windows live helper ownership
+
+Windows VPN status observations distinguish authenticated helper reports from
+local read/validation errors. An invalid token, malformed phase or unavailable
+process observation preserves the session and its stop capability; none can
+authorize profile erasure. A zero-duration kernel process wait replaces parsing
+localized command output. Confirmed process exit can complete an explicitly
+requested stop when the helper's transient terminal-status file is already gone.
+
+Start, stop, status and probe operations share a serialized owner. Concurrent
+stops share their accepted control request, but a newly accepted start separates
+the old and new requests. Queued starts retain immutable copies of their original
+routing inputs. Status polling cannot retire a session during pending stop I/O.
+
+Host tests cover these lifetime boundaries and refusal/retry through the real
+application wipe controller and native stores. A disposable Windows process test
+qualifies live/exit observation against the kernel; it does not qualify elevated
+VPN route/DNS cleanup. A fresh backend still lacks independent cold discovery of
+an older helper. Cold recovery and the other activation gates remain open; this
+change does not enable managed storage or alter its default.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -29,6 +30,8 @@ import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/data/storage/profile_storage_router.dart';
 import 'package:xveil/data/storage/profile_storage_router_owner.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
+import 'package:xveil/data/vpn/windows_managed_vpn_backend.dart';
+import 'package:xveil/data/vpn/windows_process_probe.dart';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/storage_locator.dart';
@@ -65,6 +68,11 @@ class _Vpn implements VpnBackend {
   Future<VpnBackendState> stop() => status();
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnknownWindowsProcess extends WindowsProcessProbe {
+  @override
+  WindowsProcessState read(int pid) => WindowsProcessState.unknown;
 }
 
 class _Source extends InMemorySharedPreferencesStore {
@@ -136,6 +144,7 @@ void main() {
   late ProviderContainer app;
   late _Controller controller;
   late _Vault vault;
+  late VpnBackend vpn;
   late List<ManagedStorageLocator> locators;
   bool failReopen = false;
   late Directory translationRoot;
@@ -240,6 +249,7 @@ void main() {
       },
     );
     vault = _Vault();
+    vpn = _Vpn();
     controller = _Controller();
     app = ProviderContainer(
       overrides: [
@@ -253,7 +263,7 @@ void main() {
           RetirementAuthentication(),
         ),
         notificationServiceProvider.overrideWithValue(_Notifications()),
-        vpnBackendProvider.overrideWithValue(_Vpn()),
+        vpnBackendProvider.overrideWith((ref) => vpn),
         backgroundServiceProvider.overrideWithValue(
           BackgroundServiceActions(start: () async {}, stop: () async {}),
         ),
@@ -703,6 +713,49 @@ void main() {
       },
     );
   }
+
+  test(
+    'unverified Windows status cannot authorize full-profile erasure',
+    () async {
+      final session = Directory('${fixture.path}/vpn-request')..createSync();
+      final status = File('${fixture.path}/protected-vpn-status.json');
+      const token = 'synthetic valid token';
+      var controls = 0;
+      vpn = WindowsManagedVpnBackend.withSessionForTesting(
+        directory: session,
+        statusFile: status,
+        token: token,
+        helperPid: 77,
+        processProbe: _UnknownWindowsProcess(),
+        stopTimeout: Duration.zero,
+        requestStop: () async => controls++,
+      );
+      await status.writeAsString(
+        jsonEncode({'token': 'unverified', 'phase': 'stopped'}),
+      );
+      expect((await vpn.status()).phase, VpnBackendPhase.error);
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.profileErasureRecovery,
+      );
+      expect(session.existsSync(), isTrue);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(Directory('$profile/identities').existsSync(), isTrue);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      await status.writeAsString(
+        jsonEncode({'token': token, 'phase': 'stopped'}),
+      );
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(controls, 2);
+      expect(session.existsSync(), isFalse);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
 
   test(
     'full controller wipe erases mixed storage and publishes fresh owners only after release',
