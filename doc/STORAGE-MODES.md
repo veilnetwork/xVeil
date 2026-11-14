@@ -1070,6 +1070,47 @@ exist. That path still requires a durable cross-root key-remapping protocol;
 manual password rotation, migration and whole-profile erase remain separate
 unfinished work. The managed-storage default switch remains off.
 
+### Profile lifetime coordination for destructive maintenance
+
+A complete managed-root bootstrap now publishes `profile.meta` and its permanent
+empty lock sidecar together with the catalog, in the same no-replace directory
+publication. The role contains only a fixed format identifier, no identity
+locator, key or hidden-space fact. Previous QA roots missing this metadata are
+preserved and refused rather than silently upgraded. Migration remains explicit;
+this layout is still behind the disabled application feature switch.
+
+Every `ManagedDirectoryCatalog` owner retains a shared `ManagedProfileLease`,
+including the catalog actor and each independently opened data worker. Normal
+catalog writes use their separate database and remain possible with these
+readers. `openExclusiveMaintenance` admits an existing root only after all shared
+owners have actually released; it creates nothing and never waits in a retry
+queue. `requireExclusiveMaintenance` also refuses an owner with live identities.
+Neither method by itself deletes data or grants authorization to erase it.
+
+SQLite read transactions acquire their shared lock through an actual validated
+role read. POSIX also uses handle-bound `flock` on a separate inode: an unrelated
+file descriptor close must not release ownership, and BSD flock/fcntl interaction
+must not downgrade a writer on the metadata database. Windows uses SQLite's
+handle-bound locks. Normal identity-exclusive leases retain their existing
+behavior. Paths and role/sidecar object witnesses are checked before catalog use;
+foreign roles, missing metadata, links and changed objects refuse without repair.
+Catalog/native cleanup precedes release of the profile lease.
+
+Host checks exercise shared/exclusive contention within and across isolates,
+normal writes by multiple catalog owners, role corruption, unrelated file
+closes and bootstrap publication. A persistent independent Dart process checks
+reader/writer exclusion and actual SIGKILL release for both shared catalog and
+exclusive maintenance owners. Native encrypted/plaintext data-worker and catalog
+actor cases retain ownership until confirmed close. These are macOS fixtures;
+Windows and mobile filesystem/runtime behavior are not physically qualified.
+
+This coordinates an already published managed root; it is not whole-profile
+erasure. A creator still preparing an unpublished root must also join a stable
+profile-level barrier before deletion can be enabled, so it cannot publish a
+fresh root after a wipe. The durable deletion intent, startup recovery with a
+partially removed catalog, complete owned-entry cleanup and all OS-vault scopes
+also remain required. The destructive action and new storage default stay off.
+
 ### OS quick-entry cleanup before whole-profile erasure
 
 Whole-profile erasure with visible catalog entries is still refused pending

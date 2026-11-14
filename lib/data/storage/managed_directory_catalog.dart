@@ -47,6 +47,8 @@ final class ManagedDirectoryCatalog {
     this._rootWitness,
     this._catalogWitness,
     this._catalog,
+    this._profileLease,
+    this._leaseWitnesses,
     this._fs,
   );
 
@@ -56,6 +58,8 @@ final class ManagedDirectoryCatalog {
   final ManagedPathWitness _rootWitness;
   final ManagedPathWitness _catalogWitness;
   final ManagedCatalogStore _catalog;
+  final ManagedProfileLease _profileLease;
+  final Map<String, ManagedPathWitness> _leaseWitnesses;
   final ManagedFsPlatform _fs;
   bool _closed = false;
   late final _catalogRelease = NativeHandleClose(_catalog.close);
@@ -99,6 +103,30 @@ final class ManagedDirectoryCatalog {
     });
   }
 
+  /// Exclusive coordination only: does not delete data or authorize erasure.
+  /// Every catalog and data owner must first release its shared lifetime lease.
+  /// Missing roots remain absent; contention never creates a retrying writer.
+  static ManagedDirectoryCatalog? openExclusiveMaintenance(
+    String profileDirectory, {
+    ManagedFsPlatform fs = const ManagedFsPlatform(),
+  }) => _safe(() {
+    final profile = _admitProfile(profileDirectory, fs);
+    final path = _child(profile.path, 'identities');
+    if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return null;
+    }
+    return _open(profile.path, profile.witness, path, fs, exclusive: true);
+  });
+
+  void requireExclusiveMaintenance() {
+    _validate();
+    _profileLease.requireHeld(exclusive: true);
+    if (_identityOwners.isNotEmpty) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
+  }
+
   /// Explicit new-mode initialization. Publishes a complete PRIVATE directory
   /// with its initialized catalog in a single no-replace rename. Competing
   /// creators open the winner, never overwrite it. Interrupted unpublished
@@ -123,14 +151,16 @@ final class ManagedDirectoryCatalog {
       _assertProfile(profile.path, profile.witness, fs);
       if (!fs.createPrivateDirectory(staged)) continue;
       final stagedWitness = _privateDirectory(staged, fs);
-      ManagedPathWitness? fileWitness;
+      final ownedFiles = <String, ManagedPathWitness>{};
       ManagedSqliteConnection? connection;
       ManagedCatalogStore? catalog;
+      ManagedProfileLease? profileLease;
       var published = false;
       try {
         final file = File(_child(staged, _catalogName));
         file.createSync(exclusive: true);
-        fileWitness = fs.inspect(file.path);
+        final fileWitness = fs.inspect(file.path);
+        ownedFiles[_catalogName] = fileWitness;
         fs.restrictNewFile(file.path);
         _assertSame(file.path, fileWitness, fs);
         connection = ManagedSqliteConnection.openUnencrypted(file.path);
@@ -140,10 +170,25 @@ final class ManagedDirectoryCatalog {
         catalog = ManagedCatalogStore.initializeOwned(owned);
         catalog.close();
         catalog = null;
+        final role = File(_child(staged, ManagedProfileLease.fileName));
+        role.createSync(exclusive: true);
+        final roleWitness = fs.inspect(role.path);
+        ownedFiles[ManagedProfileLease.fileName] = roleWitness;
+        fs.restrictNewFile(role.path);
+        _assertSame(role.path, roleWitness, fs);
+        profileLease = ManagedProfileLease.initializeOwned(
+          ManagedSqliteConnection.openUnencrypted(role.path),
+        );
+        profileLease.close();
+        profileLease = null;
+        ownedFiles['${ManagedProfileLease.fileName}.lock'] = fs
+            .requirePrivateFile('${role.path}.lock');
         fs.syncDirectory(staged);
         _assertProfile(profile.path, profile.witness, fs);
         _assertSame(staged, stagedWitness, fs);
-        _assertSame(file.path, fileWitness, fs);
+        for (final entry in ownedFiles.entries) {
+          _assertSame(_child(staged, entry.key), entry.value, fs);
+        }
         published = fs.publishDirectoryNoReplace(staged, path);
         if (published) {
           fs.syncDirectory(profile.path);
@@ -152,10 +197,11 @@ final class ManagedDirectoryCatalog {
       } finally {
         catalog?.close();
         connection?.close();
+        profileLease?.close();
         if (!published) {
-          // Only this exact, freshly created directory and its exact one file.
-          // Unexpected content/replacement leaves everything intact for review.
-          _discardOwnedEmptyBootstrap(staged, stagedWitness, fileWitness, fs);
+          // Only these exact, freshly created files. Unexpected content or
+          // replacement leaves the complete bootstrap intact for review.
+          _discardOwnedEmptyBootstrap(staged, stagedWitness, ownedFiles, fs);
         }
       }
       return _open(profile.path, profile.witness, path, fs);
@@ -167,8 +213,9 @@ final class ManagedDirectoryCatalog {
     String profile,
     ManagedPathWitness profileWitness,
     String root,
-    ManagedFsPlatform fs,
-  ) {
+    ManagedFsPlatform fs, {
+    bool exclusive = false,
+  }) {
     _assertProfile(profile, profileWitness, fs);
     final rootWitness = _privateDirectory(root, fs);
     final catalogPath = _child(root, _catalogName);
@@ -178,13 +225,32 @@ final class ManagedDirectoryCatalog {
     }
     final catalogWitness = fs.requirePrivateFile(catalogPath);
     _checkSqliteSidecars(catalogPath, fs);
-    final connection = ManagedSqliteConnection.openUnencrypted(catalogPath);
+    final rolePath = _child(root, ManagedProfileLease.fileName);
+    final leaseWitnesses = <String, ManagedPathWitness>{
+      ManagedProfileLease.fileName: fs.requirePrivateFile(rolePath),
+      '${ManagedProfileLease.fileName}.lock': fs.requirePrivateFile(
+        '$rolePath.lock',
+      ),
+    };
+    _checkSqliteSidecars(rolePath, fs);
+    if (File('$rolePath.lock').lengthSync() != 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    final profileLease = ManagedProfileLease.openOwned(
+      ManagedSqliteConnection.openUnencrypted(rolePath),
+      exclusive: exclusive,
+    );
+    ManagedSqliteConnection? connection;
     ManagedCatalogStore? catalog;
     try {
+      connection = ManagedSqliteConnection.openUnencrypted(catalogPath);
       catalog = ManagedCatalogStore.openOwned(connection);
       _assertProfile(profile, profileWitness, fs);
       _assertSame(root, rootWitness, fs);
       _assertSame(catalogPath, catalogWitness, fs);
+      for (final entry in leaseWitnesses.entries) {
+        _assertSame(_child(root, entry.key), entry.value, fs);
+      }
       return ManagedDirectoryCatalog._(
         profile,
         root,
@@ -192,12 +258,15 @@ final class ManagedDirectoryCatalog {
         rootWitness,
         catalogWitness,
         catalog,
+        profileLease,
+        Map.unmodifiable(leaseWitnesses),
         fs,
       );
     } catch (_) {
       catalog?.close();
       // openOwned consumes it on failure; close is idempotent.
-      connection.close();
+      connection?.close();
+      profileLease.close();
       rethrow;
     }
   }
@@ -225,9 +294,20 @@ final class ManagedDirectoryCatalog {
     if (_closed) {
       throw const ManagedCatalogFailure(ManagedCatalogFailureKind.closed);
     }
+    _profileLease.requireHeld();
     _assertProfile(profileDirectory, _profileWitness, _fs);
     _privateDirectory(directory, _fs);
     _assertSame(directory, _rootWitness, _fs);
+    for (final entry in _leaseWitnesses.entries) {
+      _fs.requirePrivateFile(_child(directory, entry.key));
+      _assertSame(_child(directory, entry.key), entry.value, _fs);
+    }
+    if (File(
+          _child(directory, '${ManagedProfileLease.fileName}.lock'),
+        ).lengthSync() !=
+        0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
     _checkSqliteSidecars(_catalogPath, _fs);
     _fs.requirePrivateFile(_catalogPath);
     _assertSame(_catalogPath, _catalogWitness, _fs);
@@ -244,6 +324,7 @@ final class ManagedDirectoryCatalog {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
     _catalogRelease.close();
+    _profileLease.close();
     _eraseReviews.clear();
     _closed = true;
   }
@@ -328,30 +409,33 @@ final class ManagedDirectoryCatalog {
   static void _discardOwnedEmptyBootstrap(
     String path,
     ManagedPathWitness expected,
-    ManagedPathWitness? file,
+    Map<String, ManagedPathWitness> files,
     ManagedFsPlatform fs,
   ) {
     try {
       _assertSame(path, expected, fs);
       final children = Directory(
         path,
-      ).listSync(followLinks: false).take(2).toList();
-      if (children.isNotEmpty) {
-        if (children.length != 1 ||
-            file == null ||
-            children.single.path != _child(path, _catalogName)) {
-          return;
-        }
-        _assertSame(children.single.path, file, fs);
-        File(children.single.path).deleteSync();
+      ).listSync(followLinks: false).take(files.length + 1).toList();
+      if (children.length != files.length) return;
+      // Validate the WHOLE exact manifest before the first unlink.
+      for (final child in children) {
+        final name = File(child.path).uri.pathSegments.last;
+        final witness = files[name];
+        if (witness == null || child.path != _child(path, name)) return;
+        _assertSame(child.path, witness, fs);
+      }
+      for (final entry in files.entries) {
+        _assertSame(path, expected, fs);
+        _assertSame(_child(path, entry.key), entry.value, fs);
+        File(_child(path, entry.key)).deleteSync();
       }
       Directory(
         path,
-      ).deleteSync(); // non-recursive: new content refuses removal
+      ).deleteSync(); // New content refuses non-recursive removal.
       fs.syncDirectory(Directory(path).parent.path);
     } catch (_) {
-      // Cleanup cannot justify deleting an unproved object or hide the primary
-      // operation's result. A later launch never automatically sweeps this path.
+      // Cleanup cannot authorize deleting an unproved object or hide failure.
     }
   }
 
@@ -361,6 +445,8 @@ final class ManagedDirectoryCatalog {
     } on ManagedFsFailure {
       rethrow;
     } on ManagedCatalogFailure {
+      rethrow;
+    } on ManagedLeaseFailure {
       rethrow;
     } on ManagedSqliteFailure {
       rethrow;

@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
+import 'package:xveil/data/storage/managed_identity_lease.dart';
 
 void main() {
   test(
@@ -92,6 +93,9 @@ void main() {
             final previous = File(
               '${pending.path}/catalog.sqlite3',
             ).readAsBytesSync();
+            final role = File(
+              '${pending.path}/${ManagedProfileLease.fileName}',
+            ).readAsBytesSync();
             final next = ManagedDirectoryCatalog.createOrOpen(profile);
             try {
               expect(next.snapshot().revision, 0);
@@ -99,6 +103,12 @@ void main() {
               expect(
                 File('${pending.path}/catalog.sqlite3').readAsBytesSync(),
                 previous,
+              );
+              expect(
+                File(
+                  '${pending.path}/${ManagedProfileLease.fileName}',
+                ).readAsBytesSync(),
+                role,
               );
               expect(Directory(profile).listSync().length, 2);
             } finally {

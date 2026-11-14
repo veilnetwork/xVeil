@@ -461,6 +461,12 @@ void main() {
   test(
     'invalid creation and duplicate IDs do not create or overwrite files',
     () {
+      Map<String, Object> snapshot() => {
+        for (final item in Directory(owner.directory).listSync(followLinks: false))
+          File(item.path).uri.pathSegments.last: item is File
+              ? item.readAsBytesSync() : item.runtimeType.toString(),
+      };
+      final beforeInvalidCreation = snapshot();
       expect(
         () => ManagedIdentityFiles.createEncrypted(
           owner,
@@ -475,7 +481,7 @@ void main() {
           ),
         ),
       );
-      expect(Directory(owner.directory).listSync().length, 1);
+      expect(snapshot(), beforeInvalidCreation);
       expect(owner.snapshot().catalog.identities, isEmpty);
       final original = ManagedIdentityFiles.createUnencrypted(
         owner,
