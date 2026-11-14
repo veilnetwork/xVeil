@@ -79,10 +79,29 @@ class QuickUnlockSecretStore {
     return read(key, biometric: true);
   }
 
-  Future<void> write(String key, String value, {bool biometric = false}) =>
-      _store(biometric, key).write(key: key, value: value);
-  Future<void> delete(String key, {bool biometric = false}) =>
-      _store(biometric, key).delete(key: key);
+  Future<void> write(String key, String value, {bool biometric = false}) async {
+    await _store(biometric, key).write(key: key, value: value);
+    await _persist(key, biometric);
+  }
+
+  Future<void> delete(String key, {bool biometric = false}) async {
+    await _store(biometric, key).delete(key: key);
+    await _persist(key, biometric);
+  }
+
+  Future<void> _persist(String key, bool biometric) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    // FSS 10.3.4 uses SharedPreferences.apply(): its reply and subsequent
+    // readback only observe RAM. Keep cleanup intents and accepted operations
+    // alive until the corresponding native disk writes are confirmed too.
+    final confirmed = await const MethodChannel(
+      'xveil/quick_unlock',
+    ).invokeMethod<bool>('flush', {'key': key, 'biometric': biometric});
+    if (confirmed != true) {
+      throw StateError('Saved sign-in persistence not confirmed');
+    }
+  }
+
   // Darwin containsKey probes synchronizable=true even for a local-only
   // classic Keychain item; macOS rejects that query. A bounded read verifies
   // actual absence using the exact same namespace/options as the write.

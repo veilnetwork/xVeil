@@ -45,6 +45,7 @@ void main() {
     denyAuthentication = false;
     authenticatedReads = 0;
     messenger.setMockMethodCallHandler(authenticatedChannel, (call) async {
+      if (call.method == 'flush') return true;
       expect(call.method, 'read');
       authenticatedReads++;
       final arguments = Map<String, dynamic>.from(call.arguments as Map);
@@ -183,6 +184,7 @@ void main() {
     final started = Completer<void>();
     final release = Completer<String?>();
     messenger.setMockMethodCallHandler(authenticatedChannel, (call) {
+      if (call.method == 'flush') return Future.value(true);
       started.complete();
       return release.future;
     });
@@ -198,16 +200,11 @@ void main() {
     'fresh biometric namespace initializes without weakening its cipher policy',
     () async {
       const store = QuickUnlockSecretStore();
-      await store.write('fixture-new-slot', 'fixture-value', biometric: true);
-      expect(
-        await store.read('fixture-new-slot', biometric: true),
-        'fixture-value',
-      );
-      await store.delete('fixture-new-slot', biometric: true);
-      expect(
-        await store.contains('fixture-new-slot', biometric: true),
-        isFalse,
-      );
+      const key = 'xveil.quick.v1.fixture.bio.new-slot';
+      await store.write(key, 'fixture-value', biometric: true);
+      expect(await store.read(key, biometric: true), 'fixture-value');
+      await store.delete(key, biometric: true);
+      expect(await store.contains(key, biometric: true), isFalse);
       expect(protectedNamespaces, hasLength(1));
     },
   );
