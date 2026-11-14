@@ -10,6 +10,8 @@ import 'managed_identity_catalog.dart';
 import 'managed_sqlite_connection.dart';
 import 'native_handle_close.dart';
 
+part 'managed_profile_lease.dart';
+
 enum ManagedLeaseFailureKind { invalid, mismatch, closed, busy }
 
 /// No local locator, path, credentials or native error text is included.
@@ -214,7 +216,11 @@ final class _PosixIdentityLock implements Finalizable {
         .cast(),
   );
 
-  static _PosixIdentityLock? acquire(String database, {bool create = false}) {
+  static _PosixIdentityLock? acquire(
+    String database, {
+    bool create = false,
+    bool shared = false,
+  }) {
     final path = '$database.lock';
     if (create) {
       File(path).createSync(exclusive: true);
@@ -289,7 +295,7 @@ final class _PosixIdentityLock implements Finalizable {
       if (fd < 0) {
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }
-      if (flock(fd, 2 | 4) != 0) {
+      if (flock(fd, (shared ? 1 : 2) | 4) != 0) {
         final error = errno?.call().value;
         throw ManagedLeaseFailure(
           error == 11 || error == 35
