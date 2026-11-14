@@ -16,6 +16,9 @@ case "$CONFIGURATION" in
     CARGO_PROFILE="debug"
     CARGO_FLAGS=()
     PROFILE="debug"
+    # With debug info disabled, Cargo can strip host proc-macro dylibs too.
+    # Keep Darwin LINKEDIT intact, just as in the release path below.
+    export CARGO_PROFILE_DEV_STRIP=none
     ;;
   Release|Profile)
     CARGO_PROFILE="release"
