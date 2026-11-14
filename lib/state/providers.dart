@@ -23,6 +23,7 @@ import '../data/storage/fake_kv_log_store.dart';
 import '../data/storage/async_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/on_disk_blob_store.dart';
+import '../data/storage/profile_preferences.dart';
 import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
 import '../data/storage/worker_multi_space.dart';
@@ -42,7 +43,7 @@ import 'storage_router_providers.dart';
 /// re-points these three providers — nothing in the UI changes.
 
 final prefsProvider = FutureProvider<SharedPreferences>((ref) {
-  return SharedPreferences.getInstance();
+  return profilePreferences();
 });
 
 /// Native compaction is an asynchronous external operation: once started, its

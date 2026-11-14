@@ -1,7 +1,7 @@
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/log.dart';
 import '../../state/identity_scoped_prefs.dart';
+import '../storage/profile_preferences.dart';
 import '../storage/storage.dart';
 import 'bundled_seeds.dart';
 
@@ -55,7 +55,7 @@ String get kBundledSeedsReofferSuppressedPrefKey =>
 /// falls back to this one exactly once and then stops.
 Future<bool> bundledSeedsAllowed() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     return prefs.getBool(kBundledSeedsPrefKey) ?? kBundledSeedsDefault;
   } catch (_) {
     // An unreadable preference store must not take a working app off the
@@ -76,7 +76,7 @@ Future<bool> bundledSeedsAllowed() async {
 /// this is the one that can tell "no answer" from "no".
 Future<bool?> storedBundledSeedsAnswer() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     // Absent still means yes — see [kBundledSeedsDefault]. Only an unreadable
     // store is nothing at all.
     return prefs.getBool(kBundledSeedsPrefKey) ?? kBundledSeedsDefault;
@@ -95,7 +95,7 @@ Future<bool?> storedBundledSeedsAnswer() async {
 /// used to have.
 Future<bool> setBundledSeedsAllowed(bool allowed) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     return await prefs.setBool(kBundledSeedsPrefKey, allowed);
   } catch (_) {
     return false;
@@ -229,7 +229,7 @@ Future<IdentitySeedPlan> planIdentitySeeds({
 /// Whether the startup re-offer has been silenced for this profile.
 Future<bool> bundledSeedsReofferSuppressed() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     return prefs.getBool(kBundledSeedsReofferSuppressedPrefKey) ?? false;
   } catch (_) {
     return false;
@@ -239,7 +239,7 @@ Future<bool> bundledSeedsReofferSuppressed() async {
 /// Silence (or un-silence) the startup re-offer for this profile.
 Future<bool> setBundledSeedsReofferSuppressed(bool suppressed) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     return await prefs.setBool(
       kBundledSeedsReofferSuppressedPrefKey,
       suppressed,

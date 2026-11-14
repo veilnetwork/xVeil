@@ -1697,6 +1697,31 @@ inventory port. Application preference lifetime/cleanup and complete managed
 wipe/recovery UI binding remain required before production activation; optional
 auxiliary scope is not a substitute for that full application contract.
 
+## Profile preference lifetime
+
+Application preference access now returns a view bound to the exact installed
+backend. Retirement seals new reads/writes synchronously and joins accepted
+saves, initialization and cache reloads. A late reference cannot adopt a newly
+installed global backend. A fresh view waits for earlier accepted reloads before
+refreshing the plugin's shared cache. Reinstalling a retired backend does not
+revive it or bypass an intermediate lifetime's pending writes. A quiescent
+in-memory backend needs no asynchronous retirement barrier.
+
+The file backend independently seals direct mutations and drains queued atomic
+writes. String-list inputs and returned lists no longer alias future file
+snapshots. A failed initialization can be retried while the same lifetime remains
+active; save failures are returned unchanged. These barriers prove settlement,
+not successful persistence, deletion or OS-vault retirement.
+
+Production access sites and the common provider use this entry point. Host tests
+cover stale references, gated saves/reloads/initialization, failed saves, backend
+replacement, retry and actual queued file writes. Full managed-wipe binding is
+still pending: it must seal this owner before teardown, include preference-file
+absence in durable recovery, prevent migration writes before startup recovery,
+and install a fresh backend only after complete erasure release. This work does
+not enable managed storage or turn the existing pending-erasure shell into full
+recovery.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
