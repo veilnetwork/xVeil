@@ -838,11 +838,13 @@ void main() {
       expect(File(legacy).existsSync(), isTrue);
       expect(vault.values, hasLength(6));
       expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      final attempts = store.removes;
+      expect(attempts, greaterThan(0));
       store.refuse = false;
       expect(await controller.wipeContainers(), isEmpty);
       expect(output.existsSync(), isFalse);
       expect(File(legacy).existsSync(), isFalse);
-      expect(store.removes, 2);
+      expect(store.removes, attempts + 1);
     },
   );
 

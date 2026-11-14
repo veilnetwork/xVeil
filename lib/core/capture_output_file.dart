@@ -27,24 +27,30 @@ final class FileCaptureOutputStore implements CaptureOutputStore {
 /// An app-created plaintext camera output, retained through navigation and its
 /// one consumer. Retirement joins an accepted consumer before deleting its file.
 /// A cleanup refusal retains this owner even after a successful send.
-final class CaptureOutputFile implements CaptureResource {
+final class CaptureOutputFile implements PrivacyCaptureResource {
   CaptureOutputFile(
     this.path, {
     required CaptureResourceLifetime lifetime,
+    CaptureAdmission? admission,
     this.store = const FileCaptureOutputStore(),
-  }) : _lifetime = lifetime {
-    _sealed = !lifetime.admit(this);
+  }) : _lifetime = lifetime,
+       _admission = admission ?? lifetime.captureAdmission() {
+    // Adopting existing bytes is cleanup ownership, not permission to capture
+    // or consume. A stale admission must still register this known file.
+    _sealed = !_admission.isActiveFor(lifetime);
+    if (!lifetime.admit(this)) _sealed = true;
   }
   final String path;
   final CaptureResourceLifetime _lifetime;
+  final CaptureAdmission _admission;
   final CaptureOutputStore store;
   bool _sealed = false, _used = false, _removed = false;
   Future<void>? _accepted, _deleting;
 
-  bool get canUse => !_sealed && !_used && _lifetime.isAdmitting;
+  bool get canUse => !_sealed && !_used && _admission.isActive;
 
   Future<T> use<T>(Future<T> Function(String path) consume) {
-    if (_sealed || _used || !_lifetime.isAdmitting) {
+    if (!canUse) {
       return Future.error(const CaptureResourceRetirementFailure());
     }
     _used = true;
@@ -79,6 +85,9 @@ final class CaptureOutputFile implements CaptureResource {
       },
     );
   }
+
+  @override
+  Future<void> stopForPrivacy() => retire();
 
   @override
   Future<void> retire() async {

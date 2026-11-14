@@ -12,15 +12,18 @@ import 'owned_camera_controller.dart';
 
 /// Outlives the camera widget. Owns accepted platform operations, untransferred
 /// outputs and controller leases; a widget disposal is not their completion.
-final class AttachmentCaptureWork implements CaptureResource {
+final class AttachmentCaptureWork implements PrivacyCaptureResource {
   AttachmentCaptureWork({
     required CaptureResourceLifetime lifetime,
+    CaptureAdmission? admission,
     this.outputStore = const FileCaptureOutputStore(),
     this.onSealed,
-  }) : _lifetime = lifetime {
-    _sealed = !lifetime.admit(this);
+  }) : _lifetime = lifetime,
+       _admission = admission ?? lifetime.captureAdmission() {
+    _sealed = !lifetime.admit(this, admission: _admission);
   }
   final CaptureResourceLifetime _lifetime;
+  final CaptureAdmission _admission;
   final CaptureOutputStore outputStore;
   final VoidCallback? onSealed;
   final _pending = <Future<void>>{};
@@ -36,7 +39,7 @@ final class AttachmentCaptureWork implements CaptureResource {
   final _closing = <CameraController, Future<void>>{};
   bool _sealed = false, _unknownOutput = false;
   Future<void>? _retiring;
-  bool get isActive => !_sealed && _lifetime.isAdmitting;
+  bool get isActive => !_sealed && _admission.isActive;
 
   Future<T?> run<T>(Future<T> Function() action) {
     if (!isActive) return Future.value(null);
@@ -135,6 +138,7 @@ final class AttachmentCaptureWork implements CaptureResource {
     final file = CaptureOutputFile(
       path,
       lifetime: _lifetime,
+      admission: _admission,
       store: outputStore,
     );
     _outputs.add(file);
@@ -224,6 +228,9 @@ final class AttachmentCaptureWork implements CaptureResource {
     }());
     return result.future;
   }
+
+  @override
+  Future<void> stopForPrivacy() => retire();
 
   @override
   Future<void> retire() {

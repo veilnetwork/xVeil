@@ -61,6 +61,7 @@ import 'vnote_play_controller.dart';
 import 'vnote_record_controller.dart';
 import 'voice_play_controller.dart';
 import 'voice_record_controller.dart';
+import '../core/capture_resource_lifetime.dart';
 import 'providers.dart';
 import 'multi_identity_session.dart';
 import 'storage_router_providers.dart';
@@ -3194,6 +3195,11 @@ class AppController extends Notifier<AppState> {
   /// the lifecycle generation is ended first: what must not happen is a
   /// capture that starts after the person has locked.
   void _stopMediaCapture() {
+    unawaited(
+      CaptureResourceLifetime.current().stopForPrivacy().catchError(
+        (Object _) => devLog(() => 'attachment privacy cleanup incomplete'),
+      ),
+    );
     ref.read(voicePlayControllerProvider.notifier).stopForPrivacy();
     ref.read(vnotePlayControllerProvider.notifier).stopForPrivacy();
     ref.read(voiceRecordControllerProvider.notifier).stopForPrivacy();
