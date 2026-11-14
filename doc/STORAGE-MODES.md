@@ -1976,6 +1976,10 @@ blocks native payload removal; host-native tests exercise refusal and retry.
 See [Android quick-unlock persistence](validation/android-quick-unlock-persistence-2026-11-15/README.md)
 for the modeled persistence boundary, Android compilation and remaining
 real-device/cold-terminal limits.
+The [Android restart follow-up](validation/android-quick-unlock-restart-2026-11-15/README.md)
+adds 40 SIGKILL/fresh-process checks using the actual plugin, preference files
+and Keystore on an Android 15 emulator, including a strong-biometric key. It
+does not qualify physical devices or complete application recovery.
 
 Terminal admission first joins cleanup already accepted by the worker, while
 refusing new operations. Entering finalization seals that owner's scope-mutation
