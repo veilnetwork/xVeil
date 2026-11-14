@@ -58,15 +58,36 @@ class MainFlutterWindow: NSWindow {
       name: "xveil/call_network",
       binaryMessenger: flutterViewController.engine.binaryMessenger)
     networkChannel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self else { result(false); return }
-      switch call.method {
-      case "setActive":
-        let active = (call.arguments as? [String: Any])?["active"] as? Bool ?? false
-        result(self.callActivity.setActive(active))
-      case "isActive":
-        result(self.callActivity.isActive)
-      default:
-        result(FlutterMethodNotImplemented)
+      guard let self = self else {
+        result(FlutterError(code: "call_network", message: "Call network host unavailable", details: nil))
+        return
+      }
+      do {
+        switch call.method {
+        case "setActive":
+          guard let active = (call.arguments as? [String: Any])?["active"] as? Bool else {
+            throw CallActivityRetirementError.unavailable
+          }
+          result(self.callActivity.setActive(active))
+        case "isActive":
+          result(self.callActivity.isActive)
+        case "retire":
+          result(try CallActivity.retireResources())
+        case "verifyRetirement", "releaseRetirement":
+          guard let token = (call.arguments as? [String: Any])?["token"] as? String else {
+            throw CallActivityRetirementError.unavailable
+          }
+          if call.method == "verifyRetirement" {
+            try CallActivity.verifyRetirement(token)
+          } else {
+            try CallActivity.releaseRetirement(token)
+          }
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      } catch {
+        result(FlutterError(code: "call_network", message: "Network resource operation unavailable", details: nil))
       }
     }
 

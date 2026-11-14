@@ -75,9 +75,10 @@ Native lock ports and OS keys in erasure fixtures are modeled; native profile
 workers and filesystem deletion are real on synthetic data. Native Android
 compilation is a build check, not physical Wi-Fi power qualification.
 
-macOS supports ordinary call activity but does not yet implement this native
-retirement port: managed erasure refuses there until that port is added. The
-no-resource port is limited to platforms with no native call-activity adapter.
+The macOS native retirement port subsequently received
+[host qualification](../macos-call-activity-retirement-2026-11-15/README.md).
+A supported platform with a missing port still refuses. The no-resource port is
+limited to platforms with no native call-activity adapter.
 Independent Camera2/AAudio/projection observations, cold application recovery
 and packaged migration/maintenance remain open. Managed storage stays disabled.
 No push, device installation or release is part of this cycle.
