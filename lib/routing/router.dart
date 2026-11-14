@@ -13,6 +13,7 @@ import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_damaged_screen.dart';
 import '../features/identity/identity_erase_recovery_screen.dart';
+import '../features/identity/identity_setup_recovery_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
@@ -75,6 +76,10 @@ String? redirectForPhase(AppPhase phase, String location) {
       // WRITE, and this phase exists precisely because a space was found in a
       // state nothing should be written over (audit XV-13).
       return location == '/identity-damaged' ? null : '/identity-damaged';
+    case AppPhase.identitySetupRecovery:
+      return location == '/identity-setup-recovery'
+          ? null
+          : '/identity-setup-recovery';
     case AppPhase.identityEraseRecovery:
       return location == '/identity-erase-recovery'
           ? null
@@ -97,6 +102,7 @@ String? redirectForPhase(AppPhase phase, String location) {
           location == '/onboarding' ||
           location == '/pick-identity' ||
           location == '/identity-erase-recovery' ||
+          location == '/identity-setup-recovery' ||
           location == '/preparing') {
         return '/home';
       }
@@ -217,6 +223,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/identity-damaged',
         builder: (_, _) => const IdentityDamagedScreen(),
+      ),
+      GoRoute(
+        path: '/identity-setup-recovery',
+        builder: (_, _) => const IdentitySetupRecoveryScreen(),
       ),
       GoRoute(
         path: '/identity-erase-recovery',

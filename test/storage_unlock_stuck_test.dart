@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
@@ -69,17 +70,29 @@ void main() {
   test('concurrent unlock() calls run the container open only once', () async {
     var opens = 0;
     final store = FakeKvLogStore();
-    final storage = HiddenVolumeStorage.async((
-        {required Uint8List password, required bool create}) async {
+    final storage = HiddenVolumeStorage.async(({
+      required Uint8List password,
+      required bool create,
+    }) async {
       opens++;
       // Model the slow Argon2 KDF so the second unlock arrives mid-open.
       await Future<void>.delayed(const Duration(milliseconds: 50));
       return SyncWrappedAsyncKvLogStore(store);
     });
+    // Concurrency is tested on an existing identity. A blank authenticated
+    // space deliberately requires explicit setup instead of session boot.
+    expect(await storage.open(password: 'pw'), isTrue);
+    await storage.saveProfile(const UserProfile(displayName: 'Fixture'));
+    await storage.close();
+    opens = 0;
     final c = ProviderContainer(
       overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      await c.read(appControllerProvider.notifier).lock();
+      c.dispose();
+      await storage.close();
+    });
     final ctrl = c.read(appControllerProvider.notifier);
 
     // Double-submit: UI + debug hook racing. The latecomer must be dropped —

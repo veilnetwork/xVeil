@@ -25,7 +25,11 @@ final class ManagedRepackTransfer {
 /// the keybox's internal passwords, and serialize this port off the UI isolate.
 /// This class does not create paths, discover spaces or select a storage mode.
 final class ManagedEncryptedKvLogStore
-    implements KvLogStore, SyncCommitAnchorSource, SyncLogGroupReader {
+    implements
+        KvLogStore,
+        SyncCommitAnchorSource,
+        SyncLogGroupReader,
+        SyncInitializationNamespaceSource {
   ManagedEncryptedKvLogStore._(this._keybox, this._content, this._maintenance);
 
   factory ManagedEncryptedKvLogStore.openOwned({
@@ -127,6 +131,20 @@ final class ManagedEncryptedKvLogStore
     if (_closing || _closed || _state == null) {
       throw StateError('Managed encrypted store is closed');
     }
+  }
+
+  @override
+  int initializationNamespaceLimit() {
+    _requireOpen();
+    // The ordinary application port intentionally cannot read these. Verify
+    // them on the owner, without exposing their bytes or weakening that port.
+    _anchor();
+    if (_content.count(ManagedStoreTag.namespace) != 1 ||
+        _content.kvKeys(ManagedStoreTag.namespace).length != 1 ||
+        _content.count(255) != 0) {
+      throw StateError('Unexpected initialization metadata');
+    }
+    return ManagedStoreTag.namespace;
   }
 
   static void _namespace(int value) {

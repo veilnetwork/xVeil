@@ -670,7 +670,11 @@ final class _ManagedIdentityResources {
 /// reads/writes stay on pinned native handles, with no path/KDF work per key.
 /// Path admission is repeated for pathname-based lifecycle operations instead.
 sealed class ManagedIdentityStore
-    implements KvLogStore, SyncCommitAnchorSource, StorageUsageSource {
+    implements
+        KvLogStore,
+        SyncCommitAnchorSource,
+        StorageUsageSource,
+        SyncInitializationNamespaceSource {
   ManagedIdentityStore._(this._resources);
   final _ManagedIdentityResources _resources;
   ManagedIdentityEntry get entry => _resources.entry;
@@ -728,6 +732,13 @@ sealed class ManagedIdentityStore
   @override
   void acknowledgeHardeningWarning() =>
       _use((s) => s.acknowledgeHardeningWarning());
+  @override
+  int initializationNamespaceLimit() => _use(
+    (s) => s is SyncInitializationNamespaceSource
+        ? (s as SyncInitializationNamespaceSource)
+              .initializationNamespaceLimit()
+        : 256,
+  );
   @override
   int commitSeq() => _use((s) => (s as SyncCommitAnchorSource).commitSeq());
   @override

@@ -162,6 +162,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
 
+  bool _resumingSetup = false;
+  @override
+  void initState() {
+    super.initState();
+    final selected = ref
+        .read(appControllerProvider.notifier)
+        .setupRecoveryProtection;
+    if (selected != null) {
+      _resumingSetup = true;
+      _protection = selected;
+    }
+  }
+
   @override
   void dispose() {
     _passwordCtrl.dispose();
@@ -538,6 +551,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return Scaffold(
       appBar: AppBar(
         actions: [
+          if (_resumingSetup)
+            IconButton(
+              icon: const Icon(Icons.lock_outline),
+              tooltip: AppL10n.of(context).identityEraseRecoveryLock,
+              onPressed: () => ref.read(appControllerProvider.notifier).lock(),
+            ),
           if (kDiagnosticReportEnabled)
             IconButton(
               icon: const Icon(Icons.save_alt),
@@ -620,8 +639,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onMinted: (minted) => _minted = minted,
             ),
             3 =>
-              ref.watch(profileStorageRouterProvider) != null
+              ref.watch(profileStorageRouterProvider) != null || _resumingSetup
                   ? StorageProtectionChoice(
+                      fixed: _resumingSetup,
                       selected: _protection,
                       onChanged: (value) => setState(() => _protection = value),
                       onNext: () => _go(7),

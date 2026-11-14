@@ -402,7 +402,13 @@ void main() {
       expect(f.container.read(appControllerProvider).phase, AppPhase.locked);
       expect(f.storage.isOpen, isFalse);
       f.storage.failProfile = false;
-      await _finish(f.controller);
+      // A profile was accepted before the synthetic write failure. Retrying
+      // over that partial identity must refuse; a distinct fresh space works.
+      await expectLater(
+        _finish(f.controller),
+        throwsA(isA<ContainerAlreadyHasAnIdentity>()),
+      );
+      await _finish(f.controller, password: 'another-new-fixture');
       expect(f.container.read(appControllerProvider).phase, AppPhase.ready);
     },
   );

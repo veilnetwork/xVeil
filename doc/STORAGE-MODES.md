@@ -1035,13 +1035,44 @@ Enumerable identities remain in the catalog; a plaintext master still exposes
 all linked keys. Duress is not a promise to hide those public/plaintext facts.
 Explanations open on demand, with narrow/large-text RU/EN/ES widget checks.
 
-The native create-before-first-marker window is not solved by the later setup
-marker. A killed/cancelled initial create may leave an empty hidden space;
-interrupted-creation recovery still needs to distinguish that from an ordinary
-identity and offer an explicit safe continuation. Default activation stays off.
+### Interrupted setup inspection and explicit continuation
 
-Remaining before default activation: whole-profile erase, interrupted creation
-and recovery (including the native pre-marker window), password rotation,
+An authenticated space without a profile no longer automatically boots a new
+identity. Before compaction/network startup, an optional read-only capability
+inspects every application namespace (KV and logs), accepting only canonical
+bootstrap settings. A commit-sequence sandwich rejects writes crossing the
+inspection. The encrypted backend verifies its private role metadata on the
+owning worker; ordinary application reads still cannot access reserved tags.
+Legacy config/credential-only identities remain supported without replacing
+their existing cryptographic identity. Unknown data is preserved and refused.
+
+An inspected blank space opens a pinned setup screen with an explicit choice
+to run the usual certificate ceremony in that exact authenticated location.
+The storage protection is fixed; another password/locator cannot redirect the
+operation or create another catalog entry. A duress-master explanation points
+back to the original master rather than silently creating an ordinary identity.
+Lock/dispose retires cached authority; no ordinary views, edits, maintenance or
+identity switching are allowed while this screen owns the session.
+
+Creation now refuses existing profiles and rosters as well as node credentials,
+and keeps existing onboarding preferences on refusal. A protected identity-setup
+marker is saved before the first profile write and cleared after all onboarding
+payloads and the access selection settle. The caller's credential bytes are
+snapshotted before awaits and the owned copy is retired. A failed/locked write
+cannot later boot a partial identity merely because a profile exists.
+
+This does not yet replay a partially written certificate or a marked master
+whose roster was not saved. Such stores stay preserved on the setup screen, with report/sign-in
+controls and no automatic retry or replacement. Empty pre-marker spaces can
+explicitly continue; replay of accepted payloads still needs a protected intent.
+Host-native tests cover all three modes, cold reopen, unchanged keys/catalog,
+existing-master refusal, concurrent/unknown data, certificate-write refusal and
+lock during an accepted profile save. Widget checks cover fixed protection,
+routing gates and narrow large-text RU/EN/ES recovery screens. No packaged
+platform/OS-vault qualification is implied. Default activation stays off.
+
+Remaining before default activation: whole-profile erase, full interrupted
+creation replay, manual mixed maintenance/password rotation where applicable,
 explicit migration/recovery, and packaged Android/Windows/macOS runs including
 one-prompt OS entry. Existing containers are never converted automatically.
 

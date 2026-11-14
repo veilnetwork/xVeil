@@ -82,6 +82,37 @@ void main() {
     },
   );
 
+  for (final mode in StorageProtection.values) {
+    testWidgets('recovery cannot change its existing ${mode.name} protection', (
+      tester,
+    ) async {
+      var changes = 0, continues = 0;
+      await tester.pumpWidget(
+        localized(
+          StorageProtectionChoice(
+            selected: mode,
+            fixed: true,
+            onChanged: (_) => changes++,
+            onNext: () => continues++,
+          ),
+        ),
+      );
+      for (final candidate in StorageProtection.values) {
+        expect(
+          find.byKey(ValueKey('storage-protection-${candidate.name}')),
+          candidate == mode ? findsOneWidget : findsNothing,
+        );
+      }
+      await tester.tap(find.byKey(ValueKey('storage-protection-${mode.name}')));
+      expect(changes, 0);
+      final l = AppL10n.of(
+        tester.element(find.byType(StorageProtectionChoice)),
+      );
+      await tester.tap(find.text(l.actionContinue));
+      expect(continues, 1);
+    });
+  }
+
   for (final change in [false, true]) {
     testWidgets(
       'biometric answer belongs to its chosen storage; change=$change',

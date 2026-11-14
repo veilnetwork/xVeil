@@ -1,5 +1,12 @@
 import 'dart:typed_data';
 
+/// Read-only initialization inspection. A reduced exclusive limit is valid
+/// only after the backend verifies every excluded application namespace as
+/// its own canonical metadata. Namespace zero is library-reserved.
+abstract interface class SyncInitializationNamespaceSource {
+  int initializationNamespaceLimit();
+}
+
 typedef LogReadGroup = ({List<int> ids, int maxBytes});
 
 /// Optional native exact-ID grouping. Decoded batches are shared only in-call;

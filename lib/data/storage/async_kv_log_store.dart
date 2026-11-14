@@ -72,6 +72,11 @@ abstract interface class AsyncKvLogStore {
   Future<void> close();
 }
 
+/// See [SyncInitializationNamespaceSource]. Inspection stays on the worker.
+abstract interface class InitializationNamespaceSource {
+  Future<int> initializationNamespaceLimit();
+}
+
 /// Optional witness for one actor's command queue. Every operation actually
 /// queued to that actor increments it by one synchronously, before returning
 /// its future. Completed commands do not reset it.
@@ -182,6 +187,7 @@ class SyncWrappedAsyncKvLogStore
     implements
         AsyncKvLogStore,
         CommitAnchorSource,
+        InitializationNamespaceSource,
         AsyncLogBatchReader,
         AsyncLogGroupReader,
         AsyncKvBatchReader,
@@ -281,6 +287,15 @@ class SyncWrappedAsyncKvLogStore
   Future<Uint8List> exportKeys() async => _inner.exportKeys();
   @override
   Future<SlotUtilization?> slotUtilization() async => _inner.slotUtilization();
+
+  @override
+  Future<int> initializationNamespaceLimit() async {
+    final inner = _inner;
+    return inner is SyncInitializationNamespaceSource
+        ? (inner as SyncInitializationNamespaceSource)
+              .initializationNamespaceLimit()
+        : 256;
+  }
 
   // Only when the wrapped store actually has a container behind it. A wrapper
   // that answered for one that does not would hand the anchor a number nobody
@@ -466,6 +481,10 @@ class _SlotUtilizationReq extends _Req {
 /// The two anchor reads (report8 M8-14). Separate messages rather than one,
 /// because a caller that only re-anchors after a commit needs the counter and
 /// not the window.
+class _InitializationLimitReq extends _Req {
+  const _InitializationLimitReq(super.reply);
+}
+
 class _CommitSeqReq extends _Req {
   const _CommitSeqReq(super.reply);
 }
@@ -693,6 +712,13 @@ SendPort _serveWorker(
       // invent a number: an anchor built on a fabricated counter would call
       // an honest open a rollback. -1 and an empty window are the two
       // "cannot answer" values the caller checks for.
+      case _InitializationLimitReq():
+        run(
+          () => store is SyncInitializationNamespaceSource
+              ? (store as SyncInitializationNamespaceSource)
+                    .initializationNamespaceLimit()
+              : 256,
+        );
       case _CommitSeqReq():
         run(
           () => store is SyncCommitAnchorSource
@@ -783,6 +809,7 @@ class WorkerKvLogStore
     implements
         AsyncKvLogStore,
         CommitAnchorSource,
+        InitializationNamespaceSource,
         AsyncLogBatchReader,
         AsyncLogGroupReader,
         AsyncKvBatchReader,
@@ -1069,6 +1096,9 @@ class WorkerKvLogStore
   Future<SlotUtilization?> slotUtilization() =>
       _call<SlotUtilization?>((reply) => _SlotUtilizationReq(reply));
 
+  @override
+  Future<int> initializationNamespaceLimit() =>
+      _call<int>((reply) => _InitializationLimitReq(reply));
   @override
   Future<int> commitSeq() => _call<int>((reply) => _CommitSeqReq(reply));
 

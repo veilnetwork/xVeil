@@ -704,8 +704,9 @@ void main() {
             await stand.controller.unlock('synthetic duress');
             expect(
               stand.app.read(appControllerProvider).phase,
-              AppPhase.identityDamaged,
+              AppPhase.identitySetupRecovery,
             );
+            expect(stand.controller.canResumeIdentitySetup, isFalse);
             expect(stand.app.read(sessionProvider), isNull);
           }
         } finally {

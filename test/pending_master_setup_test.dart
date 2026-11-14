@@ -85,8 +85,10 @@ void main() {
         await controller.unlock('synthetic pending master');
         expect(
           container.read(appControllerProvider).phase,
-          AppPhase.identityDamaged,
+          AppPhase.identitySetupRecovery,
         );
+        expect(controller.canResumeIdentitySetup, isFalse);
+        expect(controller.beginIdentitySetupRecovery(), isFalse);
         expect(storage.isOpen, isFalse);
         expect(
           await storage.open(password: 'synthetic pending master'),
