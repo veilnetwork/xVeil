@@ -14,6 +14,7 @@ final class _ErasureCompletion {
   });
   static const _maxBytes = 4096;
   final _AuxiliaryErasureScope? auxiliary;
+  bool get applicationProfile => _record['applicationProfile'] == true;
   final Map<String, Object?> _record;
   final ManagedPathWitness _witness;
   final String _digest;
@@ -85,10 +86,11 @@ final class _ErasureCompletion {
       bool objectId(Object? v) =>
           v is String && v.isNotEmpty && v.length <= 256 && !v.contains('\x00');
       if (raw is! Map<String, dynamic> ||
-          raw.length != 9 ||
+          raw.length != 10 ||
+          raw['applicationProfile'] is! bool ||
           !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 3 ||
+          raw['v'] != 4 ||
           !objectId(raw['profile']) ||
           !objectId(raw['coordinator']) ||
           !objectId(raw['directory']) ||
@@ -101,14 +103,19 @@ final class _ErasureCompletion {
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(raw['sha256'] as String)) {
         throw const FormatException();
       }
+      final auxiliary = _AuxiliaryErasureScope.decode(
+        raw['auxiliary'],
+        Directory(gate.profileDirectory).parent.path,
+      );
+      if (raw['applicationProfile'] == true &&
+          (auxiliary == null || !auxiliary.speech || !auxiliary.translation)) {
+        throw const FormatException();
+      }
       return _ErasureCompletion(
         Map<String, Object?>.unmodifiable(raw),
         witness,
         sha256.convert(bytes).toString(),
-        auxiliary: _AuxiliaryErasureScope.decode(
-          raw['auxiliary'],
-          Directory(gate.profileDirectory).parent.path,
-        ),
+        auxiliary: auxiliary,
       );
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
@@ -123,10 +130,12 @@ final class _ErasureCompletion {
   ) {
     requireRootAbsent(gate);
     final bytes = _read(_plan(gate), plan, _RootErasePlan.maxBytes, gate._fs);
-    final auxiliary = _RootErasePlan.decode(bytes, gate).auxiliary?.scope;
+    final planRecord = _RootErasePlan.decode(bytes, gate);
+    final auxiliary = planRecord.auxiliary?.scope;
     auxiliary?.requireAbsent(gate);
     final record = <String, Object?>{
-      'v': 3,
+      'v': 4,
+      'applicationProfile': planRecord.applicationProfile,
       'profile': gate._profileWitness.identity,
       'coordinator': gate._directoryWitness.identity,
       'directory': directory.identity,
@@ -221,15 +230,13 @@ final class _ErasureCompletion {
     }
     final file = gate._fs.requirePrivateFile(planPath);
     final stamp = File(planPath).statSync();
+    final bytes = _read(planPath, file, _RootErasePlan.maxBytes, gate._fs);
     if (file.identity != _record['plan'] ||
         stamp.size != _record['size'] ||
         stamp.modified.microsecondsSinceEpoch != _record['modified'] ||
-        sha256
-                .convert(
-                  _read(planPath, file, _RootErasePlan.maxBytes, gate._fs),
-                )
-                .toString() !=
-            _record['sha256']) {
+        sha256.convert(bytes).toString() != _record['sha256'] ||
+        _RootErasePlan.decode(bytes, gate).applicationProfile !=
+            applicationProfile) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
   }

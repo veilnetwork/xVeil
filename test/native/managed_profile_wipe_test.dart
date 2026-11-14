@@ -296,29 +296,177 @@ void main() {
     if (fixture.existsSync()) fixture.deleteSync(recursive: true);
   });
 
-  ManagedProfileWipe makeJob(Future<ManagedErasureWorker> Function() opener) =>
-      ManagedProfileWipe.withWorkerOpenerForTesting(
+  ManagedProfileWipe makeJob(
+    Future<ManagedErasureWorker> Function(
+      ManagedProfileErasureRequest request,
+      bool retry,
+    )
+    opener,
+  ) => ManagedProfileWipe.withWorkerOpenerForTesting(
+    router: owner,
+    preferences: oldPreferences,
+    source: oldPreferences.legacyPreferences!,
+    secretStore: vault,
+    authentication: RetirementAuthentication(),
+    quiesce: () async {}, // Locked fixture has no network/model work.
+    verifyOtherDataAbsent: () async {},
+    openWorker: opener,
+  );
+
+  for (final lost in ['reply', 'worker']) {
+    test(
+      'lost initial $lost retries the same published application intent',
+      () async {
+        var attempts = 0;
+        late ManagedErasureBinding originalBinding;
+        final job = makeJob((request, retry) async {
+          final worker = retry
+              ? await ManagedErasureWorker.recoverApplicationRequest(
+                  profile,
+                  request,
+                )
+              : await ManagedErasureWorker.beginApplicationProfile(
+                  profileDirectory: profile,
+                  profileNamespace: namespace,
+                  request: request,
+                  legacyPath: legacy,
+                  auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+                );
+          attempts++;
+          final snapshot = await worker.snapshot();
+          if (attempts == 1) {
+            originalBinding = snapshot.binding;
+            if (lost == 'reply') {
+              await worker.close(); // Actual release; no payload removal.
+            } else {
+              worker.killReleasedWorkerForTesting();
+              await expectLater(
+                worker.snapshot(),
+                throwsA(isA<ManagedWorkerFailure>()),
+              );
+            }
+            throw StateError('synthetic loss before the enclosing binding');
+          }
+          expect(snapshot.binding.sameOperation(originalBinding), isTrue);
+          return worker;
+        });
+        addTearDown(() async {
+          try {
+            await job.close();
+          } catch (_) {}
+        });
+        final oldRecords = Map.of(vault.values);
+        await expectLater(
+          job.resume(),
+          throwsA(isA<ManagedProfileWipeFailure>()),
+        );
+        expect(attempts, 1);
+        expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+        expect(File(legacy).existsSync(), isTrue);
+        expect(vault.values, oldRecords);
+        await job.resume();
+        expect(attempts, 2);
+        expect(owner.router.catalog.identities, isEmpty);
+        expect(File(legacy).existsSync(), isFalse);
+        expect(vault.values, isEmpty);
+      },
+    );
+  }
+
+  test(
+    'returned worker death before binding capture uses the retained request',
+    () async {
+      var opens = 0;
+      final job = makeJob((request, retry) async {
+        opens++;
+        final worker = await ManagedErasureWorker.beginApplicationProfile(
+          profileDirectory: profile,
+          profileNamespace: namespace,
+          legacyPath: legacy,
+          request: request,
+        );
+        worker.killReleasedWorkerForTesting();
+        await expectLater(
+          worker.snapshot(),
+          throwsA(isA<ManagedWorkerFailure>()),
+        );
+        return worker; // The enclosing owner has no binding yet.
+      });
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      final oldRecords = Map.of(vault.values);
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(vault.values, oldRecords);
+      expect(File(legacy).existsSync(), isTrue);
+      await job.resume();
+      expect(opens, 1);
+      expect(owner.router.catalog.identities, isEmpty);
+      expect(vault.values, isEmpty);
+    },
+  );
+
+  test(
+    'ambiguous prepare failure cannot start a new wipe over fresh payloads',
+    () async {
+      final unknown = File('$profile/identities/unrecognized.data')
+        ..writeAsStringSync('synthetic unowned content');
+      final job = ManagedProfileWipe(
         router: owner,
         preferences: oldPreferences,
         source: oldPreferences.legacyPreferences!,
         secretStore: vault,
         authentication: RetirementAuthentication(),
-        quiesce: () async {}, // Locked fixture has no network/model work.
+        quiesce: () async {},
         verifyOtherDataAbsent: () async {},
-        openWorker: opener,
       );
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      final oldRecords = Map.of(vault.values);
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(unknown.readAsStringSync(), 'synthetic unowned content');
+      unknown.deleteSync(); // Only the fixture resolves its unknown object.
+      File(legacy).writeAsStringSync('synthetic newly appearing data');
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await expectLater(
+          job.resume(),
+          throwsA(isA<ManagedProfileWipeFailure>()),
+        );
+        expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+        expect(
+          File(legacy).readAsStringSync(),
+          'synthetic newly appearing data',
+        );
+        expect(vault.values, oldRecords);
+      }
+    },
+  );
 
   test(
     'same live wipe resumes after worker death with accepted source work',
     () async {
       late ManagedErasureWorker worker;
       final job = makeJob(
-        () async => worker = await ManagedErasureWorker.begin(
-          profileDirectory: profile,
-          profileNamespace: namespace,
-          legacyPath: legacy,
-          auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
-        ),
+        (request, retry) async =>
+            worker = await ManagedErasureWorker.beginApplicationProfile(
+              profileDirectory: profile,
+              profileNamespace: namespace,
+              request: request,
+              legacyPath: legacy,
+              auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+            ),
       );
       addTearDown(() async {
         try {
@@ -355,10 +503,11 @@ void main() {
       addTearDown(gate.close);
       late ManagedErasureWorker worker;
       final job = makeJob(
-        () async =>
+        (request, retry) async =>
             worker = await ManagedErasureWorker.beginWithReleaseGateForTesting(
               profileDirectory: profile,
               profileNamespace: namespace,
+              applicationRequest: request,
               legacyPath: legacy,
               auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
               afterNativeRelease: gate.sendPort,
@@ -394,10 +543,11 @@ void main() {
       final key = vault.values.keys.first;
       late ManagedErasureWorker worker;
       final job = makeJob(
-        () async => worker =
+        (request, retry) async => worker =
             await ManagedErasureWorker.beginWithFinalSyncFailureForTesting(
               profileDirectory: profile,
               profileNamespace: namespace,
+              applicationRequest: request,
               legacyPath: legacy,
               auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
             ),
@@ -440,10 +590,11 @@ void main() {
       addTearDown(gate.close);
       late ManagedErasureWorker worker;
       final job = makeJob(
-        () async =>
+        (request, retry) async =>
             worker = await ManagedErasureWorker.beginWithFinishGateForTesting(
               profileDirectory: profile,
               profileNamespace: namespace,
+              applicationRequest: request,
               legacyPath: legacy,
               auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
               checkpoint: gate.sendPort,
@@ -484,10 +635,11 @@ void main() {
             : vault.values.keys.first;
         late ManagedErasureWorker worker;
         final job = makeJob(
-          () async => worker =
+          (request, retry) async => worker =
               await ManagedErasureWorker.beginWithReleaseGateForTesting(
                 profileDirectory: profile,
                 profileNamespace: namespace,
+                applicationRequest: request,
                 legacyPath: legacy,
                 auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
                 afterNativeRelease: gate.sendPort,

@@ -482,7 +482,7 @@ void main() {
       () async {
         await prepare();
         final raw = jsonDecode(File(plan()).readAsStringSync()) as Map;
-        expect(raw['v'], 5);
+        expect(raw['v'], 6);
         expect(raw['operation'], matches(RegExp(r'^[0-9a-f]{32}$')));
         switch (malformed) {
           case 'missing':
@@ -496,7 +496,7 @@ void main() {
           case 'type':
             raw['operation'] = 1;
           case 'previousVersion':
-            raw['v'] = 4;
+            raw['v'] = 5;
           case 'oldVersion':
             raw['v'] = 3;
             raw.remove('operation');
