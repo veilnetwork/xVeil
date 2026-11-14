@@ -3294,5 +3294,8 @@
   "identitySetupRecoveryPending": "La creación se detuvo tras guardar datos. xVeil no iniciará una identidad ni reemplazará esos registros. Guarda un informe y vuelve al acceso.",
   "identitySetupRecoveryCreate": "Crear una identidad en este espacio",
   "identitySetupRecoveryMasterTitle": "¿Estabas creando una maestra?",
-  "identitySetupRecoveryMasterBody": "Si creabas una maestra de coacción, vuelve a la maestra original y repite la operación con la misma contraseña. No crees aquí una identidad normal en su lugar."
+  "identitySetupRecoveryMasterBody": "Si creabas una maestra de coacción, vuelve a la maestra original y repite la operación con la misma contraseña. No crees aquí una identidad normal en su lugar.",
+  "identitySetupReplayBody": "Completa la creación de esta identidad con los datos guardados.",
+  "identitySetupReplayAction": "Completar creación",
+  "identitySetupReplayError": "No se pudo completar la creación. Revisa la contraseña; guarda un informe si el error se repite."
 }

@@ -144,6 +144,7 @@ class HiddenVolumeStorage
         StorageOpeningOwner,
         StorageUsageSource,
         StorageInitializationSource,
+        StorageSetupInspectionSource,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
@@ -7278,23 +7279,85 @@ class HiddenVolumeStorage
     for (final key in keys) {
       final name = utf8.decode(key, allowMalformed: false);
       if (name != _legacyDeleteScrubKey &&
-          name != kPendingIdentitySetupSetting) {
+          name != 'set:$kPendingIdentitySetupSetting') {
         return false;
       }
       final value = await store.get(Ns.settings, key);
       if (value == null) return false;
-      try {
-        if (name == _legacyDeleteScrubKey
-            ? !(value.length == 1 && value.single == 1)
-            : !(value.length == 1 && value.single == 0x31)) {
-          return false;
-        }
-      } finally {
-        value.fillRange(0, value.length, 0);
+      // These are non-secret bootstrap flags, possibly borrowed by a port.
+      // Inspection never mutates the underlying store through a read buffer.
+      if (name == _legacyDeleteScrubKey
+          ? !(value.length == 1 && value.single == 1)
+          : !(value.length == 1 && value.single == 0x31)) {
+        return false;
       }
     }
     return identical(_store, store) && await anchors.commitSeq() == before;
   });
+
+  @override
+  Future<bool> setupHasOnlyBootstrapData({
+    required Set<String> files,
+    required Set<String> settings,
+  }) {
+    final allowed = Set<String>.of(files);
+    final settingNames = Set<String>.of(settings);
+    if (allowed.length > 3 ||
+        settingNames.length > 4 ||
+        settingNames.any((k) => k.length > 128) ||
+        allowed.any((id) => id.length > 128)) {
+      return Future.value(false);
+    }
+    return _fileSerialized(() async {
+      final store = _store!;
+      if (store is! CommitAnchorSource) return false;
+      final anchor = store as CommitAnchorSource;
+      final before = await anchor.commitSeq();
+      if (before < 0) return false;
+      final limit = store is InitializationNamespaceSource
+          ? await (store as InitializationNamespaceSource)
+                .initializationNamespaceLimit()
+          : 256;
+      if (limit < 2 || limit > 256) return false;
+      for (var ns = 1; ns < limit; ns++) {
+        if (ns == Ns.settings) continue;
+        if (ns == Ns.fileChunks) {
+          // Native namespace key enumeration also exposes append-log IDs.
+          // Count every record through the log reader instead. Entries may
+          // borrow backend buffers: this inspection must never mutate them.
+          final count = await store.count(ns);
+          if (count < 0 || count > 4096) return false;
+          final rows = await store.iterLogRange(
+            namespace: ns,
+            limit: count + 1,
+          );
+          if (rows.length != count) return false;
+        } else if (await store.count(ns) != 0) {
+          return false;
+        }
+      }
+      final count = await store.count(Ns.settings);
+      if (count < 0 || count > 16) return false;
+      final keys = await store.kvKeys(Ns.settings);
+      if (keys.length != count) return false;
+      final permitted = {
+        'identity',
+        'node:config',
+        _legacyDeleteScrubKey,
+        'file_next_log',
+        'file_chunk_gc',
+        'set:$kPendingIdentitySetupSetting',
+        for (final name in settingNames) 'set:$name',
+        for (final file in allowed) 'file:$file',
+      };
+      for (final key in keys) {
+        if (!permitted.contains(utf8.decode(key, allowMalformed: false))) {
+          return false;
+        }
+      }
+      return identical(_store, store) && await anchor.commitSeq() == before;
+    });
+  }
 
   @override
   Future<StorageUsage?> storageUsage() => _fileSerialized(() async {

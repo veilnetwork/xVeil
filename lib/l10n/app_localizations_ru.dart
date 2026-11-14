@@ -8279,4 +8279,15 @@ class AppL10nRu extends AppL10n {
   @override
   String get identitySetupRecoveryMasterBody =>
       'Если создавали маскировочный мастер, вернитесь в основной мастер и повторите операцию с тем же паролем. Не создавайте здесь обычную личность вместо него.';
+
+  @override
+  String get identitySetupReplayBody =>
+      'Сохранённые данные позволяют закончить создание этой личности.';
+
+  @override
+  String get identitySetupReplayAction => 'Завершить создание';
+
+  @override
+  String get identitySetupReplayError =>
+      'Не удалось завершить создание. Проверьте пароль; сохраните отчёт, если ошибка повторится.';
 }

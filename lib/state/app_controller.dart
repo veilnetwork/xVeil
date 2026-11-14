@@ -41,6 +41,8 @@ import '../domain/storage_protection.dart';
 import '../domain/storage_usage.dart';
 import '../domain/storage_setup.dart';
 import '../domain/storage_initialization.dart';
+import '../domain/identity_setup_intent.dart';
+import '../data/storage/identity_setup_journal.dart';
 import '../domain/pending_identity_erase.dart';
 import '../domain/identity_erase_review.dart';
 import 'background_node_controller.dart';
@@ -312,10 +314,16 @@ class _IdentityEdit {
 }
 
 class _SetupRecovery {
-  _SetupRecovery(this.root, this.keys, {required this.canInitialize});
+  _SetupRecovery(
+    this.root,
+    this.keys, {
+    required this.canInitialize,
+    this.canReplay = false,
+  });
   final IdentityStorageLocator root;
   final Uint8List keys;
   bool canInitialize;
+  final bool canReplay;
   void destroy() => wipeSecretBytes(keys);
 }
 
@@ -337,6 +345,7 @@ class AppController extends Notifier<AppState> {
           ManagedStorageLocator(:final protection) => protection,
         };
   bool get canResumeIdentitySetup => _setupRecovery?.canInitialize ?? false;
+  bool get canReplayIdentitySetup => _setupRecovery?.canReplay ?? false;
   @visibleForTesting
   Uint8List? get debugSetupRecoveryKeys => _setupRecovery?.keys;
   void _forgetSetupRecovery() {
@@ -703,6 +712,7 @@ class AppController extends Notifier<AppState> {
 
     final finished = Completer<void>();
     _onboardingInFlight = finished.future;
+    IdentitySetupIntent? intent;
     bool? opened;
     var onboardingStage = 0;
     try {
@@ -849,72 +859,38 @@ class AppController extends Notifier<AppState> {
         throw const ContainerAlreadyHasAnIdentity();
       }
       requireCurrent();
-      await storage.putSetting(kPendingIdentitySetupSetting, '1');
-      requireCurrent();
-      _rememberAccessPassword(password);
-      onboardingStage = 2;
-      final profile = UserProfile(displayName: displayName);
-      await storage.saveProfile(profile);
-      requireCurrent();
-
-      final prefs = await ref.read(prefsProvider.future);
-      requireCurrent();
-      // `setBool`/`setString` ANSWER whether the write landed, and both answers
-      // were dropped. A preference store that refuses (the in-memory fallback
-      // main() installs when the profile store cannot be created, a full disk)
-      // left this install marked "onboarded" only in RAM: the next launch shows
-      // first-run setup again, over a container that already exists, and the
-      // storage mode the user chose is gone with it.
-      onboardingStage = 3;
-      if (!await prefs.setBool(_onboardedKey(), true)) {
-        throw StateError('preference store refused the onboarding marker');
-      }
-      requireCurrent();
-      onboardingStage = 4;
-      if (recovery == null &&
-          protection == null &&
-          !await prefs.setString(_kStorageModeKey, mode.name)) {
-        throw StateError('preference store refused the storage mode');
-      }
-      requireCurrent();
-
-      // The ceremony already wrote the certificate to a file and read it back.
-      // Recording it HERE, against the container that has just opened, is what
-      // retires the standing "your identity has no copy" reminder — the flag
-      // lives in the container, and during the ceremony there was no container
-      // to put it in. Written before the session so the devices screen reads
-      // the settled answer on its first load rather than a stale false.
-      onboardingStage = 5;
-      if (recoveryCertificateSaved) {
-        await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
+      final keys = await storage.exportSpaceKeys();
+      try {
         requireCurrent();
-      }
-      // BEFORE the session, so nothing can reach `openLocalSovereign` and mint
-      // a second credential first. Whichever one is stored is the identity.
-      if (nodeConfigToml != null && nodeConfigToml.trim().isNotEmpty) {
-        await storage.saveNodeConfig(nodeConfigToml);
-        requireCurrent();
-      }
-      if (credential != null) {
-        await storage.storeFile(
-          kSovereignBundleSetting,
-          Uint8List.fromList(credential),
-          name: 'sovereign-credential',
+        intent = IdentitySetupIntent.create(
+          root:
+              ref.read(profileStorageRouterProvider)?.location ??
+              const LegacyStorageLocator(),
+          keys: keys,
+          mode: mode,
+          persistLegacyMode: recovery == null && protection == null,
+          displayName: displayName,
+          phrase: identityPhrase,
+          restoring: restoringIdentity,
+          joinExisting: joinExisting,
+          certificateOffered: recoveryCertificateOffered,
+          certificateSaved: recoveryCertificateSaved,
+          nodeConfig: nodeConfigToml,
+          credential: credential,
         );
-        requireCurrent();
+      } finally {
+        wipeSecretBytes(keys);
       }
-      onboardingStage = 6;
-      final selectedRouter = ref.read(profileStorageRouterProvider);
-      if (recovery != null) {
-        await selectedRouter?.rememberCurrentAccess();
-      } else {
-        await selectedRouter?.rememberAccess();
-      }
+      await IdentitySetupJournal.save(storage, intent, requireCurrent);
       requireCurrent();
-      await storage.putSetting(kPendingIdentitySetupSetting, '0');
-      requireCurrent();
-      _forgetSetupRecovery();
-      await _enterSession(profile);
+      await _applyIdentitySetup(
+        storage,
+        intent,
+        password,
+        requireCurrent,
+        rememberActual: recovery != null,
+        stage: (value) => onboardingStage = value,
+      );
       requireCurrent();
       diagnosticJournal.record(DiagnosticEvent.onboardingSession);
     } catch (e, st) {
@@ -929,19 +905,276 @@ class AppController extends Notifier<AppState> {
         stack: st,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
-      await _abandonOnboarding(
-        storage: storage,
-        lifecycle: gen,
-        closeStorage: opened != false,
-        preservePreferences:
-            recovery != null || e is ContainerAlreadyHasAnIdentity,
-      );
+      var parked = false;
+      if (intent != null && ref.mounted && !_supersededSince(gen)) {
+        try {
+          final marker = await storage.getSetting(kPendingIdentitySetupSetting);
+          if (marker == '1' || marker == '2') {
+            requireCurrent();
+            await _loadProfileOrHalt(storage);
+            parked =
+                ref.mounted && state.phase == AppPhase.identitySetupRecovery;
+            if (parked) {
+              // A published intent is a returning-user recovery path, even
+              // when the profile/preference step never completed.
+              final prefs = await ref.read(prefsProvider.future);
+              if (!await prefs.setBool(_onboardedKey(), true)) {
+                throw StateError(
+                  'preference store refused setup recovery marker',
+                );
+              }
+            }
+          }
+        } catch (error, stack) {
+          errorJournal.record(
+            kind: 'identity-setup-recovery',
+            error: const IdentitySetupFailure(
+              IdentitySetupFailureKind.unavailable,
+            ),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+      }
+      if (!parked) {
+        await _abandonOnboarding(
+          storage: storage,
+          lifecycle: gen,
+          closeStorage: opened != false,
+          preservePreferences:
+              recovery != null ||
+              intent != null ||
+              e is ContainerAlreadyHasAnIdentity,
+        );
+      }
       rethrow;
     } finally {
+      intent?.destroy();
       if (recoveryKeys != null) wipeSecretBytes(recoveryKeys);
       if (credential != null) wipeSecretBytes(credential);
       _onboardingInFlight = null;
       finished.complete();
+    }
+  }
+
+  /// Shared idempotent publication for initial creation and exact journal replay.
+  Future<void> _applyIdentitySetup(
+    Storage storage,
+    IdentitySetupIntent intent,
+    String password,
+    void Function() check, {
+    required bool rememberActual,
+    void Function(int)? stage,
+    bool payloadComplete = false,
+  }) async {
+    check();
+    _rememberAccessPassword(password);
+    _pendingIdentityPhrase = intent.phrase;
+    _pendingRestoringIdentity = intent.restoring;
+    ref.read(pendingDeviceLinkProvider.notifier).state = intent.joinExisting;
+    ref.read(pendingRecoveryCertificateProvider.notifier).state =
+        intent.phrase != null &&
+        intent.phrase!.isNotEmpty &&
+        !intent.restoring &&
+        !intent.joinExisting &&
+        !intent.certificateOffered;
+    final profile = UserProfile(displayName: intent.displayName);
+    if (!payloadComplete) {
+      stage?.call(2);
+      await storage.saveProfile(profile);
+      check();
+    }
+    final prefs = await ref.read(prefsProvider.future);
+    check();
+    stage?.call(3);
+    if (!await prefs.setBool(_onboardedKey(), true)) {
+      throw StateError('preference store refused the onboarding marker');
+    }
+    check();
+    stage?.call(4);
+    if (intent.persistLegacyMode &&
+        !await prefs.setString(_kStorageModeKey, intent.mode.name)) {
+      throw StateError('preference store refused the storage mode');
+    }
+    check();
+    if (!payloadComplete) {
+      stage?.call(5);
+      if (intent.certificateSaved) {
+        await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
+        check();
+      }
+      if (intent.nodeConfig != null) {
+        await storage.saveNodeConfig(intent.nodeConfig!);
+        check();
+      }
+      final credential = intent.copyCredential();
+      try {
+        if (credential != null) {
+          await storage.storeFile(
+            kSovereignBundleSetting,
+            credential,
+            name: 'sovereign-credential',
+          );
+          check();
+        }
+      } finally {
+        if (credential != null) wipeSecretBytes(credential);
+      }
+      stage?.call(6);
+      final router = ref.read(profileStorageRouterProvider);
+      if (rememberActual) {
+        await router?.rememberCurrentAccess();
+      } else {
+        await router?.rememberAccess();
+      }
+      check();
+      await storage.putSetting(kPendingIdentitySetupSetting, '2');
+      check();
+    }
+    // Stage 2 is recoverable without rewriting already published credentials.
+    _forgetSetupRecovery();
+    await _enterSession(profile);
+    check();
+    if (ref.read(deniableBootProvider) != null &&
+        ref.read(realStackProvider) == null) {
+      check();
+      // Preserve the existing offline-ready behavior, but keep the exact
+      // bootstrap intent until a real node successfully starts.
+      return;
+    }
+    check();
+    await storage.putSetting(kPendingIdentitySetupSetting, '0');
+    check();
+    try {
+      await IdentitySetupJournal.cleanup(storage, check);
+    } catch (_) {
+      check();
+      errorJournal.record(
+        kind: 'identity-setup-cleanup',
+        error: const IdentitySetupFailure(IdentitySetupFailureKind.unavailable),
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+    check();
+  }
+
+  /// A journal never grants authority by itself: reauthenticate the original
+  /// location, compare keys and current durable values, then replay its bytes.
+  Future<bool> replayIdentitySetup(String password) async {
+    final context = _setupRecovery;
+    if (context == null ||
+        !context.canReplay ||
+        state.phase != AppPhase.identitySetupRecovery ||
+        _endingSessions != 0 ||
+        _unlockInFlight ||
+        _onboardingInFlight != null ||
+        _identityEditInFlight != null ||
+        _identityViewInFlight != null ||
+        _wipeInFlight != null ||
+        _compactionInFlight != null) {
+      return false;
+    }
+    final storage = ref.read(storageProvider);
+    final keys = Uint8List.fromList(context.keys);
+    final gen = _lifecycle;
+    void check() {
+      if (!ref.mounted ||
+          _supersededSince(gen) ||
+          !identical(_setupRecovery, context)) {
+        throw StateError('setup replay session ended');
+      }
+    }
+
+    final finished = Completer<void>();
+    _onboardingInFlight = finished.future;
+    IdentitySetupIntent? intent;
+    try {
+      check();
+      if ((ref.read(profileStorageRouterProvider)?.location ??
+              const LegacyStorageLocator()) !=
+          context.root) {
+        throw const IdentitySetupFailure(IdentitySetupFailureKind.conflict);
+      }
+      if (!await storage.open(password: password)) {
+        check();
+        return false;
+      }
+      check();
+      final actual = await storage.exportSpaceKeys();
+      try {
+        check();
+        if (!listEquals(actual, keys)) {
+          throw const IdentitySetupFailure(IdentitySetupFailureKind.conflict);
+        }
+      } finally {
+        wipeSecretBytes(actual);
+      }
+      final marker = await storage.getSetting(kPendingIdentitySetupSetting);
+      if (marker != '1' && marker != '2') {
+        throw const IdentitySetupFailure(IdentitySetupFailureKind.conflict);
+      }
+      check();
+      intent = await IdentitySetupJournal.read(storage, check);
+      check();
+      if (intent == null) {
+        throw const IdentitySetupFailure(IdentitySetupFailureKind.unavailable);
+      }
+      await IdentitySetupJournal.validate(
+        storage,
+        intent,
+        context.root,
+        keys,
+        check,
+        payloadComplete: marker == '2',
+      );
+      check();
+      // The shared applier retires the recovery context immediately before boot.
+      void applicationCheck() {
+        if (!ref.mounted || _supersededSince(gen)) {
+          throw StateError('setup replay session ended');
+        }
+      }
+
+      await _applyIdentitySetup(
+        storage,
+        intent,
+        password,
+        applicationCheck,
+        rememberActual: true,
+        payloadComplete: marker == '2',
+      );
+      applicationCheck();
+      return true;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'identity-setup-replay',
+        error: error is IdentitySetupFailure
+            ? error
+            : const IdentitySetupFailure(IdentitySetupFailureKind.unavailable),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _abandonOnboarding(
+        storage: storage,
+        lifecycle: gen,
+        closeStorage: true,
+        preservePreferences: true,
+      );
+      return false;
+    } finally {
+      intent?.destroy();
+      wipeSecretBytes(keys);
+      try {
+        // Wrong password may have returned without opening; close idempotently.
+        if (ref.mounted &&
+            !_supersededSince(gen) &&
+            state.phase != AppPhase.ready) {
+          await storage.close();
+        }
+      } finally {
+        _onboardingInFlight = null;
+        finished.complete();
+      }
     }
   }
 
@@ -1422,7 +1655,10 @@ class AppController extends Notifier<AppState> {
         await storage.close();
         return;
       }
-      if (await storage.getSetting(kPendingIdentitySetupSetting) == '1') {
+      final pendingSetup = await storage.getSetting(
+        kPendingIdentitySetupSetting,
+      );
+      if (identitySetupIsPending(pendingSetup)) {
         if (!ref.mounted || _supersededSince(gen)) {
           await storage.close();
           return;
@@ -1534,6 +1770,39 @@ class AppController extends Notifier<AppState> {
         return;
       }
       if (profile == null) return; // damaged or incomplete — parked
+      if (pendingSetup == '0' &&
+          await storage.hasFile(kIdentitySetupJournalFile)) {
+        Uint8List? keys;
+        void check() {
+          if (!ref.mounted || _supersededSince(gen)) {
+            throw StateError('setup cleanup session ended');
+          }
+        }
+
+        try {
+          keys = await storage.exportSpaceKeys();
+          check();
+          await IdentitySetupJournal.cleanupCompleted(
+            storage,
+            ref.read(profileStorageRouterProvider)?.location ??
+                const LegacyStorageLocator(),
+            keys,
+            check,
+          );
+        } catch (_) {
+          check();
+          errorJournal.record(
+            kind: 'identity-setup-cleanup',
+            error: const IdentitySetupFailure(
+              IdentitySetupFailureKind.unavailable,
+            ),
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        } finally {
+          if (keys != null) wipeSecretBytes(keys);
+        }
+      }
+      if (!ref.mounted || _supersededSince(gen)) return;
       await _maybeAutoCompactBeforeSession(password);
       if (_supersededSince(gen)) return;
       await ref.read(profileStorageRouterProvider)?.rememberAccess();
@@ -4077,10 +4346,11 @@ class AppController extends Notifier<AppState> {
       final isPlainIdentity =
           await edit.step(() => storage.loadProfile()) != null &&
           await edit.step(() => storage.loadRoster()) == null &&
-          await edit.step(
-                () => storage.getSetting(kPendingIdentitySetupSetting),
-              ) !=
-              '1';
+          !identitySetupIsPending(
+            await edit.step(
+              () => storage.getSetting(kPendingIdentitySetupSetting),
+            ),
+          );
       final keys = isPlainIdentity
           ? await edit.step(() => storage.exportSpaceKeys())
           : null;
@@ -4287,10 +4557,11 @@ class AppController extends Notifier<AppState> {
         return await refuse();
       }
       if (converting) {
-        if (await edit.step(
-              () => master.getSetting(kPendingIdentitySetupSetting),
-            ) ==
-            '1') {
+        if (identitySetupIsPending(
+          await edit.step(
+            () => master.getSetting(kPendingIdentitySetupSetting),
+          ),
+        )) {
           await edit.step(master.close);
           return await refuse();
         }
@@ -4354,10 +4625,11 @@ class AppController extends Notifier<AppState> {
           childCredentialPresent ||
           await edit.step(() => child.getSetting(kPendingMasterSetupSetting)) ==
               '1' ||
-          await edit.step(
-                () => child.getSetting(kPendingIdentitySetupSetting),
-              ) ==
-              '1') {
+          identitySetupIsPending(
+            await edit.step(
+              () => child.getSetting(kPendingIdentitySetupSetting),
+            ),
+          )) {
         await edit.step(child.close);
         return await refuse();
       }
@@ -4468,10 +4740,11 @@ class AppController extends Notifier<AppState> {
         return false;
       }
       final existingRoster = await edit.step(() => storage.loadRoster());
-      if (await edit.step(
-                () => storage.getSetting(kPendingIdentitySetupSetting),
-              ) ==
-              '1' ||
+      if (identitySetupIsPending(
+            await edit.step(
+              () => storage.getSetting(kPendingIdentitySetupSetting),
+            ),
+          ) ||
           await edit.step(
                 () => storage.getSetting(kPendingMasterSetupSetting),
               ) ==
@@ -4576,7 +4849,7 @@ class AppController extends Notifier<AppState> {
           ) ||
           candidateProfile != null ||
           candidateRoster != null ||
-          pendingIdentity == '1' ||
+          identitySetupIsPending(pendingIdentity) ||
           pendingMaster == '1') {
         await edit.step(() => storage.close());
         await edit.step(() => _recoverToActive(edit: edit));
@@ -4694,7 +4967,7 @@ class AppController extends Notifier<AppState> {
           actual.length != roster.length ||
           (erasing != null && erasing.isNotEmpty) ||
           (pending != null && pending.isNotEmpty && pending != '0') ||
-          pendingIdentity == '1' ||
+          identitySetupIsPending(pendingIdentity) ||
           !List.generate(
             roster.length,
             (i) =>
@@ -4788,7 +5061,7 @@ class AppController extends Notifier<AppState> {
             hasCredential ||
             (setup != null && setup.isNotEmpty && setup != '0') ||
             (erase != null && erase.isNotEmpty) ||
-            pendingIdentity == '1') {
+            identitySetupIsPending(pendingIdentity)) {
           return false;
         }
         final decoy = [
@@ -5016,8 +5289,8 @@ class AppController extends Notifier<AppState> {
     // not to know about each other to one identity on the wire, which is the
     // one thing deniable separation cannot survive. It also kept the secret in
     // the Dart heap across a lock.
-    final identityPhrase = takePendingIdentityPhrase();
-    final restoringIdentity = takePendingRestoringIdentity();
+    var identityPhrase = takePendingIdentityPhrase();
+    var restoringIdentity = takePendingRestoringIdentity();
     // Taken before the boot — the longest await in the app (see [_lifecycle]).
     final gen = _lifecycle;
     // THIS identity's answer, out of the space this boot is about to run on —
@@ -5027,6 +5300,43 @@ class AppController extends Notifier<AppState> {
     // profile preference resolved inside `startDeniable`, i.e. one answer for
     // every identity in the process, decoy masters included.
     final storage = ref.read(storageProvider);
+    if (await storage.getSetting(kPendingIdentitySetupSetting) == '2' &&
+        identityPhrase == null) {
+      IdentitySetupIntent? pending;
+      Uint8List? keys;
+      void check() {
+        if (!ref.mounted || _supersededSince(gen)) {
+          throw StateError('setup boot session ended');
+        }
+      }
+
+      try {
+        check();
+        keys = await storage.exportSpaceKeys();
+        check();
+        pending = await IdentitySetupJournal.read(storage, check);
+        if (pending == null) {
+          throw const IdentitySetupFailure(
+            IdentitySetupFailureKind.unavailable,
+          );
+        }
+        await IdentitySetupJournal.validate(
+          storage,
+          pending,
+          ref.read(profileStorageRouterProvider)?.location ??
+              const LegacyStorageLocator(),
+          keys,
+          check,
+          payloadComplete: true,
+        );
+        identityPhrase = pending.phrase;
+        restoringIdentity = pending.restoring;
+      } finally {
+        pending?.destroy();
+        if (keys != null) wipeSecretBytes(keys);
+      }
+    }
+    if (!ref.mounted || _supersededSince(gen)) return;
     final seeds = await planIdentitySeeds(
       storage: storage,
       peersFor: boot.peersFor,
@@ -5119,6 +5429,9 @@ class AppController extends Notifier<AppState> {
       devLog(
         () => 'xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}',
       );
+      // Successful retries also retire a bootstrap left pending while the
+      // offline UI stayed usable. No identity payload is rewritten here.
+      await _finishSetupAfterBoot(storage, gen);
     } catch (e, st) {
       // A node-boot failure must not trap the user — but it must NOT be hidden
       // behind a fake "connected" either: surface it honestly (the network
@@ -5134,6 +5447,30 @@ class AppController extends Notifier<AppState> {
         message: 'node failed to start: $e',
       );
       devLog(() => 'xVeil[deniable]: boot FAILED: $e\n$st');
+    }
+  }
+
+  Future<void> _finishSetupAfterBoot(Storage storage, int gen) async {
+    void check() {
+      if (!ref.mounted || _supersededSince(gen)) {
+        throw StateError('setup boot session ended');
+      }
+    }
+
+    try {
+      check();
+      if (await storage.getSetting(kPendingIdentitySetupSetting) != '2') return;
+      check();
+      await storage.putSetting(kPendingIdentitySetupSetting, '0');
+      check();
+      await IdentitySetupJournal.cleanup(storage, check);
+    } catch (_) {
+      if (!ref.mounted || _supersededSince(gen)) return;
+      errorJournal.record(
+        kind: 'identity-setup-cleanup',
+        error: const IdentitySetupFailure(IdentitySetupFailureKind.unavailable),
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
     }
   }
 
@@ -6064,6 +6401,46 @@ class AppController extends Notifier<AppState> {
       if (!ref.mounted || _supersededSince(gen)) return;
       await _teardownRealStack();
       if (!ref.mounted || _supersededSince(gen)) return;
+      var replayable = false;
+      final marker = await storage.getSetting(kPendingIdentitySetupSetting);
+      if (!canInitialize && !hosted && (marker == '1' || marker == '2')) {
+        IdentitySetupIntent? intent;
+        void check() {
+          if (!ref.mounted || _supersededSince(gen)) {
+            throw StateError('setup inspection ended');
+          }
+        }
+
+        try {
+          check();
+          intent = await IdentitySetupJournal.read(storage, check);
+          if (intent != null) {
+            await IdentitySetupJournal.validate(
+              storage,
+              intent,
+              root,
+              keys,
+              check,
+              payloadComplete: marker == '2',
+            );
+            replayable = true;
+          }
+        } catch (error, stack) {
+          errorJournal.record(
+            kind: 'identity-setup-journal',
+            error: error is IdentitySetupFailure
+                ? error
+                : const IdentitySetupFailure(
+                    IdentitySetupFailureKind.unavailable,
+                  ),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        } finally {
+          intent?.destroy();
+        }
+      }
+      if (!ref.mounted || _supersededSince(gen)) return;
       await storage.close();
       if (!ref.mounted || _supersededSince(gen)) return;
       _endLifecycle();
@@ -6074,6 +6451,7 @@ class AppController extends Notifier<AppState> {
         root,
         keys,
         canInitialize: canInitialize && !hosted,
+        canReplay: replayable,
       );
       adopted = true;
       state = const AppState(AppPhase.identitySetupRecovery);
@@ -6098,8 +6476,9 @@ class AppController extends Notifier<AppState> {
           ? await storage.getSetting(kPendingMasterSetupSetting)
           : null;
       if (!ref.mounted || _supersededSince(gen)) return null;
-      if (pendingIdentity == '1' || pendingMaster == '1') {
+      if (identitySetupIsPending(pendingIdentity) || pendingMaster == '1') {
         final blank =
+            pendingIdentity == '1' &&
             profile == null &&
             pendingMaster != '1' &&
             storage is StorageInitializationSource &&

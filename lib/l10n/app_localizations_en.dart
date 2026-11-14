@@ -8210,4 +8210,15 @@ class AppL10nEn extends AppL10n {
   @override
   String get identitySetupRecoveryMasterBody =>
       'If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead.';
+
+  @override
+  String get identitySetupReplayBody =>
+      'Finish setting up this identity from the saved data.';
+
+  @override
+  String get identitySetupReplayAction => 'Finish setup';
+
+  @override
+  String get identitySetupReplayError =>
+      'Setup could not finish. Check the password; save a report if the error repeats.';
 }

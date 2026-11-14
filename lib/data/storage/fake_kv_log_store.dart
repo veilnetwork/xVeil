@@ -131,7 +131,7 @@ class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
               'would refuse this write',
             );
           }
-          (_kv[namespace] ??= {})[_hexKey(key)] = value;
+          (_kv[namespace] ??= {})[_hexKey(key)] = Uint8List.fromList(value);
         case DeleteOp(:final namespace, :final key):
           _kv[namespace]?.remove(_hexKey(key));
         case AppendLogOp(:final namespace, :final logId, :final payload):
@@ -142,9 +142,9 @@ class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
           final list = _log[namespace] ??= [];
           final i = list.indexWhere((e) => e.logId == logId);
           if (i >= 0) {
-            list[i] = KvLogEntry(logId, payload);
+            list[i] = KvLogEntry(logId, Uint8List.fromList(payload));
           } else {
-            list.add(KvLogEntry(logId, payload));
+            list.add(KvLogEntry(logId, Uint8List.fromList(payload)));
           }
         case DeleteLogOp(:final namespace, :final logId):
           _log[namespace]?.removeWhere((entry) => entry.logId == logId);

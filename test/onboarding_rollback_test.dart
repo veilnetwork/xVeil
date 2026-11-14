@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,8 +47,12 @@ class _LateFailingStore extends FakeKvLogStore {
 
   @override
   int commit(List<KvLogOp> ops) {
-    wrote = true;
-    return super.commit(ops);
+    final profile = ops.whereType<PutOp>().any(
+      (op) => op.namespace == Ns.settings && utf8.decode(op.key) == 'identity',
+    );
+    final result = super.commit(ops);
+    if (profile) wrote = true;
+    return result;
   }
 
   @override
@@ -188,18 +193,20 @@ void main() {
           'onboarding reported success over a marker that only existed in RAM',
     );
     expect(h.storage.isOpen, isFalse);
-    expect(h.container.read(appControllerProvider).phase, AppPhase.onboarding);
+    expect(
+      h.container.read(appControllerProvider).phase,
+      AppPhase.identitySetupRecovery,
+    );
+    expect(h.controller.canReplayIdentitySetup, isTrue);
     if (kDiagnosticReportEnabled) {
       final evidence = diagnosticJournal.toJson()['last_evidence'] as Map;
       expect((evidence['onboardingFailed'] as Map)['values'], {'state': 3});
     }
   });
 
-  test('a failure AFTER the preference writes takes the onboarded marker back '
-      'with it', () async {
-    // The marker is written before the session boots, so a boot that fails
-    // leaves this install claiming to be set up over an identity that was never
-    // finished — the next launch offers a lock screen and no way past it.
+  test('a late read failure preserves the durable recovery door', () async {
+    // Fail only after the actual profile commit, not the opener's internal
+    // scrub marker. The accepted journal remains authoritative for retries.
     final store = _LateFailingStore();
     final h = _harness(store);
     await _settle(h.container);
@@ -217,12 +224,17 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(
       prefs.getBool('onboarded'),
-      isNot(isTrue),
-      reason: 'the marker outlived the setup it was marking',
+      isTrue,
+      reason: 'a durable intent must remain reachable after restart',
     );
-    expect(prefs.getString('storage_mode'), isNull);
+    expect(prefs.getString('storage_mode'), StorageMode.hiddenSpace.name);
     expect(h.storage.isOpen, isFalse);
-    expect(h.container.read(appControllerProvider).phase, AppPhase.onboarding);
+    expect(h.container.read(appControllerProvider).phase, AppPhase.locked);
+    store.wrote = false; // The transient backend read failure is over.
+    await h.controller.unlock('pw');
+    expect(h.controller.canReplayIdentitySetup, isTrue);
+    expect(await h.controller.replayIdentitySetup('pw'), isTrue);
+    expect(h.container.read(appControllerProvider).phase, AppPhase.ready);
   });
 
   test('CONTROL: onboarding that works still opens the session and leaves the '
