@@ -312,16 +312,28 @@ Future<void> _connectCameraCall(
   _CameraCallWire wire,
 ) async {
   await service.placeCall(_id(2), const CallMedia(audio: true, video: true));
-  wire.onCallSignal!(
-    _id(2),
-    CallSignal(
-      callId: service.current!.callId,
-      type: CallSignalType.answer,
-      posture: CallPosture.anonymous,
-      mediaKey: generateCallMediaKeyContribution(),
-    ),
-  );
-  await pumpEventQueue();
+  // Observe actual media admission, rather than assuming a fixed number of
+  // event-loop turns also completes asynchronous preference/key setup.
+  final active = Completer<void>();
+  final subscription = service.changes.listen((call) {
+    if (call?.status == CallStatus.active && !active.isCompleted) {
+      active.complete();
+    }
+  });
+  try {
+    wire.onCallSignal!(
+      _id(2),
+      CallSignal(
+        callId: service.current!.callId,
+        type: CallSignalType.answer,
+        posture: CallPosture.anonymous,
+        mediaKey: generateCallMediaKeyContribution(),
+      ),
+    );
+    await active.future.timeout(const Duration(seconds: 5));
+  } finally {
+    await subscription.cancel();
+  }
   expect(service.current?.status, CallStatus.active);
 }
 
@@ -486,7 +498,9 @@ class _PreflightPreferences extends InMemorySharedPreferencesStore {
 
   @override
   Future<Map<String, Object>> getAll() async {
-    entered.complete();
+    // Profile-bound preferences reload the plugin cache after the first read.
+    // The gate signals arrival once; subsequent reads use the same open gate.
+    if (!entered.isCompleted) entered.complete();
     await ready.future;
     if (failRead) throw StateError('fixture preferences unavailable');
     return super.getAll();

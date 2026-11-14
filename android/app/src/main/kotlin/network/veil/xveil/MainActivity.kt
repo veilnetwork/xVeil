@@ -20,6 +20,7 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import com.veil.veil_flutter.CallScreenActivity
 import com.veil.veil_flutter.CallActionCapability
+import com.veil.veil_flutter.VeilDaemonService
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -45,11 +46,13 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private val secureScreenChannelName = "xveil/secure_screen"
     private val micRequestCode = 0x4D49 // 'MI'
     private var screenConsentToken: String? = null
+    private var screenCaptureSession: String? = null
     private var mediaPermissions = createMediaPermissionQueue()
     private var pendingScreenCapture: MethodChannel.Result? = null
     private var callActionChannel: MethodChannel? = null
     private var pipEventsChannel: MethodChannel? = null
     private var screenCaptureChannel: MethodChannel? = null
+    private var screenCaptureEngine: FlutterEngine? = null
     private var nativeCallCamera: NativeCallCamera? = null
     private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
     private var callWifiLock: WifiManager.WifiLock? = null
@@ -347,17 +350,24 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
                     else -> result.notImplemented()
                 }
             }
+        screenCaptureEngine = flutterEngine
         screenCaptureChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             screenCaptureChannelName,
         ).also { channel ->
             channel.setMethodCallHandler { call, result ->
+                if (screenCaptureChannel !== channel) {
+                    result.error("screen_capture", "Capture engine has retired", null)
+                    return@setMethodCallHandler
+                }
+                val session = (call.arguments as? Map<*, *>)?.get("session") as? String
+                if (session == null || !ScreenCaptureSessionGate.validSession(session)) {
+                    result.error("screen_capture", "Invalid capture session", null)
+                    return@setMethodCallHandler
+                }
                 when (call.method) {
-                    "start" -> requestScreenCapture(result)
-                    "stop" -> {
-                        stopScreenCapture()
-                        result.success(null)
-                    }
+                    "start" -> requestScreenCapture(session, result)
+                    "stop" -> stopScreenCapture(session, result)
                     else -> result.notImplemented()
                 }
             }
@@ -614,34 +624,42 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         }
     }
 
-    private fun requestScreenCapture(result: MethodChannel.Result) {
-        if (pendingScreenCapture != null) {
+    private fun requestScreenCapture(session: String, result: MethodChannel.Result) {
+        val channel = screenCaptureChannel
+        val generation = VeilDaemonService.startTicket()
+        if (pendingScreenCapture != null || channel == null || generation == null ||
+            ScreenCaptureService.hasUnreleasedCapture() ||
+            !ScreenCaptureBridge.begin(session, channel)) {
             result.success(false)
             return
         }
-        // Bind only the requesting engine; a launcher resume cannot take over.
-        screenCaptureChannel?.let(ScreenCaptureBridge::attach)
+        screenCaptureSession = session
         pendingScreenCapture = result
         try {
             screenConsentToken = ScreenCapturePermissionActivity.launch(this) { resultCode, data ->
                 if (pendingScreenCapture !== result) return@launch
                 pendingScreenCapture = null
                 screenConsentToken = null
-                if (resultCode == Activity.RESULT_OK && data != null) {
+                if (resultCode == Activity.RESULT_OK && data != null &&
+                    VeilDaemonService.startTicket() == generation &&
+                    ScreenCaptureBridge.isCurrent(session)) {
                     try {
-                        ScreenCaptureService.start(this, resultCode, data)
+                        ScreenCaptureService.start(this, session, generation, resultCode, data)
                         result.success(true)
-                    } catch (error: Exception) {
-                        result.error("screen_capture", error.message, null)
+                    } catch (_: Exception) {
+                        ScreenCaptureBridge.retire(session, channel)
+                        result.error("screen_capture", "Capture start failed", null)
                     }
                 } else {
+                    ScreenCaptureBridge.retire(session, channel)
                     result.success(false)
                 }
             }
-        } catch (error: Exception) {
+        } catch (_: Exception) {
             pendingScreenCapture = null
             screenConsentToken = null
-            result.error("screen_capture", error.message, null)
+            ScreenCaptureBridge.retire(session, channel)
+            result.error("screen_capture", "Capture consent failed", null)
         }
     }
 
@@ -828,12 +846,14 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         nativeCallCamera = null
         nativeCallVideoRenderer?.stop()
         nativeCallVideoRenderer = null
-        stopScreenCapture()
+        if (screenCaptureEngine === flutterEngine) {
+            screenCaptureSession?.let { stopScreenCapture(it, null) }
+            screenCaptureChannel = null
+            screenCaptureEngine = null
+        }
         // The Dart owner is gone; never leave the ongoing-call notification
         // (and its microphone grant) dangling past the engine.
         CallMicrophoneService.stop(this)
-        screenCaptureChannel?.let(ScreenCaptureBridge::detach)
-        screenCaptureChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -842,12 +862,27 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
-    private fun stopScreenCapture() {
+    private fun stopScreenCapture(session: String, result: MethodChannel.Result?) {
+        // An old engine's stop must never cancel a replacement's consent or
+        // stop its service. The bridge fences queued starts before OS cleanup.
+        val channel = screenCaptureChannel
+        if (channel == null || screenCaptureSession != session) {
+            result?.success(null)
+            return
+        }
+        ScreenCaptureBridge.retire(session, channel)
         val pendingResult = pendingScreenCapture
         pendingScreenCapture = null
         ScreenCapturePermissionActivity.cancel(screenConsentToken)
         screenConsentToken = null
         pendingResult?.success(false)
-        ScreenCaptureService.stop(this)
+        ScreenCaptureService.stop(this, session) { error ->
+            if (error == null) {
+                if (screenCaptureSession == session) screenCaptureSession = null
+                result?.success(null)
+            } else {
+                result?.error("screen_capture", "Capture stop failed", null)
+            }
+        }
     }
 }

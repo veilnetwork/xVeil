@@ -4,45 +4,34 @@ import android.os.Handler
 import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
 
-/** Process-local bridge from the MediaProjection service to the Flutter media
- * controller. The service never persists a frame: one byte array is handed to
- * Dart and the next frame is dropped until Dart acknowledges this one. */
+/** No frame is persisted. The worker retains its own lease while the main
+ * looper is busy, so a delayed callback cannot feed another capture. */
 object ScreenCaptureBridge {
     private val main = Handler(Looper.getMainLooper())
+    private val sessions = ScreenCaptureSessionGate<MethodChannel>()
 
-    @Volatile
-    private var channel: MethodChannel? = null
+    fun begin(session: String, channel: MethodChannel): Boolean = sessions.begin(session, channel)
+    fun isCurrent(session: String): Boolean = sessions.current(session) != null
+    fun retire(session: String, channel: MethodChannel): Boolean = sessions.end(session, channel) != null
 
-    fun attach(value: MethodChannel) {
-        channel = value
-    }
-
-    fun detach(value: MethodChannel) {
-        if (channel === value) channel = null
-    }
-
-    fun emitFrame(frame: ByteArray, completed: () -> Unit) {
+    fun emitFrame(session: String, frame: ByteArray, completed: () -> Unit) {
+        val lease = sessions.current(session)
         main.post {
-            val current = channel
-            if (current == null) {
+            if (lease == null || !sessions.owns(lease)) {
                 completed()
                 return@post
             }
-            current.invokeMethod("frame", frame, object : MethodChannel.Result {
-                override fun success(result: Any?) {
-                    completed()
-                }
-                override fun error(code: String, message: String?, details: Any?) {
-                    completed()
-                }
-                override fun notImplemented() {
-                    completed()
-                }
-            })
+            lease.owner.invokeMethod("frame", mapOf("session" to session, "frame" to frame),
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) = completed()
+                    override fun error(code: String, message: String?, details: Any?) = completed()
+                    override fun notImplemented() = completed()
+                })
         }
     }
 
-    fun emitStopped() {
-        main.post { channel?.invokeMethod("stopped", null) }
+    fun emitStopped(session: String) {
+        val lease = sessions.end(session) ?: return
+        main.post { lease.owner.invokeMethod("stopped", mapOf("session" to session)) }
     }
 }
