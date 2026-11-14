@@ -7,6 +7,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 // ignore_for_file: prefer_initializing_formals
 
 import '../../core/local_authentication.dart';
+import '../../core/background_service_lifetime.dart';
 import '../../core/quick_unlock_vault.dart';
 import 'async_kv_log_store.dart';
 import 'legacy_profile_preferences.dart';
@@ -34,6 +35,7 @@ final class ManagedProfileWipe {
     required LegacyProfilePreferences source,
     required QuickUnlockSecretStore secretStore,
     required LocalScreenAuthentication authentication,
+    required Future<BackgroundResourceRetirement> Function() retireBackground,
     required Future<void> Function() quiesce,
     required Future<void> Function() verifyOtherDataAbsent,
   }) : _router = router,
@@ -41,6 +43,7 @@ final class ManagedProfileWipe {
        _source = source,
        _secretStore = secretStore,
        _authentication = authentication,
+       _retireBackground = retireBackground,
        _quiesce = quiesce,
        _verifyOtherDataAbsent = verifyOtherDataAbsent {
     try {
@@ -69,6 +72,7 @@ final class ManagedProfileWipe {
     required LegacyProfilePreferences source,
     required QuickUnlockSecretStore secretStore,
     required LocalScreenAuthentication authentication,
+    required Future<BackgroundResourceRetirement> Function() retireBackground,
     required Future<void> Function() quiesce,
     required Future<void> Function() verifyOtherDataAbsent,
     required Future<ManagedErasureWorker> Function(
@@ -82,6 +86,7 @@ final class ManagedProfileWipe {
     source: source,
     secretStore: secretStore,
     authentication: authentication,
+    retireBackground: retireBackground,
     quiesce: quiesce,
     verifyOtherDataAbsent: verifyOtherDataAbsent,
   ).._openForTesting = openWorker;
@@ -98,6 +103,9 @@ final class ManagedProfileWipe {
   final LegacyProfilePreferences _source;
   final QuickUnlockSecretStore _secretStore;
   final LocalScreenAuthentication _authentication;
+  final Future<BackgroundResourceRetirement> Function() _retireBackground;
+  BackgroundResourceRetirement? _background;
+  bool _backgroundAdmitted = false;
   final Future<void> Function() _quiesce, _verifyOtherDataAbsent;
   late final String _profileDirectory;
   ManagedErasureWorker? _worker;
@@ -132,13 +140,14 @@ final class ManagedProfileWipe {
   }
 
   Future<void> _verifyExternalAbsence() async {
-    final vault = _vault, legacy = _legacy;
-    if (vault == null || legacy == null) {
+    final vault = _vault, legacy = _legacy, background = _background;
+    if (vault == null || legacy == null || background == null) {
       throw const ManagedProfileWipeFailure();
     }
     await Future.wait<void>([
       vault.verifyAbsent(),
       legacy.verifyAbsent(),
+      background.verifyReleasedResources(),
       _verifyOtherDataAbsent(),
     ]);
   }
@@ -189,7 +198,12 @@ final class ManagedProfileWipe {
   }
 
   Future<void> _resume() async {
-    if (_freshRouter) return;
+    if (_freshRouter) {
+      await _releaseBackground();
+      return;
+    }
+    _background ??= await _retireBackground();
+    await _background!.verifyReleasedResources();
     if (!_quiesced) {
       await _quiesce();
       await _verifyOtherDataAbsent();
@@ -236,8 +250,12 @@ final class ManagedProfileWipe {
         _authentication,
       );
       _legacy ??= LegacyProfilePreferencesRetirement.forWorker(worker, _source);
-      Future<void> retire() =>
-          Future.wait<void>([_vault!.retire(), _legacy!.retire()]);
+      Future<void> retire() async {
+        await _background!.verifyReleasedResources();
+        await Future.wait<void>([_vault!.retire(), _legacy!.retire()]);
+        await _background!.verifyReleasedResources();
+      }
+
       if (!_managedRemoved) {
         await worker.removeManagedFiles(retireScopes: retire);
         _managedRemoved = true;
@@ -284,6 +302,20 @@ final class ManagedProfileWipe {
       await _router.reopen();
       _freshRouter = true;
     }
+    await _releaseBackground();
+  }
+
+  Future<void> _releaseBackground() async {
+    if (_backgroundAdmitted) return;
+    if (!_freshRouter || _receipt == null || _background == null) {
+      throw const ManagedProfileWipeFailure();
+    }
+    await _verifyOtherDataAbsent();
+    // Native release itself must recheck resources or recognize this exact
+    // owner's lost successful reply. A separate token probe could reject that
+    // legitimate retry after native admission was already released.
+    await _background!.releaseAdmission();
+    _backgroundAdmitted = true;
   }
 
   /// Accepted work is joined; a failed attempt remains an on-disk pending

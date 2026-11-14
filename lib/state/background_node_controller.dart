@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
+import '../core/background_service_lifetime.dart';
+
+export '../core/background_service_lifetime.dart' show BackgroundServiceActions;
 
 import 'providers.dart';
 import '../core/diagnostic_journal.dart';
@@ -17,17 +19,8 @@ const kKeepNodeBackgroundPrefKey = 'keep_node_background';
 /// `VeilBackground` is a no-op that cannot throw, so without this the "the
 /// choice survives a refusal" test would pass on code that loses it — the same
 /// shape as `vpnBackendProvider` and `vpnTransportPreflightProvider`.
-class BackgroundServiceActions {
-  const BackgroundServiceActions({required this.start, required this.stop});
-  final Future<void> Function() start;
-  final Future<void> Function() stop;
-}
-
 final backgroundServiceProvider = Provider<BackgroundServiceActions>(
-  (_) => BackgroundServiceActions(
-    start: VeilBackground.start,
-    stop: VeilBackground.stop,
-  ),
+  (_) => BackgroundServiceActions.platform(),
 );
 
 /// Whether the node should keep running when the app is backgrounded (Android),

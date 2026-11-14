@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
+import 'package:xveil/core/background_service_lifetime.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -47,6 +48,7 @@ import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 import '../support/retirement_secret_store.dart';
+import '../support/background_resource_backend.dart';
 
 class _Controller extends AppController {
   @override
@@ -145,6 +147,8 @@ void main() {
   late _Controller controller;
   late _Vault vault;
   late VpnBackend vpn;
+  late BackgroundResourceBackend background;
+  bool retirementSupported = true;
   late List<ManagedStorageLocator> locators;
   bool failReopen = false;
   late Directory translationRoot;
@@ -250,6 +254,8 @@ void main() {
     );
     vault = _Vault();
     vpn = _Vpn();
+    background = BackgroundResourceBackend();
+    retirementSupported = true;
     controller = _Controller();
     app = ProviderContainer(
       overrides: [
@@ -264,8 +270,8 @@ void main() {
         ),
         notificationServiceProvider.overrideWithValue(_Notifications()),
         vpnBackendProvider.overrideWith((ref) => vpn),
-        backgroundServiceProvider.overrideWithValue(
-          BackgroundServiceActions(start: () async {}, stop: () async {}),
+        backgroundServiceProvider.overrideWith(
+          (ref) => background.actions(retirementSupported: retirementSupported),
         ),
         whisperModelStoreProvider.overrideWithValue(
           WhisperModelStore(supportDirectory: () async => fixture),
@@ -318,6 +324,7 @@ void main() {
     source: oldPreferences.legacyPreferences!,
     secretStore: vault,
     authentication: RetirementAuthentication(),
+    retireBackground: app.read(backgroundServiceProvider).retireForErasure,
     quiesce: () async {}, // Locked fixture has no network/model work.
     verifyOtherDataAbsent: () async {},
     openWorker: opener,
@@ -432,6 +439,7 @@ void main() {
         source: oldPreferences.legacyPreferences!,
         secretStore: vault,
         authentication: RetirementAuthentication(),
+        retireBackground: app.read(backgroundServiceProvider).retireForErasure,
         quiesce: () async {},
         verifyOtherDataAbsent: () async {},
       );
@@ -758,6 +766,156 @@ void main() {
   );
 
   test(
+    'unverified background retirement refuses before native erasure intent',
+    () async {
+      background.refuseAcquire = true;
+      background.resourceHeld = true;
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(background.acquires, 1);
+      expect(background.sealed, isTrue);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(Directory('$profile/identities').existsSync(), isTrue);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(vault.values, hasLength(6));
+    },
+  );
+
+  test(
+    'missing background retirement cannot fall back to an accepted stop',
+    () async {
+      retirementSupported = false;
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(background.stops, 0);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+    },
+  );
+
+  test(
+    'background release refusal keeps recovery UI after native release',
+    () async {
+      background.refuseRelease = true;
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(background.sealed, isTrue);
+      expect(background.releases, 1);
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.profileErasureRecovery,
+      );
+      expect(File(legacy).existsSync(), isFalse);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      File(legacy).writeAsStringSync('new payload after native release');
+      background.refuseRelease = false;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(background.acquires, 1);
+      expect(background.releases, 2);
+      expect(
+        File(legacy).readAsStringSync(),
+        'new payload after native release',
+      );
+      expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+
+  test(
+    'lost background release reply retries without probing a released token or deleting fresh data',
+    () async {
+      final oldActions = app.read(backgroundServiceProvider);
+      background.loseReleaseReply = true;
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(background.sealed, isFalse); // Native release already succeeded.
+      expect(background.releases, 1);
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.profileErasureRecovery,
+      );
+      File(legacy).writeAsStringSync('preserved after lost release reply');
+      final reads = background.reads;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(
+        background.reads,
+        reads,
+        reason: 'released token cannot be probed again',
+      );
+      expect(background.acquires, 1);
+      expect(background.releases, 2);
+      expect(
+        File(legacy).readAsStringSync(),
+        'preserved after lost release reply',
+      );
+      await expectLater(
+        oldActions.start(),
+        throwsA(isA<BackgroundServiceRetired>()),
+      );
+      await expectLater(
+        oldActions.stop(),
+        throwsA(isA<BackgroundServiceRetired>()),
+      );
+      await expectLater(
+        oldActions.startCall(),
+        throwsA(isA<BackgroundServiceRetired>()),
+      );
+      await expectLater(
+        oldActions.setCallPresentation(
+          callSession: 'old fixture',
+          callerName: 'Old fixture',
+        ),
+        throwsA(isA<BackgroundServiceRetired>()),
+      );
+      final fresh = app.read(backgroundServiceProvider);
+      expect(identical(oldActions, fresh), isFalse);
+      await fresh.start();
+      expect(background.starts, 1);
+      await fresh.stop();
+    },
+  );
+
+  test(
+    'newly observed background resources refuse before payload and OS-key deletion',
+    () async {
+      final job = makeJob((request, retry) async {
+        expect(retry, isFalse);
+        final worker = await ManagedErasureWorker.beginApplicationProfile(
+          profileDirectory: profile,
+          profileNamespace: namespace,
+          legacyPath: legacy,
+          request: request,
+        );
+        background.resourceHeld = true; // New native observation after capture.
+        return worker;
+      });
+      addTearDown(job.close);
+      final before = Map.of(vault.values);
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(Directory('$profile/identities').existsSync(), isTrue);
+      expect(vault.values, before);
+      expect(background.releases, 0);
+      background.resourceHeld = false; // Only the fixture resolves that fact.
+      await job.resume();
+      expect(background.acquires, 1);
+      expect(background.releases, 1);
+      expect(File(legacy).existsSync(), isFalse);
+    },
+  );
+
+  test(
     'full controller wipe erases mixed storage and publishes fresh owners only after release',
     () async {
       final oldStorage = owner.router.storage;
@@ -999,6 +1157,8 @@ void main() {
       );
       expect(File(legacy).existsSync(), isFalse);
       expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(background.sealed, isTrue);
+      expect(background.releases, 0);
       File(legacy).writeAsStringSync('new data after completed deletion');
       failReopen = false;
       translationRoot = Directory('${fixture.path}/translate');
