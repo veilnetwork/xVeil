@@ -20410,84 +20410,182 @@ void main() {
     expect((await service.stateOf(space))!.isMember(bob), isTrue);
   });
 
-  for (final interruption in ['legacy-pending', 'grant-persisted',
-    'snapshot-admission', 'decision-admission']) {
-    test('public join resumes $interruption without a second grant', () async {
-      final ownerStorage = FakeHvContainer().storage();
-      final requesterStorage = FakeHvContainer().storage();
-      await ownerStorage.open(password: 'owner', createIfMissing: true);
-      await requesterStorage.open(password: 'requester', createIfMissing: true);
-      String? requestJson;
-      final requester = GroupService(requesterStorage, _FakeSigner(bob),
-        sendSpaceJoinRequest: (peer, id, json) async { requestJson = json; });
-      addTearDown(requester.dispose);
-      var failSnapshot = interruption == 'snapshot-admission';
-      var failDecision = interruption == 'decision-admission';
-      var deliver = false;
-      var snapshots = 0;
-      var decisions = 0;
-      GroupService makeOwner() => GroupService(ownerStorage, _FakeSigner(owner),
-        send: (peer, spaceId, json) async {
-          if (!deliver || peer != bob) return;
-          if (failSnapshot) {
-            failSnapshot = false;
-            throw StateError('synthetic snapshot admission refusal');
-          }
-          snapshots++;
-          expect(await requester.ingestGroupEntryFromStranger(owner, json), isTrue);
-        },
-        sendSpaceJoinDecision: (peer, id, json) async {
-          if (failDecision) {
-            failDecision = false;
-            throw StateError('synthetic decision admission refusal');
-          }
-          decisions++;
-          expect(await requester.receiveSpaceJoinDecision(owner, json), isTrue);
-        });
-      var service = makeOwner();
-      addTearDown(() => service.dispose());
-      final space = await service.createSpace('Automatic public join',
-        visibility: SpaceVisibility.public);
-      final code = (await service.createSpaceJoinCode(space))!;
-      expect(await requester.requestToJoinSpace(code), isTrue);
-      final request = SpaceJoinRequest.fromJson(jsonDecode(requestJson!))!;
-      if (interruption == 'legacy-pending' || interruption == 'grant-persisted') {
-        final stored = jsonDecode((await ownerStorage.getSetting('spaces.join_requests.v1'))!) as Map;
-        stored['incoming'] = [SpaceJoinInboxEntry(request: request,
-          receivedAtMs: request.createdAtMs).toJson()];
-        await ownerStorage.putSetting('spaces.join_requests.v1', jsonEncode(stored));
-        if (interruption == 'grant-persisted') {
-          expect(await service.addControlOp(space, ControlOp.addMember,
-            target: bob, role: GroupRole.member), isTrue);
-          await pump();
-        }
-      } else {
-        deliver = true;
-        expect(await service.receiveSpaceJoinRequest(bob, requestJson!), isTrue);
+  for (final native in [false, true]) {
+    for (final resetClock in [false, true]) {
+      if (native && !resetClock) continue;
+      for (final interruption in [
+        'legacy-pending',
+        'grant-persisted',
+        'snapshot-admission',
+        'decision-admission',
+      ]) {
+        test(
+          'public join resumes $interruption without a second grant; fixed clock=$resetClock native=$native',
+          () async {
+            Directory? nativeRoot;
+            if (native) {
+              expect(ensureHiddenVolumeLoaded(), isTrue);
+              nativeRoot = await Directory.systemTemp.createTemp(
+                'xveil-join-resume-native-',
+              );
+            }
+            HiddenVolumeStorage storageFor(String name) => native
+                ? HiddenVolumeStorage(
+                    hvSpaceOpener(
+                      '${nativeRoot!.path}/$name.hv',
+                      argon: hv.ArgonPreset.min,
+                      paddingPreset: hv.PaddingPreset.none,
+                    ),
+                  )
+                : FakeHvContainer().storage();
+            final ownerStorage = storageFor('owner');
+            final requesterStorage = storageFor('requester');
+            addTearDown(() async {
+              await ownerStorage.close();
+              await requesterStorage.close();
+              if (nativeRoot != null) await nativeRoot.delete(recursive: true);
+            });
+            await ownerStorage.open(password: 'owner', createIfMissing: true);
+            await requesterStorage.open(
+              password: 'requester',
+              createIfMissing: true,
+            );
+            String? requestJson;
+            final requester = GroupService(
+              requesterStorage,
+              _FakeSigner(bob),
+              sendSpaceJoinRequest: (peer, id, json) async {
+                requestJson = json;
+              },
+            )..debugWallClockMs = resetClock ? () => 1700000000000 : null;
+            addTearDown(requester.dispose);
+            var failSnapshot = interruption == 'snapshot-admission';
+            var failDecision = interruption == 'decision-admission';
+            var deliver = false;
+            var snapshots = 0;
+            var decisions = 0;
+            GroupService makeOwner() => GroupService(
+              ownerStorage,
+              _FakeSigner(owner),
+              send: (peer, spaceId, json) async {
+                if (!deliver || peer != bob) return;
+                if (failSnapshot) {
+                  failSnapshot = false;
+                  throw StateError('synthetic snapshot admission refusal');
+                }
+                snapshots++;
+                expect(
+                  await requester.ingestGroupEntryFromStranger(owner, json),
+                  isTrue,
+                );
+              },
+              sendSpaceJoinDecision: (peer, id, json) async {
+                if (failDecision) {
+                  failDecision = false;
+                  throw StateError('synthetic decision admission refusal');
+                }
+                decisions++;
+                expect(
+                  await requester.receiveSpaceJoinDecision(owner, json),
+                  isTrue,
+                );
+              },
+            )..debugWallClockMs = resetClock ? () => 1700000000000 : null;
+            var service = makeOwner();
+            addTearDown(() => service.dispose());
+            final space = await service.createSpace(
+              'Automatic public join',
+              visibility: SpaceVisibility.public,
+            );
+            final code = (await service.createSpaceJoinCode(space))!;
+            expect(await requester.requestToJoinSpace(code), isTrue);
+            final request = SpaceJoinRequest.fromJson(
+              jsonDecode(requestJson!),
+            )!;
+            if (interruption == 'legacy-pending' ||
+                interruption == 'grant-persisted') {
+              final stored =
+                  jsonDecode(
+                        (await ownerStorage.getSetting(
+                          'spaces.join_requests.v1',
+                        ))!,
+                      )
+                      as Map;
+              stored['incoming'] = [
+                SpaceJoinInboxEntry(
+                  request: request,
+                  receivedAtMs: request.createdAtMs,
+                ).toJson(),
+              ];
+              await ownerStorage.putSetting(
+                'spaces.join_requests.v1',
+                jsonEncode(stored),
+              );
+              if (interruption == 'grant-persisted') {
+                expect(
+                  await service.addControlOp(
+                    space,
+                    ControlOp.addMember,
+                    target: bob,
+                    role: GroupRole.member,
+                  ),
+                  isTrue,
+                );
+                await pump();
+              }
+            } else {
+              deliver = true;
+              expect(
+                await service.receiveSpaceJoinRequest(bob, requestJson!),
+                isTrue,
+              );
+            }
+            // New service instance: no in-memory decision/task may rescue the intent.
+            await service.dispose();
+            service = makeOwner();
+            deliver = true;
+            await service.retryPendingSpaceJoins();
+            expect((await requester.stateOf(space))!.isMember(bob), isTrue);
+            expect(await requester.outgoingSpaceJoinRequests(), isEmpty);
+            expect(await service.pendingSpaceJoinRequests(space), isEmpty);
+            expect(
+              (await service.load(space))!.control.where(
+                (entry) =>
+                    entry.op == ControlOp.addMember && entry.target == bob,
+              ),
+              hasLength(1),
+            );
+            final snapshotCount = snapshots;
+            final decisionCount = decisions;
+            await service.retryPendingSpaceJoins();
+            expect(snapshots, snapshotCount);
+            expect(decisions, decisionCount);
+            // An already-consumed join cannot undo a later removal.
+            expect(
+              await service.addControlOp(
+                space,
+                ControlOp.removeMember,
+                target: bob,
+              ),
+              isTrue,
+            );
+            await pump();
+            expect(
+              await service.receiveSpaceJoinRequest(bob, requestJson!),
+              isTrue,
+            );
+            expect((await service.stateOf(space))!.isMember(bob), isFalse);
+            expect(
+              (await service.load(space))!.control.where(
+                (entry) =>
+                    entry.op == ControlOp.addMember && entry.target == bob,
+              ),
+              hasLength(1),
+            );
+          },
+        );
       }
-      // New service instance: no in-memory decision/task may rescue the intent.
-      await service.dispose();
-      service = makeOwner();
-      deliver = true;
-      await service.retryPendingSpaceJoins();
-      expect((await requester.stateOf(space))!.isMember(bob), isTrue);
-      expect(await requester.outgoingSpaceJoinRequests(), isEmpty);
-      expect(await service.pendingSpaceJoinRequests(space), isEmpty);
-      expect((await service.load(space))!.control.where((entry) =>
-        entry.op == ControlOp.addMember && entry.target == bob), hasLength(1));
-      final snapshotCount = snapshots;
-      final decisionCount = decisions;
-      await service.retryPendingSpaceJoins();
-      expect(snapshots, snapshotCount);
-      expect(decisions, decisionCount);
-      // An already-consumed join cannot undo a later removal.
-      expect(await service.addControlOp(space, ControlOp.removeMember, target: bob), isTrue);
-      await pump();
-      expect(await service.receiveSpaceJoinRequest(bob, requestJson!), isTrue);
-      expect((await service.stateOf(space))!.isMember(bob), isFalse);
-      expect((await service.load(space))!.control.where((entry) =>
-        entry.op == ControlOp.addMember && entry.target == bob), hasLength(1));
-    });
+    }
   }
 
   test('two join requests arriving at once do not lose one another', () async {

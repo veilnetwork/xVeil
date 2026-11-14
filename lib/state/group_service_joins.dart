@@ -627,8 +627,11 @@ class _SpaceJoins {
                   entry.author == _owner.selfId &&
                   entry.target == pending!.request.requester &&
                   (entry.role ?? GroupRole.member) == GroupRole.member &&
-                  entry.createdAtMs >= pending.request.createdAtMs &&
-                  entry.createdAtMs <= now,
+                  // A recovered service has a fresh local timestamp counter.
+                  // Its current time can precede this already accepted signed
+                  // grant. Current folded membership below still forbids
+                  // re-admission after removal; ticket expiry is checked above.
+                  entry.createdAtMs >= pending.request.createdAtMs,
             );
             final isMember = folded.state.isMember(pending.request.requester);
             // A retry after a crash may resend the same signed grant. It must
