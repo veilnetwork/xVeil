@@ -29,7 +29,7 @@ private class Fixture {
     var setup: (Boolean, Port) -> Unit = { _, _ -> }
     var refuseCreate = false
     fun owner(background: Boolean = true): CallNetworkLocks =
-        CallNetworkLocks(background) { secondary ->
+        CallNetworkLocks(background, mayAcquire = { true }) { secondary ->
             check(!refuseCreate) { "synthetic factory refusal" }
             Port().also { setup(secondary, it); ports.add(it) }
         }.also { owners.add(it) }

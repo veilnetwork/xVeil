@@ -13,6 +13,7 @@ internal interface CallNetworkLock {
 /** Per-engine native ownership. A failed release never discards its handle. */
 internal class CallNetworkLocks(
     private val needsBackground: Boolean,
+    private val mayAcquire: () -> Boolean,
     private val create: (background: Boolean) -> CallNetworkLock,
 ) {
     private var primary: CallNetworkLock? = null
@@ -30,7 +31,7 @@ internal class CallNetworkLocks(
     @Synchronized
     fun setActive(active: Boolean): Boolean {
         if (!active) return deactivate()
-        if (retired) return false
+        if (retired || !mayAcquire()) return false
         if (isActive()) return true
         // A partial set cannot be replaced while any old handle is uncertain.
         if (deactivate()) return false
@@ -89,6 +90,11 @@ internal class CallNetworkLocks(
             Collections.newSetFromMap(IdentityHashMap<CallNetworkLocks, Boolean>()),
         )
         fun hasUnreleasedResources(): Boolean = retained.isNotEmpty()
+
+        fun releaseAllOwners() {
+            val owners = synchronized(retained) { retained.toList() }
+            owners.forEach { it.setActive(false) }
+        }
 
         fun retryRetiredOwners() {
             // Never hold the inventory mutex while entering an owner mutex.

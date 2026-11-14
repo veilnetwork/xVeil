@@ -152,14 +152,31 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         ).setMethodCallHandler { call, result ->
             if (callNetworkEngine !== flutterEngine || callNetworkOwner !== networkOwner) {
                 result.error("call_network", "Network engine has retired", null)
-            } else when (call.method) {
-                "setActive" -> {
-                    CallNetworkLocks.retryRetiredOwners()
-                    val active = call.argument<Boolean>("active") ?: false
-                    result.success(networkOwner.setActive(active))
+                return@setMethodCallHandler
+            }
+            try {
+                when (call.method) {
+                    "setActive" -> {
+                        CallNetworkLocks.retryRetiredOwners()
+                        val active = call.argument<Boolean>("active") ?: false
+                        result.success(networkOwner.setActive(active))
+                    }
+                    "isActive" -> result.success(networkOwner.isActive())
+                    "retire" -> result.success(CallNetworkResources.retire())
+                    "verifyRetirement", "releaseRetirement" -> {
+                        val token = (call.arguments as? Map<*, *>)?.get("token") as? String
+                            ?: throw IllegalArgumentException()
+                        if (call.method == "verifyRetirement") {
+                            CallNetworkResources.verifyRetirement(token)
+                        } else {
+                            CallNetworkResources.releaseRetirement(token)
+                        }
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
-                "isActive" -> result.success(networkOwner.isActive())
-                else -> result.notImplemented()
+            } catch (_: Exception) {
+                result.error("call_network", "Network resource operation unavailable", null)
             }
         }
         callForegroundEngine = flutterEngine
@@ -615,7 +632,10 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private fun createCallNetworkLocks(): CallNetworkLocks {
         val context = applicationContext
         val tag = packageName
-        return CallNetworkLocks(needsBackgroundWifiLock()) { background ->
+        return CallNetworkLocks(
+            needsBackgroundWifiLock(),
+            mayAcquire = CallNetworkResources::admits,
+        ) { background ->
             val wifi = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val mode = if (!background && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 WifiManager.WIFI_MODE_FULL_LOW_LATENCY

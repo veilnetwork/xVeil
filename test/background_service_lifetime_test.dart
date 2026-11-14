@@ -186,4 +186,44 @@ void main() {
       expect(stops, 0);
     },
   );
+  test(
+    'resource admission seals synchronously even while accepted daemon work waits',
+    () async {
+      final native = BackgroundResourceBackend();
+      final release = Completer<void>();
+      var sealed = false;
+      final actions = BackgroundServiceActions(
+        start: () => release.future,
+        stop: () async {},
+        retire: native.acquire,
+        sealResources: () => sealed = true,
+      );
+      final start = actions.start();
+      final retiring = actions.retireForErasure();
+      expect(sealed, isTrue);
+      expect(native.acquires, 0);
+      release.complete();
+      await start;
+      await retiring;
+    },
+  );
+
+  test(
+    'resource sealing can reenter retirement without losing ownership',
+    () async {
+      final native = BackgroundResourceBackend();
+      late BackgroundServiceActions actions;
+      late Future<BackgroundResourceRetirement> reentrant;
+      actions = BackgroundServiceActions(
+        start: () async {},
+        stop: () async {},
+        retire: native.acquire,
+        sealResources: () => reentrant = actions.retireForErasure(),
+      );
+      final retiring = actions.retireForErasure();
+      expect(identical(retiring, reentrant), isTrue);
+      await retiring;
+      expect(native.acquires, 1);
+    },
+  );
 }

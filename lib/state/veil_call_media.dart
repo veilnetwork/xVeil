@@ -581,6 +581,7 @@ class VeilCallMediaController implements CallMediaController {
   AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
+  final _networkActivity = CallNetworkActivity.shared;
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   AndroidScreenCaptureSource _screenCaptureFactory(
@@ -840,7 +841,7 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': false,
         'media_repairing': _routeRepairing,
-        'call_network_activity_active': CallNetworkActivity.shared.heldBy(
+        'call_network_activity_active': _networkActivity.heldBy(
           _networkActivityOwner,
         ),
       };
@@ -864,7 +865,7 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
-        'call_network_activity_active': CallNetworkActivity.shared.heldBy(
+        'call_network_activity_active': _networkActivity.heldBy(
           _networkActivityOwner,
         ),
         'media_epoch': _mediaEpoch,
@@ -1498,7 +1499,7 @@ class VeilCallMediaController implements CallMediaController {
         _microphoneState.belongsToCall(call.callId);
     await _loadDevicePreferences();
     if (!currentStart()) return false;
-    await CallNetworkActivity.shared.acquire(_networkActivityOwner);
+    await _networkActivity.acquire(_networkActivityOwner);
     if (!currentStart()) return false;
     // Before capture opens: the grant must exist by the time the screen can
     // lock, and the typed service may only start while the app is visible.
@@ -2599,7 +2600,7 @@ class VeilCallMediaController implements CallMediaController {
     // that internal gap; release them only when the call itself ends.
     if (clearActiveCall) {
       await callAudioRouter.release();
-      await CallNetworkActivity.shared.release(_networkActivityOwner);
+      await _networkActivity.release(_networkActivityOwner);
       await _microphoneForeground.setActive(false);
     }
   }

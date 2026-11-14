@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:xveil/state/android_screen_capture.dart';
+import 'package:xveil/state/call_network_activity.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
@@ -159,6 +160,21 @@ final class _MicrophoneResources implements MicrophoneResourceRetirement {
   }
 }
 
+final class _NetworkResources implements CallNetworkResourceRetirement {
+  bool held = false;
+  int releases = 0;
+  @override
+  Future<void> verifyReleasedResources() async {
+    if (held) throw StateError('synthetic network resource held');
+  }
+
+  @override
+  Future<void> releaseAdmission() async {
+    await verifyReleasedResources();
+    releases++;
+  }
+}
+
 class _CaptureOutputs implements CaptureOutputStore {
   bool refuse = false;
   int removes = 0;
@@ -195,6 +211,7 @@ void main() {
   late _Vault vault;
   late VpnBackend vpn;
   late BackgroundResourceBackend background;
+  late _NetworkResources network;
   bool retirementSupported = true, platformBackground = false;
   late List<ManagedStorageLocator> locators;
   bool failReopen = false;
@@ -302,6 +319,8 @@ void main() {
     vault = _Vault();
     vpn = _Vpn();
     background = BackgroundResourceBackend();
+    network = _NetworkResources();
+    CallNetworkActivity.debugRetireOverride = () async => network;
     retirementSupported = true;
     platformBackground = false;
     controller = _Controller();
@@ -352,6 +371,10 @@ void main() {
     expect(vault.values, hasLength(6));
   });
   tearDown(() async {
+    network.held = false;
+    CallNetworkActivity.debugRetireOverride = () async => network;
+    await CallNetworkActivity.shared.retireForErasure();
+    CallNetworkActivity.debugReset();
     AndroidMicrophoneLifetime.debugReset();
     CaptureResourceLifetime.resetForTesting();
     if (modelGate != null && !modelGate!.isCompleted) modelGate!.complete();
@@ -1024,6 +1047,74 @@ void main() {
   );
 
   test(
+    'production composer refuses live call network resources before erasure',
+    () async {
+      platformBackground = true;
+      CallNetworkActivity.debugRetireOverride = null;
+      final microphone = _MicrophoneResources()..held = false;
+      AndroidMicrophoneLifetime.debugRetireOverride = () async => microphone;
+      const channel = MethodChannel('xveil/call_network');
+      CallNetworkActivity.debugSetActiveOverride = (active) async =>
+          await channel.invokeMethod<bool>('setActive', {'active': active}) ==
+          true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var held = false, refuse = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'setActive':
+            held = (call.arguments as Map)['active'] as bool;
+            return held;
+          case 'retire':
+            if (refuse) {
+              throw PlatformException(
+                code: 'synthetic_network_retirement_refusal',
+              );
+            }
+            held = false;
+            return 'synthetic-network-retirement';
+          case 'verifyRetirement':
+          case 'releaseRetirement':
+            expect(
+              (call.arguments as Map)['token'],
+              'synthetic-network-retirement',
+            );
+            if (held) {
+              throw PlatformException(
+                code: 'synthetic_network_resource_remains',
+              );
+            }
+            return null;
+        }
+        throw StateError('unexpected synthetic network operation');
+      });
+      final old = CallNetworkActivity.shared;
+      final mediaOwner = Object();
+      try {
+        expect(await old.acquire(mediaOwner), isTrue);
+        Object? failure;
+        try {
+          await controller.wipeContainers();
+        } catch (error) {
+          failure = error;
+        }
+        expect(File(legacy).existsSync(), isTrue);
+        expect(vault.values, hasLength(6));
+        expect(failure, isA<ManagedProfileWipeFailure>());
+        expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+        refuse = false;
+        expect(await controller.wipeContainers(), isEmpty);
+        expect(held, isFalse);
+        expect(File(legacy).existsSync(), isFalse);
+      } finally {
+        refuse = false;
+        await old.release(mediaOwner);
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    },
+  );
+
+  test(
     'production composer refuses microphone failure before erasure intent',
     () async {
       platformBackground = true;
@@ -1093,6 +1184,33 @@ void main() {
       expect(File(legacy).existsSync(), isFalse);
     },
   );
+
+  test('network proof is rechecked before native payload deletion', () async {
+    platformBackground = true;
+    final microphone = _MicrophoneResources()..held = false;
+    AndroidMicrophoneLifetime.debugRetireOverride = () async => microphone;
+    final job = makeJob((request, retry) async {
+      final worker = await ManagedErasureWorker.beginApplicationProfile(
+        profileDirectory: profile,
+        profileNamespace: namespace,
+        legacyPath: legacy,
+        request: request,
+      );
+      network.held = true;
+      return worker;
+    });
+    addTearDown(job.close);
+    final before = Map.of(vault.values);
+    await expectLater(job.resume(), throwsA(isA<ManagedProfileWipeFailure>()));
+    expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+    expect(File(legacy).existsSync(), isTrue);
+    expect(vault.values, before);
+    expect(network.releases, 0);
+    network.held = false;
+    await job.resume();
+    expect(File(legacy).existsSync(), isFalse);
+    expect(network.releases, 1);
+  });
 
   test(
     'unverified background retirement refuses before native erasure intent',
