@@ -1719,9 +1719,9 @@ uncooperative external writers or a hostile same-user filesystem attacker.
 Host qualification includes actual queued preference writes followed by worker
 erasure, retention of unrelated profile settings and the installation pointer,
 new preference files at each finalization boundary, and SIGKILL after unlink of
-the main preference file while its temporary remains. Application startup
-migration ordering and complete managed-wipe UI/recovery binding are still
-required; these native ports do not enable the new storage modes.
+the main preference file while its temporary remains. Complete managed-wipe
+UI/recovery binding is still required; these native ports do not enable the new
+storage modes.
 
 ## Profile preference lifetime
 
@@ -1743,10 +1743,45 @@ Production access sites and the common provider use this entry point. Host tests
 cover stale references, gated saves/reloads/initialization, failed saves, backend
 replacement, retry and actual queued file writes. Full managed-wipe binding is
 still pending: it must seal this owner before teardown, use the durable
-preference-file absence scope, prevent migration writes before startup recovery,
-and install a fresh backend only after complete erasure release. This work does
+preference-file absence scope and install a fresh backend only after complete
+erasure release. This work does
 not enable managed storage or turn the existing pending-erasure shell into full
 recovery.
+
+## Preference startup admission
+
+Managed startup resolves the selected profile read-only, validates that a
+container override remains beside its preferences, and opens a supervised file
+actor before carrying the installation pointer or reading/migrating preferences.
+The admitted support-directory answer is retained for the later container/router
+bootstrap instead of resolving it again. That actor creates only the fixed shared
+storage-profile role, not an enumerable identity catalog. The actor retains its native grant until confirmed close;
+ordinary erasure cannot acquire an exclusive grant while it is live.
+
+All managed preference reads and writes run beside that grant in the same actor.
+Atomic file I/O is synchronous on the worker, so no detached async filesystem
+rename can continue after it exits. The legacy asynchronous writer remains the
+ordinary default and shares its existing permission checks through a pure file
+module. A refused owned read/write never falls back to local I/O. Application
+retirement joins accepted operations; `releaseFile` separately confirms native
+close and remains retryable after refusal. Settlement alone cannot grant erase.
+
+Each additional legacy-migration destination acquires its own file actor before
+read/write and closes it afterwards. A refused destination is preserved and the
+whole legacy source is retained. Pending erasure takes an early startup route
+before normal providers/router/vault access; other managed admission failures
+propagate instead of selecting ephemeral preferences. The early route is still
+a refusal/status shell, not complete recovery. Existing legacy source copies
+also need an explicit full-wipe policy: retaining a migration source is not proof
+that it was erased, and it must not resurrect the selected profile on relaunch.
+
+Qualification uses synthetic preferences, admitted/denied native writes,
+selected/sibling pending plans, malformed intent markers, explicit native
+contention in a separate process and confirmed release before re-admission.
+Omission controls fail when either selected or sibling admission is bypassed.
+No packaged OS vault or real application profile is qualified here. Managed
+storage remains disabled pending complete wipe/recovery, migration, maintenance
+and platform qualification.
 
 ## Implementation boundaries
 

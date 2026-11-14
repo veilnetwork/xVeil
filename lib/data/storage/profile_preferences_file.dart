@@ -1,0 +1,213 @@
+import 'dart:io';
+
+import '../../core/log.dart';
+import '../../core/posix_file_facts.dart';
+
+/// A file owner, not permission to perform local I/O beside its native lease.
+abstract interface class ProfilePreferencesFile {
+  String get path;
+  Future<String?> read();
+  Future<bool> write(String contents);
+  Future<void> close();
+}
+
+typedef OpenProfilePreferencesFile =
+    Future<ProfilePreferencesFile> Function(String path);
+
+/// Classifies a refused startup; it grants no recovery or deletion authority.
+final class ProfilePreferencesErasurePending implements Exception {
+  const ProfilePreferencesErasurePending();
+  @override
+  String toString() => 'ProfilePreferencesErasurePending';
+}
+
+/// Owner-only permissions for what this file writes: `0600` on the preference
+/// and pointer files, `0700` on the directory holding them.
+///
+/// These files are the app's SECURITY POSTURE in the clear — which profile is
+/// active, the VPN routing policy with its app ids and subnets, whether the
+/// switcher has been found. They must be readable before anything is unlocked,
+/// so they cannot go inside the container; the least that can be asked of them
+/// is that no other local account can read them (audit X-05).
+const int _ownerOnlyFile = 0x180; // 0600
+const int _ownerOnlyDir = 0x1C0; // 0700
+
+/// Whether a failure to make these files owner-only must fail the write.
+///
+/// The same split, for the same reason, as `runtimeDirMustBePrivate` in the
+/// veil stack. On macOS and Linux the app-support path can sit on a filesystem
+/// other local accounts share, so a posture file at a permissive umask is a
+/// real exposure and writing it is worse than not writing it. On Android and
+/// iOS the app sandbox is already the boundary, and on Windows access is
+/// governed by the profile ACL, which a POSIX mode cannot describe and this
+/// code does not attempt to set — refusing there would trade a guarantee those
+/// platforms already give for a broken settings screen.
+bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
+
+/// Create [dir] and make it owner-only.
+///
+/// Best effort on purpose: the file mode below is the check that decides, and
+/// for the default profile this directory is the app-support directory itself,
+/// which the platform already places inside the app's own tree.
+Future<void> _ensurePrivateDir(Directory dir) async {
+  await dir.create(recursive: true);
+  if (Platform.isWindows) return;
+  final rc = posixChmod(dir.path, _ownerOnlyDir);
+  if (rc != null && rc != 0) {
+    devLog(() => 'xVeil[prefs]: could not restrict ${dir.path} to 0700');
+  }
+}
+
+/// Make [path] readable by its owner ONLY, and PROVE it.
+///
+/// Three separate things, none of which the other two cover:
+///
+///   * `chmod` exiting zero means the filesystem accepted the request. Mounted
+///     shares and some vendor mounts accept it and keep the old mode, so the
+///     mode is read back rather than assumed.
+///   * the read-back is an `lstat`, so a symlink swapped in at the name between
+///     the create and here is seen as a symlink instead of being followed.
+///   * the owner is checked against this process, which is what catches a file
+///     that is now somebody else's.
+///
+/// Goes through libc, not `Process.run('chmod', …)`: a bare command name is
+/// resolved through PATH, which is the substitutable oracle audit C-01 was
+/// about.
+bool _restrictToOwner(String path) {
+  if (Platform.isWindows) return true;
+  final rc = posixChmod(path, _ownerOnlyFile);
+  if (!prefsFilesMustBePrivate()) return true;
+  if (rc == null || rc != 0) {
+    devLog(() => 'xVeil[prefs]: chmod 0600 refused $path');
+    return false;
+  }
+  final facts = posixLstat(path);
+  if (facts == null) {
+    devLog(() => 'xVeil[prefs]: could not read the mode back for $path');
+    return false;
+  }
+  if (!facts.isRegularFile) {
+    devLog(
+      () => 'xVeil[prefs]: $path is not a regular file, refusing to write',
+    );
+    return false;
+  }
+  if (facts.permissions != _ownerOnlyFile) {
+    devLog(
+      () =>
+          'xVeil[prefs]: $path is ${facts.permissions.toRadixString(8)} after '
+          'chmod, not 600',
+    );
+    return false;
+  }
+  final euid = posixEuid();
+  if (euid != null && facts.uid != euid) {
+    devLog(() => 'xVeil[prefs]: $path is not owned by this process');
+    return false;
+  }
+  return true;
+}
+
+/// Write [contents] to [file] durably, privately and atomically — or return
+/// **false**, which is the entire point of the function.
+///
+/// The version this replaces caught every exception, logged it, and let its
+/// callers report success (audit X-02); the migration then emptied the only
+/// other copy of the data on the strength of that report. What it now
+/// establishes before it says yes:
+///
+///   * **atomic** — the bytes land under a temporary name and are renamed over
+///     the target, so a crash mid-write cannot leave a truncated file that the
+///     next launch reads as "no preferences at all";
+///   * **durable** — the file is fsynced before the rename and the DIRECTORY
+///     after it. Syncing only the file makes the CONTENT survive a power cut
+///     while the rename that gave it its name does not (audit X-02);
+///   * **private** — the mode is applied to the temporary while it is still
+///     empty, so the values never exist on disk at the process umask, not even
+///     between two syscalls (audit X-05);
+///   * **actually there** — the file is read back and compared. A filesystem
+///     that accepted every call is not the same thing as a filesystem that
+///     kept the result.
+Future<bool> writePrivateFileAtomically(File file, String contents) async {
+  final temp = File('${file.path}.tmp');
+  try {
+    await _ensurePrivateDir(file.parent);
+    // Never write THROUGH a link someone else planted at the temporary name:
+    // that is how a 0600 file ends up being somebody else's file, with our
+    // posture in it. A directory in the way is not something to clear out.
+    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
+    if (planted == FileSystemEntityType.link) {
+      await Link(temp.path).delete();
+    } else if (planted == FileSystemEntityType.directory) {
+      devLog(() => 'xVeil[prefs]: ${temp.path} is a directory, refusing');
+      return false;
+    }
+
+    // Create empty, restrict, THEN fill. Reversing these two would put the
+    // values on disk at the umask for as long as the chmod takes to run, and
+    // [_restrictToOwner]'s lstat is also what catches a link that won the race
+    // between the type check above and this open.
+    final handle = await temp.open(mode: FileMode.writeOnly);
+    try {
+      if (!_restrictToOwner(temp.path)) return false;
+      await handle.writeString(contents);
+      await handle.flush(); // fsync(2) on the file
+    } finally {
+      await handle.close();
+    }
+
+    await temp.rename(file.path);
+    // The rename itself, made durable. Null just means no libc binding here.
+    posixFsyncDir(file.parent.path);
+    if (!_restrictToOwner(file.path)) return false;
+
+    // Read it back. This is the difference between "no call reported an error"
+    // and "the bytes are there".
+    if (await file.readAsString() != contents) {
+      devLog(() => 'xVeil[prefs]: ${file.path} did not read back as written');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
+    try {
+      if (temp.existsSync()) await temp.delete();
+    } catch (_) {
+      /* the temporary is litter, not a reason to fail differently */
+    }
+    return false;
+  }
+}
+
+/// Worker-only synchronous counterpart. The native shared profile grant and
+/// these filesystem calls live in the SAME isolate. No async filesystem task
+/// can publish a late rename after the worker has exited and lost its grant.
+bool writePrivateFileAtomicallySync(File file, String contents) {
+  final temp = File('${file.path}.tmp');
+  try {
+    file.parent.createSync(recursive: true);
+    if (!Platform.isWindows) posixChmod(file.parent.path, _ownerOnlyDir);
+    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
+    if (planted == FileSystemEntityType.link) {
+      Link(temp.path).deleteSync();
+    } else if (planted == FileSystemEntityType.directory) {
+      return false;
+    }
+    final handle = temp.openSync(mode: FileMode.writeOnly);
+    try {
+      if (!_restrictToOwner(temp.path)) return false;
+      handle.writeStringSync(contents);
+      handle.flushSync();
+    } finally {
+      handle.closeSync();
+    }
+    temp.renameSync(file.path);
+    posixFsyncDir(file.parent.path);
+    return _restrictToOwner(file.path) && file.readAsStringSync() == contents;
+  } catch (_) {
+    try {
+      if (temp.existsSync()) temp.deleteSync();
+    } catch (_) {}
+    return false;
+  }
+}

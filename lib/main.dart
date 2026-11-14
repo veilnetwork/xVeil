@@ -28,7 +28,7 @@ import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_preferences.dart';
-import 'data/storage/profile_prefs_store.dart';
+import 'data/storage/profile_preferences_bootstrap.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'state/storage_router_providers.dart';
@@ -161,7 +161,7 @@ Future<void> _bootAndRunApp() async {
   // point writing back into `NSUserDefaults` and back into the backup,
   // profile roster and all. The fallback now leans the other way: an empty
   // in-memory store. Settings are lost on exit; nothing leaves the device.
-  activeProfile = await installProfilePreferencesOrFallback(
+  final preferences = await bootstrapProfilePreferences(
     supportDir: () async => (await getApplicationSupportDirectory()).path,
     args: launchArguments,
     onError: (e, st) {
@@ -179,6 +179,11 @@ Future<void> _bootAndRunApp() async {
       );
     },
   );
+  if (preferences.erasurePending) {
+    runApp(const ProfileErasurePendingApp());
+    return;
+  }
+  activeProfile = preferences.profile!;
 
   // Whether the translation engine is reachable, answered once at startup.
   //
@@ -262,7 +267,7 @@ Future<void> _bootAndRunApp() async {
     ErrorWidget.builder = (details) => const SizedBox.shrink();
   }
 
-  final boot = await _bootstrapOverrides();
+  final boot = await _bootstrapOverrides(supportDirectory: preferences.supportDirectory);
   runApp(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
 }
 
@@ -338,7 +343,7 @@ typedef BootstrapResult = ({
 ///   entirely untouched. A veil-side failure still degrades to the loopback
 ///   fakes rather than blocking launch — an app that cannot reach the network
 ///   is honest about it on screen, unlike one that cannot protect a password.
-Future<BootstrapResult> _bootstrapOverrides() async {
+Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
   final overrides = <Override>[];
   var secureStorageReady = false;
   String? storePath; // the deniable container path, shared with the boot config
@@ -349,7 +354,11 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       // XVEIL_STORE_PATH lets two instances on one machine use separate
       // containers (dev/demo); otherwise the per-app support dir.
       final override = Platform.environment['XVEIL_STORE_PATH'];
-      final dir = await getApplicationSupportDirectory();
+      // Reuse the location already admitted for preferences. A second plugin
+      // answer must not bind the container/router to a different profile.
+      final dir = supportDirectory == null
+          ? await getApplicationSupportDirectory()
+          : Directory(supportDirectory);
       // [activeProfile] was resolved in main() together with the preference
       // store that belongs to it. The default profile resolves to the
       // historical container path, so an existing install is untouched and a
