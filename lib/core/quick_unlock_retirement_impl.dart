@@ -30,9 +30,22 @@ final class QuickUnlockRetirement {
     ManagedRootErasure erasure,
     QuickUnlockSecretStore store,
     LocalScreenAuthentication authentication,
-  ) : _binding = erasure.binding,
+  ) : this._bound(erasure.snapshot(), store, authentication);
+
+  /// A live UI-side lease, not a retained progress snapshot, owns OS admission.
+  QuickUnlockRetirement.forWorker(
+    ManagedErasureScopeLease lease,
+    QuickUnlockSecretStore store,
+    LocalScreenAuthentication authentication,
+  ) : this._bound(lease.snapshot, store, authentication);
+
+  QuickUnlockRetirement._bound(
+    ManagedErasureSnapshot snapshot,
+    QuickUnlockSecretStore store,
+    LocalScreenAuthentication authentication,
+  ) : _binding = snapshot.binding,
       _vaults = List.unmodifiable([
-        for (final scope in erasure.unlockScopes.ids)
+        for (final scope in snapshot.unlockScopes.ids)
           QuickUnlockVault(store, scope, authentication),
       ]);
   final ManagedErasureBinding? _binding;
@@ -60,6 +73,36 @@ final class QuickUnlockRetirement {
         _pending = null;
       }
     }();
+  }
+
+  /// Read-only reconciliation after a lost release reply; never deletes a
+  /// newly appearing OS record or invents successful earlier retirement.
+  Future<void> verifyAbsent() async {
+    void requireQuiescent() {
+      if (!_verified ||
+          _released ||
+          _pending != null ||
+          _vaults.any(
+            (vault) =>
+                !vault._scopeState.retired ||
+                vault._scopeState.detached ||
+                vault._scopeState.pending != 0,
+          )) {
+        throw const QuickUnlockRetirementFailure();
+      }
+    }
+
+    requireQuiescent();
+    try {
+      for (final vault in _vaults) {
+        if (await vault.store.contains(vault._key)) {
+          throw const QuickUnlockRetirementFailure();
+        }
+      }
+      requireQuiescent();
+    } catch (_) {
+      throw const QuickUnlockRetirementFailure();
+    }
   }
 
   /// Atomic UI-isolate handoff after the exact erasure has finalized and its

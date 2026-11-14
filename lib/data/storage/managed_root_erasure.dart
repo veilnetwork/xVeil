@@ -61,6 +61,25 @@ final class ManagedRootErasure {
       ? ManagedRootErasurePhase.finishing
       : ManagedRootErasurePhase.removing;
 
+  /// Immutable public progress, not an authorization to retire OS scopes.
+  /// A worker client supplies a live UI-side lease for that separate boundary.
+  ManagedErasureSnapshot snapshot() {
+    if (!_finished) {
+      _gate.requireHeld(exclusive: true);
+      if (_completion == null) _validate();
+    }
+    return ManagedErasureSnapshot._(
+      binding,
+      phase,
+      phase == ManagedRootErasurePhase.removing ? catalog : null,
+      phase == ManagedRootErasurePhase.removing ? unlockScopes : null,
+    );
+  }
+
+  /// A worker closing after an error may retry ONLY this already-authorized
+  /// final sync before releasing its native role. No external cleanup is run.
+  bool get finalSyncPending => _completion?.unlinked == true && !_finished;
+
   /// Caller owns an explicitly confirmed wipe and an exclusive complete root.
   /// Capture no-follow owned entries before publication. All identity roles
   /// must close successfully; unknown content is preserved and refuses a plan.
@@ -402,6 +421,27 @@ final class ManagedRootErasure {
     }
     _gate.close();
   }
+}
+
+/// Pure cross-isolate progress. No native handle, password or hidden roster.
+/// An old snapshot alone is intentionally NOT a fresh OS-retirement grant.
+final class ManagedErasureSnapshot {
+  ManagedErasureSnapshot._(
+    this.binding,
+    this.phase,
+    this._catalog,
+    this._scopes,
+  );
+  final ManagedErasureBinding binding;
+  final ManagedRootErasurePhase phase;
+  final ManagedIdentityCatalog? _catalog;
+  final StorageUnlockScopes? _scopes;
+  ManagedIdentityCatalog get catalog =>
+      _catalog ??
+      (throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending));
+  StorageUnlockScopes get unlockScopes =>
+      _scopes ??
+      (throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending));
 }
 
 /// Opaque binding of the exact immutable intent and its original local role
