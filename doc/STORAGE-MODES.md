@@ -1771,9 +1771,9 @@ read/write and closes it afterwards. A refused destination is preserved and the
 whole legacy source is retained. Pending erasure takes an early startup route
 before normal providers/router/vault access; other managed admission failures
 propagate instead of selecting ephemeral preferences. The early route is still
-a refusal/status shell, not complete recovery. Existing legacy source copies
-also need an explicit full-wipe policy: retaining a migration source is not proof
-that it was erased, and it must not resurrect the selected profile on relaunch.
+a refusal/status shell, not complete recovery. The legacy-source cleanup port
+below is now available, but the complete wipe orchestrator still must bind it:
+retaining a migration source is not proof that it was erased.
 
 Qualification uses synthetic preferences, admitted/denied native writes,
 selected/sibling pending plans, malformed intent markers, explicit native
@@ -1782,6 +1782,43 @@ Omission controls fail when either selected or sibling admission is bypassed.
 No packaged OS vault or real application profile is qualified here. Managed
 storage remains disabled pending complete wipe/recovery, migration, maintenance
 and platform qualification.
+
+## Retained legacy preference copies
+
+Guarded installation retains the original platform backend in a private context,
+including when startup stops at pending erasure. It does not reconstruct that
+source from the current global file backend. Normal released/legacy startup
+keeps its previous behavior. The shared legacy-key routing helpers are pure and
+remain exported through the old preference API.
+
+A separate namespace retirement requires a live whole-profile erasure worker,
+the matching legacy scope tag, the matching physical profile parent and an
+auxiliary scope that includes preferences. Root-only erasure, a closed worker
+and another profile cannot authorize deletion. Only matching `flutter.` keys
+are removed, with longest-known-profile suffix routing. The installation pointer
+and other profiles' keys remain. An unreadable roster refuses cleanup rather
+than treating every suffix as default-profile data.
+
+Each removal needs an accepted platform acknowledgement and absence readback.
+Failed removals remain retryable even when a false acknowledgement followed an
+actual deletion; an empty observed map alone does not prove successful retirement.
+Verification is read-only and refuses newly appearing data. Pending cleanup is
+joined on worker close; explicit recovery captures a new live lease and rechecks
+the source. A receipt for the exact current operation is required before the old
+source lifetime detaches; an older operation cannot erase fresh source state.
+The registry assumes the canonical backend instance and cooperating application
+code. It does not coordinate unrelated plugins or old binaries writing that
+platform store, or delete historical OS/cloud backups.
+
+The host regression first reproduced preference resurrection after file erasure,
+then repeated erasure and cold bootstrap with the original source retained: the
+selected settings stayed absent and a blocked sibling remained intact. Other
+cases cover named/dotted profiles, acknowledgement failure, refused reads,
+interrupted cleanup, wrong scope and receipt, and read-only verification. Platform
+preferences are synthetic in these tests; no actual system preference domain,
+OS vault or real profile was erased. The full application wipe/recovery UI still
+must compose this owner with vault retirement, lifecycle drain and native release
+before managed storage can be enabled.
 
 ## Implementation boundaries
 

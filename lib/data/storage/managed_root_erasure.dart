@@ -508,6 +508,8 @@ final class ManagedErasureSnapshot {
     this._scopes,
   );
   final ManagedErasureBinding binding;
+  /// Observes the bound auxiliary scope; not a standalone cleanup grant.
+  bool get erasesProfilePreferences => binding._auxiliaryScope != null;
   final ManagedRootErasurePhase phase;
   final ManagedIdentityCatalog? _catalog;
   final StorageUnlockScopes? _scopes;
@@ -529,6 +531,10 @@ final class ManagedErasureBinding {
     this._digest, {
     _AuxiliaryErasureScope? auxiliary,
   }) : _auxiliaryScope = auxiliary;
+  /// Compare observed operation bindings; this grants no cleanup or release.
+  bool sameOperation(ManagedErasureBinding other) =>
+      _profile == other._profile && _coordinator == other._coordinator &&
+      _pending == other._pending && _digest == other._digest;
   final String _profile, _coordinator, _pending, _digest;
   final _AuxiliaryErasureScope? _auxiliaryScope;
 }
@@ -539,10 +545,7 @@ final class ManagedErasureRelease {
   const ManagedErasureRelease._(this._binding);
   final ManagedErasureBinding _binding;
   bool authorizes(ManagedErasureBinding binding) =>
-      _binding._profile == binding._profile &&
-      _binding._coordinator == binding._coordinator &&
-      _binding._pending == binding._pending &&
-      _binding._digest == binding._digest;
+      _binding.sameOperation(binding);
 }
 
 enum ManagedRootErasurePhase { removing, finishing, complete }

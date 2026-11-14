@@ -7,10 +7,13 @@ import 'package:shared_preferences_platform_interface/types.dart';
 
 import '../../core/log.dart';
 import '../../domain/profile_preferences_layout.dart';
+import 'app_profile.dart';
 import 'profile_preferences_file.dart';
+import 'legacy_profile_preferences.dart';
+import 'profile_preferences_routing.dart';
 
 export 'profile_preferences_file.dart';
-import 'app_profile.dart';
+export 'profile_preferences_routing.dart';
 
 /// App preferences, held in a FILE under the app-support directory instead of
 /// the platform's system preference store (audit XV-16).
@@ -52,7 +55,12 @@ import 'app_profile.dart';
 /// extraction rules in the manifest); this makes the two platforms agree
 /// instead of relying on one manifest attribute.
 class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
-  ProfilePreferencesStore._(this._file, this._entries, this._ownedFile);
+  ProfilePreferencesStore._(
+    this._file,
+    this._entries,
+    this._ownedFile,
+    this.legacyPreferences,
+  );
 
   /// Schema tag, so a future format change can be recognised rather than
   /// guessed at.
@@ -60,6 +68,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   final File _file;
   final ProfilePreferencesFile? _ownedFile;
+  final LegacyProfilePreferences? legacyPreferences;
 
   /// value type (the `valueType` tag the plugin already hands to [setValue]) →
   /// value. Kept rather than inferred: a `double` that happens to hold 2.0 and
@@ -95,7 +104,11 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   static Future<ProfilePreferencesStore> load(
     String path, {
     ProfilePreferencesFile? ownedFile,
+    LegacyProfilePreferences? legacyPreferences,
   }) async {
+    if (legacyPreferences != null && legacyPreferences.preferencePath != path) {
+      throw const LegacyProfilePreferencesFailure();
+    }
     if (ownedFile != null && ownedFile.path != path) {
       throw StateError('profile preference file owner mismatch');
     }
@@ -120,7 +133,12 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     } catch (e) {
       devLog(() => 'xVeil[prefs]: could not read $path, starting empty: $e');
     }
-    return ProfilePreferencesStore._(file, entries, ownedFile);
+    return ProfilePreferencesStore._(
+      file,
+      entries,
+      ownedFile,
+      legacyPreferences,
+    );
   }
 
   static ({String type, Object value})? _decode(Object? encoded) {
@@ -289,6 +307,7 @@ Future<String> installProfilePreferences({
   Map<String, String>? environment,
   OpenProfilePreferencesFile? openOwnedFile,
   void Function(String path)? validateSelectedFile,
+  void Function(LegacyProfilePreferences source)? onResolvedLegacySource,
 }) async {
   final legacy = SharedPreferencesStorePlatform.instance;
   final pointer = await readRememberedProfile(supportDir);
@@ -302,6 +321,19 @@ Future<String> installProfilePreferences({
   final profile = resolved.name;
   final selectedPath = profilePrefsPath(supportDir, profile);
   validateSelectedFile?.call(selectedPath);
+  final env = environment ?? Platform.environment;
+  final override = env['XVEIL_STORE_PATH'];
+  final legacySource = openOwnedFile == null
+      ? null
+      : LegacyProfilePreferences(
+          backend: legacy,
+          supportDirectory: supportDir,
+          profile: profile,
+          legacyPath: override != null && override.isNotEmpty
+              ? override
+              : AppProfiles.storePath(supportDir, profile),
+        );
+  if (legacySource != null) onResolvedLegacySource?.call(legacySource);
   // Resolution above is read-only. In managed builds the native owner must
   // exist before pointer migration, any preference read or any migration write.
   final ownedFile = await openOwnedFile?.call(selectedPath);
@@ -351,6 +383,7 @@ Future<String> installProfilePreferences({
     final store = installed = await ProfilePreferencesStore.load(
       selectedPath,
       ownedFile: ownedFile,
+      legacyPreferences: legacySource,
     );
     await _migrateLegacy(
       legacy,
@@ -406,6 +439,7 @@ Future<String> installProfilePreferencesOrFallback({
   void Function(Object error, StackTrace stack)? onError,
   OpenProfilePreferencesFile? openOwnedFile,
   void Function(String path)? validateSelectedFile,
+  void Function(LegacyProfilePreferences source)? onResolvedLegacySource,
 }) async {
   try {
     return await installProfilePreferences(
@@ -414,6 +448,7 @@ Future<String> installProfilePreferencesOrFallback({
       environment: environment,
       openOwnedFile: openOwnedFile,
       validateSelectedFile: validateSelectedFile,
+      onResolvedLegacySource: onResolvedLegacySource,
     );
   } catch (e, st) {
     if (openOwnedFile != null) rethrow;
@@ -447,51 +482,6 @@ Future<String?> _legacyString(
   } catch (_) {
     return null;
   }
-}
-
-/// The last segment of [path], the way the HOST names paths.
-///
-/// `split('/').last` was wrong on Windows, where `Directory.listSync` hands
-/// back `C:\…\profiles\decoy` and the whole string came back as the "name" — so
-/// no directory there was ever recognised as a profile and every suffixed key
-/// migrated into the default profile, which is precisely the profile those
-/// values must stay away from (audit X-04).
-///
-/// Only Windows treats `\` as a separator. On POSIX a backslash is an ordinary
-/// character in a file name, and splitting on it there would invent segments
-/// that do not exist. [windows] is a parameter rather than a read of
-/// `Platform`, because a Windows path is not something a test on this machine
-/// can otherwise produce.
-String lastPathSegment(String path, {bool? windows}) {
-  var cut = path.lastIndexOf('/');
-  if (windows ?? Platform.isWindows) {
-    final back = path.lastIndexOf('\\');
-    if (back > cut) cut = back;
-  }
-  return cut < 0 ? path : path.substring(cut + 1);
-}
-
-/// Which profile a legacy key belongs to, and the key with the suffix removed.
-///
-/// LONGEST suffix wins, which is why [known] is sorted here rather than
-/// iterated in whatever order it arrived. With profiles `a` and `x.a` both on
-/// the device, the first match against `proxy_routing.x.a` could be `.a` — and
-/// the value, a routing policy, went to profile `a` under the invented key
-/// `proxy_routing.x` (audit X-04). Only the longest match names a real profile;
-/// every shorter one is a suffix of that name.
-({String owner, String key}) routeLegacyKey(String bare, Set<String> known) {
-  final byLength =
-      known.where((name) => name != AppProfiles.defaultName).toList()
-        ..sort((a, b) => b.length.compareTo(a.length));
-  for (final name in byLength) {
-    if (bare.endsWith('.$name')) {
-      return (
-        owner: name,
-        key: bare.substring(0, bare.length - name.length - 1),
-      );
-    }
-  }
-  return (owner: AppProfiles.defaultName, key: bare);
 }
 
 Future<void> _migrateLegacy(
