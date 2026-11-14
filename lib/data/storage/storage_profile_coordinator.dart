@@ -1,9 +1,9 @@
 part of 'managed_directory_catalog.dart';
 
-/// Permanent, constant metadata for storage lifetime admission. It contains no
-/// identities/keys and survives removal of the enumerable root. Creators must
-/// hold a shared grant BEFORE creating/staging that root. Exclusive admission
-/// blocks new readers and creators even when no root exists.
+/// Permanent lifetime role: only a constant tag and empty lock, no identity
+/// locators or keys. A separate pending erasure intent may retain the public
+/// enumerable catalog. The role survives root removal. Creators hold a shared
+/// grant BEFORE staging a root; exclusive admission also works without a root.
 final class StorageProfileCoordinator {
   StorageProfileCoordinator._(
     this.profileDirectory,
@@ -11,14 +11,16 @@ final class StorageProfileCoordinator {
     this._directoryWitness,
     this._files,
     this._lease,
-    this._fs,
-  );
+    this._fs, {
+    this._erasureRecovery = false,
+  });
   static const directoryName = 'storage-lifetime';
   final String profileDirectory;
   final ManagedPathWitness _profileWitness, _directoryWitness;
   final Map<String, ManagedPathWitness> _files;
   final ManagedProfileLease _lease;
   final ManagedFsPlatform _fs;
+  final bool _erasureRecovery;
   bool _closed = false;
   bool get exclusive => _lease.exclusive;
   String get directory =>
@@ -124,12 +126,29 @@ final class StorageProfileCoordinator {
     throw const ManagedFsFailure(ManagedFsFailureKind.io);
   });
 
+  /// Recovery is a distinct exclusive owner. It cannot open catalogs or create
+  /// roots through their ordinary factories while an erasure is pending.
+  static StorageProfileCoordinator _openErasureRecovery(
+    String supplied,
+    ManagedFsPlatform fs,
+  ) => ManagedDirectoryCatalog._safe(() {
+    final profile = ManagedDirectoryCatalog._admitProfile(supplied, fs);
+    return _open(
+      profile.path,
+      profile.witness,
+      fs,
+      true,
+      erasureRecovery: true,
+    );
+  });
+
   static StorageProfileCoordinator _open(
     String profile,
     ManagedPathWitness witness,
     ManagedFsPlatform fs,
-    bool exclusive,
-  ) {
+    bool exclusive, {
+    bool erasureRecovery = false,
+  }) {
     ManagedDirectoryCatalog._assertProfile(profile, witness, fs);
     final path = ManagedDirectoryCatalog._child(profile, directoryName);
     final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
@@ -160,6 +179,7 @@ final class StorageProfileCoordinator {
         Map.unmodifiable(files),
         lease,
         fs,
+        erasureRecovery: erasureRecovery,
       );
       result.requireHeld();
       return result;
@@ -174,6 +194,17 @@ final class StorageProfileCoordinator {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.closed);
     }
     _lease.requireHeld(exclusive: exclusive);
+    if (!_erasureRecovery &&
+        FileSystemEntity.typeSync(
+              ManagedDirectoryCatalog._child(
+                directory,
+                ManagedRootErasure.pendingName,
+              ),
+              followLinks: false,
+            ) !=
+            FileSystemEntityType.notFound) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
     ManagedDirectoryCatalog._assertProfile(
       profileDirectory,
       _profileWitness,
