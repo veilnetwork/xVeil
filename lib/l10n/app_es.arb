@@ -3299,5 +3299,7 @@
   "identitySetupReplayAction": "Completar creación",
   "identitySetupReplayError": "No se pudo completar la creación. Revisa la contraseña; guarda un informe si el error se repite.",
   "storageOwnedReclaim": "Liberar espacio",
-  "storageOwnedReclaimHelp": "Compacta el almacenamiento de esta identidad conservando sus mensajes, archivos y claves. Normalmente el espacio se libera automáticamente."
+  "storageOwnedReclaimHelp": "Compacta el almacenamiento de esta identidad conservando sus mensajes, archivos y claves. Normalmente el espacio se libera automáticamente.",
+  "profileErasurePendingTitle": "El borrado del almacenamiento no ha terminado",
+  "profileErasurePendingBody": "Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente."
 }

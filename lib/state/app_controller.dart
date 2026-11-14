@@ -6203,9 +6203,12 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<List<String>> _wipeContainersOwned() async {
-    if (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
-        false) {
-      throw StateError('managed storage requires owned identity erasure');
+    if (ref.read(profileStorageRouterOwnerProvider) != null ||
+        ref.read(profileStorageRouterProvider) != null) {
+      // An empty visible catalog may still coexist with a hidden container.
+      // Every managed profile needs the full owned-erasure protocol; never
+      // fall through to the legacy best-effort delete while its router lives.
+      throw StateError('managed storage requires owned profile erasure');
     }
     _endLifecycle(); // invalidate pending unlocks before the first await
     _stopMediaCapture();

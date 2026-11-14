@@ -26,6 +26,34 @@ final class StorageProfileCoordinator {
   String get directory =>
       ManagedDirectoryCatalog._child(profileDirectory, directoryName);
 
+  /// Read-only startup hint, never an ownership grant. Even a malformed file,
+  /// directory or dangling link at either intent name blocks ordinary startup.
+  /// The native opener repeats this check under its actual role grant.
+  static bool hasErasureIntent(
+    String supplied, {
+    ManagedFsPlatform fs = const ManagedFsPlatform(),
+  }) => ManagedDirectoryCatalog._safe(() {
+    final profile = ManagedDirectoryCatalog._admitProfile(supplied, fs);
+    final path = ManagedDirectoryCatalog._child(profile.path, directoryName);
+    if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return false;
+    }
+    final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
+    final pending =
+        [ManagedRootErasure.pendingName, ManagedRootErasure.completionName].any(
+          (name) =>
+              FileSystemEntity.typeSync(
+                ManagedDirectoryCatalog._child(path, name),
+                followLinks: false,
+              ) !=
+              FileSystemEntityType.notFound,
+        );
+    ManagedDirectoryCatalog._assertProfile(profile.path, profile.witness, fs);
+    ManagedDirectoryCatalog._assertSame(path, directory, fs);
+    return pending;
+  });
+
   /// Read-only: no absent coordination directory is initialized implicitly.
   static StorageProfileCoordinator? openExisting(
     String supplied, {

@@ -14267,6 +14267,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically.'**
   String get storageOwnedReclaimHelp;
+
+  /// No description provided for @profileErasurePendingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage erasure is not finished'**
+  String get profileErasurePendingTitle;
+
+  /// No description provided for @profileErasurePendingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished.'**
+  String get profileErasurePendingBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
