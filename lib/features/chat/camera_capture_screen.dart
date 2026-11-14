@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../core/capture_resource_lifetime.dart';
+import '../../state/owned_camera_controller.dart';
 
 class CapturedComposerMedia {
   const CapturedComposerMedia({
@@ -71,6 +73,9 @@ class CameraCaptureScreen extends StatefulWidget {
 class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     with WidgetsBindingObserver {
   CameraController? _controller;
+  final _captureLifetime = CaptureResourceLifetime.current();
+  final _ownedCameras = <CameraController, OwnedCameraController>{};
+  final _abandonedPaths = <CameraController, String>{};
   List<CameraDescription> _cameras = const [];
   int _cameraIndex = 0;
   int _openEpoch = 0;
@@ -113,6 +118,9 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
       final old = _controller;
       _controller = null;
       await _discardController(old);
+      for (final owned in _ownedCameras.keys.toList()) {
+        await _discardController(owned);
+      }
       if (!mounted || epoch != _openEpoch) return;
       final controller = CameraController(
         _cameras[_cameraIndex],
@@ -120,7 +128,22 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
         enableAudio: widget.video,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      await controller.initialize();
+      final owner = OwnedCameraController.tryOwn(
+        controller,
+        lifetime: _captureLifetime,
+        automaticRetirement: false,
+      );
+      if (owner == null) {
+        await controller.dispose();
+        throw const CameraCaptureRetirementFailure();
+      }
+      _ownedCameras[controller] = owner;
+      try {
+        await controller.initialize();
+      } catch (_) {
+        await _discardController(controller);
+        rethrow;
+      }
       final lifecycle = WidgetsBinding.instance.lifecycleState;
       if (!mounted ||
           epoch != _openEpoch ||
@@ -156,14 +179,29 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     } catch (_) {
       // The platform may have already revoked the camera while backgrounding.
     }
-    try {
-      await controller.dispose();
-    } catch (_) {}
-    final path = abandonedRecording?.path;
+    if (abandonedRecording != null) {
+      _abandonedPaths[controller] = abandonedRecording.path;
+    }
+    final path = _abandonedPaths[controller];
     if (path != null && path.isNotEmpty) {
       try {
-        await File(path).delete();
-      } catch (_) {}
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+        _abandonedPaths.remove(controller);
+      } catch (_) {
+        // Retain both the pending path and the non-automatic lease. A later
+        // retry can clean them; erasure cannot adopt a camera-only proof.
+        return;
+      }
+    }
+    final owner = _ownedCameras[controller];
+    if (owner != null) {
+      try {
+        await owner.close();
+        _ownedCameras.remove(controller);
+      } catch (_) {
+        // Keep the exact owner for a lifecycle/reopen retry.
+      }
     }
   }
 
