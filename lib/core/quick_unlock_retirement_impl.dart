@@ -32,10 +32,10 @@ final class QuickUnlockRetirement {
     QuickUnlockSecretStore store,
     LocalScreenAuthentication authentication,
   ) : this._bound(
-        erasure.snapshot(),
+        erasure.retirementSnapshot(),
         store,
         authentication,
-        requireOwner: () => erasure.snapshot().unlockScopes,
+        requireOwner: () => erasure.retirementSnapshot(),
       );
 
   /// A live UI-side lease, not a retained progress snapshot, owns OS admission.

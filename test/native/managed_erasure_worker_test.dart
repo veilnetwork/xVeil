@@ -620,6 +620,122 @@ void main() {
   );
 
   test(
+    'terminal sync failure cannot revive cached scope mutation authority',
+    () async {
+      await create(visible: false);
+      await seed();
+      final w = await ManagedErasureWorker.beginWithFinalSyncFailureForTesting(
+        profileDirectory: profile,
+        profileNamespace: ns,
+        legacyPath: legacy,
+      );
+      owners.add(w);
+      final r = retire(w);
+      await w.removeManagedFiles(retireScopes: r.retire);
+      File(legacy).deleteSync();
+      await expectLater(
+        w.finish(verifyOtherDataAbsent: r.verifyAbsent),
+        throwsA(isA<ManagedWorkerFailure>()),
+      );
+      await store.write(
+        'xveil.quick.v1.${scopes().first}',
+        '{"v":1,"id":"new synthetic","system":false,"grid":null,"pattern":null}',
+      );
+      final before = Map.of(store.values), mutations = store.mutations;
+      await expectLater(
+        r.retire(),
+        throwsA(isA<QuickUnlockRetirementFailure>()),
+      );
+      expect(store.values, before);
+      expect(store.mutations, mutations);
+      expect(() => w.scopeLease, throwsA(isA<ManagedWorkerFailure>()));
+      expect((await w.snapshot()).phase, ManagedRootErasurePhase.finishing);
+      expect(() => w.scopeLease, throwsA(isA<ManagedWorkerFailure>()));
+    },
+  );
+
+  test(
+    'preterminal refusal revalidates native plan before restoring scope cleanup',
+    () async {
+      await create(visible: false);
+      final w = await begin();
+      final view = await w.snapshot();
+      final original = retire(w);
+      await expectLater(
+        w.finish(
+          verifyOtherDataAbsent: () async {
+            throw StateError('synthetic refusal before terminal');
+          },
+        ),
+        throwsA(isA<ManagedWorkerFailure>()),
+      );
+      expect(w.scopeLease.snapshot.binding.sameOperation(view.binding), isTrue);
+      await w.removeManagedFiles(retireScopes: original.retire);
+      File(legacy).deleteSync();
+      final proof = await w.finish(
+        verifyOtherDataAbsent: original.verifyAbsent,
+      );
+      expect(proof.authorizes(view.binding), isTrue);
+    },
+  );
+
+  test('failed native revalidation cannot restore a cached scope grant', () async {
+    await create(visible: false);
+    await seed();
+    final w = await begin();
+    final r = retire(w);
+    await w.removeManagedFiles(retireScopes: r.retire);
+    File(legacy).deleteSync();
+    final plan = File(
+      '$profile/${StorageProfileCoordinator.directoryName}/${ManagedRootErasure.pendingName}/plan.json',
+    );
+    await expectLater(
+      w.finish(
+        verifyOtherDataAbsent: () async {
+          await store.write(
+            'xveil.quick.v1.${scopes().first}',
+            '{"v":1,"id":"new synthetic","system":false,"grid":null,"pattern":null}',
+          );
+          plan.writeAsStringSync('synthetic changed plan');
+          throw StateError('synthetic refusal with unverified native state');
+        },
+      ),
+      throwsA(isA<ManagedWorkerFailure>()),
+    );
+    final before = Map.of(store.values), mutations = store.mutations;
+    await expectLater(r.retire(), throwsA(isA<QuickUnlockRetirementFailure>()));
+    expect(() => w.scopeLease, throwsA(isA<ManagedWorkerFailure>()));
+    expect(store.values, before);
+    expect(store.mutations, mutations);
+    expect(plan.readAsStringSync(), 'synthetic changed plan');
+  });
+
+  test(
+    'finish joins previously accepted scope cleanup before sealing mutations',
+    () async {
+      await create(visible: false);
+      await seed();
+      final w = await begin();
+      final r = retire(w);
+      final entered = Completer<void>(), release = Completer<void>();
+      store.removalReadEntered = entered;
+      store.removalReadRelease = release;
+      final removing = _outcome(w.removeManagedFiles(retireScopes: r.retire));
+      await entered.future;
+      File(legacy).deleteSync();
+      final finishing = _outcome(
+        w.finish(verifyOtherDataAbsent: r.verifyAbsent),
+      );
+      expect(() => w.scopeLease, throwsA(isA<ManagedWorkerFailure>()));
+      release.complete();
+      final result = await Future.wait([removing, finishing]);
+      expect(result.first, isNull);
+      expect(result.last, isA<ManagedErasureRelease>());
+      expect(store.values, isEmpty);
+    },
+  );
+
+  test(
     'close can confirm a failed final sync instead of stranding a closed RPC owner',
     () async {
       await create(visible: false);

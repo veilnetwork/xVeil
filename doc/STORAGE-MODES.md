@@ -1969,6 +1969,15 @@ protected deletion, and continuation through the recovered durable plan. OS
 ports in these tests are in-memory; actual Keychain/Keystore qualification and
 the complete cold application recovery gates remain open.
 
+Terminal admission first joins cleanup already accepted by the worker, while
+refusing new operations. Entering finalization seals that owner's scope-mutation
+grant. A failure cannot restore it from cached removing progress. Only a fresh
+native retirement check of the same valid, still-removing operation reopens
+cleanup after a pre-terminal refusal. Unknown state and committed finalization
+remain sealed, including after a later progress refresh. Direct native actors
+validate the same phase boundary. Read-only verification and finalization
+retries remain available; a terminal never recreates a scope roster.
+
 ## Windows live helper ownership
 
 Windows VPN status observations distinguish authenticated helper reports from

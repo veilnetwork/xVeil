@@ -668,6 +668,7 @@ SendPort _serveWorker(
           _CatalogEraseReq() ||
           _CatalogReviewEraseReq() ||
           _ErasureSnapshotReq() ||
+          _ErasureRetirementSnapshotReq() ||
           _ErasureRemoveReq() ||
           _ErasureAuxiliaryReq() ||
           _ErasureFinishReq() ||

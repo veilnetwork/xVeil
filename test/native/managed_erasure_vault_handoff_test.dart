@@ -228,6 +228,51 @@ void main() {
   }
 
   test(
+    'direct actor blocks cleanup during verification and permits explicit removing retry',
+    () async {
+      final e = await intent('profile', [first]);
+      final r = retirement(e);
+      await e.removeManagedFiles(retireScopes: (_) => r.retire());
+      final entered = Completer<void>(), release = Completer<void>();
+      final finishing = e
+          .finish(
+            verifyOtherDataAbsent: () async {
+              entered.complete();
+              await release.future;
+              await r.verifyAbsent();
+            },
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      await entered.future;
+      await store.write(
+        'xveil.quick.v1.$first',
+        '{"v":1,"id":"new synthetic","system":false,"grid":null,"pattern":null}',
+      );
+      final before = Map.of(store.values), calls = store.calls;
+      try {
+        await expectLater(
+          r.retire(),
+          throwsA(isA<public_api.QuickUnlockRetirementFailure>()),
+        );
+        expect(() => retirement(e), throwsA(isA<ManagedFsFailure>()));
+        expect(store.values, before);
+        expect(store.calls, calls);
+      } finally {
+        release.complete();
+        await finishing;
+      }
+      expect(await finishing, isA<public_api.QuickUnlockRetirementFailure>());
+      expect(e.snapshot().phase, ManagedRootErasurePhase.removing);
+      expect(store.values, before);
+      // Verification itself did not delete. Deliberate cleanup may resume only
+      // after this native owner has revalidated the still-removing plan.
+      await e.removeManagedFiles(retireScopes: (_) => r.retire());
+      expect(store.values, isEmpty);
+      await e.finish(verifyOtherDataAbsent: r.verifyAbsent);
+    },
+  );
+
+  test(
     'only completed terminal protocol and actual native close issue a release',
     () async {
       final e = await intent('profile', [first]);

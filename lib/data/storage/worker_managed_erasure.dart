@@ -37,6 +37,10 @@ final class _ErasureSnapshotReq extends _Req {
   const _ErasureSnapshotReq(super.reply);
 }
 
+final class _ErasureRetirementSnapshotReq extends _Req {
+  const _ErasureRetirementSnapshotReq(super.reply);
+}
+
 final class _ErasureRemoveReq extends _Req {
   const _ErasureRemoveReq(this.admission, super.reply);
   final SendPort admission;
@@ -58,10 +62,13 @@ final class ManagedErasureScopeLease {
   ManagedErasureScopeLease._(this._owner);
   final ManagedErasureWorker _owner;
   ManagedErasureSnapshot get snapshot {
-    if (_owner._closed || _owner._dead || _owner._finishing != null) {
+    if (_owner._closed || _owner._dead || _owner._scopeRetirementSealed) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);
     }
-    final snapshot = _owner._snapshot!;
+    final snapshot = _owner._snapshot;
+    if (snapshot == null) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);
+    }
     snapshot.unlockScopes; // Terminal recovery has no reconstructible roster.
     return snapshot;
   }
@@ -90,6 +97,7 @@ final class ManagedErasureWorker {
   Future<ManagedErasureRelease>? _finishing;
   Future<void>? _closing;
   bool _closed = false, _dead = false, _superseded = false;
+  bool _scopeRetirementSealed = false;
   final _accepted = <Future<void>>{};
   static final _retiring = <String, Set<ManagedErasureWorker>>{};
 
@@ -397,18 +405,53 @@ final class ManagedErasureWorker {
         const ManagedWorkerFailure(ManagedWorkerFailureKind.closed),
       );
     }
-    return _finishing ??= _track(
+    final pending = _finishing;
+    if (pending != null) return pending;
+    // Seal new admission immediately, but let previously accepted cleanup
+    // finish under its original lease before entering the terminal phase.
+    final earlier = _accepted.toList(growable: false);
+    return _finishing = _track(
       () async {
+        await Future.wait(earlier);
+        // Never revive mutation from cached removing progress after an
+        // ambiguous/failed terminal reply. Only a fresh native retirement
+        // check of this exact operation can authorize continued removal.
+        _scopeRetirementSealed = true;
         if (_receipt == null) {
           final admission = _ManagedEraseAdmission(verifyOtherDataAbsent);
           try {
-            _receipt = await _bounded(
-              _worker._call<ManagedErasureRelease>(
-                (reply) => _ErasureFinishReq(admission.port, reply),
-              ),
-            );
-          } finally {
-            await admission.settleAndClose();
+            try {
+              _receipt = await _bounded(
+                _worker._call<ManagedErasureRelease>(
+                  (reply) => _ErasureFinishReq(admission.port, reply),
+                ),
+              );
+            } finally {
+              await admission.settleAndClose();
+            }
+          } catch (error, trace) {
+            try {
+              final current = await _bounded(
+                _worker._call<ManagedErasureSnapshot>(
+                  (reply) => _ErasureRetirementSnapshotReq(reply),
+                ),
+              );
+              if (_closed ||
+                  _dead ||
+                  _snapshot == null ||
+                  !current.binding.sameOperation(_snapshot!.binding)) {
+                throw const ManagedWorkerFailure(
+                  ManagedWorkerFailureKind.closed,
+                );
+              }
+              current.unlockScopes;
+              _snapshot = current;
+              _scopeRetirementSealed = false;
+            } catch (_) {
+              // An unavailable/terminal owner never reconstructs a roster or
+              // turns a failed check into a new deletion grant.
+            }
+            Error.throwWithStackTrace(error, trace);
           }
         }
         // A receipt is not returned until the separate worker-close protocol
@@ -608,6 +651,11 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
             message.reply.send(
               _Ok(erasure?.snapshot() ?? reconciliation!.snapshot()),
             );
+          case _ErasureRetirementSnapshotReq():
+            if (erasure == null) {
+              throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
+            }
+            message.reply.send(_Ok(erasure.retirementSnapshot()));
           case _ErasureRemoveReq(:final admission):
             if (erasure == null) {
               throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
