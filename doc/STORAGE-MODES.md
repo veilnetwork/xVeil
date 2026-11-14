@@ -1104,17 +1104,48 @@ exclusive maintenance owners. Native encrypted/plaintext data-worker and catalog
 actor cases retain ownership until confirmed close. These are macOS fixtures;
 Windows and mobile filesystem/runtime behavior are not physically qualified.
 
-This coordinates an already published managed root; it is not whole-profile
-erasure. A creator still preparing an unpublished root must also join a stable
-profile-level barrier before deletion can be enabled, so it cannot publish a
-fresh root after a wipe. The durable deletion intent, startup recovery with a
-partially removed catalog, complete owned-entry cleanup and all OS-vault scopes
-also remain required. The destructive action and new storage default stay off.
+A permanent `storage-lifetime` directory at the profile level now extends this
+barrier to unpublished and absent managed roots. It holds only a different fixed
+role tag and an empty lock sidecar, with no catalog, identity count, locator,
+credential or hidden-space fact. This constant coordination metadata must remain
+when user data is erased, so a new creator cannot bypass an old exclusive owner
+by replacing the lock inode. Explicit profile/catalog-worker initialization
+creates it even when there are no managed identities. Read-only absent-root
+probes still create nothing.
+
+Root creators take parent shared admission before any identities staging. All
+published-root owners retain that admission, and a live catalog worker retains
+its own parent reader even with no root present. Acquisition order is parent,
+root, then identity; confirmed identity/catalog cleanup precedes releasing those
+leases in reverse order. A parent exclusive owner can therefore exclude new
+creators while the managed root is absent or after its removal. Root maintenance
+requires both parent and root exclusive admission. Contention refuses without
+an implicit delayed writer.
+
+The permanent role is initialized privately and published without replacement.
+A losing parent bootstrap refuses rather than adopting the winner and continuing
+an older initialization across somebody else's maintenance. Only exact owned
+unpublished files may be cleaned up; unknown pending directories are retained.
+This differs deliberately from losing managed-root publication: those creators
+already hold parent readers, which exclude a simultaneous wipe.
+
+Host checks additionally cover independent shared/exclusive parent owners,
+absent-root catalog workers, creators paused before root publication, permanent
+role preservation after synthetic root removal, and actual SIGKILL before/after
+publication of both directory levels. Corrupt/swapped roles, links, nonempty
+locks, replaced paths and foreign staging content refuse without repair. These
+are synthetic macOS process/filesystem fixtures, not a production wipe or
+mobile/Windows qualification.
+
+This remains a coordination primitive, not whole-profile erasure. Durable
+deletion intent, startup recovery with a partially removed catalog, complete
+owned-entry cleanup and all OS-vault scopes remain required. The destructive
+action and new storage default stay off.
 
 ### OS quick-entry cleanup before whole-profile erasure
 
 Whole-profile erasure with visible catalog entries is still refused pending
-cross-worker coordination and a recoverable deletion protocol. Its OS-credential
+a recoverable deletion protocol built on the coordination described above. Its OS-credential
 boundary is being qualified separately; this is not permission to recursively
 remove the managed root or bypass per-identity erasure authentication.
 

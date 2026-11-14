@@ -17,6 +17,7 @@ Future<void> main(List<String> args) async {
   void release() {
     if (held case final ManagedProfileLease lease) lease.close();
     if (held case final ManagedDirectoryCatalog root) root.close();
+    if (held case final StorageProfileCoordinator gate) gate.close();
     held = null;
   }
 
@@ -34,6 +35,16 @@ Future<void> main(List<String> args) async {
           result = 'closed';
         } else if (held != null) {
           result = 'occupied';
+        } else if (command == 'take-profile-shared' ||
+            command == 'take-profile-exclusive') {
+          held = StorageProfileCoordinator.createOrOpen(
+            profile,
+            exclusive: command == 'take-profile-exclusive',
+          );
+          result = 'opened';
+        } else if (command == 'create-root') {
+          held = ManagedDirectoryCatalog.createOrOpen(profile);
+          result = 'opened';
         } else if (command == 'take-root') {
           held = ManagedDirectoryCatalog.openExisting(profile);
           result = held == null ? 'absent' : 'opened';

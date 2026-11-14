@@ -95,9 +95,27 @@ final class ManagedCatalogWorker {
 
 void _managedCatalogEntry(_OpenManagedCatalog config) {
   ManagedDirectoryCatalog? root;
+  StorageProfileCoordinator? coordinator;
+  void cleanup() {
+    root?.close();
+    coordinator?.close();
+  }
+
   try {
+    coordinator = StorageProfileCoordinator.createOrOpen(config.path);
     root = ManagedDirectoryCatalog.openExisting(config.path);
   } catch (error) {
+    try {
+      cleanup();
+    } catch (_) {
+      config.reply.send(
+        _ManagedOpenFailed(
+          _managedFailureKind(error),
+          _serveManagedCleanup(cleanup),
+        ),
+      );
+      return;
+    }
     config.reply.send(_workerErrorReply(error, managed: true));
     return;
   }
@@ -202,7 +220,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
           }());
         case _CloseReq():
           closing = true;
-          root?.close();
+          cleanup();
           message.reply.send(const _Ok(null));
           rx.close();
           Isolate.current.kill(priority: Isolate.immediate);

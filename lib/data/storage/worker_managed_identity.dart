@@ -301,12 +301,12 @@ final class _ManagedWorkerOwner {
   }
 }
 
-SendPort _serveManagedCleanup(_ManagedWorkerOwner owner) {
+SendPort _serveManagedCleanup(void Function() close) {
   final requests = ReceivePort();
   requests.listen((dynamic message) {
     if (message is! _CloseReq) return;
     try {
-      owner.close();
+      close();
       message.reply.send(const _Ok(null));
       requests.close();
       Isolate.current.kill(priority: Isolate.immediate);

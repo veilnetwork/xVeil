@@ -14,7 +14,12 @@ class _BeforePublish extends ManagedFsPlatform {
   final void Function(String source, String destination) action;
   @override
   bool publishDirectoryNoReplace(String source, String destination) {
-    action(source, destination);
+    if (Directory(
+          destination,
+        ).uri.pathSegments.where((s) => s.isNotEmpty).last ==
+        'identities') {
+      action(source, destination);
+    }
     return super.publishDirectoryNoReplace(source, destination);
   }
 }
@@ -23,8 +28,14 @@ class _AfterPublish extends ManagedFsPlatform {
   bool published = false;
   @override
   bool publishDirectoryNoReplace(String source, String destination) {
-    published = super.publishDirectoryNoReplace(source, destination);
-    return published;
+    final result = super.publishDirectoryNoReplace(source, destination);
+    if (Directory(
+          destination,
+        ).uri.pathSegments.where((s) => s.isNotEmpty).last ==
+        'identities') {
+      published = result;
+    }
+    return result;
   }
 
   @override
@@ -39,6 +50,8 @@ void main() {
   late Directory temporary;
   late Directory profile;
   final live = <ManagedDirectoryCatalog>[];
+  Set<String> names() =>
+      profile.listSync().map((e) => File(e.path).uri.pathSegments.last).toSet();
 
   ManagedDirectoryCatalog create({ManagedFsPlatform platform = fs}) {
     final owner = ManagedDirectoryCatalog.createOrOpen(
@@ -74,7 +87,7 @@ void main() {
       expect(owner.snapshot().catalog.identities, isEmpty);
       expect(fs.inspect(owner.directory).ownerOnly, isTrue);
       expect(fs.inspect(owner.layout.catalogPath).ownerOnly, isTrue);
-      expect(Directory(profile.path).listSync().length, 2);
+      expect(names(), {'legacy-fixture', 'identities', 'storage-lifetime'});
       owner.close();
       final reopened = ManagedDirectoryCatalog.openExisting(profile.path)!;
       live.add(reopened);
@@ -213,9 +226,9 @@ void main() {
     expect(loser.snapshot().revision, 1);
     expect(loser.snapshot().catalog.identities.single.id, id);
     expect(
-      profile.listSync().length,
-      1,
-      reason: 'only the published winner remains',
+      names(),
+      {'identities', 'storage-lifetime'},
+      reason: 'only the published winner and permanent coordination remain',
     );
   });
 
@@ -230,7 +243,7 @@ void main() {
       ),
       throwsA(isA<ManagedFsFailure>()),
     );
-    expect(profile.listSync().map((entry) => entry.path), [sentinel.path]);
+    expect(names(), {'sentinel', 'storage-lifetime'});
     expect(sentinel.readAsStringSync(), 'preserved');
   });
 
@@ -240,7 +253,7 @@ void main() {
       throwsA(isA<ManagedFsFailure>()),
     );
     expect(create().snapshot().revision, 0);
-    expect(profile.listSync().length, 1);
+    expect(names(), {'identities', 'storage-lifetime'});
   });
 
   test('cleanup refuses a replacement directory and unexpected content', () {
@@ -267,7 +280,11 @@ void main() {
     final owner = create();
     expect(owner.snapshot().catalog.identities, isEmpty);
     expect(marker.readAsStringSync(), 'keep');
-    expect(profile.listSync().length, 2);
+    expect(names(), {
+      File(pending.path).uri.pathSegments.last,
+      'identities',
+      'storage-lifetime',
+    });
   });
 
   test(
