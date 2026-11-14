@@ -34,6 +34,7 @@ part 'managed_identity_reclaim.dart';
 part 'managed_identity_usage.dart';
 part 'managed_identity_erase.dart';
 part 'managed_identity_erase_review.dart';
+part 'storage_profile_coordinator.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
@@ -48,6 +49,7 @@ final class ManagedDirectoryCatalog {
     this._catalogWitness,
     this._catalog,
     this._profileLease,
+    this._coordinator,
     this._leaseWitnesses,
     this._fs,
   );
@@ -59,6 +61,7 @@ final class ManagedDirectoryCatalog {
   final ManagedPathWitness _catalogWitness;
   final ManagedCatalogStore _catalog;
   final ManagedProfileLease _profileLease;
+  final StorageProfileCoordinator _coordinator;
   final Map<String, ManagedPathWitness> _leaseWitnesses;
   final ManagedFsPlatform _fs;
   bool _closed = false;
@@ -91,37 +94,54 @@ final class ManagedDirectoryCatalog {
   static ManagedDirectoryCatalog? openExisting(
     String profileDirectory, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
-  }) {
-    return _safe(() {
-      final profile = _admitProfile(profileDirectory, fs);
-      final path = _child(profile.path, 'identities');
-      if (FileSystemEntity.typeSync(path, followLinks: false) ==
-          FileSystemEntityType.notFound) {
-        return null;
-      }
-      return _open(profile.path, profile.witness, path, fs);
-    });
-  }
+  }) => _openExisting(profileDirectory, fs, exclusive: false);
 
-  /// Exclusive coordination only: does not delete data or authorize erasure.
-  /// Every catalog and data owner must first release its shared lifetime lease.
-  /// Missing roots remain absent; contention never creates a retrying writer.
+  /// Exclusive coordination only; does not delete data or authorize erasure.
   static ManagedDirectoryCatalog? openExclusiveMaintenance(
     String profileDirectory, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
+  }) => _openExisting(profileDirectory, fs, exclusive: true);
+
+  static ManagedDirectoryCatalog? _openExisting(
+    String supplied,
+    ManagedFsPlatform fs, {
+    required bool exclusive,
   }) => _safe(() {
-    final profile = _admitProfile(profileDirectory, fs);
+    final profile = _admitProfile(supplied, fs);
     final path = _child(profile.path, 'identities');
     if (FileSystemEntity.typeSync(path, followLinks: false) ==
         FileSystemEntityType.notFound) {
       return null;
     }
-    return _open(profile.path, profile.witness, path, fs, exclusive: true);
+    final coordinator = StorageProfileCoordinator.openExisting(
+      profile.path,
+      fs: fs,
+      exclusive: exclusive,
+    );
+    if (coordinator == null) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    var adopted = false;
+    try {
+      final result = _open(
+        profile.path,
+        profile.witness,
+        path,
+        fs,
+        exclusive: exclusive,
+        coordinator: coordinator,
+      );
+      adopted = true;
+      return result;
+    } finally {
+      if (!adopted) coordinator.close();
+    }
   });
 
   void requireExclusiveMaintenance() {
     _validate();
     _profileLease.requireHeld(exclusive: true);
+    _coordinator.requireHeld(exclusive: true);
     if (_identityOwners.isNotEmpty) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
     }
@@ -135,11 +155,39 @@ final class ManagedDirectoryCatalog {
     String profileDirectory, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
   }) => _safe(() {
-    final profile = _admitProfile(profileDirectory, fs);
+    final coordinator = StorageProfileCoordinator.createOrOpen(
+      profileDirectory,
+      fs: fs,
+    );
+    var adopted = false;
+    try {
+      final result = _createOrOpen(coordinator, fs);
+      adopted = true;
+      return result;
+    } finally {
+      if (!adopted) coordinator.close();
+    }
+  });
+
+  static ManagedDirectoryCatalog _createOrOpen(
+    StorageProfileCoordinator coordinator,
+    ManagedFsPlatform fs,
+  ) {
+    coordinator.requireHeld();
+    final profile = (
+      path: coordinator.profileDirectory,
+      witness: coordinator._profileWitness,
+    );
     final path = _child(profile.path, 'identities');
     if (FileSystemEntity.typeSync(path, followLinks: false) !=
         FileSystemEntityType.notFound) {
-      return _open(profile.path, profile.witness, path, fs);
+      return _open(
+        profile.path,
+        profile.witness,
+        path,
+        fs,
+        coordinator: coordinator,
+      );
     }
     final random = Random.secure();
     for (var attempt = 0; attempt < 8; attempt++) {
@@ -204,10 +252,16 @@ final class ManagedDirectoryCatalog {
           _discardOwnedEmptyBootstrap(staged, stagedWitness, ownedFiles, fs);
         }
       }
-      return _open(profile.path, profile.witness, path, fs);
+      return _open(
+        profile.path,
+        profile.witness,
+        path,
+        fs,
+        coordinator: coordinator,
+      );
     }
     throw const ManagedFsFailure(ManagedFsFailureKind.io);
-  });
+  }
 
   static ManagedDirectoryCatalog _open(
     String profile,
@@ -215,7 +269,9 @@ final class ManagedDirectoryCatalog {
     String root,
     ManagedFsPlatform fs, {
     bool exclusive = false,
+    required StorageProfileCoordinator coordinator,
   }) {
+    coordinator.requireHeld(exclusive: exclusive);
     _assertProfile(profile, profileWitness, fs);
     final rootWitness = _privateDirectory(root, fs);
     final catalogPath = _child(root, _catalogName);
@@ -259,6 +315,7 @@ final class ManagedDirectoryCatalog {
         catalogWitness,
         catalog,
         profileLease,
+        coordinator,
         Map.unmodifiable(leaseWitnesses),
         fs,
       );
@@ -294,6 +351,7 @@ final class ManagedDirectoryCatalog {
     if (_closed) {
       throw const ManagedCatalogFailure(ManagedCatalogFailureKind.closed);
     }
+    _coordinator.requireHeld();
     _profileLease.requireHeld();
     _assertProfile(profileDirectory, _profileWitness, _fs);
     _privateDirectory(directory, _fs);
@@ -325,6 +383,7 @@ final class ManagedDirectoryCatalog {
     }
     _catalogRelease.close();
     _profileLease.close();
+    _coordinator.close();
     _eraseReviews.clear();
     _closed = true;
   }

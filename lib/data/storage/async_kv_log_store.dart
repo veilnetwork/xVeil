@@ -563,7 +563,7 @@ void _workerEntry(_OpenConfig cfg) {
       final failure = opened.failure;
       if (failure != null) {
         cfg.reply.send(
-          _ManagedOpenFailed(failure, _serveManagedCleanup(opened)),
+          _ManagedOpenFailed(failure, _serveManagedCleanup(opened.close)),
         );
         return;
       }
@@ -647,7 +647,10 @@ SendPort _serveWorker(
     }
 
     switch (msg) {
-      case _CatalogSnapshotReq() || _CatalogSelectReq() || _CatalogEraseReq() || _CatalogReviewEraseReq():
+      case _CatalogSnapshotReq() ||
+          _CatalogSelectReq() ||
+          _CatalogEraseReq() ||
+          _CatalogReviewEraseReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
         run(() {

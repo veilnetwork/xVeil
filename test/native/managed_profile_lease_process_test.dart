@@ -31,6 +31,24 @@ String attempt(String path) {
   }
 }
 
+String attemptProfile(String profile) {
+  try {
+    final gate = StorageProfileCoordinator.openExisting(
+      profile,
+      exclusive: true,
+    )!;
+    gate.requireHeld(exclusive: true);
+    gate.close();
+    return 'opened';
+  } on ManagedLeaseFailure catch (e) {
+    if (e.kind == ManagedLeaseFailureKind.busy) return 'busy';
+    rethrow;
+  } on ManagedSqliteFailure catch (e) {
+    if (e.sqliteCode == 5) return 'busy';
+    rethrow;
+  }
+}
+
 void main() {
   late Directory temp;
   late String profile, role;
@@ -135,18 +153,22 @@ void main() {
               );
         try {
           expect(attempt(role), 'busy');
+          expect(attemptProfile(profile), 'busy');
         } finally {
           await worker.close();
           password.fillRange(0, password.length, 0);
         }
         expect(attempt(role), 'opened');
+        expect(attemptProfile(profile), 'opened');
         final catalog = await ManagedCatalogWorker.open(profile);
         try {
           expect(attempt(role), 'busy');
+          expect(attemptProfile(profile), 'busy');
         } finally {
           await catalog.close();
         }
         expect(attempt(role), 'opened');
+        expect(attemptProfile(profile), 'opened');
       },
     );
   }
