@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
 import 'package:xveil/core/background_service_lifetime.dart';
+import 'package:xveil/core/android_microphone_lifetime.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -134,6 +135,23 @@ class _Vault extends RetirementSecretStore {
   }
 }
 
+// Only OS microphone facts are modeled. The profile worker and payload erasure
+// remain native, and the production background/microphone composer is used.
+final class _MicrophoneResources implements MicrophoneResourceRetirement {
+  bool held = true;
+  int releases = 0;
+  @override
+  Future<void> verifyReleasedResources() async {
+    if (held) throw StateError('synthetic microphone resource held');
+  }
+
+  @override
+  Future<void> releaseAdmission() async {
+    await verifyReleasedResources();
+    releases++;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory fixture;
@@ -148,7 +166,7 @@ void main() {
   late _Vault vault;
   late VpnBackend vpn;
   late BackgroundResourceBackend background;
-  bool retirementSupported = true;
+  bool retirementSupported = true, platformBackground = false;
   late List<ManagedStorageLocator> locators;
   bool failReopen = false;
   late Directory translationRoot;
@@ -256,6 +274,7 @@ void main() {
     vpn = _Vpn();
     background = BackgroundResourceBackend();
     retirementSupported = true;
+    platformBackground = false;
     controller = _Controller();
     app = ProviderContainer(
       overrides: [
@@ -271,7 +290,9 @@ void main() {
         notificationServiceProvider.overrideWithValue(_Notifications()),
         vpnBackendProvider.overrideWith((ref) => vpn),
         backgroundServiceProvider.overrideWith(
-          (ref) => background.actions(retirementSupported: retirementSupported),
+          (ref) => platformBackground
+              ? BackgroundServiceActions.platform()
+              : background.actions(retirementSupported: retirementSupported),
         ),
         whisperModelStoreProvider.overrideWithValue(
           WhisperModelStore(supportDirectory: () async => fixture),
@@ -302,6 +323,7 @@ void main() {
     expect(vault.values, hasLength(6));
   });
   tearDown(() async {
+    AndroidMicrophoneLifetime.debugReset();
     if (modelGate != null && !modelGate!.isCompleted) modelGate!.complete();
     app.dispose();
     await owner.close();
@@ -762,6 +784,77 @@ void main() {
       expect(session.existsSync(), isFalse);
       expect(File(legacy).existsSync(), isFalse);
       expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+
+  test(
+    'production composer refuses microphone failure before erasure intent',
+    () async {
+      platformBackground = true;
+      final old = AndroidMicrophoneLifetime.current();
+      final resources = _MicrophoneResources();
+      var refuse = true, acquisitions = 0;
+      AndroidMicrophoneLifetime.debugRetireOverride = () async {
+        acquisitions++;
+        if (refuse) throw StateError('synthetic microphone refusal');
+        resources.held = false;
+        return resources;
+      };
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(vault.values, hasLength(6));
+      await expectLater(old.setActive(true), throwsStateError);
+      refuse = false;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(acquisitions, 2);
+      expect(resources.releases, 1);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(identical(AndroidMicrophoneLifetime.current(), old), isFalse);
+      await expectLater(old.setActive(false), throwsStateError);
+    },
+  );
+
+  test(
+    'microphone proof is rechecked before native payload deletion',
+    () async {
+      platformBackground = true;
+      final resources = _MicrophoneResources();
+      var acquisitions = 0;
+      AndroidMicrophoneLifetime.debugRetireOverride = () async {
+        acquisitions++;
+        resources.held = false;
+        return resources;
+      };
+      final job = makeJob((request, retry) async {
+        final worker = await ManagedErasureWorker.beginApplicationProfile(
+          profileDirectory: profile,
+          profileNamespace: namespace,
+          legacyPath: legacy,
+          request: request,
+        );
+        resources.held = true;
+        return worker;
+      });
+      addTearDown(job.close);
+      final before = Map.of(vault.values);
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(Directory('$profile/identities').existsSync(), isTrue);
+      expect(vault.values, before);
+      expect(resources.releases, 0);
+      resources.held = false;
+      await job.resume();
+      expect(acquisitions, 1);
+      expect(resources.releases, 1);
+      expect(File(legacy).existsSync(), isFalse);
     },
   );
 

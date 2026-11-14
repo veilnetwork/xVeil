@@ -436,6 +436,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Timer? _statsTimer;
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
+  final _microphoneForeground = AndroidCallForegroundService.bind();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
@@ -549,7 +550,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Before capture opens: keeps AudioRecord unmuted once the screen locks;
       // released by _stopLocked on every teardown path.
       if (call.media.audio) {
-        await AndroidCallForegroundService.setActive(true);
+        await _microphoneForeground.setActive(true);
         if (!isCurrent()) return false;
       }
       await _syncPeersLocked(call);
@@ -1675,7 +1676,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       await callAudioRouter.release();
     } finally {
       await _networkActivity.release(_networkActivityOwner);
-      await AndroidCallForegroundService.setActive(false);
+      await _microphoneForeground.setActive(false);
     }
   }
 

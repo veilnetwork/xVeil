@@ -152,4 +152,23 @@ void main() {
     expect(requests, isEmpty);
     expect(AndroidCallForegroundService.isActive, isFalse);
   });
+  for (final throwsOnStop in [false, true]) {
+    test('unacknowledged stop is retried (exception=$throwsOnStop)', () async {
+      final requests = <bool>[];
+      var refuse = true;
+      AndroidCallForegroundService.debugInvokeOverride = (active) async {
+        requests.add(active);
+        if (!active && refuse) {
+          if (throwsOnStop) throw StateError('synthetic refusal');
+          return false;
+        }
+        return true;
+      };
+      await AndroidCallForegroundService.setActive(true);
+      await AndroidCallForegroundService.setActive(false);
+      refuse = false;
+      await AndroidCallForegroundService.setActive(false);
+      expect(requests, [true, false, false]);
+    });
+  }
 }

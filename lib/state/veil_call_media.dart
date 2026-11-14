@@ -578,6 +578,7 @@ class VeilCallMediaController implements CallMediaController {
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
   AndroidNativeCallVideoRenderer? _androidVideoRenderer;
   AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
+  final _microphoneForeground = AndroidCallForegroundService.bind();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final AndroidScreenCaptureFactory _screenCaptureFactory =
@@ -1496,7 +1497,7 @@ class VeilCallMediaController implements CallMediaController {
     // Before capture opens: the grant must exist by the time the screen can
     // lock, and the typed service may only start while the app is visible.
     if (call.media.audio) {
-      await AndroidCallForegroundService.setActive(true);
+      await _microphoneForeground.setActive(true);
       if (!currentStart()) return false;
     }
     // Present the platform mic/camera prompts before native capture starts,
@@ -1514,7 +1515,7 @@ class VeilCallMediaController implements CallMediaController {
         (granted) async {
           devLog(() => 'xVeil[call-media]: mic permission=$granted');
           diagnosticJournal.recordMediaPermission(video: false, granted: granted);
-          await AndroidCallForegroundService.activateWhenMicrophoneGranted(
+          await _microphoneForeground.activateWhenMicrophoneGranted(
             Future<bool>.value(granted),
             isCurrent: () =>
                 _mediaEpoch == epoch &&
@@ -2593,7 +2594,7 @@ class VeilCallMediaController implements CallMediaController {
     if (clearActiveCall) {
       await callAudioRouter.release();
       await CallNetworkActivity.shared.release(_networkActivityOwner);
-      await AndroidCallForegroundService.setActive(false);
+      await _microphoneForeground.setActive(false);
     }
   }
 

@@ -1,6 +1,7 @@
 package network.veil.xveil
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,6 +13,9 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
+import com.veil.veil_flutter.VeilDaemonService
+import java.util.UUID
 import androidx.core.content.ContextCompat
 
 /**
@@ -27,31 +31,73 @@ import androidx.core.content.ContextCompat
  * notification for the duration of the 1:1 or group call.
  */
 class CallMicrophoneService : Service() {
+    private var foregroundActive = false
+    private var foregroundUncertain = false
+    private var ticket: MicrophoneServiceGate.Ticket? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instances.add(this)
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_START) {
-            stopSelf()
+        val requested = if (intent?.action == ACTION_START) {
+            val owner = intent.getStringExtra(EXTRA_OWNER)
+            if (owner == null) null else MicrophoneServiceGate.Ticket(
+                owner, intent.getLongExtra(EXTRA_GENERATION, -1),
+                intent.getLongExtra(EXTRA_DAEMON, -1),
+            )
+        } else null
+        if (requested == null || !gate.accepts(requested, VeilDaemonService.startTicket())) {
+            // A stale queued START must not kill a replacement already using
+            // this service instance. An empty instance has nothing to retain.
+            if (!foregroundActive && !foregroundUncertain) stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        createNotificationChannel()
+        ticket = requested
         try {
+            createNotificationChannel()
+            foregroundUncertain = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startForeground(
-                    NOTIFICATION_ID,
-                    buildNotification(),
+                    NOTIFICATION_ID, buildNotification(),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
                 )
             } else {
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
-        } catch (error: Exception) {
-            // Revoked RECORD_AUDIO or a start-time restriction: the call keeps
-            // running without the keep-alive grant instead of crashing.
-            XVeilLog.w(this, TAG) { "startForeground failed: $error" }
-            stopSelf()
+            foregroundActive = true
+            foregroundUncertain = false
+        } catch (_: Exception) {
+            // Keep the uncertain owner until explicit cleanup succeeds. A
+            // channel acknowledgement alone is never a resource-absence proof.
+            XVeilLog.w(this, TAG) { "microphone foreground unavailable" }
+            try { stopOwnedResources() } catch (_: Exception) {}
+            stopSelfResult(startId)
         }
         return START_NOT_STICKY
+    }
+
+    private fun stopOwnedResources() {
+        if (!foregroundActive && !foregroundUncertain) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        foregroundActive = false
+        foregroundUncertain = false
+    }
+
+    override fun onDestroy() {
+        try {
+            stopOwnedResources()
+            instances.remove(this)
+        } finally {
+            super.onDestroy()
+        }
     }
 
     private fun createNotificationChannel() {
@@ -97,39 +143,87 @@ class CallMicrophoneService : Service() {
         private const val NOTIFICATION_ID = 0x434D53 // 'CMS'
         private const val TAG = "xVeilCallMic"
 
-        /**
-         * True when the service reached startForegroundService. The typed
-         * grant additionally requires RECORD_AUDIO, checked here so a denied
-         * permission degrades to "no keep-alive" instead of a SecurityException
-         * inside the 5-second startForeground window.
-         */
-        fun start(context: Context): Boolean {
-            val micGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!micGranted) {
-                XVeilLog.w(context, TAG) { "not starting: RECORD_AUDIO not granted" }
-                return false
-            }
+        private const val EXTRA_OWNER = "microphoneOwner"
+        private const val EXTRA_GENERATION = "microphoneGeneration"
+        private const val EXTRA_DAEMON = "daemonGeneration"
+        private val gate = MicrophoneServiceGate { UUID.randomUUID().toString() }
+        // Preserve failed cleanup owners even if Android destroys the service.
+        private val instances = mutableSetOf<CallMicrophoneService>()
+
+        private fun requireMainThread() {
+            check(Looper.myLooper() == Looper.getMainLooper()) { "microphone thread unavailable" }
+        }
+        private fun sealedDaemon(): Long {
+            check(VeilDaemonService.startTicket() == null) { "daemon retirement required" }
+            return VeilDaemonService.commandGeneration()
+        }
+        private fun foregroundRemains(context: Context): Boolean {
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: error("microphone observation unavailable")
+            @Suppress("DEPRECATION")
+            val running = manager.getRunningServices(Int.MAX_VALUE)
+                ?: error("microphone observation unavailable")
+            return instances.any { it.foregroundActive || it.foregroundUncertain } ||
+                running.any {
+                    it.service.packageName == context.packageName &&
+                        it.service.className == CallMicrophoneService::class.java.name && it.foreground
+                }
+        }
+
+        /** Acknowledges queue admission, not delivery or actual capture. */
+        fun start(context: Context, owner: String): Boolean {
+            requireMainThread()
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+                PackageManager.PERMISSION_GRANTED) return false
+            if (instances.any {
+                (it.foregroundActive || it.foregroundUncertain) && it.ticket?.owner != owner
+            }) return false
+            val ticket = gate.request(owner, VeilDaemonService.startTicket()) ?: return false
             return try {
                 val intent = Intent(context, CallMicrophoneService::class.java)
                     .setAction(ACTION_START)
+                    .putExtra(EXTRA_OWNER, ticket.owner)
+                    .putExtra(EXTRA_GENERATION, ticket.generation)
+                    .putExtra(EXTRA_DAEMON, ticket.daemon)
                 ContextCompat.startForegroundService(context, intent)
                 true
-            } catch (error: Exception) {
-                // ForegroundServiceStartNotAllowedException when invoked from
-                // the background — the call proceeds without the grant.
-                XVeilLog.w(context, TAG) { "startForegroundService failed: $error" }
+            } catch (_: Exception) {
+                // Invalidate the failed attempt too: an ambiguous platform
+                // failure must not permit a late queued start to reappear.
+                gate.stop(owner)
                 false
             }
         }
 
-        fun stop(context: Context) {
-            try {
+        fun stop(context: Context, owner: String) {
+            requireMainThread()
+            val held = instances.filter { it.ticket?.owner == owner }
+            val pending = gate.stop(owner)
+            val hadResources = held.any { it.foregroundActive || it.foregroundUncertain }
+            held.forEach { it.stopOwnedResources() }
+            if (pending || hadResources) {
+                // On the main thread no replacement can be admitted between
+                // invalidation and this stop request.
                 context.stopService(Intent(context, CallMicrophoneService::class.java))
-            } catch (_: Exception) {
             }
         }
+
+        fun retire(context: Context): String {
+            requireMainThread()
+            val token = gate.begin(sealedDaemon())
+            instances.toList().forEach { it.stopOwnedResources() }
+            context.stopService(Intent(context, CallMicrophoneService::class.java))
+            verifyRetirement(context, token)
+            return token
+        }
+        fun verifyRetirement(context: Context, token: String) {
+            requireMainThread()
+            gate.confirm(token, sealedDaemon(), foregroundRemains(context))
+        }
+        fun releaseRetirement(context: Context, token: String) {
+            requireMainThread()
+            gate.release(token, sealedDaemon(), foregroundRemains(context))
+        }
+
     }
 }
