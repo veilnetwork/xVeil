@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:xveil/state/startup_unlock.dart';
+import '../support/retirement_secret_store.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -169,8 +171,10 @@ void main() {
             },
           );
           final ownedRouter = router;
+          final secretStore = RetirementSecretStore();
           container = ProviderContainer(
             overrides: [
+              quickUnlockSecretStoreProvider.overrideWithValue(secretStore),
               profileStorageRouterProvider.overrideWithValue(ownedRouter),
               singleSpaceStorageProvider.overrideWith((ref) {
                 ref.watch(storageRouteRevisionProvider);
@@ -209,6 +213,12 @@ void main() {
               (_) => throw StateError('unlock ended before the fixture gate'),
             ),
           ]);
+          expect(
+            secretStore.reads,
+            greaterThan(0),
+            reason:
+                'target OS cleanup must use the injected port before child removal',
+          );
           expect(
             await controller.retryIdentityErasure(),
             isFalse,

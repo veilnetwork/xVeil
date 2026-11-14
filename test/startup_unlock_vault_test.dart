@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:xveil/domain/storage_locator.dart';
+import 'package:xveil/domain/storage_protection.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,6 +63,37 @@ void main() {
       QuickUnlockVault(store, scope, _Authentication());
   const password = 'strong fixture container password';
   setUp(() => store = _Store());
+
+  test(
+    'explicit managed cleanup refuses a missing profile context before OS access',
+    () {
+      final probe = Provider<void>((ref) {
+        expect(
+          () => quickUnlockVaultForLocator(
+            ref,
+            ManagedStorageLocator(
+              id: ManagedIdentityId('a' * 32),
+              protection: StorageProtection.encrypted,
+            ),
+          ),
+          throwsStateError,
+        );
+        expect(
+          quickUnlockVaultForLocator(ref, const LegacyStorageLocator()).scope,
+          hasLength(64),
+        );
+      });
+      final container = ProviderContainer(
+        overrides: [quickUnlockSecretStoreProvider.overrideWithValue(store)],
+      );
+      try {
+        container.read(probe);
+        expect(store.reads, 0);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
 
   test(
     'restart restores the original password through a device-bound pattern wrapper',

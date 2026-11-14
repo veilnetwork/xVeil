@@ -20,17 +20,70 @@ final class _CatalogEraseReq extends _Req {
     this.password,
     this.keys,
     this.review,
+    this.beforeErase,
     super.reply,
   );
   final ManagedIdentityEntry entry;
   final Uint8List? password, keys;
   final IdentityEraseReview? review;
+  final SendPort? beforeErase;
 }
 
 final class _CatalogReviewEraseReq extends _Req {
   const _CatalogReviewEraseReq(this.entry, this.keys, super.reply);
   final ManagedIdentityEntry entry;
   final Uint8List keys;
+}
+
+/// Keep accepted UI work owned even if the worker dies before replying. This
+/// port is not a second erasure authorization: the worker asks only after its
+/// existing role/authentication/consent gates have passed.
+final class _ManagedEraseAdmission {
+  _ManagedEraseAdmission(this._action) {
+    _subscription = _requests.listen((dynamic message) {
+      if (message is! SendPort) return;
+      if (_closing || _accepted != null) {
+        message.send(false);
+        return;
+      }
+      _accepted = () async {
+        try {
+          await _action();
+          message.send(true);
+        } catch (_) {
+          message.send(false);
+        }
+      }();
+    });
+  }
+  final Future<void> Function() _action;
+  final ReceivePort _requests = ReceivePort();
+  late final StreamSubscription<dynamic> _subscription;
+  Future<void>? _accepted;
+  bool _closing = false;
+  SendPort get port => _requests.sendPort;
+  Future<void> settleAndClose() async {
+    _closing = true;
+    try {
+      await _accepted;
+    } finally {
+      await _subscription.cancel();
+      _requests.close();
+    }
+  }
+}
+
+Future<void> _awaitManagedEraseAdmission(SendPort? port) async {
+  if (port == null) return;
+  final reply = ReceivePort();
+  try {
+    port.send(reply.sendPort);
+    if (await reply.first != true) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
+    }
+  } finally {
+    reply.close();
+  }
 }
 
 /// Off-UI profile owner. Enumeration/selection never opens identities or
@@ -40,6 +93,12 @@ final class _CatalogReviewEraseReq extends _Req {
 final class ManagedCatalogWorker {
   ManagedCatalogWorker._(this._worker);
   final WorkerKvLogStore _worker;
+
+  /// Reuse the production RPC/lifetime path with a disposable supervised
+  /// worker. Native handles never cross this test-only constructor.
+  @visibleForTesting
+  static ManagedCatalogWorker overWorkerForTesting(WorkerKvLogStore worker) =>
+      ManagedCatalogWorker._(worker);
 
   static Future<ManagedCatalogWorker> open(String profileDirectory) async {
     final profile = ManagedWorkerIdentity._profileKey(profileDirectory);
@@ -65,16 +124,31 @@ final class ManagedCatalogWorker {
     Uint8List? password,
     Uint8List? keys,
     IdentityEraseReview? review,
+    Future<void> Function()? beforeErase,
   }) {
+    final admission = beforeErase == null
+        ? null
+        : _ManagedEraseAdmission(beforeErase);
     final pass = password == null ? null : Uint8List.fromList(password);
     final key = keys == null ? null : Uint8List.fromList(keys);
     return _worker
         ._call<ManagedCatalogSnapshot>(
-          (reply) => _CatalogEraseReq(entry, pass, key, review, reply),
+          (reply) => _CatalogEraseReq(
+            entry,
+            pass,
+            key,
+            review,
+            admission?.port,
+            reply,
+          ),
         )
-        .whenComplete(() {
-          pass?.fillRange(0, pass.length, 0);
-          key?.fillRange(0, key.length, 0);
+        .whenComplete(() async {
+          try {
+            await admission?.settleAndClose();
+          } finally {
+            pass?.fillRange(0, pass.length, 0);
+            key?.fillRange(0, key.length, 0);
+          }
         });
   }
 
@@ -164,6 +238,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
           :final password,
           :final keys,
           :final review,
+          :final beforeErase,
         ):
           subscription.pause();
           unawaited(() async {
@@ -181,7 +256,10 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
                   password: password,
                   keys: keys,
                   review: review,
+                  beforeErase: () => _awaitManagedEraseAdmission(beforeErase),
                 );
+              } else {
+                await _awaitManagedEraseAdmission(beforeErase);
               }
               message.reply.send(_Ok(owner?.snapshot() ?? absent()));
             } catch (error) {

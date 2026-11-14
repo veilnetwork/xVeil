@@ -3,6 +3,11 @@ library;
 
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:xveil/core/quick_unlock_vault.dart';
+import 'package:xveil/core/storage_unlock_scope.dart';
+import 'package:xveil/data/storage/app_profile.dart';
+import 'package:xveil/state/startup_unlock.dart';
+import '../support/retirement_secret_store.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -85,6 +90,8 @@ void main() {
           'xveil-erase-recovery-',
         );
         final profile = '${fixture.path}/profile';
+        final secretStore = RetirementSecretStore();
+        final auth = RetirementAuthentication();
         expect(
           const ManagedFsPlatform().createPrivateDirectory(profile),
           isTrue,
@@ -178,8 +185,29 @@ void main() {
             },
           );
           final selected = router;
+          final targetScope = storageUnlockScope(
+            activeProfile,
+            selected.profileDirectory,
+            children.last.entry.locator,
+          );
+          final parentScope = storageUnlockScope(
+            activeProfile,
+            selected.profileDirectory,
+            parentEntry.locator,
+          );
+          final targetVault = QuickUnlockVault(secretStore, targetScope, auth);
+          final parentVault = QuickUnlockVault(secretStore, parentScope, auth);
+          await targetVault.configure(
+            password: 'synthetic target password',
+            system: true,
+          );
+          await parentVault.configure(
+            password: 'synthetic parent password',
+            system: true,
+          );
           container = ProviderContainer(
             overrides: [
+              quickUnlockSecretStoreProvider.overrideWithValue(secretStore),
               profileStorageRouterProvider.overrideWithValue(selected),
               singleSpaceStorageProvider.overrideWith((ref) {
                 ref.watch(storageRouteRevisionProvider);
@@ -187,6 +215,7 @@ void main() {
               }),
             ],
           );
+          expect(container.read(quickUnlockVaultProvider).scope, parentScope);
           final controller = container.read(appControllerProvider.notifier);
           await container.read(prefsProvider.future);
           await Future<void>.delayed(Duration.zero);
@@ -268,9 +297,43 @@ void main() {
             expect(approved!.files, 1);
             expect(foreign.existsSync(), isTrue);
           }
+          secretStore.deniedScopes.add(targetScope);
+          expect(
+            await controller.retryIdentityErasure(review: approved),
+            isFalse,
+            reason:
+                'OS credential refusal must preserve the authenticated target and its catalog entry',
+          );
+          expect(foreign.existsSync(), isTrue);
+          final retained = ManagedDirectoryCatalog.openExisting(profile)!;
+          try {
+            expect(
+              retained.snapshot().catalog.identities.any(
+                (entry) => entry.id == children.last.entry.id,
+              ),
+              isTrue,
+            );
+          } finally {
+            retained.close();
+          }
+          expect(
+            await parentVault.openSystem('fixture'),
+            'synthetic parent password',
+          );
+          secretStore.deniedScopes.clear();
+          approved = await controller.reviewIdentityErasure();
+          expect(approved, isNotNull);
           expect(
             await controller.retryIdentityErasure(review: approved),
             isTrue,
+          );
+          expect(
+            secretStore.values.keys.any((key) => key.contains(targetScope)),
+            isFalse,
+          );
+          expect(
+            await parentVault.openSystem('fixture'),
+            'synthetic parent password',
           );
           if (!coldIntent) expect(proxy.durableIntentWitnesses, [true]);
           expect(

@@ -31,12 +31,14 @@ abstract final class ManagedIdentityFiles {
     Uint8List? password,
     Uint8List? keys,
     IdentityEraseReview? review,
+    Future<void> Function()? beforeErase,
   }) => _ManagedIdentityEraser.run(
     owner,
     entry,
     password: password,
     keys: keys,
     review: review,
+    beforeErase: beforeErase,
   );
 
   /// Read-only review of safe unrecognized entries. Authenticates the same

@@ -34,6 +34,7 @@ abstract final class _ManagedIdentityEraser {
     ManagedEraseObserver? observer,
     IdentityEraseReview? review,
     void Function(IdentityEraseReview)? collectReview,
+    Future<void> Function()? beforeErase,
   }) {
     // Snapshot before the first await. Never retain/wipe a borrowed roster key.
     final pass = password == null ? null : Uint8List.fromList(password);
@@ -78,6 +79,7 @@ abstract final class _ManagedIdentityEraser {
               ManagedIdentityFailureKind.missing,
             );
           }
+          await beforeErase?.call();
           owner._catalog.remove(entry); // Public metadata only; no files exist.
           owner._validate();
           return;
@@ -177,7 +179,19 @@ abstract final class _ManagedIdentityEraser {
         }
         if (review != null) {
           _ManagedEraseConsent.consume(owner, held, key!, review, unknown!);
-          await unknown.remove(held);
+        } else if (usage.unrecognizedEntries != 0) {
+          throw const ManagedIdentityFailure(
+            ManagedIdentityFailureKind.ambiguous,
+          );
+        }
+        // Application-side OS cleanup runs only AFTER target authentication and
+        // consent, with the exact role lease retained. Refusal leaves payloads,
+        // unknown approved entries and catalog membership intact.
+        await beforeErase?.call();
+        held.validatePaths();
+        held.lease?.requireHeld();
+        if (review != null) {
+          await unknown!.remove(held);
           final remaining = await _ManagedUsageInventory(
             held,
           ).measure(requireComplete: false);
@@ -186,10 +200,6 @@ abstract final class _ManagedIdentityEraser {
               ManagedIdentityFailureKind.ambiguous,
             );
           }
-        } else if (usage.unrecognizedEntries != 0) {
-          throw const ManagedIdentityFailure(
-            ManagedIdentityFailureKind.ambiguous,
-          );
         }
         await observer?.call(ManagedEraseStage.validated);
         await _removeBlobs(held);
