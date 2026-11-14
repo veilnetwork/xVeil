@@ -14,6 +14,7 @@ import 'package:xveil/core/quick_unlock_vault.dart';
 import 'package:xveil/core/background_service_lifetime.dart';
 import 'package:xveil/core/android_microphone_lifetime.dart';
 import 'package:xveil/core/capture_resource_lifetime.dart';
+import 'package:xveil/core/capture_output_file.dart';
 import 'package:xveil/state/android_camera_capture.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import '../support/camera_retirement_platform.dart';
@@ -153,6 +154,28 @@ final class _MicrophoneResources implements MicrophoneResourceRetirement {
   Future<void> releaseAdmission() async {
     await verifyReleasedResources();
     releases++;
+  }
+}
+
+class _CaptureOutputs implements CaptureOutputStore {
+  bool refuse = false;
+  int removes = 0;
+  @override
+  Future<void> remove(String path) async {
+    removes++;
+    if (refuse) throw StateError('synthetic output cleanup refusal');
+    await const FileCaptureOutputStore().remove(path);
+  }
+}
+
+class _CaptureDrainObservation implements CaptureResource {
+  _CaptureDrainObservation(this.scope);
+  final CaptureResourceLifetime scope;
+  final entered = Completer<void>();
+  @override
+  Future<void> retire() async {
+    if (!entered.isCompleted) entered.complete();
+    scope.forget(this);
   }
 }
 
@@ -789,6 +812,77 @@ void main() {
       expect(session.existsSync(), isFalse);
       expect(File(legacy).existsSync(), isFalse);
       expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+
+  test(
+    'camera output cleanup refusal blocks erasure and retries the same file',
+    () async {
+      final output = File('${fixture.path}/camera-output.bin')
+        ..writeAsStringSync('synthetic camera output');
+      final store = _CaptureOutputs()..refuse = true;
+      final file = CaptureOutputFile(
+        output.path,
+        lifetime: CaptureResourceLifetime.current(),
+        store: store,
+      );
+      addTearDown(() async {
+        store.refuse = false;
+        await file.retire();
+      });
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(output.existsSync(), isTrue);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(vault.values, hasLength(6));
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      store.refuse = false;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(output.existsSync(), isFalse);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(store.removes, 2);
+    },
+  );
+
+  test(
+    'profile erasure joins an accepted camera-output consumer before deleting files',
+    () async {
+      final scope = CaptureResourceLifetime.current();
+      final observed = _CaptureDrainObservation(scope);
+      scope.admit(observed);
+      final output = File('${fixture.path}/camera-use.bin')
+        ..writeAsStringSync('synthetic camera output');
+      final store = _CaptureOutputs();
+      final file = CaptureOutputFile(
+        output.path,
+        lifetime: scope,
+        store: store,
+      );
+      final entered = Completer<void>(), release = Completer<void>();
+      final reading = file.use((path) async {
+        entered.complete();
+        await release.future;
+        return File(path).readAsString();
+      });
+      await entered.future;
+      final wiping = controller.wipeContainers();
+      try {
+        await observed.entered.future;
+        expect(store.removes, 0);
+        expect(output.existsSync(), isTrue);
+        expect(File(legacy).existsSync(), isTrue);
+        expect(vault.values, hasLength(6));
+        expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      } finally {
+        release.complete();
+        expect(await reading, 'synthetic camera output');
+        expect(await wiping, isEmpty);
+      }
+      expect(output.existsSync(), isFalse);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(store.removes, 1);
     },
   );
 

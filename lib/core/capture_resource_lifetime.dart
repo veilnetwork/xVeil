@@ -43,6 +43,9 @@ final class CaptureResourceLifetime {
   CaptureResourceLifetime._();
   static CaptureResourceLifetime _current = CaptureResourceLifetime._();
   static CaptureResourceLifetime current() => _current;
+  @visibleForTesting
+  factory CaptureResourceLifetime.isolatedForTesting() =>
+      CaptureResourceLifetime._();
   final _resources = <CaptureResource>{};
   bool _sealed = false;
   Future<CaptureResourceRetirement>? _retiring;
@@ -55,6 +58,7 @@ final class CaptureResourceLifetime {
   }
 
   void forget(CaptureResource source) => _resources.remove(source);
+  bool get isAdmitting => !_sealed;
   void sealAdmission() => _sealed = true;
 
   Future<CaptureResourceRetirement> retire() {

@@ -776,18 +776,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           }
           return;
         }
-        final source = File(captured.path);
-        try {
-          final size = await source.length();
+        await captured.use((path) async {
+          if (!mounted) return;
+          final size = await File(path).length();
+          if (!mounted) return;
           await _attachPlatformFile(
-            PlatformFile(name: captured.name, size: size, path: captured.path),
+            PlatformFile(name: captured.name, size: size, path: path),
             allowStreaming: false,
           );
-        } finally {
-          try {
-            await source.delete();
-          } catch (_) {}
-        }
+        });
       case ComposerAttachmentAction.photo:
         await _pickAndAttach(type: FileType.image);
       case ComposerAttachmentAction.video:

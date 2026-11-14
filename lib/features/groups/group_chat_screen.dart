@@ -595,7 +595,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// Pick an image and post it inline (groups media brick 1). The picture is
   /// downscaled + size-capped into the signed message so every member renders
   /// it without a content fetch; any caption typed in the composer rides along.
-  Future<void> _attachImage(GroupService svc, {PlatformFile? selected}) async {
+  Future<void> _attachImage(
+    GroupService svc, {
+    PlatformFile? selected,
+    bool allowStreaming = true,
+  }) async {
     final l = AppL10n.of(context);
     final picked = selected == null
         ? await FilePicker.pickFiles(type: FileType.image)
@@ -613,7 +617,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         diskSize = await File(path).length();
       } catch (_) {}
     }
-    if (path != null && diskSize != null && diskSize > kMaxIncomingFileBytes) {
+    if (!allowStreaming && diskSize != null && diskSize > kMaxIncomingFileBytes) {
+      if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    }
+    if (allowStreaming &&
+        path != null &&
+        diskSize != null &&
+        diskSize > kMaxIncomingFileBytes) {
       final size = diskSize;
       final sourcePath = File(path).absolute.path;
       final source = await veilSourceOpener(sourcePath);
@@ -740,9 +751,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// Generic group content path. Images keep their existing signed thumbnail
   /// treatment; video/document rows carry only an optional micro-preview,
   /// filename, byte size and membership-authorized cid.
-  Future<void> _postGroupFile(GroupService svc, PlatformFile file) async {
+  Future<void> _postGroupFile(
+    GroupService svc,
+    PlatformFile file, {
+    bool allowStreaming = true,
+  }) async {
     if (isImageFileName(file.name)) {
-      await _attachImage(svc, selected: file);
+      await _attachImage(svc, selected: file, allowStreaming: allowStreaming);
       return;
     }
     var size = file.size;
@@ -757,7 +772,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     final messaging = _messaging;
     final String cid;
-    if (file.path != null) {
+    if (file.path != null && allowStreaming) {
       final path = File(file.path!).absolute.path;
       final source = await veilSourceOpener(path);
       if (source == null) {
@@ -837,18 +852,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           }
           return;
         }
-        final source = File(captured.path);
-        try {
-          final size = await source.length();
+        await captured.use((path) async {
+          if (!mounted) return;
+          final size = await File(path).length();
+          if (!mounted) return;
           await _postGroupFile(
             svc,
-            PlatformFile(name: captured.name, size: size, path: captured.path),
+            PlatformFile(name: captured.name, size: size, path: path),
+            allowStreaming: false,
           );
-        } finally {
-          try {
-            await source.delete();
-          } catch (_) {}
-        }
+        });
       case ComposerAttachmentAction.photo:
         await _pickGroupMedia(svc, type: FileType.image);
       case ComposerAttachmentAction.video:
