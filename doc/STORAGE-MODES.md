@@ -1582,6 +1582,28 @@ These qualify selected host boundaries, not arbitrary FFI abort cleanup or real
 Keychain/Keystore interactions. The full application wipe/startup/router binding
 and production activation remain unfinished and disabled.
 
+## Router replacement ownership
+
+The managed bootstrap now retains a `ProfileStorageRouterOwner`, rather than
+capturing one immutable router in a provider override. Suspension immediately
+makes the managed route unavailable; it never returns null to select the legacy
+fallback. Provider observers are invalidated on suspension and publication,
+without relying on a caller remembering to bump the selection revision.
+
+The owner confirms the original router's close before admitting a replacement.
+It retains failed closes for retry, coalesces pending operations, and closes an
+unpublished candidate if suspension or disposal superseded its opener. A failed
+close of that candidate remains owned too. Disposal owns the current lifetime,
+not a closure accidentally bound to the first router. Normal native admission
+still refuses a pending erasure; router replacement alone grants no fresh
+OS-vault lifetime or authority to delete external data.
+
+Host-native tests exercise provider replacement, actual exclusive-role admission
+before and after close, refused closes, a held close barrier, late candidates,
+pending erasure followed by actual final release, and wrong-profile refusal.
+The complete AppController wipe and startup recovery binding remain unfinished;
+production activation is still disabled.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
