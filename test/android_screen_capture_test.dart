@@ -14,8 +14,12 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       final calls = <String>[];
+      Object? session;
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add(call.method);
+        if (call.method == 'start') {
+          session = (call.arguments as Map)['session'];
+        }
         return call.method == 'start' ? true : null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -31,7 +35,7 @@ void main() {
       Future<void> frame() => messenger.handlePlatformMessage(
         channel.name,
         const StandardMethodCodec().encodeMethodCall(
-          MethodCall('frame', _frame()),
+          MethodCall('frame', {'session': session, 'frame': _frame()}),
         ),
         (_) {},
       );
@@ -69,10 +73,14 @@ void main() {
     const channel = MethodChannel('xveil/test_screen_expiry');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(
-      channel,
-      (call) async => call.method == 'start' ? true : null,
-    );
+    Object? session;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'start') {
+        session = (call.arguments as Map)['session'];
+        return true;
+      }
+      return null;
+    });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     var stopped = 0;
     var frames = 0;
@@ -85,7 +93,9 @@ void main() {
     capture.rebindFrameSink(null);
     await messenger.handlePlatformMessage(
       channel.name,
-      const StandardMethodCodec().encodeMethodCall(const MethodCall('stopped')),
+      const StandardMethodCodec().encodeMethodCall(
+        MethodCall('stopped', {'session': session}),
+      ),
       (_) {},
     );
     expect(stopped, 1);
@@ -93,7 +103,7 @@ void main() {
     await messenger.handlePlatformMessage(
       channel.name,
       const StandardMethodCodec().encodeMethodCall(
-        MethodCall('frame', _frame()),
+        MethodCall('frame', {'session': session, 'frame': _frame()}),
       ),
       (_) {},
     );

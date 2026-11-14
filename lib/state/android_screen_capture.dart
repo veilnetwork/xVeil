@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -41,51 +42,112 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
   final VoidCallback _onUnexpectedStop;
   final MethodChannel _channel;
   final bool _isAndroid;
+  static final _owners = Expando<Map<String, AndroidScreenCapture>>();
+  static final _random = Random.secure();
+  Map<String, AndroidScreenCapture> get _channels =>
+      _owners[_channel.binaryMessenger] ??= {};
+  bool get _ownsChannel => identical(_channels[_channel.name], this);
+
   I420FrameSink? _sink;
+  String? _session;
   bool _running = false;
-  bool _stopping = false;
+  bool _retired = false;
+  Future<bool>? _starting;
+  Future<void>? _stopping;
   bool _firstFrameLogged = false;
   bool _firstDeliveryLogged = false;
 
   @override
-  Future<bool> start(I420FrameSink sink) async {
-    if (!_isAndroid || _running) return false;
+  Future<bool> start(I420FrameSink sink) {
+    if (!_isAndroid || _retired || _running) return Future.value(false);
+    final pending = _starting;
+    if (pending != null) return pending;
+    // Reserve before entering an adapter, which may synchronously call stop.
+    final result = Completer<bool>();
+    _starting = result.future;
+    _start(sink).then(
+      (value) {
+        _starting = null;
+        result.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        _starting = null;
+        result.completeError(error, stack);
+      },
+    );
+    return result.future;
+  }
+
+  Future<bool> _start(I420FrameSink sink) async {
+    final previous = _channels[_channel.name];
+    if (previous != null && !identical(previous, this)) {
+      final closing = previous._stopping;
+      if (closing == null) return false;
+      try {
+        await closing;
+      } catch (_) {
+        return false;
+      }
+    }
+    if (_retired || _channels[_channel.name] != null) return false;
+    _channels[_channel.name] = this;
+    _session = List.generate(
+      16,
+      (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
     _sink = sink;
     _channel.setMethodCallHandler(_handlePlatformCall);
     try {
-      final started = await _channel.invokeMethod<bool>('start') ?? false;
+      final started =
+          await _channel.invokeMethod<bool>('start', {'session': _session}) ??
+          false;
+      if (_retired || !_ownsChannel) return false;
       if (!started) {
         _sink = null;
-        _channel.setMethodCallHandler(null);
+        _releaseChannel();
         return false;
       }
       _running = true;
       return true;
     } catch (_) {
       _sink = null;
-      _channel.setMethodCallHandler(null);
+      // A lost reply does not prove that the service did not start. Retain
+      // ownership if the explicit native cleanup cannot be acknowledged.
+      if (!_retired && _ownsChannel) {
+        _retired = true;
+        try {
+          await _channel.invokeMethod<void>('stop', {'session': _session});
+          _releaseChannel();
+        } catch (_) {}
+      }
       return false;
     }
   }
 
+  void _releaseChannel() {
+    if (!_ownsChannel) return;
+    _channel.setMethodCallHandler(null);
+    _channels.remove(_channel.name);
+  }
+
   Future<void> _handlePlatformCall(MethodCall call) async {
+    final arguments = call.arguments;
+    if (!_ownsChannel ||
+        arguments is! Map ||
+        arguments['session'] != _session) {
+      return;
+    }
     switch (call.method) {
       case 'frame':
-        final bytes = call.arguments;
+        final bytes = arguments['frame'];
         if (!_firstDeliveryLogged) {
           _firstDeliveryLogged = true;
-          devLog(
-            () =>
-                'veil-screen: first platform delivery '
-                'type=${bytes.runtimeType} bytes='
-                '${bytes is Uint8List ? bytes.length : null} '
-                'sink=${_sink != null} stopping=$_stopping',
-          );
+          devLog(() => 'veil-screen: first platform delivery');
         }
         if (bytes is! Uint8List) return;
         final frame = decodeAndroidScreenFrame(bytes);
         final sink = _sink;
-        if (frame == null || sink == null || _stopping) return;
+        if (frame == null || sink == null || _retired) return;
         if (!_firstFrameLogged) {
           _firstFrameLogged = true;
           devLog(
@@ -97,10 +159,11 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
         sink(frame.y, frame.u, frame.v, frame.width, frame.height);
         return;
       case 'stopped':
-        final expected = _stopping;
+        final expected = _retired;
+        _retired = true;
         _running = false;
         _sink = null;
-        _channel.setMethodCallHandler(null);
+        if (_stopping == null) _releaseChannel();
         if (!expected) _onUnexpectedStop();
         return;
     }
@@ -112,26 +175,45 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
       _sink = null;
       return true;
     }
-    if (!_running || _stopping) return false;
+    if (!_running || _retired || !_ownsChannel) return false;
     _sink = sink;
     return true;
   }
 
   @override
-  Future<void> stop() async {
-    if (!_isAndroid) return;
-    _stopping = true;
+  Future<void> stop() {
+    _retired = true;
     _running = false;
     _sink = null;
+    final pending = _stopping;
+    if (pending != null) return pending;
+    final starting = _starting;
+    final result = Completer<void>();
+    _stopping = result.future;
+    _stop(starting).then(
+      (_) {
+        _stopping = null;
+        result.complete();
+      },
+      onError: (Object error, StackTrace stack) {
+        _stopping = null;
+        result.completeError(error, stack);
+      },
+    );
+    return result.future;
+  }
+
+  Future<void> _stop(Future<bool>? starting) async {
     try {
-      await _channel.invokeMethod<void>('stop');
-    } catch (_) {
-      // The app/process may already be tearing down. Local capture ownership is
-      // cleared regardless; Android also destroys the projection with process.
+      // Cancel consent immediately, before joining its reply. Waiting first
+      // would deadlock on the system permission dialog.
+      if (_isAndroid && _ownsChannel) {
+        await _channel.invokeMethod<void>('stop', {'session': _session});
+      }
     } finally {
-      _channel.setMethodCallHandler(null);
-      _stopping = false;
+      await starting;
     }
+    _releaseChannel();
   }
 }
 

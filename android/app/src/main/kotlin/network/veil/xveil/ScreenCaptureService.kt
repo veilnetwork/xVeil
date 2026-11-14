@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import androidx.core.content.ContextCompat
+import com.veil.veil_flutter.VeilDaemonService
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
@@ -33,6 +34,12 @@ import kotlin.math.min
  * MediaRecorder, file, cache, or screenshot path here.
  */
 class ScreenCaptureService : Service() {
+    private var session: String? = null
+    private var lastStartId = 0
+    private var destroyed = false
+    private var finishing = false
+    private val stopReplies = mutableListOf<(Exception?) -> Unit>()
+    private val main = Handler(android.os.Looper.getMainLooper())
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var reader: ImageReader? = null
@@ -50,57 +57,77 @@ class ScreenCaptureService : Service() {
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
-            shutdown(emitStopped = true)
-            stopSelf()
+            main.post {
+                shutdown()
+                stopSelfResult(lastStartId)
+            }
         }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
-            ACTION_START -> startProjection(intent)
-            else -> stopSelf()
+            ACTION_START -> startProjection(intent, startId)
+            else -> stopSelfResult(startId)
         }
         return START_NOT_STICKY
     }
 
-    private fun startProjection(intent: Intent) {
-        if (projection != null || shuttingDown) return
-        createNotificationChannel()
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-
-        val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(EXTRA_DATA, Intent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(EXTRA_DATA)
-        }
-        if (token == null) {
-            failStart()
+    private fun startProjection(intent: Intent, startId: Int) {
+        val requested = intent.getStringExtra(EXTRA_SESSION) ?: return
+        val generation = intent.getLongExtra(EXTRA_GENERATION, -1)
+        if (!ScreenCaptureBridge.isCurrent(requested) ||
+            VeilDaemonService.startTicket() != generation) {
+            ScreenCaptureBridge.emitStopped(requested)
+            if (session == null) stopSelfResult(startId)
             return
         }
+        if (session != null || current != null) {
+            // Never silently report an overlapping consent as a live source.
+            ScreenCaptureBridge.emitStopped(requested)
+            return
+        }
+        current = this
+        session = requested
         try {
+            createNotificationChannel()
+            val notification = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+
+            val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(EXTRA_DATA, Intent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(EXTRA_DATA)
+            }
+            if (token == null) {
+                failStart()
+                return
+            }
             val manager = getSystemService(MediaProjectionManager::class.java)
             val mediaProjection = manager.getMediaProjection(
                 intent.getIntExtra(EXTRA_RESULT_CODE, 0),
                 token,
             ) ?: throw IllegalStateException("MediaProjection unavailable")
+            projection = mediaProjection
             val metrics = resources.displayMetrics
             val scale = min(1f, MAX_EDGE.toFloat() / maxOf(metrics.widthPixels, metrics.heightPixels))
             val width = evenDimension(metrics.widthPixels, scale)
             val height = evenDimension(metrics.heightPixels, scale)
             val thread = HandlerThread("xveil-screen-capture").also { it.start() }
+            workerThread = thread
             val handler = Handler(thread.looper)
+            worker = handler
             val imageReader = ImageReader.newInstance(
                 width,
                 height,
@@ -108,10 +135,7 @@ class ScreenCaptureService : Service() {
                 2,
             )
 
-            workerThread = thread
-            worker = handler
             reader = imageReader
-            projection = mediaProjection
             mediaProjection.registerCallback(projectionCallback, handler)
             imageReader.setOnImageAvailableListener(::onImageAvailable, handler)
             virtualDisplay = mediaProjection.createVirtualDisplay(
@@ -162,7 +186,7 @@ class ScreenCaptureService : Service() {
                     firstFrameLogged = true
                     XVeilLog.i(this, TAG) { "first I420 frame bytes=${frame.size}" }
                 }
-                ScreenCaptureBridge.emitFrame(frame) { frameInFlight.set(false) }
+                ScreenCaptureBridge.emitFrame(session ?: return, frame) { frameInFlight.set(false) }
             } finally {
                 image.close()
             }
@@ -229,50 +253,75 @@ class ScreenCaptureService : Service() {
     }
 
     private fun failStart() {
-        shutdown(emitStopped = true)
-        stopSelf()
+        shutdown()
+        stopSelfResult(lastStartId)
     }
 
-    private fun shutdown(emitStopped: Boolean) {
+    // Only main-thread lifecycle methods enter cleanup. Image conversion holds
+    // imageLock; stop waits for it before releasing the reader it references.
+    // Keep failed resources owned so a retry is not mistaken for absence.
+    private fun shutdown(): Exception? {
+        shuttingDown = true
+        var failure: Exception? = null
+        fun attempt(block: () -> Unit) {
+            try { block() } catch (error: Exception) { failure = error }
+        }
         synchronized(imageLock) {
-            if (shuttingDown) return
-            shuttingDown = true
-            reader?.setOnImageAvailableListener(null, null)
-            virtualDisplay?.release()
-            virtualDisplay = null
-            reader?.close()
-            reader = null
+            attempt { reader?.setOnImageAvailableListener(null, null) }
+            attempt { virtualDisplay?.release(); virtualDisplay = null }
+            attempt { reader?.close(); reader = null }
         }
-        val activeProjection = projection
-        projection = null
-        if (activeProjection != null) {
-            try {
-                activeProjection.unregisterCallback(projectionCallback)
-            } catch (_: Exception) {
-            }
-            try {
-                activeProjection.stop()
-            } catch (_: Exception) {
+        attempt { projection?.unregisterCallback(projectionCallback) }
+        attempt { projection?.stop(); projection = null }
+        attempt {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
             }
         }
-        workerThread?.quitSafely()
-        workerThread = null
-        worker = null
-        frameInFlight.set(false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
-        if (emitStopped && !stoppedEmitted) {
-            stoppedEmitted = true
-            ScreenCaptureBridge.emitStopped()
-        }
+        return failure
+    }
+
+    private fun finishStop() {
+        if (finishing) return
+        finishing = true
+        var failure = shutdown()
+        val thread = workerThread
+        try {
+            if (thread != null && !thread.quitSafely() && thread.isAlive) {
+                throw IllegalStateException("Capture worker did not accept shutdown")
+            }
+        } catch (error: Exception) { failure = error }
+        val joinWorker = thread == null || !thread.isAlive || failure == null
+        // Never block the main looper waiting for a worker. Acknowledgement is
+        // after its actual exit, including its last accepted conversion.
+        Thread({
+            var error = failure
+            try { if (joinWorker) thread?.join() } catch (caught: InterruptedException) { error = caught }
+            main.post {
+                finishing = false
+                if (error == null) {
+                    workerThread = null
+                    worker = null
+                    frameInFlight.set(false)
+                    if (current === this) current = null
+                    if (!stoppedEmitted) {
+                        stoppedEmitted = true
+                        session?.let(ScreenCaptureBridge::emitStopped)
+                    }
+                }
+                val replies = stopReplies.toList()
+                stopReplies.clear()
+                replies.forEach { it(error) }
+            }
+        }, "xveil-screen-stop").apply { isDaemon = true; start() }
     }
 
     override fun onDestroy() {
-        shutdown(emitStopped = true)
+        destroyed = true
+        finishStop()
         super.onDestroy()
     }
 
@@ -317,23 +366,47 @@ class ScreenCaptureService : Service() {
         private const val ACTION_START = "network.veil.xveil.screen.START"
         private const val EXTRA_RESULT_CODE = "resultCode"
         private const val EXTRA_DATA = "data"
+        private const val EXTRA_SESSION = "captureSession"
+        private const val EXTRA_GENERATION = "captureGeneration"
+        @Volatile private var current: ScreenCaptureService? = null
+
+        fun hasUnreleasedCapture(): Boolean = current != null
         private const val NOTIFICATION_CHANNEL = "xveil_screen_share"
         private const val NOTIFICATION_ID = 0x585653
         private const val MAX_EDGE = 640
         private const val FRAME_GAP_NS = 100_000_000L // 10fps
         private const val TAG = "xVeilScreen"
 
-        fun start(context: Context, resultCode: Int, data: Intent) {
+        fun start(context: Context, session: String, generation: Long, resultCode: Int, data: Intent) {
             val intent = Intent(context, ScreenCaptureService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_RESULT_CODE, resultCode)
                 putExtra(EXTRA_DATA, data)
+                putExtra(EXTRA_SESSION, session)
+                putExtra(EXTRA_GENERATION, generation)
             }
             ContextCompat.startForegroundService(context, intent)
         }
 
-        fun stop(context: Context) {
-            context.stopService(Intent(context, ScreenCaptureService::class.java))
+        fun stop(context: Context, session: String, completed: (Exception?) -> Unit) {
+            val owned = current
+            if (owned == null || owned.session != session) {
+                // Its queued START is already fenced by the bridge. Never stop
+                // an unrelated service instance by class name.
+                completed(null)
+                return
+            }
+            owned.stopReplies.add(completed)
+            if (owned.destroyed) {
+                owned.finishStop()
+                return
+            }
+            try {
+                check(context.stopService(Intent(context, ScreenCaptureService::class.java)))
+            } catch (error: Exception) {
+                owned.stopReplies.remove(completed)
+                completed(error)
+            }
         }
 
         private fun evenDimension(value: Int, scale: Float): Int =

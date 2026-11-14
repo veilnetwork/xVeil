@@ -1,0 +1,31 @@
+package network.veil.xveil
+
+fun main() {
+    val old = "a".repeat(32)
+    val fresh = "b".repeat(32)
+    val firstEngine = Any()
+    val nextEngine = Any()
+    val gate = ScreenCaptureSessionGate<Any>()
+    check(!gate.begin("invalid", firstEngine))
+    check(gate.begin(old, firstEngine))
+    val queuedFrame = checkNotNull(gate.current(old))
+    check(gate.owns(queuedFrame))
+    check(!gate.begin(fresh, nextEngine))
+    check(gate.end(old, nextEngine) == null)
+    check(gate.owns(queuedFrame))
+    check(gate.end(fresh, firstEngine) == null)
+    check(gate.end(old, firstEngine) === queuedFrame)
+    check(!gate.owns(queuedFrame))
+    check(gate.begin(fresh, nextEngine))
+    val currentFrame = checkNotNull(gate.current(fresh))
+    check(gate.end(old, firstEngine) == null)
+    check(gate.owns(currentFrame))
+    check(!gate.owns(queuedFrame))
+    check(currentFrame.owner === nextEngine)
+    gate.end(fresh, nextEngine)
+    // Even reuse of a session/engine cannot revive an already queued lease.
+    check(gate.begin(old, firstEngine))
+    check(!gate.owns(queuedFrame))
+    check(gate.owns(checkNotNull(gate.current(old))))
+    println("screen capture lease checks passed")
+}
