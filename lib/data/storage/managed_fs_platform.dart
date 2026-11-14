@@ -116,6 +116,24 @@ class ManagedFsPlatform {
   /// Whole-directory bootstrap: the final root becomes visible only after its
   /// catalog is complete. No check-then-rename fallback on unsupported hosts.
   bool publishDirectoryNoReplace(String source, String destination) {
+    final witness = inspect(source);
+    if (!witness.directory ||
+        !witness.ownerOnly ||
+        !witness.ownedByCurrentUser) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    return _publishNoReplace(source, destination);
+  }
+
+  /// A privately reserved regular file is flushed by its owner before this
+  /// atomic publication. Neither an existing file nor a directory is replaced.
+  /// The caller must sync the parent after publication and retain its lease.
+  bool publishFileNoReplace(String source, String destination) {
+    requirePrivateFile(source);
+    return _publishNoReplace(source, destination);
+  }
+
+  bool _publishNoReplace(String source, String destination) {
     if (Directory(source).parent.path != Directory(destination).parent.path) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
