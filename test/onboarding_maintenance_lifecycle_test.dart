@@ -11,6 +11,9 @@ import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/identity_setup_intent.dart';
+import 'package:xveil/domain/storage_initialization.dart';
+import 'package:xveil/data/storage/identity_setup_journal.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
@@ -485,4 +488,32 @@ void main() {
     await _finish(f.controller);
     expect(f.container.read(appControllerProvider).phase, AppPhase.ready);
   });
+  test(
+    'a node start refusal keeps offline UI and the exact durable boot intent',
+    () async {
+      final f = await _fixture(_Stage.beforeOpen, deniable: true);
+      f.storage.release.complete();
+      await f.controller.completeOnboarding(
+        password: 'new-fixture',
+        mode: StorageMode.hiddenSpace,
+        identityPhrase: 'synthetic original phrase',
+        nodeConfigToml: 'fixture-config',
+      );
+      expect(f.container.read(appControllerProvider).phase, AppPhase.ready);
+      expect(await f.storage.getSetting(kPendingIdentitySetupSetting), '2');
+      final intent = await IdentitySetupJournal.read(f.storage, () {});
+      try {
+        expect(intent!.phrase, 'synthetic original phrase');
+      } finally {
+        intent?.destroy();
+      }
+      await f.controller.lock();
+      await f.controller.unlock('new-fixture');
+      expect(f.controller.canReplayIdentitySetup, isTrue);
+      expect(await f.controller.replayIdentitySetup('new-fixture'), isTrue);
+      expect(f.container.read(appControllerProvider).phase, AppPhase.ready);
+      expect(await f.storage.getSetting(kPendingIdentitySetupSetting), '2');
+      expect(await f.storage.hasFile(kIdentitySetupJournalFile), isTrue);
+    },
+  );
 }

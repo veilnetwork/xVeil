@@ -8313,4 +8313,15 @@ class AppL10nEs extends AppL10n {
   @override
   String get identitySetupRecoveryMasterBody =>
       'Si creabas una maestra de coacción, vuelve a la maestra original y repite la operación con la misma contraseña. No crees aquí una identidad normal en su lugar.';
+
+  @override
+  String get identitySetupReplayBody =>
+      'Completa la creación de esta identidad con los datos guardados.';
+
+  @override
+  String get identitySetupReplayAction => 'Completar creación';
+
+  @override
+  String get identitySetupReplayError =>
+      'No se pudo completar la creación. Revisa la contraseña; guarda un informe si el error se repite.';
 }

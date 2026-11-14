@@ -14237,6 +14237,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead.'**
   String get identitySetupRecoveryMasterBody;
+
+  /// No description provided for @identitySetupReplayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish setting up this identity from the saved data.'**
+  String get identitySetupReplayBody;
+
+  /// No description provided for @identitySetupReplayAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish setup'**
+  String get identitySetupReplayAction;
+
+  /// No description provided for @identitySetupReplayError.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup could not finish. Check the password; save a report if the error repeats.'**
+  String get identitySetupReplayError;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

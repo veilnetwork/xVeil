@@ -19,6 +19,10 @@ import 'package:xveil/data/storage/profile_storage_router.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/domain/storage_initialization.dart';
+import 'package:xveil/domain/identity_setup_intent.dart';
+import 'package:xveil/data/storage/identity_setup_journal.dart';
+import 'package:xveil/data/storage/file_store.dart';
+import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/state/storage_router_providers.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/identity.dart';
@@ -58,6 +62,52 @@ class _MutatingStore extends HvKvLogStore {
 }
 
 class _CredentialRefusal extends HiddenVolumeStorage {
+  bool refuse = true;
+  bool loseJournalReply = false;
+  bool refuseCleanup = false;
+  bool refuseProfile = false, refuseConfig = false;
+  @override
+  Future<void> saveProfile(UserProfile profile) async {
+    if (refuseProfile) {
+      throw StateError('synthetic profile write must not happen');
+    }
+    await super.saveProfile(profile);
+  }
+
+  @override
+  Future<void> saveNodeConfig(String config) async {
+    if (refuseConfig) {
+      throw StateError('synthetic config write must not happen');
+    }
+    await super.saveNodeConfig(config);
+  }
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async {
+    final result = await super.tryStoreFilePair(
+      prerequisite,
+      publication,
+      retireHints: retireHints,
+    );
+    if (publication.id == kIdentitySetupJournalFile && loseJournalReply) {
+      loseJournalReply = false;
+      throw StateError('synthetic lost journal reply');
+    }
+    return result;
+  }
+
+  @override
+  Future<void> deleteStoredFile(String id) async {
+    if (refuseCleanup && id == kIdentitySetupJournalFile) {
+      throw StateError('synthetic cleanup refusal');
+    }
+    await super.deleteStoredFile(id);
+  }
+
   _CredentialRefusal(String path)
     : super(
         hvSpaceOpener(
@@ -74,7 +124,8 @@ class _CredentialRefusal extends HiddenVolumeStorage {
     String? name,
     List<String> retireHints = const [],
   }) async {
-    throw StateError('synthetic credential storage refusal');
+    if (refuse) throw StateError('synthetic credential storage refusal');
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 }
 
@@ -93,8 +144,10 @@ class _PausingProfileStorage extends HiddenVolumeStorage {
   @override
   Future<void> saveProfile(UserProfile profile) async {
     await super.saveProfile(profile);
-    saved.complete();
-    await release.future;
+    if (!saved.isCompleted) {
+      saved.complete();
+      await release.future;
+    }
   }
 }
 
@@ -148,6 +201,26 @@ void main() {
       expect(node.starts, 0);
     },
   );
+  test(
+    'a setup marker alone preserves explicit blank-space continuation',
+    () async {
+      expect(
+        await storage.open(password: 'fixture password', createIfMissing: true),
+        isTrue,
+      );
+      await storage.putSetting(kPendingIdentitySetupSetting, '1');
+      await storage.close();
+      final ctrl = app.read(appControllerProvider.notifier);
+      await ctrl.unlock('fixture password');
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.identitySetupRecovery,
+      );
+      expect(ctrl.canResumeIdentitySetup, isTrue);
+      expect(node.starts, 0);
+    },
+  );
+
   test(
     'onboarding cannot overwrite an existing master or forget its onboarding preference',
     () async {
@@ -520,6 +593,288 @@ void main() {
         app.read(appControllerProvider).phase,
         AppPhase.identitySetupRecovery,
       );
+      expect(ctrl.canResumeIdentitySetup, isFalse);
+      expect(node.starts, 0);
+    },
+  );
+  test(
+    'cold replay preserves the exact original certificate after write refusal',
+    () async {
+      await storage.close();
+      final failing = _CredentialRefusal('${fixture.path}/replay.hv');
+      storage = failing;
+      app.invalidate(storageProvider);
+      final original = Uint8List.fromList(
+        List.generate(16384, (i) => (i * 37 + 11) & 255),
+      );
+      final ctrl = app.read(appControllerProvider.notifier);
+      await expectLater(
+        ctrl.completeOnboarding(
+          password: 'fixture password',
+          mode: StorageMode.hiddenSpace,
+          displayName: 'Preserved',
+          identityPhrase: 'synthetic fixture phrase',
+          sovereignCredential: original,
+          nodeConfigToml: 'synthetic fixture config',
+          recoveryCertificateSaved: true,
+        ),
+        throwsStateError,
+      );
+      await ctrl.lock();
+      failing.refuse = false;
+      expect(await storage.open(password: 'fixture password'), isTrue);
+      final keys = await storage.exportSpaceKeys();
+      final saved = await IdentitySetupJournal.read(storage, () {});
+      try {
+        expect(saved, isNotNull);
+        await IdentitySetupJournal.validate(
+          storage,
+          saved!,
+          const LegacyStorageLocator(),
+          keys,
+          () {},
+        );
+      } finally {
+        saved?.destroy();
+        keys.fillRange(0, keys.length, 0);
+        await storage.close();
+      }
+      await ctrl.unlock('fixture password');
+      expect(ctrl.canReplayIdentitySetup, isTrue);
+      expect(ctrl.canResumeIdentitySetup, isFalse);
+      expect(node.starts, 0);
+      expect(await ctrl.replayIdentitySetup('wrong fixture'), isFalse);
+      expect(await ctrl.replayIdentitySetup('fixture password'), isTrue);
+      expect(app.read(appControllerProvider).phase, AppPhase.ready);
+      expect(await storage.loadFile(kSovereignBundleSetting), original);
+      expect(await storage.loadNodeConfig(), 'synthetic fixture config');
+      expect((await storage.loadProfile())!.displayName, 'Preserved');
+      expect(await storage.getSetting(kRecoveryCertificateSavedSetting), '1');
+      expect(await storage.getSetting(kPendingIdentitySetupSetting), '0');
+      expect(await storage.hasFile(kIdentitySetupJournalFile), isFalse);
+      expect(await storage.hasFile(kIdentitySetupCredentialFile), isFalse);
+      expect(ctrl.takePendingIdentityPhrase(), 'synthetic fixture phrase');
+      expect(node.starts, 1);
+      original.fillRange(0, original.length, 0);
+    },
+  );
+
+  test(
+    'a lost atomic journal reply immediately exposes durable replay',
+    () async {
+      await storage.close();
+      final failing = _CredentialRefusal('${fixture.path}/lost.hv')
+        ..refuse = false
+        ..loseJournalReply = true;
+      storage = failing;
+      app.invalidate(storageProvider);
+      final ctrl = app.read(appControllerProvider.notifier);
+      await expectLater(
+        ctrl.completeOnboarding(
+          password: 'fixture password',
+          mode: StorageMode.hiddenSpace,
+          sovereignCredential: Uint8List.fromList([7, 8, 9]),
+        ),
+        throwsStateError,
+      );
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.identitySetupRecovery,
+      );
+      expect(ctrl.canReplayIdentitySetup, isTrue);
+      expect(
+        (await SharedPreferences.getInstance()).getBool('onboarded'),
+        isTrue,
+      );
+      expect(node.starts, 0);
+      expect(await ctrl.replayIdentitySetup('fixture password'), isTrue);
+      expect(await storage.loadFile(kSovereignBundleSetting), [7, 8, 9]);
+      expect(node.starts, 1);
+    },
+  );
+
+  test(
+    'cleanup failure preserves an ordinary ready identity and retries on cold entry',
+    () async {
+      await storage.close();
+      final failing = _CredentialRefusal('${fixture.path}/cleanup.hv')
+        ..refuse = false
+        ..refuseCleanup = true;
+      storage = failing;
+      app.invalidate(storageProvider);
+      final ctrl = app.read(appControllerProvider.notifier);
+      await ctrl.completeOnboarding(
+        password: 'fixture password',
+        mode: StorageMode.hiddenSpace,
+        sovereignCredential: Uint8List.fromList([7, 8, 9]),
+      );
+      expect(app.read(appControllerProvider).phase, AppPhase.ready);
+      expect(await storage.hasFile(kIdentitySetupJournalFile), isTrue);
+      expect(await storage.hasFile(kIdentitySetupCredentialFile), isFalse);
+      expect(await storage.loadFile(kSovereignBundleSetting), [7, 8, 9]);
+      await ctrl.lock();
+      failing.refuseCleanup = false;
+      await ctrl.unlock('fixture password');
+      expect(app.read(appControllerProvider).phase, AppPhase.ready);
+      expect(await storage.hasFile(kIdentitySetupJournalFile), isFalse);
+      expect(await storage.loadFile(kSovereignBundleSetting), [7, 8, 9]);
+    },
+  );
+
+  test(
+    'lock during accepted replay prevents late boot and preserves the next retry',
+    () async {
+      await storage.close();
+      final gated = _PausingProfileStorage('${fixture.path}/replay-lock.hv');
+      storage = gated;
+      app.invalidate(storageProvider);
+      expect(
+        await storage.open(password: 'fixture password', createIfMissing: true),
+        isTrue,
+      );
+      final keys = await storage.exportSpaceKeys();
+      final intent = IdentitySetupIntent.create(
+        root: const LegacyStorageLocator(),
+        keys: keys,
+        mode: StorageMode.hiddenSpace,
+        persistLegacyMode: false,
+        credential: Uint8List.fromList([1, 2, 3]),
+      );
+      try {
+        await IdentitySetupJournal.save(storage, intent, () {});
+        await storage.close();
+        final ctrl = app.read(appControllerProvider.notifier);
+        await ctrl.unlock('fixture password');
+        final authority = ctrl.debugSetupRecoveryKeys!;
+        expect(ctrl.canReplayIdentitySetup, isTrue);
+        final pending = ctrl.replayIdentitySetup('fixture password');
+        await gated.saved.future;
+        final locking = ctrl.lock();
+        gated.release.complete();
+        expect(await pending, isFalse);
+        await locking;
+        expect(app.read(appControllerProvider).phase, AppPhase.locked);
+        expect(authority, everyElement(0));
+        expect(node.starts, 0);
+        await ctrl.unlock('fixture password');
+        expect(ctrl.canReplayIdentitySetup, isTrue);
+        expect(await ctrl.replayIdentitySetup('fixture password'), isTrue);
+        expect(await storage.loadFile(kSovereignBundleSetting), [1, 2, 3]);
+        expect(node.starts, 1);
+      } finally {
+        intent.destroy();
+        keys.fillRange(0, keys.length, 0);
+      }
+    },
+  );
+
+  test(
+    'a changed profile after showing replay cannot be overwritten by stale consent',
+    () async {
+      await storage.close();
+      final failing = _CredentialRefusal('${fixture.path}/stale-replay.hv');
+      storage = failing;
+      app.invalidate(storageProvider);
+      final ctrl = app.read(appControllerProvider.notifier);
+      await expectLater(
+        ctrl.completeOnboarding(
+          password: 'fixture password',
+          mode: StorageMode.hiddenSpace,
+          sovereignCredential: Uint8List.fromList([1, 2, 3]),
+        ),
+        throwsStateError,
+      );
+      expect(ctrl.canReplayIdentitySetup, isTrue);
+      failing.refuse = false;
+      expect(await storage.open(password: 'fixture password'), isTrue);
+      await storage.saveProfile(
+        const UserProfile(displayName: 'Preserve changed data'),
+      );
+      await storage.close();
+      expect(await ctrl.replayIdentitySetup('fixture password'), isFalse);
+      expect(node.starts, 0);
+      expect(await storage.open(password: 'fixture password'), isTrue);
+      expect(
+        (await storage.loadProfile())!.displayName,
+        'Preserve changed data',
+      );
+      expect(await storage.hasFile(kIdentitySetupJournalFile), isTrue);
+      expect(await storage.hasFile(kIdentitySetupCredentialFile), isTrue);
+      await storage.close();
+    },
+  );
+
+  test(
+    'stage two replays boot without calling any identity payload writer',
+    () async {
+      await storage.close();
+      final guarded = _CredentialRefusal('${fixture.path}/published.hv')
+        ..refuse = false;
+      storage = guarded;
+      app.invalidate(storageProvider);
+      expect(
+        await storage.open(password: 'fixture password', createIfMissing: true),
+        isTrue,
+      );
+      final keys = await storage.exportSpaceKeys();
+      final intent = IdentitySetupIntent.create(
+        root: const LegacyStorageLocator(),
+        keys: keys,
+        mode: StorageMode.hiddenSpace,
+        persistLegacyMode: false,
+        displayName: 'Published',
+        nodeConfig: 'synthetic config',
+        credential: Uint8List.fromList([1, 2, 3]),
+      );
+      try {
+        await IdentitySetupJournal.save(storage, intent, () {});
+        await storage.saveProfile(const UserProfile(displayName: 'Published'));
+        await storage.saveNodeConfig('synthetic config');
+        await storage.storeFile(
+          kSovereignBundleSetting,
+          Uint8List.fromList([1, 2, 3]),
+        );
+        await storage.putSetting('synthetic newer durable state', 'preserve');
+        await storage.putSetting(kPendingIdentitySetupSetting, '2');
+        await storage.close();
+        guarded.refuse = true;
+        guarded.refuseProfile = true;
+        guarded.refuseConfig = true;
+        final ctrl = app.read(appControllerProvider.notifier);
+        await ctrl.unlock('fixture password');
+        expect(ctrl.canReplayIdentitySetup, isTrue);
+        expect(await ctrl.replayIdentitySetup('fixture password'), isTrue);
+        expect(app.read(appControllerProvider).phase, AppPhase.ready);
+        expect(
+          await storage.getSetting('synthetic newer durable state'),
+          'preserve',
+        );
+        expect(await storage.loadFile(kSovereignBundleSetting), [1, 2, 3]);
+        expect(node.starts, 1);
+      } finally {
+        intent.destroy();
+        keys.fillRange(0, keys.length, 0);
+      }
+    },
+  );
+
+  test(
+    'an unknown setup stage cannot boot an otherwise readable profile',
+    () async {
+      expect(
+        await storage.open(password: 'fixture password', createIfMissing: true),
+        isTrue,
+      );
+      await storage.saveProfile(const UserProfile(displayName: 'Preserved'));
+      await storage.putSetting(kPendingIdentitySetupSetting, 'future-stage');
+      await storage.close();
+      final ctrl = app.read(appControllerProvider.notifier);
+      await ctrl.unlock('fixture password');
+      expect(
+        app.read(appControllerProvider).phase,
+        AppPhase.identitySetupRecovery,
+      );
+      expect(ctrl.canReplayIdentitySetup, isFalse);
       expect(ctrl.canResumeIdentitySetup, isFalse);
       expect(node.starts, 0);
     },

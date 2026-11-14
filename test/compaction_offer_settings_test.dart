@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -19,6 +20,9 @@ Future<ProviderContainer> _open() async {
   SharedPreferences.setMockInitialValues({});
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
+  await storage.saveProfile(
+    const UserProfile(displayName: 'Synthetic compaction profile'),
+  );
   final container = ProviderContainer(
     overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
   );

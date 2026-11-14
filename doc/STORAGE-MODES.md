@@ -1054,27 +1054,58 @@ back to the original master rather than silently creating an ordinary identity.
 Lock/dispose retires cached authority; no ordinary views, edits, maintenance or
 identity switching are allowed while this screen owns the session.
 
-Creation now refuses existing profiles and rosters as well as node credentials,
-and keeps existing onboarding preferences on refusal. A protected identity-setup
-marker is saved before the first profile write and cleared after all onboarding
-payloads and the access selection settle. The caller's credential bytes are
-snapshotted before awaits and the owned copy is retired. A failed/locked write
-cannot later boot a partial identity merely because a profile exists.
+Creation refuses existing profiles and rosters as well as node credentials,
+and keeps existing onboarding preferences on refusal. A protected, bounded
+creation journal now records the exact submitted choices and a separate original
+credential (up to the existing 16-KiB reader limit), inside the selected space.
+Metadata is bounded to 128 KiB; a fresh native file pair fits the existing
+atomic commit budget. A root locator AND a digest of the space keys bind the
+journal, including multiple hidden spaces with the same legacy locator. No
+password, key, phrase, journal pointer or hidden locator enters the public catalog.
+The memory backend snapshots committed input bytes, matching native persistence.
 
-This does not yet replay a partially written certificate or a marked master
-whose roster was not saved. Such stores stay preserved on the setup screen, with report/sign-in
-controls and no automatic retry or replacement. Empty pre-marker spaces can
-explicitly continue; replay of accepted payloads still needs a protected intent.
-Host-native tests cover all three modes, cold reopen, unchanged keys/catalog,
-existing-master refusal, concurrent/unknown data, certificate-write refusal and
-lock during an accepted profile save. Widget checks cover fixed protection,
-routing gates and narrow large-text RU/EN/ES recovery screens. No packaged
-platform/OS-vault qualification is implied. Default activation stays off.
+A pending marker precedes journal publication. Stage 1 requires explicit
+reauthentication and a fresh comparison of existing profile/config/credential
+values before replay. Unknown namespaces/settings refuse it; inspection is
+read-only even when a backend lends read buffers. Stage 2 records that payloads
+are already durable and only boot remains: replay never calls the profile,
+config or credential writers, and does not roll back newer durable state. All
+creator/binder guards also reject this stage and unknown nonempty stages.
 
-Remaining before default activation: whole-profile erase, full interrupted
-creation replay, manual mixed maintenance/password rotation where applicable,
-explicit migration/recovery, and packaged Android/Windows/macOS runs including
-one-prompt OS entry. Existing containers are never converted automatically.
+The recovery screen offers explicit completion in the same location, uses the
+password only for that attempt (none for actual plaintext), blocks overlapping
+attempts, and keeps lock/report available. Failures and lost replies expose the
+recovery door immediately where readable; transient read failures preserve a
+returning-user marker. Owned intent/credential/key buffers retire after every
+outcome; lock and disposal prevent late activation. The existing offline-ready
+behavior on node-start failure remains: stage 2 retains the original boot secret
+until the real node starts. Retrying uses the authenticated journal rather than
+an abandoned identity's one-shot RAM value.
+
+Stage 0 is saved after successful boot (or the no-native loopback path), then
+staged credential and metadata are retired in that order. Cleanup failures do
+not revoke a completed identity; cold entry verifies the completed payload
+before retrying cleanup, preserving a backup if the main credential disagrees.
+Replay also preserves a changed/unreadable credential rather than overwriting
+it with an older journal copy. This is not a downgrade of ratchet/authorization
+floors or a promise to reconstruct unknown post-boot changes.
+
+Host-native tests cover all three modes at five durable checkpoints, unchanged
+keys/catalog, a full-size credential, conflict and cross-space refusal, lost
+publication replies, write refusal, cleanup retry and lock during accepted
+replay. Five independent writers are actually SIGKILLed (exit -9) before/after
+atomic journal publication and after profile/credential/pre-boot publication;
+cold entry preserves either explicit blank setup or the exact staged identity.
+Decoder mutation/bounds and narrow large-text RU/EN/ES controls are checked.
+These use synthetic credentials and fake network nodes: packaged platform and
+real media/OS-vault qualification are still required.
+
+Pre-journal partial payloads have no trustworthy original intent and remain
+preserved without replacement. Pre-roster pending-master replay, unbound-child
+recovery, whole-profile erase, manual mixed maintenance/password rotation where
+applicable, explicit migration and packaged Android/Windows/macOS runs remain
+before default activation. Existing containers are never converted automatically;
+the managed-storage default switch remains off.
 
 ## Implementation boundaries
 
