@@ -163,6 +163,7 @@ void main() {
           jsonDecode(File(getPlanPath()).readAsStringSync()) as Map;
       expect(publicPlan.keys.toSet(), {
         'v',
+        'operation',
         'profile',
         'coordinator',
         'catalog',

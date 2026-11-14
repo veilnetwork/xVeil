@@ -316,4 +316,103 @@ void main() {
     },
     skip: !(Platform.isMacOS || Platform.isLinux),
   );
+  test(
+    'absent-root erasure survives SIGKILL without initializing identities',
+    () async {
+      final temporary = Directory.systemTemp.createTempSync(
+        'xveil-root-erasure-crash-',
+      );
+      const fs = ManagedFsPlatform();
+      try {
+        for (final phase in [
+          'beforeIntent',
+          'afterIntent',
+          'afterRetirement',
+          ...ManagedErasureFinishStage.values.map((s) => s.name),
+        ]) {
+          final fixture = Directory('${temporary.path}/$phase')..createSync();
+          final profile = '${fixture.path}/profile';
+          expect(fs.createPrivateDirectory(profile), isTrue);
+          StorageProfileCoordinator.createOrOpen(profile).close();
+          final legacy = File('$profile/legacy-fixture')
+            ..writeAsStringSync('synthetic legacy data');
+          final outside = File('${fixture.path}/outside')
+            ..writeAsStringSync('unrelated data');
+          final coordinator =
+              '$profile/${StorageProfileCoordinator.directoryName}';
+          final pending = '$coordinator/${ManagedRootErasure.pendingName}';
+          final terminal = '$coordinator/${ManagedRootErasure.completionName}';
+          await _killErasureWriter(fixture.path, 'absent-$phase', () {
+            expect(Directory('$profile/identities').existsSync(), isFalse);
+            if (phase == 'beforeIntent') {
+              expect(Directory(pending).existsSync(), isFalse);
+              expect(legacy.readAsStringSync(), 'synthetic legacy data');
+            } else if (['afterIntent', 'afterRetirement'].contains(phase)) {
+              expect(File('$pending/plan.json').existsSync(), isTrue);
+              expect(legacy.readAsStringSync(), 'synthetic legacy data');
+            } else {
+              expect(legacy.existsSync(), isFalse);
+            }
+          });
+          expect(Directory('$profile/identities').existsSync(), isFalse);
+          expect(outside.readAsStringSync(), 'unrelated data');
+          if (phase == 'beforeIntent') {
+            // Nothing was deleted. Unpublished staging is preserved for explicit
+            // ownership review; it is not silently swept by ordinary startup.
+            expect(ManagedDirectoryCatalog.openExisting(profile), isNull);
+            expect(legacy.readAsStringSync(), 'synthetic legacy data');
+            continue;
+          }
+          if (phase != ManagedErasureFinishStage.completionRemoved.name) {
+            expect(
+              () => ManagedDirectoryCatalog.createOrOpen(profile),
+              throwsA(isA<ManagedFsFailure>()),
+            );
+            final recovered = ManagedRootErasure.openPending(profile);
+            var verified = 0, retired = 0;
+            final removing =
+                recovered.phase == ManagedRootErasurePhase.removing;
+            try {
+              if (removing) {
+                expect(recovered.catalog.identities, isEmpty);
+                expect(recovered.unlockScopes.ids, ['a' * 64]);
+                await recovered.removeManagedFiles(
+                  retireScopes: (catalog) async {
+                    expect(catalog.identities, isEmpty);
+                    retired++;
+                  },
+                  afterUnlink: (_) async =>
+                      fail('Absent root has no planned unlink'),
+                );
+              }
+              await recovered.finish(
+                verifyOtherDataAbsent: () async {
+                  verified++;
+                  if (legacy.existsSync()) legacy.deleteSync();
+                  expect(legacy.existsSync(), isFalse);
+                },
+              );
+              expect(
+                recovered.releaseCompleted().authorizes(recovered.binding),
+                isTrue,
+              );
+            } finally {
+              recovered.close();
+            }
+            expect(verified, removing ? 1 : 0);
+            expect(retired, removing ? 1 : 0);
+          }
+          expect(legacy.existsSync(), isFalse);
+          expect(Directory('$profile/identities').existsSync(), isFalse);
+          expect(File(terminal).existsSync(), isFalse);
+          expect(Directory(pending).existsSync(), isFalse);
+          expect(outside.readAsStringSync(), 'unrelated data');
+          ManagedDirectoryCatalog.createOrOpen(profile).close();
+        }
+      } finally {
+        temporary.deleteSync(recursive: true);
+      }
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
 }
