@@ -2,12 +2,19 @@ part of 'managed_directory_catalog.dart';
 
 /// A terminal witness, not an authorization token. The exclusively held
 /// permanent role and trusted enclosing verifier authorize this transition.
-/// Contains only local object witnesses and a digest of the immutable plan;
-/// no catalog, scope names, credentials or hidden-space information survives.
+/// Contains local object witnesses, a plan digest and optional relative
+/// auxiliary absence scope. No catalog, OS-scope roster, credentials, absolute
+/// paths or hidden-space information survives.
 final class _ErasureCompletion {
-  _ErasureCompletion(this._record, this._witness, this._digest);
+  _ErasureCompletion(
+    this._record,
+    this._witness,
+    this._digest, {
+    this.auxiliary,
+  });
   static const _maxBytes = 4096;
-  final Map<String, Object> _record;
+  final _AuxiliaryErasureScope? auxiliary;
+  final Map<String, Object?> _record;
   final ManagedPathWitness _witness;
   final String _digest;
   bool unlinked = false;
@@ -78,9 +85,10 @@ final class _ErasureCompletion {
       bool objectId(Object? v) =>
           v is String && v.isNotEmpty && v.length <= 256 && !v.contains('\x00');
       if (raw is! Map<String, dynamic> ||
-          raw.length != 8 ||
+          raw.length != 9 ||
+          !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 1 ||
+          raw['v'] != 2 ||
           !objectId(raw['profile']) ||
           !objectId(raw['coordinator']) ||
           !objectId(raw['directory']) ||
@@ -94,9 +102,13 @@ final class _ErasureCompletion {
         throw const FormatException();
       }
       return _ErasureCompletion(
-        Map<String, Object>.unmodifiable(raw),
+        Map<String, Object?>.unmodifiable(raw),
         witness,
         sha256.convert(bytes).toString(),
+        auxiliary: _AuxiliaryErasureScope.decode(
+          raw['auxiliary'],
+          Directory(gate.profileDirectory).parent.path,
+        ),
       );
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
@@ -111,8 +123,10 @@ final class _ErasureCompletion {
   ) {
     requireRootAbsent(gate);
     final bytes = _read(_plan(gate), plan, _RootErasePlan.maxBytes, gate._fs);
-    final record = <String, Object>{
-      'v': 1,
+    final auxiliary = _RootErasePlan.decode(bytes, gate).auxiliary?.scope;
+    auxiliary?.requireAbsent(gate);
+    final record = <String, Object?>{
+      'v': 2,
       'profile': gate._profileWitness.identity,
       'coordinator': gate._directoryWitness.identity,
       'directory': directory.identity,
@@ -120,6 +134,7 @@ final class _ErasureCompletion {
       'size': stamp.size,
       'modified': stamp.modified.microsecondsSinceEpoch,
       'sha256': sha256.convert(bytes).toString(),
+      'auxiliary': auxiliary?.encode(),
     };
     final encoded = utf8.encode(jsonEncode(record));
     if (encoded.length > _maxBytes) {
@@ -154,6 +169,7 @@ final class _ErasureCompletion {
         Map.unmodifiable(record),
         witness,
         sha256.convert(encoded).toString(),
+        auxiliary: auxiliary,
       );
     } finally {
       if (!published &&
@@ -170,6 +186,7 @@ final class _ErasureCompletion {
 
   void validate(StorageProfileCoordinator gate) {
     requireRootAbsent(gate);
+    auxiliary?.requireAbsent(gate);
     if (unlinked ||
         _record['profile'] != gate._profileWitness.identity ||
         _record['coordinator'] != gate._directoryWitness.identity ||
@@ -252,6 +269,7 @@ final class _ErasureCompletion {
 
   void confirmUnlinked(StorageProfileCoordinator gate) {
     requireRootAbsent(gate);
+    auxiliary?.requireAbsent(gate);
     if (!unlinked ||
         FileSystemEntity.typeSync(_path(gate), followLinks: false) !=
             FileSystemEntityType.notFound ||

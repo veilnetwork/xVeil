@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'pinned_download.dart';
 import 'storage/app_profile.dart';
+import '../domain/profile_model_layout.dart';
 export 'pinned_download.dart' show sha256OfFileStreaming;
 
 /// The speech model, fetched on demand instead of shipped in the build.
@@ -51,7 +52,7 @@ class WhisperModelStore {
   /// starting the 57 MiB again.
   final Duration stallTimeout;
 
-  static const fileName = 'ggml-base-q5_1.bin';
+  static const fileName = ProfileModelLayout.speechFile;
 
   /// Pinned by the Android packaging step since the model was bundled; the
   /// download inherits the same two checks rather than inventing weaker ones.

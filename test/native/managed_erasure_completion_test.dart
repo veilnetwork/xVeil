@@ -538,7 +538,9 @@ void main() {
             'size',
             'modified',
             'sha256',
+            'auxiliary',
           });
+          expect(raw['auxiliary'], isNull);
           for (final secret in [
             'synthetic password',
             '1' * 32,

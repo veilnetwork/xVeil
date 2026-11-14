@@ -35,6 +35,7 @@ final class ManagedErasureReconciliation {
   void _validate() {
     _gate.requireHeld(exclusive: true); // Also refuses either pending marker.
     _ErasureCompletion.requireRootAbsent(_gate);
+    binding._auxiliaryScope?.requireAbsent(_gate);
     if (binding._profile != _gate._profileWitness.identity ||
         binding._coordinator != _gate._directoryWitness.identity) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);

@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'pinned_download.dart';
 import 'storage/app_profile.dart';
+import '../domain/profile_model_layout.dart';
 
 /// Translation models, fetched per language pair.
 ///
@@ -50,7 +51,7 @@ class TranslationModelStore {
 
   /// Everything lives under this one directory, so removing translation
   /// entirely is removing one tree.
-  static const dirName = 'translate';
+  static const dirName = ProfileModelLayout.translationDirectory;
 
   /// The one tree every pair lives under, for THIS profile.
   ///
@@ -190,13 +191,7 @@ class TranslationModelStore {
 /// piece is ever filled in from a different pair. The store checks sizes
 /// against a pinned catalogue; this checks presence, which is all that can be
 /// known about a directory somebody placed by hand.
-const List<String> kPairFiles = [
-  'model.bin',
-  'config.json',
-  'shared_vocabulary.json',
-  'source.spm',
-  'target.spm',
-];
+const List<String> kPairFiles = ProfileModelLayout.translationFiles;
 
 /// A direction, not a language: ru→en and en→ru are different models.
 class TranslationPair {

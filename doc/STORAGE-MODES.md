@@ -1489,17 +1489,17 @@ erasure worker and lost-reply reconciliation are qualified below. The managed de
 coordinator under an exclusive lifetime grant. It records absence without
 creating an ordinary catalog, identity, payload file or enumerable root. The
 same private no-replace publication path is used by both preparation variants.
-Each v3 plan also carries a fresh 128-bit public operation nonce. Its digest
+Each current v4 plan retains the fresh 128-bit public operation nonce added in v3. Its digest
 binds the final release proof even when successive empty-root plans otherwise
 have identical contents and the filesystem reuses the old directory number.
-The prior v2 shape has no such guarantee and is rejected, rather than silently
+The prior v2/v3 layouts are rejected, rather than silently
 upgraded or given fresh authorization. These unpublished feature formats have
 no automatic compatibility migration.
 
 The known saved-entry scope names remain durable even for a hidden-only profile;
 no hidden roster, hidden credentials or hidden-container contents are inspected.
 
-An empty `entries` inventory in the bounded v3 plan is valid only with an empty
+An empty `entries` inventory in the bounded v4 plan is valid only with an empty
 public catalog. It means the root **must remain absent**, including after the
 scope-retirement callback. A directory, regular file or link appearing there
 refuses publication/recovery/removal and is preserved. Recovery still binds the
@@ -1656,6 +1656,46 @@ returned. Other tests cover a translation import held before root resolution,
 late automatic preflight, consent I/O, controller rebuilds, fresh post-wipe
 downloads, and GitHub archive admission. They do not qualify real model hardware
 or complete the still-pending managed full-wipe/external-inventory protocol.
+
+## Durable inventory for profile-owned auxiliary files
+
+The unpublished intent format is now v4; the terminal witness is v2. Explicit
+`ProfileErasureAuxiliaryTargets` opt a profile into inventory of its opaque legacy
+container, exact native rewrite temporaries, encrypted blob pieces, speech
+model/partial/import files and translation pairs/imports/GitHub archive cache.
+Artifact names come from a shared platform-free layout module; the public store
+and bundle APIs retain their existing names and values.
+
+The auxiliary base is derived from the owned managed profile's parent, not read
+from the journal. Only the legacy leaf and fixed role choices are persisted.
+The plan records object identities, file sizes and modification witnesses;
+capture and retry reject links, changed objects, new recognized roots and unknown
+children. Entries are removed deepest-first with non-recursive unlink and parent
+sync. The 8 MiB/32,768-entry intent bounds apply to the combined inventory. The
+speech model's parent is never recursively deleted: it also holds the container.
+Unrelated profile files remain untouched. This retains the existing private-path
+boundary, not a descriptor-relative guarantee against hostile same-user ABA.
+
+Auxiliary removal is a separate supervised-worker command with required joined
+OS-retirement admission. Native finalization independently requires auxiliary
+absence before and after the enclosing verifier. The small terminal retains only
+relative absence scope, no per-file inventory/catalog/OS-scope list or absolute
+paths. That scope survives terminal-only recovery and is retained privately in
+the opaque binding for read-only lost-reply reconciliation. A newly appearing
+container or matching rewrite refuses recovery and is preserved, never adopted
+as old deletion authority.
+
+Release rechecks root and auxiliary absence before starting native close, covering
+the gap after terminal finalization. A consuming-close retry continues only that
+already-owned close; it does not acquire new filesystem or deletion authority.
+
+Host tests cover worker restart, OS retirement refusal, changed content/objects,
+unknown files, malformed manifests, terminal-only recovery and lost final reply.
+Four actual SIGKILL boundaries cover partial auxiliary deletion and terminal
+cleanup, including a replacement after plan removal. These qualify the native
+inventory port. Application preference lifetime/cleanup and complete managed
+wipe/recovery UI binding remain required before production activation; optional
+auxiliary scope is not a substitute for that full application contract.
 
 ## Implementation boundaries
 

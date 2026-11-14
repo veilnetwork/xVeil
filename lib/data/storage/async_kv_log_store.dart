@@ -661,6 +661,7 @@ SendPort _serveWorker(
           _CatalogReviewEraseReq() ||
           _ErasureSnapshotReq() ||
           _ErasureRemoveReq() ||
+          _ErasureAuxiliaryReq() ||
           _ErasureFinishReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
