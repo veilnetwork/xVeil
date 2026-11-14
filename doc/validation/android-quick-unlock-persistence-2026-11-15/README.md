@@ -80,6 +80,10 @@ Android plugin persistence and restart are modeled at the channel boundary;
 the native helper runs on the host JVM and compiles against the Android sources,
 but real-device process-kill/disk-failure qualification remains open. ADB had no
 connected device in this round. No actual Keychain/Keystore secrets were used.
+The later [Android restart qualification](../android-quick-unlock-restart-2026-11-15/README.md)
+ran the real plugin/helper in a disposable Android 15 emulator, including a
+strong-biometric key and 40 fresh-process checks. It does not replace physical
+device or complete application qualification.
 
 This does not solve terminal-only application recovery, reconstruct a missing
 scope roster, independently observe native media shutdown or activate managed
