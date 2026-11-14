@@ -63,6 +63,7 @@ import 'storage_preferences.dart';
 import 'vpn_controller.dart';
 import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
+import 'profile_model_work.dart';
 import 'package:xveil/core/log.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -6210,6 +6211,10 @@ class AppController extends Notifier<AppState> {
       // fall through to the legacy best-effort delete while its router lives.
       throw StateError('managed storage requires owned profile erasure');
     }
+    // A model installer can publish after cancellation (or have passed its last
+    // cancellation check already). Seal new admission synchronously and join
+    // every accepted operation before deleting models or their consent prefs.
+    final modelWorkDrained = ref.read(profileModelWorkProvider).retire();
     _endLifecycle(); // invalidate pending unlocks before the first await
     _stopMediaCapture();
     _incomplete.clear();
@@ -6241,6 +6246,7 @@ class AppController extends Notifier<AppState> {
     // same path again. Its failure is quiescent too, so deletion still runs.
     // Do not time out this barrier and claim the file cannot reappear.
     await waitForCompaction();
+    await modelWorkDrained;
 
     // Delete the container file when we know its path (native/deniable build).
     // On the in-memory/loopback path there is no file — startOver semantics.
@@ -6418,6 +6424,9 @@ class AppController extends Notifier<AppState> {
     // The phase still flips. Parking someone on a lock screen for a container
     // that may already be gone is its own failure, and in a deniable app the
     // wrong screen is a disclosure.
+    ref.invalidate(whisperModelControllerProvider);
+    ref.invalidate(translationModelsControllerProvider);
+    ref.invalidate(profileModelWorkProvider);
     state = const AppState(AppPhase.onboarding);
     return remaining;
   }

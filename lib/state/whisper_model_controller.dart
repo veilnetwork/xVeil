@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/veil_bundle.dart';
 import '../data/whisper_model_store.dart';
+import '../core/profile_model_work.dart';
+import 'profile_model_work.dart';
 import 'identity_scoped_prefs.dart';
 import 'providers.dart';
 import 'whisper_ffi.dart';
@@ -62,6 +64,15 @@ class WhisperModelState {
 /// for a feature most people never touch), so the app has to be able to say
 /// "not yet" without that reading as "broken".
 class WhisperModelController extends Notifier<WhisperModelState> {
+  late ProfileModelWork _work;
+  int _epoch = 0;
+  ProfileModelTask? _begin({String? lane}) {
+    final epoch = _epoch;
+    return _work.begin(lane: lane, stillCurrent: () => epoch == _epoch);
+  }
+
+  bool _current(ProfileModelTask task) => ref.mounted && task.current;
+
   /// Set by [cancel], read by the store between chunks.
   bool _cancelRequested = false;
 
@@ -70,6 +81,10 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   bool _autoAttempted = false;
   @override
   WhisperModelState build() {
+    _work = ref.read(profileModelWorkProvider);
+    _epoch++;
+    _autoAttempted = false;
+    ref.onDispose(() => _epoch++);
     // After build, not during: refresh() consults `state`, and reading it
     // while the provider is still being created is a circular read.
     Future.microtask(refresh);
@@ -78,16 +93,25 @@ class WhisperModelController extends Notifier<WhisperModelState> {
 
   WhisperModelStore get _store => ref.read(whisperModelStoreProvider);
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    if (!ref.mounted) return Future.value();
+    final task = _begin();
+    if (task == null) return Future.value();
+    return task.run(() => _refreshOwned(task));
+  }
+
+  Future<void> _refreshOwned(ProfileModelTask task) async {
     // A download in flight must not be overwritten by a stale probe.
     if (state.isBusy) return;
-    final installed = await _store.isInstalled();
-    final pending = installed ? 0 : await _store.pendingBytes();
+    final store = _store;
+    final installed = await store.isInstalled();
+    if (!_current(task)) return;
+    final pending = installed ? 0 : await store.pendingBytes();
     // The screen can be gone by now — the initial probe is scheduled from
     // build() and a person can leave before a disk check returns. Assigning
     // state to a disposed provider throws, and that exception would reach the
     // error report as a fault nobody caused.
-    if (!ref.mounted) return;
+    if (!_current(task)) return;
     // And a download may have STARTED during those two awaits: the check at
     // the top of this method was true when it ran and is not any more. That
     // is not hypothetical — build() schedules this probe and the session
@@ -108,10 +132,14 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   /// Tapping Download IS the agreement — nobody should be asked twice for the
   /// same thing — so the deliberate path sets it and the automatic path reads
   /// it.
-  Future<void> _rememberAutoFetchConsent() async {
+  Future<void> _rememberAutoFetchConsent(ProfileModelTask task) async {
     try {
       final prefs = await ref.read(prefsProvider.future);
-      await prefs.setBool(identityScopedPrefKey(kWhisperAutoFetchPrefKey), true);
+      if (!_current(task)) return;
+      await prefs.setBool(
+        identityScopedPrefKey(kWhisperAutoFetchPrefKey),
+        true,
+      );
     } catch (_) {
       // Best-effort: failing to remember the answer costs one extra tap next
       // time, and is not a reason to fail the download the person asked for.
@@ -130,18 +158,28 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     }
   }
 
-  Future<bool> download() async {
+  Future<bool> download() {
+    if (!ref.mounted || state.isBusy) return Future.value(false);
+    final task = _begin(lane: 'speech');
+    if (task == null) return Future.value(false);
+    return task.run(() => _downloadOwned(task));
+  }
+
+  Future<bool> _downloadOwned(ProfileModelTask task) async {
     // Pressing twice must not start two 57 MiB transfers.
     if (state.isBusy) return false;
     // Reaching here means a person chose it, on purpose, from Settings or from
     // under a voice message. That is the consent the automatic path waits for.
-    unawaited(_rememberAutoFetchConsent());
+    final consent = _begin();
+    if (consent != null) {
+      unawaited(consent.run(() => _rememberAutoFetchConsent(consent)));
+    }
     _cancelRequested = false;
     state = const WhisperModelState(phase: WhisperModelPhase.downloading);
     final result = await _store.download(
-      isCancelled: () => _cancelRequested,
+      isCancelled: () => _cancelRequested || !task.current,
       onProgress: (progress) {
-        if (ref.mounted && state.isBusy) {
+        if (_current(task) && state.isBusy) {
           state = WhisperModelState(
             phase: WhisperModelPhase.downloading,
             progress: progress,
@@ -149,25 +187,28 @@ class WhisperModelController extends Notifier<WhisperModelState> {
         }
       },
     );
+    if (!_current(task)) return false;
     if (result.succeeded) {
       // The transcriber caches the resolved path and would keep answering
       // "no model" with one sitting right there.
       WhisperTranscriber.forgetResolved();
-      if (!ref.mounted) return true;
       state = const WhisperModelState(phase: WhisperModelPhase.ready);
       return true;
     }
-    if (!ref.mounted) return false;
     if (result.wasCancelled) {
       // Not an error: back to the offer, which will now say "continue".
-      state = WhisperModelState(resumeFraction: await _pendingFraction());
+      final fraction = await _pendingFraction();
+      if (!_current(task)) return false;
+      state = WhisperModelState(resumeFraction: fraction);
       return false;
     }
     // Keep the resume marker: a failed transport attempt usually left bytes.
+    final fraction = await _pendingFraction();
+    if (!_current(task)) return false;
     state = WhisperModelState(
       phase: WhisperModelPhase.failed,
       error: result.error,
-      resumeFraction: await _pendingFraction(),
+      resumeFraction: fraction,
     );
     return false;
   }
@@ -181,43 +222,58 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   /// claim about itself. A substituted model carrying a manifest of its own
   /// gets no further than the line below, and it gets there before 57 MiB have
   /// been written.
-  Future<bool> importBundle(String path) async {
-    if (state.isBusy) return false;
+  Future<bool> importBundle(String path) {
+    if (!ref.mounted || state.isBusy) return Future.value(false);
+    final task = _begin(lane: 'speech');
+    if (task == null) return Future.value(false);
+    return task.run(() => _importOwned(path, task));
+  }
 
+  Future<bool> _importOwned(String path, ProfileModelTask task) async {
     final VeilBundleInfo info;
     try {
       info = await inspectBundle(File(path));
     } on VeilBundleException catch (e) {
+      if (!_current(task)) return false;
+      final fraction = await _pendingFraction();
+      if (!_current(task)) return false;
       state = WhisperModelState(
         phase: WhisperModelPhase.failed,
         error: e.message,
-        resumeFraction: await _pendingFraction(),
+        resumeFraction: fraction,
       );
       return false;
     }
+    if (!_current(task)) return false;
     if (info.kind != kBundleSpeech) {
+      final fraction = await _pendingFraction();
+      if (!_current(task)) return false;
       state = WhisperModelState(
         phase: WhisperModelPhase.failed,
         error: 'this is a ${info.kind} bundle, not a speech model',
-        resumeFraction: await _pendingFraction(),
+        resumeFraction: fraction,
       );
       return false;
     }
     if (info.files.single.sha256 != WhisperModelStore.expectedSha256) {
+      final fraction = await _pendingFraction();
+      if (!_current(task)) return false;
       state = WhisperModelState(
         phase: WhisperModelPhase.failed,
         error: 'this is not the speech model this build expects',
-        resumeFraction: await _pendingFraction(),
+        resumeFraction: fraction,
       );
       return false;
     }
 
     state = const WhisperModelState(phase: WhisperModelPhase.downloading);
+    final root = await _store.modelDirectory();
+    if (!_current(task)) return false;
     final result = await installBundle(
       File(path),
-      modelsRoot: await _store.modelDirectory(),
+      modelsRoot: root,
       onProgress: (progress) {
-        if (ref.mounted && state.isBusy) {
+        if (_current(task) && state.isBusy) {
           state = WhisperModelState(
             phase: WhisperModelPhase.downloading,
             progress: progress,
@@ -225,12 +281,14 @@ class WhisperModelController extends Notifier<WhisperModelState> {
         }
       },
     );
-    if (!ref.mounted) return result.succeeded;
+    if (!_current(task)) return false;
     if (!result.succeeded) {
+      final fraction = await _pendingFraction();
+      if (!_current(task)) return false;
       state = WhisperModelState(
         phase: WhisperModelPhase.failed,
         error: result.error,
-        resumeFraction: await _pendingFraction(),
+        resumeFraction: fraction,
       );
       return false;
     }
@@ -238,7 +296,7 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     // "no model" with one sitting right there.
     WhisperTranscriber.forgetResolved();
     await refresh();
-    return true;
+    return _current(task);
   }
 
   /// Fetch the model in the background if it is missing.
@@ -256,7 +314,14 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   /// person got there first), a model already installed, and a platform with
   /// no whisper build at all — on iOS there is none, and 57 MB that cannot
   /// help is worse than no transcription.
-  Future<void> ensureDownloadedInBackground() async {
+  Future<void> ensureDownloadedInBackground() {
+    if (!ref.mounted) return Future.value();
+    final task = _begin();
+    if (task == null) return Future.value();
+    return task.run(() => _ensureDownloadedOwned(task));
+  }
+
+  Future<void> _ensureDownloadedOwned(ProfileModelTask task) async {
     if (_autoAttempted || state.isBusy) return;
     _autoAttempted = true;
     // Nobody asked for this, and it is not free of consequence: ~57 MiB from a
@@ -266,22 +331,23 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     // message is unchanged — tapping it is the agreement, and from then on
     // this path may run without asking again.
     if (!await _hasAutoFetchConsent()) return;
-    if (!ref.mounted) return;
+    if (!_current(task)) return;
     if (!await ref.read(whisperNativeProbeProvider)()) return;
+    if (!_current(task)) return;
     if (await _store.isInstalled()) {
-      if (ref.mounted) {
+      if (_current(task)) {
         state = const WhisperModelState(phase: WhisperModelPhase.ready);
       }
       return;
     }
-    if (!ref.mounted) return;
+    if (!_current(task)) return;
     await download();
   }
 
   /// Ask the running transfer to stop. It finishes the chunk in flight and
   /// keeps what it has, so the next tap resumes rather than restarts.
   void cancel() {
-    if (state.isBusy) _cancelRequested = true;
+    if (ref.mounted && state.isBusy) _cancelRequested = true;
   }
 
   Future<double?> _pendingFraction() async {
@@ -289,11 +355,17 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     return pending > 0 ? pending / WhisperModelStore.expectedBytes : null;
   }
 
-  Future<void> remove() async {
-    if (state.isBusy) return;
+  Future<void> remove() {
+    if (!ref.mounted || state.isBusy) return Future.value();
+    final task = _begin(lane: 'speech');
+    if (task == null) return Future.value();
+    return task.run(() => _removeOwned(task));
+  }
+
+  Future<void> _removeOwned(ProfileModelTask task) async {
     await _store.remove();
     WhisperTranscriber.forgetResolved();
-    if (!ref.mounted) return;
+    if (!_current(task)) return;
     state = const WhisperModelState();
   }
 }
