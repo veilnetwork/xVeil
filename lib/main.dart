@@ -29,8 +29,7 @@ import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_prefs_store.dart';
-import 'data/storage/profile_storage_router.dart';
-import 'data/storage/profile_storage_router_owner.dart';
+import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
@@ -38,6 +37,7 @@ import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
 import 'features/bootstrap/storage_unavailable_app.dart';
+import 'features/bootstrap/profile_erasure_pending_app.dart';
 import 'features/bootstrap/startup_failed_app.dart';
 import 'state/providers.dart';
 import 'state/translate_ffi.dart' show kRequiredSymbols, openTranslateLibrary;
@@ -263,27 +263,38 @@ Future<void> _bootAndRunApp() async {
   }
 
   final boot = await _bootstrapOverrides();
+  runApp(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
+}
+
+/// Select the startup boundary before constructing ordinary application
+/// providers. Pending erasure takes precedence over both debug fakes and the
+/// generic unavailable-library screen.
+@visibleForTesting
+Widget applicationForBootstrap(
+  BootstrapResult boot, {
+  required bool shipped,
+  bool managedStorage = const bool.fromEnvironment('XVEIL_MANAGED_STORAGE'),
+}) {
+  if (boot.managedErasurePending) return const ProfileErasurePendingApp();
   if (mustRefuseInsecureStorage(
-    shipped: kReleaseMode || kProfileMode,
+    shipped: shipped,
     secureStorageReady: boot.secureStorageReady,
+    managedStorage: managedStorage,
   )) {
     // Refuse here rather than anywhere later: this runs before the router,
     // so no unlock screen, no onboarding and no API can be reached by any
     // subsequent navigation. A dead end is the point.
-    runApp(const StorageUnavailableApp());
-    return;
+    return const StorageUnavailableApp();
   }
 
-  runApp(
-    ProviderScope(
-      overrides: boot.overrides,
-      // Riverpod 3 retries failed providers by default. Preserve the
-      // established fail-fast behavior here: operational retries already
-      // live in the mailbox/node services with their own bounded backoff,
-      // while retrying provider construction could duplicate side effects.
-      retry: _disableAutomaticProviderRetry,
-      child: const DesktopTrayHost(child: DebugSoakHookHost(child: XVeilApp())),
-    ),
+  return ProviderScope(
+    overrides: boot.overrides,
+    // Riverpod 3 retries failed providers by default. Preserve the
+    // established fail-fast behavior here: operational retries already
+    // live in the mailbox/node services with their own bounded backoff,
+    // while retrying provider construction could duplicate side effects.
+    retry: _disableAutomaticProviderRetry,
+    child: const DesktopTrayHost(child: DebugSoakHookHost(child: XVeilApp())),
   );
 }
 
@@ -306,13 +317,18 @@ Future<void> _bootAndRunApp() async {
 bool mustRefuseInsecureStorage({
   required bool shipped,
   required bool secureStorageReady,
-}) => shipped && !secureStorageReady;
+  bool managedStorage = false,
+}) => (shipped || managedStorage) && !secureStorageReady;
 
 /// What [_bootstrapOverrides] resolved: the provider overrides, and whether the
 /// NATIVE container actually backs storage. The flag is not derivable from the
 /// override list — an empty list is both "nothing to override" and "the secure
 /// path failed", which is precisely the ambiguity that let this ship.
-typedef BootstrapResult = ({List<Override> overrides, bool secureStorageReady});
+typedef BootstrapResult = ({
+  List<Override> overrides,
+  bool secureStorageReady,
+  bool managedErasurePending,
+});
 
 /// Builds provider overrides at launch:
 /// - Native hidden-volume storage when available (else the in-memory fake, and
@@ -391,17 +407,18 @@ Future<BootstrapResult> _bootstrapOverrides() async {
             !const ManagedFsPlatform().createPrivateDirectory(managedPath)) {
           throw StateError('managed storage root creation failed');
         }
-        final router = await ProfileStorageRouter.open(
+        final managed = await bootstrapManagedProfile(
           profileDirectory: managedPath,
           legacyFactory: makeLegacyStorage,
         );
-        final owner = ProfileStorageRouterOwner(
-          router,
-          reopen: () => ProfileStorageRouter.open(
-            profileDirectory: managedPath,
-            legacyFactory: makeLegacyStorage,
-          ),
-        );
+        if (managed.erasurePending) {
+          return (
+            overrides: const <Override>[],
+            secureStorageReady: false,
+            managedErasurePending: true,
+          );
+        }
+        final owner = managed.owner!;
         overrides.add(
           profileStorageRouterOwnerProvider.overrideWith((ref) {
             ref.onDispose(
@@ -455,6 +472,9 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       );
     }
   } catch (e) {
+    // Staged managed storage must not turn an unsafe path, native admission
+    // failure or racing wipe into a successful in-memory onboarding session.
+    if (const bool.fromEnvironment('XVEIL_MANAGED_STORAGE')) rethrow;
     // Stay on the in-memory store — but make the degradation visible.
     devLog(
       () =>
@@ -672,7 +692,11 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     );
   }
 
-  return (overrides: overrides, secureStorageReady: secureStorageReady);
+  return (
+    overrides: overrides,
+    secureStorageReady: secureStorageReady,
+    managedErasurePending: false,
+  );
 }
 
 /// What to complain about when the bundled obfs4 key did not arrive, or null

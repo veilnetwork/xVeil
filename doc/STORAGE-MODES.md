@@ -1604,6 +1604,29 @@ pending erasure followed by actual final release, and wrong-profile refusal.
 The complete AppController wipe and startup recovery binding remain unfinished;
 production activation is still disabled.
 
+## Startup while profile erasure is pending
+
+Managed bootstrap now checks the two permanent-coordinator intent names before
+constructing an ordinary router. The read-only hint creates neither a role nor
+an identity, validates its parent objects, and treats any file, directory or
+dangling link at either name as pending. Native admission repeats its own check
+under the actual role grant; a publication after the initial hint is reported
+as pending when the normal opener refuses it. Other managed initialization
+failures cannot silently select the in-memory development store.
+
+The main entrypoint presents a localized erasure-pending application outside the
+ordinary provider/router tree, including in debug builds. It does not read saved
+credentials, start networking, offer onboarding, delete remaining files or claim
+completion. It is currently a refusal/status screen, not a completed recovery
+workflow. The live AppController full wipe and durable cleanup of external
+legacy/model/preference data still need binding before enabling these modes.
+
+The legacy best-effort wipe is also refused for an empty managed catalog: absence
+of visible entries does not imply absence of a hidden container. Normal legacy
+development wiring remains unchanged. The accepted-operation join was examined
+but not changed: its tracked completion futures already signal quiescence
+independently of the operation result.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

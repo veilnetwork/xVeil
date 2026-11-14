@@ -8228,4 +8228,11 @@ class AppL10nEn extends AppL10n {
   @override
   String get storageOwnedReclaimHelp =>
       'Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically.';
+
+  @override
+  String get profileErasurePendingTitle => 'Storage erasure is not finished';
+
+  @override
+  String get profileErasurePendingBody =>
+      'Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished.';
 }

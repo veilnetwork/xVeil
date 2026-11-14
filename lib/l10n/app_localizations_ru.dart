@@ -8298,4 +8298,11 @@ class AppL10nRu extends AppL10n {
   @override
   String get storageOwnedReclaimHelp =>
       'Сжимает хранилище этой личности, сохраняя сообщения, файлы и ключи. Обычно место освобождается автоматически.';
+
+  @override
+  String get profileErasurePendingTitle => 'Сброс хранилищ не завершён';
+
+  @override
+  String get profileErasurePendingBody =>
+      'Часть данных уже могла быть удалена. Обычный вход временно заблокирован, чтобы не перезаписать данные до завершения сброса.';
 }

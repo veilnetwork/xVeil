@@ -8332,4 +8332,12 @@ class AppL10nEs extends AppL10n {
   @override
   String get storageOwnedReclaimHelp =>
       'Compacta el almacenamiento de esta identidad conservando sus mensajes, archivos y claves. Normalmente el espacio se libera automáticamente.';
+
+  @override
+  String get profileErasurePendingTitle =>
+      'El borrado del almacenamiento no ha terminado';
+
+  @override
+  String get profileErasurePendingBody =>
+      'Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente.';
 }
