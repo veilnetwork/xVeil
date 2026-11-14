@@ -1627,6 +1627,36 @@ development wiring remains unchanged. The accepted-operation join was examined
 but not changed: its tracked completion futures already signal quiescence
 independently of the operation result.
 
+## Model writers during a profile wipe
+
+The existing application wipe now seals a shared `ProfileModelWork` owner before
+its first await and joins accepted model work before deleting files or consent
+preferences. Cancellation alone is not a completion witness: an installer may
+have passed its last cancellation check and still publish. Failed operations
+also remain owned until their actual completion. These model-work completion
+signals do not carry the operation's result or skip another accepted writer.
+
+Speech download/import/removal, automatic preflight and consent persistence,
+translation import/removal/export and interrupted-install recovery all use this
+owner. The GitHub model sheet also registers its archive download, because its
+cache lives inside the installed-model root. Per-resource lanes are claimed
+before asynchronous inspection/root resolution; a second controller cannot
+write into the same staging area while an old controller's job is still active.
+Controller generations suppress stale callbacks across provider rebuilds.
+
+Consent persistence is independently tracked: a completed or failed payload
+does not leave retry waiting for unrelated preference I/O, while wipe still
+joins that accepted preference write. After cleanup, fresh providers acquire a
+new owner; the old owner remains permanently sealed. There is no timeout that
+declares a still-running model writer quiescent. A stalled backend can therefore
+delay wipe rather than recreate data after a successful report.
+
+Deterministic fixtures reproduced real late file publication after the old wipe
+returned. Other tests cover a translation import held before root resolution,
+late automatic preflight, consent I/O, controller rebuilds, fresh post-wipe
+downloads, and GitHub archive admission. They do not qualify real model hardware
+or complete the still-pending managed full-wipe/external-inventory protocol.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

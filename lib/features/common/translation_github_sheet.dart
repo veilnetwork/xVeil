@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/translation_github_catalog.dart';
+import '../../core/profile_model_work.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/translation_model_controller.dart';
+import '../../state/profile_model_work.dart';
 import 'shown_cause.dart';
 
 final translationGithubCatalogProvider = Provider<TranslationGithubCatalog>(
@@ -49,8 +51,22 @@ class _TranslationGithubSheetState
     super.dispose();
   }
 
-  Future<void> _download(TranslationGithubBundle bundle) async {
-    if (_downloading != null) return;
+  Future<void> _download(TranslationGithubBundle bundle) {
+    if (!mounted || _downloading != null) return Future.value();
+    final task = ref
+        .read(profileModelWorkProvider)
+        .begin(
+          lane: 'translation-archive',
+          stillCurrent: () => mounted && !_cancelled,
+        );
+    if (task == null) return Future.value();
+    return task.run(() => _downloadOwned(bundle, task));
+  }
+
+  Future<void> _downloadOwned(
+    TranslationGithubBundle bundle,
+    ProfileModelTask task,
+  ) async {
     final l = AppL10n.of(context);
     setState(() {
       _downloading = bundle.name;
@@ -59,16 +75,17 @@ class _TranslationGithubSheetState
     });
     try {
       final root = await ref.read(translationModelsRootProvider)();
+      if (!task.current) return;
       if (root == null) throw StateError(l.translationGithubNoStorage);
       final downloaded = await TranslationGithubCatalog.download(
         bundle: bundle,
         root: root,
         onProgress: (p) {
-          if (mounted) setState(() => _progress = p);
+          if (task.current) setState(() => _progress = p);
         },
-        isCancelled: () => _cancelled,
+        isCancelled: () => !task.current,
       );
-      if (!mounted || downloaded.wasCancelled) return;
+      if (!task.current || downloaded.wasCancelled) return;
       if (!downloaded.succeeded) {
         throw StateError(downloaded.error ?? l.translationGithubFailed);
       }
@@ -82,7 +99,7 @@ class _TranslationGithubSheetState
       } on FileSystemException {
         // Installation succeeded even if cache cleanup must wait.
       }
-      if (!mounted) return;
+      if (!mounted || !task.current) return;
       if (installed) {
         Navigator.of(context).pop();
       } else {
@@ -94,11 +111,11 @@ class _TranslationGithubSheetState
         );
       }
     } on Object catch (error) {
-      if (mounted) {
+      if (task.current) {
         setState(() => _error = shownCause(error, kind: 'translate-download'));
       }
     } finally {
-      if (mounted) {
+      if (task.current) {
         setState(() {
           _downloading = null;
           _progress = null;

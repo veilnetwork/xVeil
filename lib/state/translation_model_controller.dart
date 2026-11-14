@@ -12,10 +12,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/log.dart';
+import '../core/profile_model_work.dart';
 import '../data/veil_bundle.dart';
 import '../data/translation_model_store.dart';
 import 'translation_controller.dart';
 import 'translation_engines.dart';
+import 'profile_model_work.dart';
 
 enum TranslationImportPhase { idle, importing, failed }
 
@@ -116,6 +118,14 @@ final translationModelsRootProvider = Provider<Future<Directory?> Function()>(
 );
 
 class TranslationModelsController extends Notifier<TranslationModelsState> {
+  late ProfileModelWork _work;
+  int _epoch = 0;
+  ProfileModelTask? _begin({String? lane}) {
+    final epoch = _epoch;
+    return _work.begin(lane: lane, stillCurrent: () => epoch == _epoch);
+  }
+
+  bool _current(ProfileModelTask task) => !_disposed && task.current;
   Future<Directory?> Function() get _root =>
       ref.read(translationModelsRootProvider);
 
@@ -126,7 +136,13 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
 
   @override
   TranslationModelsState build() {
-    ref.onDispose(() => _disposed = true);
+    _work = ref.read(profileModelWorkProvider);
+    _disposed = false;
+    _epoch++;
+    ref.onDispose(() {
+      _disposed = true;
+      _epoch++;
+    });
     // Unawaited on purpose: a settings screen should paint immediately and
     // fill in, rather than wait on a directory listing.
     Future.microtask(refresh);
@@ -134,8 +150,16 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
   }
 
   /// Re-read what is on disk. Cheap — names and file presence, no hashing.
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    if (_disposed) return Future.value();
+    final task = _begin();
+    if (task == null) return Future.value();
+    return task.run(() => _refreshOwned(task));
+  }
+
+  Future<void> _refreshOwned(ProfileModelTask task) async {
     final dir = await _root();
+    if (!_current(task)) return;
     if (dir == null || !dir.existsSync()) {
       if (!_disposed) state = state.copyWith(installed: const []);
       return;
@@ -165,9 +189,16 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
   ///
   /// Refuses to run two at once: the second would stage into the same
   /// directory as the first and they would overwrite each other's files.
-  Future<bool> importBundle(String path) async {
-    if (state.isImporting) return false;
+  Future<bool> importBundle(String path) {
+    if (_disposed || state.isImporting) return Future.value(false);
+    final task = _begin(lane: 'translation');
+    if (task == null) return Future.value(false);
+    return task.run(() => _importOwned(path, task));
+  }
+
+  Future<bool> _importOwned(String path, ProfileModelTask task) async {
     final dir = await _root();
+    if (!_current(task)) return false;
     if (dir == null) {
       state = state.copyWith(
         phase: TranslationImportPhase.failed,
@@ -188,13 +219,13 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
       File(path),
       modelsRoot: dir,
       onProgress: (p) {
-        if (!_disposed && state.isImporting) {
+        if (_current(task) && state.isImporting) {
           state = state.copyWith(progress: p);
         }
       },
     );
 
-    if (_disposed) return result.succeeded;
+    if (!_current(task)) return false;
     if (!result.succeeded) {
       devLog(() => 'xVeil[translate]: import failed: ${result.error}');
       state = state.copyWith(
@@ -212,6 +243,7 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
       clearError: true,
     );
     await refresh();
+    if (!_current(task)) return false;
     _tellTheEngine();
     return true;
   }
@@ -226,14 +258,25 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
   /// Returns the path written, or null if it could not be. The pair is read
   /// from disk at this moment rather than from [state], because a pair removed
   /// on another screen a second ago must not be exported from a stale list.
-  Future<String?> exportPair(TranslationPair pair, String destination) async {
+  Future<String?> exportPair(TranslationPair pair, String destination) {
+    if (_disposed) return Future.value();
+    final task = _begin();
+    if (task == null) return Future.value();
+    return task.run(() => _exportOwned(pair, destination, task));
+  }
+
+  Future<String?> _exportOwned(
+    TranslationPair pair,
+    String destination,
+    ProfileModelTask task,
+  ) async {
     final dir = await _root();
-    if (dir == null) return null;
+    if (!_current(task) || dir == null) return null;
     final source = Directory('${dir.path}/${pair.id}');
     if (!source.existsSync()) return null;
     try {
       await writeBundle(sourceDir: source, pair: pair, out: File(destination));
-      return destination;
+      return _current(task) ? destination : null;
     } on Object catch (error) {
       devLog(() => 'xVeil[translate]: export failed: $error');
       return null;
@@ -241,13 +284,20 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
   }
 
   /// Delete one direction and the space it takes.
-  Future<void> remove(TranslationPair pair) async {
+  Future<void> remove(TranslationPair pair) {
+    if (_disposed) return Future.value();
+    final task = _begin(lane: 'translation');
+    if (task == null) return Future.value();
+    return task.run(() => _removeOwned(pair, task));
+  }
+
+  Future<void> _removeOwned(TranslationPair pair, ProfileModelTask task) async {
     final dir = await _root();
-    if (dir == null) return;
+    if (!_current(task) || dir == null) return;
     final target = Directory('${dir.path}/${pair.id}');
     if (target.existsSync()) target.deleteSync(recursive: true);
     await refresh();
-    _tellTheEngine();
+    if (_current(task)) _tellTheEngine();
   }
 
   /// Make the engine look again.
