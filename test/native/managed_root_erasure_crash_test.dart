@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:xveil/core/storage_unlock_scope.dart';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -147,7 +148,10 @@ void main() {
               profile,
             )!;
             try {
-              await ManagedRootErasure.prepare(retry);
+              await ManagedRootErasure.prepare(
+                retry,
+                unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+              );
             } finally {
               retry.close();
             }
@@ -173,6 +177,7 @@ void main() {
             }
           }
           final erasure = ManagedRootErasure.openPending(profile);
+          expect(erasure.unlockScopes.ids, ['a' * 64, 'b' * 64]);
           var retired = 0;
           try {
             expect(erasure.catalog.identities.map((e) => e.id.value).toSet(), {

@@ -4,6 +4,10 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:xveil/core/storage_unlock_scope.dart';
+import 'package:xveil/core/quick_unlock_retirement.dart';
+import 'package:xveil/core/quick_unlock_vault.dart';
+import '../support/retirement_secret_store.dart';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,9 +85,12 @@ void main() {
 
   String getPlanPath() =>
       '$profile/${StorageProfileCoordinator.directoryName}/${ManagedRootErasure.pendingName}/plan.json';
-  Future<void> prepare() async {
+  Future<void> prepare({StorageUnlockScopes? scopes}) async {
     final owner = root();
-    await ManagedRootErasure.prepare(owner);
+    await ManagedRootErasure.prepare(
+      owner,
+      unlockScopes: scopes ?? StorageUnlockScopes(['a' * 64, 'b' * 64]),
+    );
     owner.close();
   }
 
@@ -161,6 +168,7 @@ void main() {
         'coordinator',
         'catalog',
         'entries',
+        'unlockScopes',
       });
       expect(
         File(getPlanPath()).readAsStringSync(),
@@ -200,7 +208,10 @@ void main() {
       final shared = ManagedDirectoryCatalog.openExisting(profile)!;
       try {
         await expectLater(
-          ManagedRootErasure.prepare(shared),
+          ManagedRootErasure.prepare(
+            shared,
+            unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+          ),
           throwsA(isA<ManagedLeaseFailure>()),
         );
       } finally {
@@ -211,7 +222,10 @@ void main() {
         ..writeAsBytesSync([9, 8, 7]);
       final before = snapshot(owner.directory);
       await expectLater(
-        ManagedRootErasure.prepare(owner),
+        ManagedRootErasure.prepare(
+          owner,
+          unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+        ),
         throwsA(isA<ManagedFsFailure>()),
       );
       expect(snapshot(owner.directory), before);
@@ -307,6 +321,18 @@ void main() {
           r['v'] = 1.0;
         },
         (r) {
+          r['unlockScopes'] = [];
+        },
+        (r) {
+          r['unlockScopes'] = ['a' * 64, 'a' * 64];
+        },
+        (r) {
+          r['unlockScopes'] = ['/synthetic/path'];
+        },
+        (r) {
+          r['unlockScopes'] = [1];
+        },
+        (r) {
           r['unknown'] = true;
         },
         (r) {
@@ -349,7 +375,10 @@ void main() {
         final owner = root(fs: _PublicationFault(after));
         final before = snapshot(owner.directory);
         await expectLater(
-          ManagedRootErasure.prepare(owner),
+          ManagedRootErasure.prepare(
+            owner,
+            unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+          ),
           throwsA(isA<ManagedFsFailure>()),
         );
         expect(snapshot(owner.directory), before);
@@ -399,7 +428,10 @@ void main() {
     final owner = root(fs: _RawPublicationFailure());
     final before = snapshot(owner.directory);
     await expectLater(
-      ManagedRootErasure.prepare(owner),
+      ManagedRootErasure.prepare(
+        owner,
+        unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+      ),
       throwsA(
         isA<ManagedFsFailure>()
             .having((e) => e.kind, 'kind', ManagedFsFailureKind.io)
@@ -446,6 +478,82 @@ void main() {
       foreign.deleteSync();
       await intent.removeManagedFiles(retireScopes: retire);
       expect(Directory('$profile/identities').existsSync(), isFalse);
+    },
+  );
+
+  test(
+    'durable scope names retire the actual fake OS entries before any root unlink',
+    () async {
+      final owner = ManagedDirectoryCatalog.openExisting(profile)!;
+      final StorageUnlockScopes scopes;
+      try {
+        scopes = StorageUnlockScopes.forProfile(
+          profile: 'synthetic active profile',
+          legacyPath: '${fixture.path}/legacy.hv',
+          managedPath: profile,
+          identities: owner.snapshot().catalog.identities.map((e) => e.locator),
+        );
+      } finally {
+        owner.close();
+      }
+      expect(
+        StorageUnlockScopes.maxScopes,
+        ManagedIdentityCatalog.maxIdentities + 1,
+      );
+      final store = RetirementSecretStore(), auth = RetirementAuthentication();
+      final unrelated = 'f' * 64;
+      for (final scope in [...scopes.ids, unrelated]) {
+        await QuickUnlockVault(
+          store,
+          scope,
+          auth,
+        ).configure(password: 'synthetic scope password', system: true);
+      }
+      await prepare(scopes: scopes);
+      final intent = recovery();
+      expect(intent.unlockScopes.ids, scopes.ids);
+      expect(
+        File(getPlanPath()).readAsStringSync(),
+        isNot(contains('synthetic active profile')),
+      );
+      expect(
+        File(getPlanPath()).readAsStringSync(),
+        isNot(contains(fixture.path)),
+      );
+      final retirement = QuickUnlockRetirement(
+        store,
+        intent.unlockScopes,
+        auth,
+      );
+      store.deniedScopes.add(scopes.ids.first);
+      final before = snapshot('$profile/identities');
+      await expectLater(
+        intent.removeManagedFiles(retireScopes: (_) => retirement.retire()),
+        throwsA(isA<QuickUnlockRetirementFailure>()),
+      );
+      expect(snapshot('$profile/identities'), before);
+      for (final scope in scopes.ids.skip(1)) {
+        expect(store.values.keys.any((k) => k.contains(scope)), isFalse);
+      }
+      expect(
+        store.values.keys.any((k) => k.contains(scopes.ids.first)),
+        isTrue,
+      );
+      store.deniedScopes.clear();
+      await intent.removeManagedFiles(retireScopes: (_) => retirement.retire());
+      expect(Directory('$profile/identities').existsSync(), isFalse);
+      expect(store.values.keys.any((k) => scopes.ids.any(k.contains)), isFalse);
+      expect(
+        await QuickUnlockVault(store, unrelated, auth).openSystem('fixture'),
+        'synthetic scope password',
+      );
+      intent.close();
+      final resumed = recovery();
+      expect(
+        resumed.unlockScopes.ids,
+        scopes.ids,
+        reason: 'cleanup names must survive complete catalog removal',
+      );
     },
   );
 }

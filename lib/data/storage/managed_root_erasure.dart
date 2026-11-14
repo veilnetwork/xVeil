@@ -22,13 +22,17 @@ final class ManagedRootErasure {
   /// Public locators survive catalog deletion so the enclosing wipe can derive
   /// their OS-vault scopes. No credential, network ID or hidden-space pointer.
   ManagedIdentityCatalog get catalog => _plan.catalog;
+  StorageUnlockScopes get unlockScopes => _plan.unlockScopes;
 
   /// Caller owns an explicitly confirmed wipe and an exclusive complete root.
   /// Capture no-follow owned entries before publication. All identity roles
   /// must close successfully; unknown content is preserved and refuses a plan.
-  static Future<void> prepare(ManagedDirectoryCatalog owner) async {
+  static Future<void> prepare(
+    ManagedDirectoryCatalog owner, {
+    required StorageUnlockScopes unlockScopes,
+  }) async {
     try {
-      await _prepare(owner);
+      await _prepare(owner, unlockScopes);
     } on FileSystemException catch (_, trace) {
       Error.throwWithStackTrace(
         const ManagedFsFailure(ManagedFsFailureKind.io),
@@ -37,7 +41,10 @@ final class ManagedRootErasure {
     }
   }
 
-  static Future<void> _prepare(ManagedDirectoryCatalog owner) async {
+  static Future<void> _prepare(
+    ManagedDirectoryCatalog owner,
+    StorageUnlockScopes unlockScopes,
+  ) async {
     owner.requireExclusiveMaintenance();
     final catalog = owner.snapshot().catalog;
     for (final entry in catalog.identities) {
@@ -57,7 +64,7 @@ final class ManagedRootErasure {
       }
     }
     owner.requireExclusiveMaintenance();
-    final plan = await _RootErasePlan.capture(owner, catalog);
+    final plan = await _RootErasePlan.capture(owner, catalog, unlockScopes);
     plan.validateTree(owner._coordinator);
     final bytes = plan.encode();
     final gate = owner._coordinator;
@@ -254,10 +261,17 @@ final class _RootEraseEntry {
 }
 
 final class _RootErasePlan {
-  _RootErasePlan(this.profile, this.coordinator, this.catalog, this.entries);
+  _RootErasePlan(
+    this.profile,
+    this.coordinator,
+    this.catalog,
+    this.entries,
+    this.unlockScopes,
+  );
   static const maxBytes = 8 * 1024 * 1024, maxEntries = 32768;
   final String profile, coordinator;
   final ManagedIdentityCatalog catalog;
+  final StorageUnlockScopes unlockScopes;
   final Map<String, _RootEraseEntry> entries;
   late final Map<String, Set<String>> _children = () {
     final result = <String, Set<String>>{};
@@ -331,6 +345,7 @@ final class _RootErasePlan {
   static Future<_RootErasePlan> capture(
     ManagedDirectoryCatalog owner,
     ManagedIdentityCatalog catalog,
+    StorageUnlockScopes unlockScopes,
   ) async {
     final entries = <String, _RootEraseEntry>{};
     Future<void> visit(String path, List<String> parts) async {
@@ -368,6 +383,7 @@ final class _RootErasePlan {
       owner._coordinator._directoryWitness.identity,
       catalog,
       entries,
+      unlockScopes,
     );
   }
 
@@ -375,10 +391,11 @@ final class _RootErasePlan {
     final result = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': 1,
+          'v': 2,
           'profile': profile,
           'coordinator': coordinator,
           'catalog': catalog.encode(),
+          'unlockScopes': unlockScopes.ids,
           'entries': [for (final e in entries.values) e.encode()],
         }),
       ),
@@ -394,13 +411,14 @@ final class _RootErasePlan {
       if (bytes.length > maxBytes) throw const FormatException();
       final raw = jsonDecode(utf8.decode(bytes));
       if (raw is! Map<String, dynamic> ||
-          raw.length != 5 ||
+          raw.length != 6 ||
           raw['v'] is! int ||
-          raw['v'] != 1 ||
+          raw['v'] != 2 ||
           raw['profile'] is! String ||
           raw['coordinator'] is! String ||
           raw['catalog'] is! String ||
-          raw['entries'] is! List) {
+          raw['entries'] is! List ||
+          raw['unlockScopes'] is! List) {
         throw const FormatException();
       }
       bool identity(Object? v) =>
@@ -409,6 +427,9 @@ final class _RootErasePlan {
         throw const FormatException();
       }
       final catalog = ManagedIdentityCatalog.decode(raw['catalog'] as String);
+      final scopes = StorageUnlockScopes(
+        (raw['unlockScopes'] as List).cast<String>(),
+      );
       final list = raw['entries'] as List;
       if (list.isEmpty || list.length > maxEntries) {
         throw const FormatException();
@@ -461,6 +482,7 @@ final class _RootErasePlan {
         raw['coordinator'] as String,
         catalog,
         entries,
+        scopes,
       );
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);

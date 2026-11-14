@@ -16,3 +16,33 @@ String storageUnlockScope(
   };
   return sha256.convert(utf8.encode(material)).toString();
 }
+
+/// Immutable public names of OS-vault scopes, never passwords or paths. Always
+/// include the one legacy-container scope regardless of hidden-space presence.
+/// Visible IDs/modes may be enumerated; no hidden-space roster is inspected.
+final class StorageUnlockScopes {
+  StorageUnlockScopes(Iterable<String> supplied) : ids = _validate(supplied);
+  static const maxScopes = 129;
+  final List<String> ids;
+  static List<String> _validate(Iterable<String> supplied) {
+    final list = supplied.take(maxScopes + 1).toList();
+    if (list.isEmpty ||
+        list.length > maxScopes ||
+        list.toSet().length != list.length ||
+        list.any((id) => !RegExp(r'^[0-9a-f]{64}$').hasMatch(id))) {
+      throw const FormatException('Invalid saved sign-in scope set');
+    }
+    return List.unmodifiable(list);
+  }
+
+  factory StorageUnlockScopes.forProfile({
+    required String profile,
+    required String legacyPath,
+    required String managedPath,
+    required Iterable<ManagedStorageLocator> identities,
+  }) => StorageUnlockScopes([
+    storageUnlockScope(profile, legacyPath, const LegacyStorageLocator()),
+    for (final identity in identities.take(maxScopes))
+      storageUnlockScope(profile, managedPath, identity),
+  ]);
+}

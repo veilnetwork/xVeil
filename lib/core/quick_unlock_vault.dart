@@ -116,21 +116,47 @@ Future<List<int>> _patternKey(Map<String, Object> args) async {
   }
 }
 
+/// Wrappers recreated by identity/provider changes share the accepted work for
+/// the SAME backend instance and scope. Weak entries retain no obsolete scope
+/// after all wrappers/jobs disappear. This is UI-isolate coordination; profile
+/// file admission remains the cross-process lifetime boundary.
+final class _QuickUnlockScopeState {
+  int generation = 0;
+  bool retired = false;
+  Future<void> tail = Future<void>.value();
+  static final _backends =
+      Expando<Map<String, WeakReference<_QuickUnlockScopeState>>>();
+  static _QuickUnlockScopeState forScope(
+    QuickUnlockSecretStore store,
+    String scope,
+  ) {
+    final scopes = _backends[store] ??= {};
+    final current = scopes[scope]?.target;
+    if (current != null) return current;
+    scopes.removeWhere((_, reference) => reference.target == null);
+    final state = _QuickUnlockScopeState();
+    scopes[scope] = WeakReference(state);
+    return state;
+  }
+}
+
 class QuickUnlockVault {
-  QuickUnlockVault(this.store, this.scope, this.authentication);
+  QuickUnlockVault(this.store, this.scope, this.authentication)
+    : _scopeState = _QuickUnlockScopeState.forScope(store, scope);
   final QuickUnlockSecretStore store;
   final String scope;
   final LocalScreenAuthentication authentication;
-  int _generation = 0;
-  Future<void> _tail = Future<void>.value();
+  final _QuickUnlockScopeState _scopeState;
+  int get _generation => _scopeState.generation;
+  set _generation(int value) => _scopeState.generation = value;
   String get _key => 'xveil.quick.v1.$scope';
   String _bioKey(String slot) => '$_key.bio.$slot';
   String _random(int n) =>
       base64Encode(List.generate(n, (_) => Random.secure().nextInt(256)));
 
   Future<T> _serial<T>(Future<T> Function() action) {
-    final next = _tail.then((_) => action());
-    _tail = next.then<void>(
+    final next = _scopeState.tail.then((_) => action());
+    _scopeState.tail = next.then<void>(
       (_) {},
       onError: (Object error, StackTrace stack) {},
     );
@@ -184,6 +210,7 @@ class QuickUnlockVault {
   }
 
   Future<StartupUnlockOptions> options() async {
+    if (_scopeState.retired) return const StartupUnlockOptions();
     final r = await _read();
     final grid = r?['grid'];
     return StartupUnlockOptions(
@@ -200,6 +227,9 @@ class QuickUnlockVault {
     required bool system,
     bool Function()? stillCurrent,
   }) {
+    if (_scopeState.retired) {
+      return Future.error(StateError('Saved sign-in scope retired'));
+    }
     final generation = ++_generation;
     return _serial(() async {
       final previous = await _read(forRemoval: true);
@@ -249,7 +279,9 @@ class QuickUnlockVault {
       final id = _random(16);
       var published = false;
       bool current() =>
-          generation == _generation && (stillCurrent?.call() ?? true);
+          generation == _generation &&
+          !_scopeState.retired &&
+          (stillCurrent?.call() ?? true);
       if (!current()) throw StateError('Unlock configuration superseded');
       try {
         // Retire the previous authenticated slot before publishing a fresh
@@ -329,6 +361,7 @@ class QuickUnlockVault {
       nodes.every((n) => n >= 0 && n < grid * grid);
 
   Future<String?> openPattern(List<int> nodes) {
+    if (_scopeState.retired) return Future.value(null);
     final generation = _generation;
     return _serial(() async {
       final r = await _read();
@@ -388,6 +421,7 @@ class QuickUnlockVault {
   }
 
   Future<String?> openSystem(String reason) async {
+    if (_scopeState.retired) return null;
     final generation = _generation;
     final r = await _read();
     if (r?['system'] != true) return null;
@@ -441,6 +475,15 @@ class QuickUnlockVault {
     if (await store.contains(_key)) {
       throw StateError('Saved sign-in removal not verified');
     }
+  }
+
+  /// Only after a durable profile-erasure intent. Existing wrappers cannot
+  /// re-enroll this scope after verified deletion. The enclosing wipe keeps its
+  /// retirement owner alive until finalization; fresh-profile reopening needs
+  /// a separate completion protocol, not an ordinary forget/configure cycle.
+  Future<void> retireForErasure() {
+    _scopeState.retired = true;
+    return forget();
   }
 
   Future<void> forget() {

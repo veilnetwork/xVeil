@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 
@@ -47,7 +48,10 @@ Future<void> main(List<String> args) async {
     profile,
     fs: _Cut(fixture, phase),
   )!;
-  await ManagedRootErasure.prepare(root);
+  await ManagedRootErasure.prepare(
+    root,
+    unlockScopes: StorageUnlockScopes(['a' * 64, 'b' * 64]),
+  );
   root.close();
   final erasure = ManagedRootErasure.openPending(profile);
   await erasure.removeManagedFiles(

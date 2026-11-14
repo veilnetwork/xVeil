@@ -1138,9 +1138,9 @@ locks, replaced paths and foreign staging content refuse without repair. These
 are synthetic macOS process/filesystem fixtures, not a production wipe or
 mobile/Windows qualification.
 
-This remains a coordination primitive, not whole-profile erasure. Durable
-deletion intent, startup recovery with a partially removed catalog, complete
-owned-entry cleanup and all OS-vault scopes remain required. The destructive
+This remains a coordination primitive, not whole-profile erasure. Application
+startup recovery with a partially removed catalog, complete owned-entry cleanup
+and OS-vault integration remain required. The destructive
 action and new storage default stay off.
 
 ### Durable intent before managed-root removal
@@ -1151,8 +1151,11 @@ membership, every identity's public role and recognized no-follow inventory.
 Unknown content, incomplete stores or unconfirmed resource close refuse without
 publishing. It records a bounded exact manifest (32,768 entries / 8 MiB), file
 object witnesses, sizes/modified stamps, profile/coordinator binding and the
-public catalog. It reads no encrypted payload, password or hidden-space roster.
-Oversized plans refuse rather than approving a truncated inventory.
+public catalog. Format v2 also requires immutable hashed OS-vault scope names,
+recorded before any deletion rather than derived from a catalog that may later
+be gone. It reads no encrypted payload, password or hidden-space roster.
+Oversized plans refuse rather than approving a truncated inventory. Earlier
+unreleased v1 QA plans are preserved/refused, not silently upgraded.
 
 The immutable plan is flushed in a private staging directory and published
 without replacement as `storage-lifetime/erasure-pending/plan.json`. No payload
@@ -1174,8 +1177,9 @@ are already integrated or verified.
 Removal retains exclusive parent ownership, closes no unrelated handle, checks
 ancestors/objects before each unlink and never recursively sweeps foreign
 entries. Missing planned entries permit restart after partial removal. The
-public identity list remains readable in the intent even after catalog removal,
-so the enclosing wipe can still derive known vault scopes. A newly inserted
+public identity list and exact hashed vault scope names remain readable in the
+intent even after catalog removal, so scope cleanup does not depend on a
+surviving catalog or later preference/path reconstruction. A newly inserted
 file is preserved and prevents nonrecursive parent removal. Reentrant cleanup
 and close while the accepted callback is running refuse.
 
@@ -1200,6 +1204,58 @@ enrollment, preferences, interrupted startup and explicit recovery reporting.
 Unknown/orphan staging content needs owned review; it is not swept by this
 manifest. Actual packaged mobile/Windows behavior, power loss and real OS-vault
 cleanup remain unqualified. Whole-profile erasure and the new default stay off.
+
+### Shared scope queues and owned OS-vault retirement
+
+Two deterministic tests exposed a pre-existing wrapper-lifetime race: a new
+`QuickUnlockVault` for the same store/scope completed forget or reconfiguration
+while an old wrapper still had an accepted protected write outstanding. Releasing
+that write could recreate a saved password after verified absence or leave an
+older protected slot. Both tests were red on the preceding code; the unrelated
+scope/backend control already passed.
+
+Generation cancellation and serialization now belong to the same backend
+instance/scope across wrapper recreation. Weak scope-state entries retain no
+obsolete scope after wrappers and accepted jobs disappear. Existing ordinary
+forget still permits a later explicit configuration; separate scopes/backends
+remain independent. This is coordination in the owning UI isolate, not a claim
+about unrelated plugin isolates or arbitrary wrappers for the same OS service.
+The production provider reuses its existing constant store instance.
+
+`StorageUnlockScopes.forProfile` derives one legacy-container scope plus every
+public local identity/mode scope using the existing exact namespace function.
+It never discovers hidden spaces or scans all OS keys. The immutable set refuses
+empty, duplicated, malformed and oversized input (maximum 129 for 128 public
+identities plus the legacy container), snapshots borrowed input and contains no
+paths, passwords or network identity. Native fixtures supply/restore these
+names through the v2 erasure plan, including after catalog/root removal.
+
+`QuickUnlockRetirement` is an actor-owned adapter for the required erasure
+callback. It starts retirement of every recorded scope before its first await,
+joins accepted old enrollment through the shared queues, verifies removal and
+waits for all scopes even when one refuses. It reports a bounded failure without
+backend messages or scope names. Retry retains unreadable cleanup metadata and
+repeats actual absence verification; opt-in flags do not witness absence.
+Old/live wrappers for retired scopes cannot re-enroll or release passwords.
+The enclosing wipe must retain this retirement owner until finalization; normal
+fresh-profile reopening remains part of that unfinished protocol.
+
+Tests use only in-memory OS ports/mocked platform channels. They cover late
+writes, replacing wrappers, independent scopes/backends, partial refusal and
+retry, malformed cleanup metadata, a retained unrelated identity, no OS reads
+from sealed entry buttons, and the native file-removal callback preserving all
+payloads until scope retirement succeeds. Four writer SIGKILL boundaries retain
+the exact names without a surviving catalog. No developer Keychain/Keystore or
+real profile was accessed. This does not yet qualify real platform retirement,
+wire a full-profile wipe in AppController, handle all legacy payloads or retire
+the journal's final phase. The destructive guard/default remain off.
+
+The wider 60-file qualification passed 420 cases and exposed one obsolete
+selection fixture that still expected a completely empty profile. It now checks
+only constant role metadata (including unchanged bytes), no identities/catalog,
+and successful explicit later creation. That whole selection file and the new
+scope/retirement/removal/crash files are requalified after this fixture-only
+change; the broad result is not represented as one green final-source run.
 
 ### OS quick-entry cleanup before whole-profile erasure
 
