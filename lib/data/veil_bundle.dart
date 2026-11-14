@@ -48,6 +48,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import '../domain/profile_model_layout.dart';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -85,7 +86,7 @@ const Map<String, String> kBundleExtensions = {
 /// What a speech bundle may contain. Named here rather than imported from the
 /// whisper store so that the READER — which parses input from a stranger —
 /// does not depend on the app's model layer.
-const List<String> kSpeechFiles = ['ggml-base-q5_1.bin'];
+const List<String> kSpeechFiles = [ProfileModelLayout.speechFile];
 
 /// No pair is anywhere near this. It exists so a declared size cannot ask for
 /// an allocation before the arithmetic below has been checked.

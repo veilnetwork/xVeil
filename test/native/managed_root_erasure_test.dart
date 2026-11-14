@@ -169,7 +169,9 @@ void main() {
         'catalog',
         'entries',
         'unlockScopes',
+        'auxiliary',
       });
+      expect(publicPlan['auxiliary'], isNull);
       expect(
         File(getPlanPath()).readAsStringSync(),
         isNot(contains('synthetic payload')),

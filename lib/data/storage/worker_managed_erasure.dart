@@ -9,12 +9,14 @@ final class _OpenManagedErasure extends _OpenConfig {
     required this.mode,
     this.profileNamespace,
     this.legacyPath,
+    this.auxiliary,
     this.binding,
     this.checkpoint,
     this.failFinalSyncForTesting = false,
   }) : super(paddingPresetTag: 0);
   final _ErasureOpen mode;
   final String? profileNamespace, legacyPath;
+  final ProfileErasureAuxiliaryTargets? auxiliary;
   final ManagedErasureBinding? binding;
   final SendPort? checkpoint;
   final bool failFinalSyncForTesting;
@@ -31,6 +33,11 @@ final class _ErasureRemoveReq extends _Req {
 
 final class _ErasureFinishReq extends _Req {
   const _ErasureFinishReq(this.admission, super.reply);
+  final SendPort admission;
+}
+
+final class _ErasureAuxiliaryReq extends _Req {
+  const _ErasureAuxiliaryReq(this.admission, super.reply);
   final SendPort admission;
 }
 
@@ -76,11 +83,13 @@ final class ManagedErasureWorker {
     required String profileDirectory,
     required String profileNamespace,
     required String legacyPath,
+    ProfileErasureAuxiliaryTargets? auxiliary,
   }) => _open(
     profileDirectory,
     _ErasureOpen.prepare,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
+    auxiliary: auxiliary,
   );
   static Future<ManagedErasureWorker> recover(String profileDirectory) =>
       _open(profileDirectory, _ErasureOpen.recover);
@@ -95,12 +104,14 @@ final class ManagedErasureWorker {
     required String profileNamespace,
     required String legacyPath,
     required SendPort afterNativeRelease,
+    ProfileErasureAuxiliaryTargets? auxiliary,
   }) => _open(
     profileDirectory,
     _ErasureOpen.prepare,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
     checkpoint: afterNativeRelease,
+    auxiliary: auxiliary,
   );
 
   @visibleForTesting
@@ -136,11 +147,15 @@ final class ManagedErasureWorker {
     _ErasureOpen mode, {
     String? profileNamespace,
     String? legacyPath,
+    ProfileErasureAuxiliaryTargets? auxiliary,
     ManagedErasureBinding? binding,
     SendPort? checkpoint,
     bool failFinalSyncForTesting = false,
   }) async {
     try {
+      if (auxiliary != null && auxiliary.legacyPath != legacyPath) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
+      }
       final profile = ManagedWorkerIdentity._profileKey(supplied);
       final dead = <ManagedErasureWorker>[];
       for (final old
@@ -167,6 +182,7 @@ final class ManagedErasureWorker {
             mode: mode,
             profileNamespace: profileNamespace,
             legacyPath: legacyPath,
+            auxiliary: auxiliary,
             binding: binding,
             checkpoint: checkpoint,
             failFinalSyncForTesting: failFinalSyncForTesting,
@@ -258,6 +274,20 @@ final class ManagedErasureWorker {
       _bounded(
         _worker._call<void>(
           (reply) => _ErasureRemoveReq(admission.port, reply),
+        ),
+      ).whenComplete(admission.settleAndClose),
+    );
+  }
+
+  Future<void> removeAuxiliaryFiles({
+    required Future<void> Function() retireScopes,
+  }) {
+    _requireOpen();
+    final admission = _ManagedEraseAdmission(retireScopes);
+    return _track(
+      _bounded(
+        _worker._call<void>(
+          (reply) => _ErasureAuxiliaryReq(admission.port, reply),
         ),
       ).whenComplete(admission.settleAndClose),
     );
@@ -368,6 +398,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           );
           await ManagedRootErasure.prepareAbsent(
             gate,
+            auxiliary: config.auxiliary,
             unlockScopes: StorageUnlockScopes.forProfile(
               profile: config.profileNamespace!,
               legacyPath: config.legacyPath!,
@@ -385,6 +416,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           final catalog = root.snapshot().catalog;
           await ManagedRootErasure.prepare(
             root,
+            auxiliary: config.auxiliary,
             unlockScopes: StorageUnlockScopes.forProfile(
               profile: config.profileNamespace!,
               legacyPath: config.legacyPath!,
@@ -450,6 +482,14 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
             }
             await erasure.removeManagedFiles(
               retireScopes: (_) => _awaitManagedEraseAdmission(admission),
+            );
+            message.reply.send(const _Ok(null));
+          case _ErasureAuxiliaryReq(:final admission):
+            if (erasure == null) {
+              throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
+            }
+            await erasure.removeAuxiliaryFiles(
+              retireScopes: () => _awaitManagedEraseAdmission(admission),
             );
             message.reply.send(const _Ok(null));
           case _ErasureFinishReq(:final admission):

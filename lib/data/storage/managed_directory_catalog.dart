@@ -12,6 +12,7 @@ import '../../core/storage_unlock_scope.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;
+import '../../domain/profile_model_layout.dart';
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
@@ -39,6 +40,7 @@ part 'storage_profile_coordinator.dart';
 part 'managed_root_erasure.dart';
 part 'profile_erasure_completion.dart';
 part 'managed_erasure_reconciliation.dart';
+part 'profile_erasure_auxiliary.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
