@@ -30,6 +30,7 @@ import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_prefs_store.dart';
 import 'data/storage/profile_storage_router.dart';
+import 'data/storage/profile_storage_router_owner.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
@@ -394,11 +395,18 @@ Future<BootstrapResult> _bootstrapOverrides() async {
           profileDirectory: managedPath,
           legacyFactory: makeLegacyStorage,
         );
+        final owner = ProfileStorageRouterOwner(
+          router,
+          reopen: () => ProfileStorageRouter.open(
+            profileDirectory: managedPath,
+            legacyFactory: makeLegacyStorage,
+          ),
+        );
         overrides.add(
-          profileStorageRouterProvider.overrideWith((ref) {
+          profileStorageRouterOwnerProvider.overrideWith((ref) {
             ref.onDispose(
               () => unawaited(
-                router.close().catchError((Object error) {
+                owner.close().catchError((Object error) {
                   devLog(
                     () =>
                         'xVeil[storage]: profile router release not confirmed',
@@ -406,7 +414,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
                 }),
               ),
             );
-            return router;
+            return owner;
           }),
         );
         overrides.add(
