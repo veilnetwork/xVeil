@@ -1,0 +1,263 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import '../../core/storage_unlock_scope.dart';
+import '../../domain/profile_preferences_layout.dart';
+import '../../domain/storage_locator.dart';
+import 'app_profile.dart';
+import 'async_kv_log_store.dart';
+import 'managed_directory_catalog.dart';
+import 'profile_preferences_routing.dart';
+
+/// No keys, values, paths, profile names or platform error text are exposed.
+final class LegacyProfilePreferencesFailure implements Exception {
+  const LegacyProfilePreferencesFailure();
+  @override
+  String toString() => 'LegacyProfilePreferencesFailure';
+}
+
+class _LegacyPreferenceLifetime {
+  bool retired = false, detached = false;
+  int readers = 0;
+  Future<void>? pending;
+  ManagedErasureBinding? operation;
+  final retryKeys = <String>{};
+}
+
+/// Retains the ORIGINAL platform store before the application installs its file
+/// backend. Never reconstruct that source from the current global backend.
+/// This object grants read-only inspection, not deletion authority. Cooperating
+/// application code no longer writes this backend after migration; unrelated
+/// plugins/old binaries targeting the same OS store are not coordinated here.
+final class LegacyProfilePreferences {
+  LegacyProfilePreferences({
+    required SharedPreferencesStorePlatform backend,
+    required this.supportDirectory,
+    required this.profile,
+    required this.legacyPath,
+  }) : _backend = backend {
+    if (!AppProfiles.isValidName(profile) ||
+        !Directory(supportDirectory).isAbsolute ||
+        !File(legacyPath).isAbsolute ||
+        supportDirectory.contains('\x00') ||
+        legacyPath.contains('\x00')) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+    _state = (_sources[backend] ??= {})[scope] ??= _LegacyPreferenceLifetime();
+  }
+  static final _sources = Expando<Map<String, _LegacyPreferenceLifetime>>();
+  final SharedPreferencesStorePlatform _backend;
+  final String supportDirectory, profile, legacyPath;
+  late final _LegacyPreferenceLifetime _state;
+  String get _base => AppProfiles.directory(supportDirectory, profile);
+  String get preferencePath => '$_base/${ProfilePreferencesLayout.file}';
+  String get scope =>
+      storageUnlockScope(profile, legacyPath, const LegacyStorageLocator());
+
+  void _requireCurrent() {
+    if (_state.detached || !identical(_sources[_backend]?[scope], _state)) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
+
+  Set<String> _knownProfiles() {
+    final result = <String>{AppProfiles.defaultName, profile};
+    final directory = Directory('$supportDirectory/profiles');
+    if (FileSystemEntity.typeSync(directory.path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return result;
+    }
+    // Refuse an unreadable roster instead of classifying other profiles' keys
+    // as default-profile data. Only leaf names are read; no identities opened.
+    for (final entry in directory.listSync(followLinks: false)) {
+      final name = lastPathSegment(entry.path);
+      if (AppProfiles.isValidName(name)) result.add(name);
+    }
+    return result;
+  }
+
+  bool _ownsKey(String key, Set<String> known) =>
+      key.startsWith('flutter.') &&
+      key != 'flutter.${AppProfiles.activePref}' &&
+      routeLegacyKey(key.substring('flutter.'.length), known).owner == profile;
+
+  Future<List<String>> _ownedKeys() async {
+    _requireCurrent();
+    final known = _knownProfiles();
+    final all = await _backend.getAll();
+    _requireCurrent();
+    return [
+      for (final key in all.keys)
+        if (_ownsKey(key, known)) key,
+    ]..sort();
+  }
+
+  /// Read-only cold-terminal/lost-reply inspection. It never creates a source,
+  /// removes a newly appearing record or claims previous retirement succeeded.
+  Future<void> verifyAbsent() async {
+    _requireCurrent();
+    if (_state.pending != null) throw const LegacyProfilePreferencesFailure();
+    await _verifyOwnedAbsent();
+    if (_state.pending != null) throw const LegacyProfilePreferencesFailure();
+  }
+
+  Future<void> _verifyOwnedAbsent() async {
+    _requireCurrent();
+    _state.readers++;
+    try {
+      if ((await _ownedKeys()).isNotEmpty) {
+        throw const LegacyProfilePreferencesFailure();
+      }
+      _requireCurrent();
+    } catch (_) {
+      throw const LegacyProfilePreferencesFailure();
+    } finally {
+      _state.readers--;
+    }
+  }
+}
+
+/// One namespace retirement, bound to a live exclusive worker operation.
+/// Keep it through retry/lost reply. Receipt admission detaches old contexts.
+final class LegacyProfilePreferencesRetirement {
+  LegacyProfilePreferencesRetirement._(
+    this._lease,
+    this._source,
+    this._binding,
+  );
+
+  factory LegacyProfilePreferencesRetirement.forWorker(
+    ManagedErasureWorker worker,
+    LegacyProfilePreferences source,
+  ) {
+    try {
+      final lease = worker.scopeLease, snapshot = lease.snapshot;
+      if (!snapshot.erasesProfilePreferences ||
+          snapshot.unlockScopes.ids.first != source.scope ||
+          Directory(
+                worker.profileDirectory,
+              ).parent.resolveSymbolicLinksSync() !=
+              Directory(source._base).resolveSymbolicLinksSync() ||
+          File(source.legacyPath).parent.resolveSymbolicLinksSync() !=
+              Directory(source._base).resolveSymbolicLinksSync()) {
+        throw const LegacyProfilePreferencesFailure();
+      }
+      source._requireCurrent();
+      final state = source._state, old = source._state.operation;
+      if (old != null &&
+          !old.sameOperation(snapshot.binding) &&
+          state.pending != null) {
+        throw const LegacyProfilePreferencesFailure();
+      }
+      state.operation = snapshot.binding;
+      return LegacyProfilePreferencesRetirement._(
+        lease,
+        source,
+        snapshot.binding,
+      );
+    } catch (_) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
+  final LegacyProfilePreferences _source;
+  final ManagedErasureScopeLease _lease;
+  final ManagedErasureBinding _binding;
+  Future<void>? _pending;
+  bool _verified = false, _released = false;
+
+  void _requireBound() {
+    _source._requireCurrent();
+    if (_released ||
+        !(_source._state.operation?.sameOperation(_binding) ?? false) ||
+        !_lease.snapshot.binding.sameOperation(_binding)) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
+
+  Future<void> retire() {
+    final pending = _pending;
+    if (pending != null) return pending;
+    try {
+      _requireBound();
+    } catch (_) {
+      return Future.error(const LegacyProfilePreferencesFailure());
+    }
+    final state = _source._state;
+    state.retired = true;
+    _verified = false;
+    final previous = state.pending;
+    final completed = Completer<void>();
+    _pending = state.pending = completed.future;
+    unawaited(() async {
+      try {
+        if (previous != null) {
+          await previous.then<void>(
+            (_) {},
+            onError: (Object _, StackTrace _) {},
+          );
+        }
+        _requireBound();
+        state.retryKeys.addAll(await _source._ownedKeys());
+        for (final key in state.retryKeys.toList()..sort()) {
+          _requireBound();
+          if (!_source._ownsKey(key, _source._knownProfiles())) {
+            throw const LegacyProfilePreferencesFailure();
+          }
+          if (!await _source._backend.remove(key)) {
+            throw const LegacyProfilePreferencesFailure();
+          }
+          state.retryKeys.remove(key);
+        }
+        _requireBound();
+        await _source._verifyOwnedAbsent();
+        _requireBound();
+        _verified = true;
+        completed.complete();
+      } catch (_) {
+        completed.completeError(const LegacyProfilePreferencesFailure());
+      } finally {
+        if (identical(state.pending, completed.future)) state.pending = null;
+        _pending = null;
+      }
+    }());
+    return completed.future;
+  }
+
+  Future<void> verifyAbsent() async {
+    void quiescent() {
+      _source._requireCurrent();
+      final state = _source._state;
+      if (!_verified ||
+          !(state.operation?.sameOperation(_binding) ?? false) ||
+          _released ||
+          !state.retired ||
+          state.pending != null ||
+          state.retryKeys.isNotEmpty) {
+        throw const LegacyProfilePreferencesFailure();
+      }
+    }
+
+    quiescent();
+    await _source.verifyAbsent();
+    quiescent();
+  }
+
+  void admitFreshLifetime(ManagedErasureRelease release) {
+    final state = _source._state;
+    _source._requireCurrent();
+    if (!_verified ||
+        !(state.operation?.sameOperation(_binding) ?? false) ||
+        _released ||
+        !state.retired ||
+        state.pending != null ||
+        state.readers != 0 ||
+        state.retryKeys.isNotEmpty ||
+        !release.authorizes(_binding)) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+    state.detached = true;
+    LegacyProfilePreferences._sources[_source._backend]!.remove(_source.scope);
+    _released = true;
+  }
+}
