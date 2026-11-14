@@ -5483,8 +5483,11 @@ class AppController extends Notifier<AppState> {
               'instead of publishing it',
         );
         try {
-          await stack.dispose();
+          _retiringStacks.putIfAbsent(stack, () => _disposeStackConfirmed(stack));
+          await _drainRetiringStacks();
         } catch (e) {
+          // The original disposal remains owned even though this superseded
+          // boot must not publish. A later unlock cannot overtake its cleanup.
           devLog(() => 'xVeil[deniable]: rollback dispose failed: $e');
         }
         // Same reason as [_teardownRealStack]: the port this boot bound is now
@@ -5584,6 +5587,10 @@ class AppController extends Notifier<AppState> {
   // An unpublished boot or unconfirmed close still owns native resources.
   // Keep it reachable after providers are cleared, until actual release.
   final Set<MultiIdentitySession> _retiringSessions = {};
+  // Clearing the UI provider does not release a stack. Preserve its original
+  // dispose future across a bounded wait, failure and subsequent lock/unlock.
+  // Do not replay a failed disposer that may have consumed native handles.
+  final Map<RealVeilStack, Future<bool>> _retiringStacks = {};
 
   /// The verdict of the last [lock], [startOver] or [wipeContainers].
   ///
@@ -5890,17 +5897,20 @@ class AppController extends Notifier<AppState> {
       await session.disposeAll();
       completed = true;
     } finally {
-      if (completed && session.containerLockReleased) {
+      if (completed &&
+          session.containerLockReleased &&
+          session.abandonedTeardowns.isEmpty) {
         _retiringSessions.remove(session);
       }
     }
   }
 
   Future<void> _drainRetiringSessions() async {
+    await _drainRetiringStacks();
     for (final session in _retiringSessions.toList()) {
       await _disposeTrackedSession(session);
       if (_retiringSessions.contains(session)) {
-        throw StateError('previous identity storage did not close');
+        throw StateError('previous identity teardown was not confirmed');
       }
     }
   }
@@ -5926,28 +5936,20 @@ class AppController extends Notifier<AppState> {
       // in-band, so nothing persisted goes stale.
       ref.read(realStackProvider.notifier).state = null;
       _oneActivePortOffset = _oneActivePortOffset == 0 ? 64 : 0;
+      _retiringStacks.putIfAbsent(stack, () => _disposeStackConfirmed(stack));
+    }
+    await _drainRetiringStacks();
+  }
+
+  Future<bool> _disposeStackConfirmed(RealVeilStack stack) async {
+    var confirmed = true;
+    try {
       await stack.dispose();
-      // Did the node actually stop, or was the wait abandoned?
-      //
-      // The native stop is bounded now and detaches the thread when its budget
-      // runs out (report9 X-17). Nothing can retry it — the handle is consumed
-      // either way — so the only thing left to do with the answer is refuse to
-      // claim a lock the app does not have. A node that outlived its stop
-      // still holds its sockets and its network identity until the process
-      // exits, and the person is being told "locked".
-      //
-      // Type-checked rather than put on `NodeController`: that interface has
-      // eight implementers, five of them test doubles, and none of the others
-      // can abandon anything — for them the honest answer is a constant.
+    } finally {
       final controller = stack.controller;
-      if (controller is EmbeddedNodeController &&
-          controller.lastStopWasAbandoned) {
-        _incomplete.add('node');
-        devLog(
-          () =>
-              'xVeil[lock]: the node did not stop within its budget — it may '
-              'still hold its sockets and its network identity',
-        );
+      confirmed = controller is! EmbeddedNodeController ||
+          !controller.lastStopWasAbandoned;
+      if (!confirmed) {
         errorJournal.record(
           kind: 'node-stop-abandoned',
           error: StateError(
@@ -5958,6 +5960,37 @@ class AppController extends Notifier<AppState> {
           atMs: DateTime.now().millisecondsSinceEpoch,
         );
       }
+    }
+    // This result belongs to the original stop. Never replace it with a later
+    // mutable "last stop" observation from a reused controller.
+    return confirmed;
+  }
+
+  Future<void> _drainRetiringStacks() async {
+    Object? firstError;
+    StackTrace? firstStack;
+    for (final entry in _retiringStacks.entries.toList()) {
+      try {
+        if (!await entry.value) {
+          // This native stop consumed the handle while detaching its thread.
+          // Neither an empty provider nor another check proves it stopped.
+          _incomplete.add('node');
+          throw StateError('native node stop was not confirmed');
+        }
+        _retiringStacks.remove(entry.key);
+      } catch (error, stack) {
+        final controller = entry.key.controller;
+        if (controller is EmbeddedNodeController &&
+            controller.lastStopWasAbandoned &&
+            !_incomplete.contains('node')) {
+          _incomplete.add('node');
+        }
+        firstError ??= error;
+        firstStack ??= stack;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStack ?? StackTrace.current);
     }
   }
 

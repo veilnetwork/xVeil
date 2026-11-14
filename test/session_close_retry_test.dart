@@ -25,6 +25,9 @@ class _RetrySession extends MultiIdentitySession {
       );
   bool allowClose = false;
   int closes = 0;
+  List<String> abandoned = const [];
+  @override
+  List<String> get abandonedTeardowns => abandoned;
   @override
   Future<void> disposeAll() async {
     closes++;
@@ -72,6 +75,49 @@ void main() {
       expect(probes, 0);
     },
   );
+  test(
+    'a released container does not forget an unconfirmed network teardown',
+    () async {
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      var opens = 0;
+      final storage = HiddenVolumeStorage(({
+        required password,
+        required create,
+      }) {
+        opens++;
+        return null;
+      });
+      final app = ProviderContainer(
+        overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(app.dispose);
+      final controller = app.read(appControllerProvider.notifier);
+      await app.read(prefsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      final session = _RetrySession()
+        ..allowClose = true
+        ..abandoned = ['node dispose'];
+      app.read(sessionProvider.notifier).state = session;
+      await controller.lock();
+      expect(controller.lastTeardown.incomplete, contains('session'));
+      await controller.lock();
+      expect(controller.lastTeardown.incomplete, contains('session'));
+      await controller.unlock('synthetic');
+      expect(
+        opens,
+        0,
+        reason: 'a new owner must not overtake unconfirmed teardown',
+      );
+      session.abandoned = const [];
+      await controller.unlock('synthetic');
+      expect(
+        opens,
+        1,
+        reason: 'confirmed completion permits ordinary admission',
+      );
+    },
+  );
+
   test(
     'lock retains an unreleased session and unlock drains it before any store open',
     () async {
