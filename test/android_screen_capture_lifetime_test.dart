@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/android_screen_capture.dart';
+import 'package:xveil/core/capture_resource_lifetime.dart';
 
 Uint8List _frame() => Uint8List(20)
   ..buffer.asByteData().setUint32(0, 4)
@@ -87,6 +88,7 @@ void main() {
       } catch (_) {}
     }
     messenger.setMockMethodCallHandler(channel, null);
+    CaptureResourceLifetime.resetForTesting();
   });
 
   test(
@@ -267,4 +269,127 @@ void main() {
     await deliver('frame', sessions.single);
     expect(frames, 1);
   });
+  test('profile retirement reaches an active screen projection', () async {
+    final source = capture();
+    expect(await source.start((_, _, _, _, _) {}), isTrue);
+    final owner = await CaptureResourceLifetime.current().retire();
+    expect(stops, 1, reason: 'retirement cannot overlook a live projection');
+    expect(source.rebindFrameSink((_, _, _, _, _) {}), isFalse);
+    await owner.verifyReleasedResources();
+  });
+
+  test(
+    'a source constructed before erasure cannot adopt the next profile',
+    () async {
+      final source = capture();
+      final owner = await CaptureResourceLifetime.current().retire();
+      owner.releaseAdmission();
+      expect(await source.start((_, _, _, _, _) {}), isFalse);
+      expect(
+        sessions,
+        isEmpty,
+        reason: 'no consent request for an old profile',
+      );
+    },
+  );
+  test(
+    'projection retirement joins accepted consent before releasing ownership',
+    () async {
+      startGate = Completer<bool>();
+      final source = capture();
+      final starting = source.start((_, _, _, _, _) {});
+      final retiring = CaptureResourceLifetime.current().retire();
+      var finished = false;
+      final observed = retiring.then((_) => finished = true);
+      try {
+        await Future<void>(() {});
+        expect(stops, 1, reason: 'cancel consent promptly');
+        expect(finished, isFalse, reason: 'accepted start is still unsettled');
+      } finally {
+        startGate!.complete(true);
+        await observed;
+      }
+      expect(await starting, isFalse);
+      expect(source.rebindFrameSink((_, _, _, _, _) {}), isFalse);
+    },
+  );
+
+  test(
+    'a refused projection stop blocks profile retirement until retry',
+    () async {
+      final source = capture();
+      expect(await source.start((_, _, _, _, _) {}), isTrue);
+      final scope = CaptureResourceLifetime.current();
+      refuseStop = true;
+      await expectLater(
+        scope.retire(),
+        throwsA(isA<CaptureResourceRetirementFailure>()),
+      );
+      expect(source.rebindFrameSink((_, _, _, _, _) {}), isFalse);
+      refuseStop = false;
+      final receipt = await scope.retire();
+      expect(stops, 2);
+      await receipt.verifyReleasedResources();
+    },
+  );
+
+  test(
+    'sealing profile admission immediately drops frames and engine rebind',
+    () async {
+      var frames = 0;
+      final source = capture();
+      expect(await source.start((_, _, _, _, _) => frames++), isTrue);
+      await deliver('frame', sessions.single);
+      expect(frames, 1);
+      final scope = CaptureResourceLifetime.current();
+      scope.sealAdmission();
+      await deliver('frame', sessions.single);
+      expect(frames, 1);
+      expect(source.rebindFrameSink((_, _, _, _, _) {}), isFalse);
+      await scope.retire();
+    },
+  );
+
+  test(
+    'an ordinary privacy cover does not end an ongoing screen-sharing call',
+    () async {
+      var frames = 0;
+      final source = capture();
+      expect(await source.start((_, _, _, _, _) => frames++), isTrue);
+      await CaptureResourceLifetime.current().stopForPrivacy();
+      expect(stops, 0);
+      await deliver('frame', sessions.single);
+      expect(frames, 1);
+      expect(source.rebindFrameSink((_, _, _, _, _) {}), isTrue);
+    },
+  );
+
+  test('a busy source retry cannot re-enter a retired profile', () async {
+    final first = capture();
+    expect(await first.start((_, _, _, _, _) {}), isTrue);
+    final waiting = capture();
+    expect(await waiting.start((_, _, _, _, _) {}), isFalse);
+    final owner = await CaptureResourceLifetime.current().retire();
+    owner.releaseAdmission();
+    expect(await waiting.start((_, _, _, _, _) {}), isFalse);
+    expect(sessions, hasLength(1));
+  });
+  test(
+    'a delayed factory cannot bind new capture to an erased profile',
+    () async {
+      final old = CaptureResourceLifetime.current();
+      final owner = await old.retire();
+      owner.releaseAdmission();
+      final source = AndroidScreenCapture(
+        () {},
+        channel: channel,
+        isAndroid: true,
+        captureLifetime: old,
+      );
+      captures.add(source);
+      expect(await source.start((_, _, _, _, _) {}), isFalse);
+      expect(sessions, isEmpty);
+      await CaptureResourceLifetime.current().retire();
+    },
+  );
 }

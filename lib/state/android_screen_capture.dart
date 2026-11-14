@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
 import 'android_camera_capture.dart' show I420FrameSink;
 
 /// Injectable boundary around Android's user-consented MediaProjection source.
@@ -22,26 +23,33 @@ typedef AndroidScreenCaptureFactory =
     AndroidScreenCaptureSource Function(VoidCallback onUnexpectedStop);
 
 AndroidScreenCaptureSource createAndroidScreenCapture(
-  VoidCallback onUnexpectedStop,
-) => AndroidScreenCapture(onUnexpectedStop);
+  VoidCallback onUnexpectedStop, {
+  CaptureResourceLifetime? captureLifetime,
+}) => AndroidScreenCapture(onUnexpectedStop, captureLifetime: captureLifetime);
 
 /// Android screen SEND path. The platform foreground service owns the
 /// MediaProjection token and emits small, tightly packed I420 frames over this
 /// control channel. Frames and the consent token stay in RAM; no recorder or
 /// temporary file is involved.
-class AndroidScreenCapture implements AndroidScreenCaptureSource {
+class AndroidScreenCapture
+    implements AndroidScreenCaptureSource, CaptureResource {
   AndroidScreenCapture(
     this._onUnexpectedStop, {
     MethodChannel? channel,
     bool? isAndroid,
+    CaptureResourceLifetime? captureLifetime,
   }) : _channel = channel ?? const MethodChannel(_channelName),
-       _isAndroid = isAndroid ?? Platform.isAndroid;
+       _isAndroid = isAndroid ?? Platform.isAndroid,
+       _captureLifetime = captureLifetime ?? CaptureResourceLifetime.current() {
+    _retired = !_captureLifetime.admit(this);
+  }
 
   static const _channelName = 'xveil/screen_capture';
 
   final VoidCallback _onUnexpectedStop;
   final MethodChannel _channel;
   final bool _isAndroid;
+  final CaptureResourceLifetime _captureLifetime;
   static final _owners = Expando<Map<String, AndroidScreenCapture>>();
   static final _random = Random.secure();
   Map<String, AndroidScreenCapture> get _channels =>
@@ -60,6 +68,10 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
   @override
   Future<bool> start(I420FrameSink sink) {
     if (!_isAndroid || _retired || _running) return Future.value(false);
+    // A denied/busy attempt can have released its resource registration. A
+    // retry must re-enter the original profile, never whichever profile is now
+    // current. The lifetime is sealed before profile erasure starts awaiting.
+    if (!_captureLifetime.admit(this)) return Future.value(false);
     final pending = _starting;
     if (pending != null) return pending;
     // Reserve before entering an adapter, which may synchronously call stop.
@@ -68,10 +80,12 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
     _start(sink).then(
       (value) {
         _starting = null;
+        _forgetIfReleased();
         result.complete(value);
       },
       onError: (Object error, StackTrace stack) {
         _starting = null;
+        _forgetIfReleased();
         result.completeError(error, stack);
       },
     );
@@ -101,7 +115,9 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
       final started =
           await _channel.invokeMethod<bool>('start', {'session': _session}) ??
           false;
-      if (_retired || !_ownsChannel) return false;
+      if (_retired || !_captureLifetime.isAdmitting || !_ownsChannel) {
+        return false;
+      }
       if (!started) {
         _sink = null;
         _releaseChannel();
@@ -128,7 +144,17 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
     if (!_ownsChannel) return;
     _channel.setMethodCallHandler(null);
     _channels.remove(_channel.name);
+    _forgetIfReleased();
   }
+
+  void _forgetIfReleased() {
+    if (!_ownsChannel && _starting == null && _stopping == null) {
+      _captureLifetime.forget(this);
+    }
+  }
+
+  @override
+  Future<void> retire() => stop();
 
   Future<void> _handlePlatformCall(MethodCall call) async {
     final arguments = call.arguments;
@@ -147,7 +173,12 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
         if (bytes is! Uint8List) return;
         final frame = decodeAndroidScreenFrame(bytes);
         final sink = _sink;
-        if (frame == null || sink == null || _retired) return;
+        if (frame == null ||
+            sink == null ||
+            _retired ||
+            !_captureLifetime.isAdmitting) {
+          return;
+        }
         if (!_firstFrameLogged) {
           _firstFrameLogged = true;
           devLog(
@@ -175,7 +206,12 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
       _sink = null;
       return true;
     }
-    if (!_running || _retired || !_ownsChannel) return false;
+    if (!_running ||
+        _retired ||
+        !_captureLifetime.isAdmitting ||
+        !_ownsChannel) {
+      return false;
+    }
     _sink = sink;
     return true;
   }
@@ -193,6 +229,7 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
     _stop(starting).then(
       (_) {
         _stopping = null;
+        _forgetIfReleased();
         result.complete();
       },
       onError: (Object error, StackTrace stack) {

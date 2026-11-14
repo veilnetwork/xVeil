@@ -385,8 +385,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final DateTime Function() _now;
   final CallNetworkActivity _networkActivity;
   final _networkActivityOwner = Object();
-  final AndroidScreenCaptureFactory _screenCaptureFactory =
-      createAndroidScreenCapture;
+  AndroidScreenCaptureSource _screenCaptureFactory(
+    VoidCallback onUnexpectedStop,
+  ) => createAndroidScreenCapture(
+    onUnexpectedStop,
+    captureLifetime: _cameraLifetime,
+  );
   final Map<String, _GroupPeerChannel> _peers = {};
   bool _screenSourceSelected = false;
   final Map<String, int> _lastRxPackets = {};

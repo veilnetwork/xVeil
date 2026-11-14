@@ -583,8 +583,12 @@ class VeilCallMediaController implements CallMediaController {
   final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
-  final AndroidScreenCaptureFactory _screenCaptureFactory =
-      createAndroidScreenCapture;
+  AndroidScreenCaptureSource _screenCaptureFactory(
+    VoidCallback onUnexpectedStop,
+  ) => createAndroidScreenCapture(
+    onUnexpectedStop,
+    captureLifetime: _cameraLifetime,
+  );
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   final _mediaReceiveActivity = CallMediaReceiveActivity();
