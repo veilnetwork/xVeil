@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'geoip_country_routes.dart';
 import 'privileged_launch_guard.dart';
 import 'vpn_backend.dart';
+import 'windows_process_probe.dart';
 import 'vpn_routing_policy.dart';
 
 Map<String, Object?> buildWindowsVpnHelperRequest({
@@ -135,14 +136,33 @@ class WindowsManagedVpnBackend implements VpnBackend {
     // test that wants to reach the NEXT check can only get there by relying on
     // the host to be missing something, which makes it pass on the developer's
     // machine and fail on the platform it is named after.
-    @visibleForTesting this.requiredComponents = const [
-      'veil_vpn_helper.dll',
-      'wintun.dll',
-    ],
+    @visibleForTesting
+    this.requiredComponents = const ['veil_vpn_helper.dll', 'wintun.dll'],
   }) : _launchGuard = launchGuard ?? PrivilegedLaunchGuard.forHost(),
        _isWindowsHost = isWindowsHost ?? Platform.isWindows,
        _executablePath = executablePath ?? Platform.resolvedExecutable;
 
+  /// Disposable session/fact ports; never selected by application settings.
+  @visibleForTesting
+  factory WindowsManagedVpnBackend.withSessionForTesting({
+    required Directory directory,
+    required File statusFile,
+    required String token,
+    required int helperPid,
+    required WindowsProcessProbe processProbe,
+    required Future<void> Function() requestStop,
+    Duration stopTimeout = const Duration(seconds: 10),
+  }) => WindowsManagedVpnBackend()
+    .._sessionDirectory = directory
+    .._statusFile = statusFile
+    .._token = token
+    .._helperPid = helperPid
+    .._processProbe = processProbe
+    .._requestStopForTesting = requestStop
+    .._stopTimeout = stopTimeout;
+
+  WindowsProcessProbe _processProbe = const WindowsProcessProbe();
+  Future<void> Function()? _requestStopForTesting;
   VpnBackendState _state = const VpnBackendState(VpnBackendPhase.stopped);
   Directory? _sessionDirectory;
   File? _statusFile;
@@ -158,7 +178,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
 
   static const _authorizationTimeout = Duration(minutes: 3);
   static const _startupTimeout = Duration(seconds: 90);
-  static const _stopTimeout = Duration(seconds: 10);
+  Duration _stopTimeout = const Duration(seconds: 10);
   static const _pollInterval = Duration(milliseconds: 100);
 
   /// Refuse before anything else: `probe()` decides whether to offer a feature
@@ -176,8 +196,85 @@ class WindowsManagedVpnBackend implements VpnBackend {
     return VpnBackendState(VpnBackendPhase.unsupported, detail: verdict.detail);
   }
 
+  Future<void> _operations = Future.value();
+  Future<VpnBackendState>? _stopping, _observing;
+
+  Future<T> _enqueue<T>(Future<T> Function() action) {
+    final next = _operations.then((_) => action());
+    _operations = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
   @override
-  Future<VpnBackendState> probe() async {
+  Future<VpnBackendState> probe() => _enqueue(_probeOwned);
+
+  @override
+  Future<VpnBackendState> status() {
+    final pending = _observing;
+    if (pending != null) return pending;
+    late final Future<VpnBackendState> next;
+    next = _enqueue(_statusOwned).whenComplete(() {
+      if (identical(_observing, next)) _observing = null;
+    });
+    return _observing = next;
+  }
+
+  @override
+  Future<VpnBackendState> stop() {
+    final pending = _stopping;
+    if (pending != null) return pending;
+    late final Future<VpnBackendState> next;
+    next = _enqueue(_stopOwned).whenComplete(() {
+      if (identical(_stopping, next)) _stopping = null;
+    });
+    return _stopping = next;
+  }
+
+  @override
+  Future<VpnBackendState> start({
+    required VpnRoutingPolicy policy,
+    required String socks5Listen,
+    required String exitNodeId,
+    List<String> exitNodeIds = const [],
+    Map<String, String> applicationProxyListens = const {},
+    String? obfs4Psk,
+  }) {
+    // Accepted work owns its original intent while another operation waits
+    // for UAC/control I/O. Copy without normalization or dropping invalid data.
+    final owned = policy.copyWith(
+      includedCidrs: List.unmodifiable(policy.includedCidrs),
+      excludedCidrs: List.unmodifiable(policy.excludedCidrs),
+      includedCountryCodes: List.unmodifiable(policy.includedCountryCodes),
+      excludedCountryCodes: List.unmodifiable(policy.excludedCountryCodes),
+      applicationIds: List.unmodifiable(policy.applicationIds),
+      vpnOproxyNodeIds: List.unmodifiable(policy.vpnOproxyNodeIds),
+      applicationOproxyNodeIds: Map.unmodifiable({
+        for (final entry in policy.applicationOproxyNodeIds.entries)
+          entry.key: List<String>.unmodifiable(entry.value),
+      }),
+      dnsServers: List.unmodifiable(policy.dnsServers),
+    );
+    final exits = List<String>.unmodifiable(exitNodeIds);
+    final applications = Map<String, String>.unmodifiable(
+      applicationProxyListens,
+    );
+    // A stop/observation accepted after this start must follow it, rather than
+    // coalescing with an older operation on the preceding session.
+    _stopping = null;
+    _observing = null;
+    return _enqueue(
+      () => _startOwned(
+        policy: owned,
+        socks5Listen: socks5Listen,
+        exitNodeId: exitNodeId,
+        exitNodeIds: exits,
+        applicationProxyListens: applications,
+        obfs4Psk: obfs4Psk,
+      ),
+    );
+  }
+
+  Future<VpnBackendState> _probeOwned() async {
     if (!_isWindowsHost) {
       return const VpnBackendState(
         VpnBackendPhase.unsupported,
@@ -212,30 +309,33 @@ class WindowsManagedVpnBackend implements VpnBackend {
             '$powershell',
       );
     }
-    return status();
+    return _statusOwned();
   }
 
-  @override
-  Future<VpnBackendState> status() async {
-    final native = await _readStatus();
-    if (native != null) {
-      _state = native;
-      if (native.phase == VpnBackendPhase.running && !await _isHelperAlive()) {
-        _state = const VpnBackendState(
-          VpnBackendPhase.error,
-          detail: 'Windows VPN helper exited without restoring a final status',
-        );
-      }
+  Future<VpnBackendState> _statusOwned() async {
+    final observed = await _readStatus();
+    if (observed != null) {
+      _state = observed.state;
+      if (!observed.verified) return _state;
       if (_state.phase == VpnBackendPhase.stopped ||
           _state.phase == VpnBackendPhase.error) {
         await _releaseSession();
+        return _state;
       }
+    }
+    // The helper removes its protected final-status file immediately before
+    // exit. Absence of that transient file is not a live/exit observation.
+    if (_sessionDirectory != null && !await _isHelperAlive()) {
+      _state = const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Windows VPN helper exited without a final status',
+      );
+      await _releaseSession();
     }
     return _state;
   }
 
-  @override
-  Future<VpnBackendState> start({
+  Future<VpnBackendState> _startOwned({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
@@ -255,12 +355,12 @@ class WindowsManagedVpnBackend implements VpnBackend {
         detail: 'Per-application VPN is not supported by the Windows backend',
       );
     }
-    final existing = await status();
+    final existing = await _statusOwned();
     if (_sessionDirectory != null ||
         existing.phase == VpnBackendPhase.running) {
       return existing;
     }
-    final available = await probe();
+    final available = await _probeOwned();
     if (available.phase == VpnBackendPhase.unsupported) return available;
 
     Map<String, dynamic> expanded;
@@ -372,10 +472,11 @@ class WindowsManagedVpnBackend implements VpnBackend {
       var safeToRelease = !elevationCompleted && error is! TimeoutException;
       if (elevationCompleted) {
         try {
-          await _waitFor(const {
-            VpnBackendPhase.stopped,
-            VpnBackendPhase.error,
-          }, _stopTimeout);
+          await _waitFor(
+            const {VpnBackendPhase.stopped, VpnBackendPhase.error},
+            _stopTimeout,
+            stopping: true,
+          );
           safeToRelease = true;
         } on Object {
           safeToRelease = !await _isHelperAlive();
@@ -386,8 +487,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
     }
   }
 
-  @override
-  Future<VpnBackendState> stop() async {
+  Future<VpnBackendState> _stopOwned() async {
     if (_sessionDirectory == null) {
       _state = const VpnBackendState(VpnBackendPhase.stopped);
       return _state;
@@ -395,10 +495,11 @@ class WindowsManagedVpnBackend implements VpnBackend {
     _state = const VpnBackendState(VpnBackendPhase.stopping);
     try {
       await _requestStop();
-      final result = await _waitFor(const {
-        VpnBackendPhase.stopped,
-        VpnBackendPhase.error,
-      }, _stopTimeout);
+      final result = await _waitFor(
+        const {VpnBackendPhase.stopped, VpnBackendPhase.error},
+        _stopTimeout,
+        stopping: true,
+      );
       _state = result;
       if (result.phase == VpnBackendPhase.stopped ||
           result.phase == VpnBackendPhase.error) {
@@ -417,40 +518,68 @@ class WindowsManagedVpnBackend implements VpnBackend {
 
   Future<VpnBackendState> _waitFor(
     Set<VpnBackendPhase> phases,
-    Duration timeout,
-  ) async {
+    Duration timeout, {
+    bool stopping = false,
+  }) async {
     final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      final value = await _readStatus();
-      if (value != null && phases.contains(value.phase)) return value;
+    while (true) {
+      final observed = await _readStatus();
+      if (observed != null) {
+        if (!observed.verified) throw const _WindowsVpnStatusFailure();
+        if (phases.contains(observed.state.phase)) return observed.state;
+      }
+      if (!await _isHelperAlive()) {
+        return stopping
+            ? const VpnBackendState(VpnBackendPhase.stopped)
+            : const VpnBackendState(
+                VpnBackendPhase.error,
+                detail: 'Windows VPN helper exited before reporting readiness',
+              );
+      }
+      if (!DateTime.now().isBefore(deadline)) {
+        throw TimeoutException(
+          'timed out waiting for Windows VPN helper',
+          timeout,
+        );
+      }
       await Future<void>.delayed(_pollInterval);
     }
-    throw TimeoutException('timed out waiting for Windows VPN helper', timeout);
   }
 
-  Future<VpnBackendState?> _readStatus() async {
+  Future<({VpnBackendState state, bool verified})?> _readStatus() async {
     final file = _statusFile;
     final token = _token;
     if (file == null || token == null || !await file.exists()) return null;
     try {
       final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map || decoded['token'] != token) {
-        return const VpnBackendState(
-          VpnBackendPhase.error,
-          detail: 'Windows VPN helper returned an invalid session token',
+      final phase = decoded is Map ? decoded['phase'] : null;
+      if (decoded is! Map ||
+          decoded['token'] != token ||
+          phase is! String ||
+          !VpnBackendPhase.values.any((value) => value.name == phase) ||
+          decoded['detail'] != null && decoded['detail'] is! String) {
+        return (
+          state: const VpnBackendState(
+            VpnBackendPhase.error,
+            detail: 'Windows VPN helper returned an unverified status',
+          ),
+          verified: false,
         );
       }
-      return VpnBackendState.fromMap(Map<Object?, Object?>.from(decoded));
+      return (
+        state: VpnBackendState.fromMap(Map<Object?, Object?>.from(decoded)),
+        verified: true,
+      );
     } on FileSystemException {
-      // Status replacement is atomic but Windows briefly removes the previous
-      // path before rename. A later poll will observe the new complete file.
-      return null;
+      return null; // A later poll can observe atomic replacement.
     } on FormatException {
-      return null;
+      return null; // Incomplete bytes cannot authorize retirement.
     }
   }
 
   Future<void> _requestStop() async {
+    final test = _requestStopForTesting;
+    if (test != null) return test();
     final pipe = _controlPipe;
     if (pipe == null) return;
     // The helper identifies THIS process by pid on the other end, so the write
@@ -471,20 +600,9 @@ class WindowsManagedVpnBackend implements VpnBackend {
     final helperPid = _helperPid;
     if (helperPid == null) return true;
     try {
-      final result = await Process.run(
-        windowsSystem32Tool('tasklist.exe'),
-        ['/FI', 'PID eq $helperPid', '/FO', 'CSV', '/NH'],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-        includeParentEnvironment: false,
-        environment: windowsCleanEnvironment(),
-      );
-      return result.exitCode == 0 &&
-          (result.stdout as String).contains('"$helperPid"');
-    } on ProcessException {
-      // Process probing is diagnostic. Failure must not delete a session that
-      // could still own system routes.
-      return true;
+      return _processProbe.read(helperPid) != WindowsProcessState.exited;
+    } catch (_) {
+      return true; // Unknown must preserve the session/control capability.
     }
   }
 
@@ -509,4 +627,11 @@ class WindowsManagedVpnBackend implements VpnBackend {
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     return bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
   }
+}
+
+/// Never includes protected paths, tokens or a native exception's payload.
+final class _WindowsVpnStatusFailure implements Exception {
+  const _WindowsVpnStatusFailure();
+  @override
+  String toString() => 'WindowsVpnStatusFailure';
 }
