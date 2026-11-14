@@ -3197,7 +3197,7 @@
   "startupUnlockHint": "Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.",
   "startupUnlockBlocked": "El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.",
   "startupUnlockFailed": "No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.",
-  "wipeLeftQuickUnlock": "acceso rápido guardado en el sistema",
+  "wipeLeftQuickUnlock": "acceso rápido guardado en el sistema (no se pudo verificar su eliminación)",
   "startupUnlockSaveFailed": "Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.",
   "chatFileSavePermissionDenied": "No hay permiso para escribir aquí. Elige otra carpeta o permite el acceso en el selector de archivos del sistema.",
   "chatFileSavedToChosenFolder": "Archivo guardado en la ubicación elegida",

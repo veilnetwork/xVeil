@@ -7982,7 +7982,8 @@ class AppL10nRu extends AppL10n {
       'Не удалось открыть. Проверьте ключ или системное подтверждение; после повторных ошибок подождите перед новой попыткой. Можно ввести пароль контейнера.';
 
   @override
-  String get wipeLeftQuickUnlock => 'сохранённый быстрый вход в хранилище ОС';
+  String get wipeLeftQuickUnlock =>
+      'быстрый вход в хранилище ОС — удаление не подтверждено';
 
   @override
   String get startupUnlockSaveFailed =>

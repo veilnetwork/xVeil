@@ -1070,6 +1070,31 @@ exist. That path still requires a durable cross-root key-remapping protocol;
 manual password rotation, migration and whole-profile erase remain separate
 unfinished work. The managed-storage default switch remains off.
 
+### OS quick-entry cleanup before whole-profile erasure
+
+Whole-profile erasure with visible catalog entries is still refused pending
+cross-worker coordination and a recoverable deletion protocol. Its OS-credential
+boundary is being qualified separately; this is not permission to recursively
+remove the managed root or bypass per-identity erasure authentication.
+
+The existing legacy wipe now verifies deletion of the selected OS quick-entry
+scope even if its soft opt-in preference is absent or false. That flag controls
+whether quick entry is offered; it cannot witness absence of a protected
+password after preference loss or interrupted enrollment. Ordinary startup still
+performs no OS-vault reads without explicit opt-in. Forgetting advances the
+vault's generation and joins accepted enrollment before declaring absence.
+Another scope's OS entries are not swept.
+
+Removal/re-enrollment distinguish an absent record from unreadable, oversized or
+unknown cleanup metadata. Unreadable data is retained and the operation refuses
+without replacing the only potential pointer to a protected slot. A recognized
+slot is retired even when its option flags are off. Failed OS access/deletion is
+reported as unverified, while the existing best-effort wipe continues deleting
+the owned container. These are synthetic port/controller checks, not a physical
+Keychain/Keystore deletion qualification. Cleanup across every enumerable scope,
+pending writes owned by retired vault objects, and profile-wide deletion remain
+required before enabling the new storage default.
+
 ### Interrupted setup inspection and explicit continuation
 
 An authenticated space without a profile no longer automatically boots a new

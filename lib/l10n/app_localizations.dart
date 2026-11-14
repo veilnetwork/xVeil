@@ -13731,7 +13731,7 @@ abstract class AppL10n {
   /// No description provided for @wipeLeftQuickUnlock.
   ///
   /// In en, this message translates to:
-  /// **'saved quick sign-in in the OS secure store'**
+  /// **'saved quick sign-in in the OS secure store (removal could not be verified)'**
   String get wipeLeftQuickUnlock;
 
   /// No description provided for @startupUnlockSaveFailed.

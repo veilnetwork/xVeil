@@ -137,18 +137,48 @@ class QuickUnlockVault {
     return next;
   }
 
-  Future<Map<String, dynamic>?> _read() async {
+  Future<Map<String, dynamic>?> _read({bool forRemoval = false}) async {
     final raw = await store.read(_key);
-    if (raw == null || raw.length > 16000) return null;
+    if (raw == null) return null;
     try {
+      if (raw.length > 16000) throw const FormatException();
       final record = jsonDecode(raw);
       if (record is! Map<String, dynamic> ||
           record['v'] != 1 ||
           record['id'] is! String) {
-        return null;
+        throw const FormatException();
+      }
+      if (forRemoval) {
+        // Absence is the only empty answer that authorizes cleanup/replacement.
+        // Losing an unreadable record could orphan a protected password slot.
+        const fields = {
+          'v',
+          'id',
+          'grid',
+          'pattern',
+          'system',
+          'bioPending',
+          'bioSlot',
+          'tries',
+          'after',
+        };
+        final slot = record['bioSlot'];
+        if (record['v'] is! int ||
+            (record['id'] as String).isEmpty ||
+            (record['id'] as String).length > 64 ||
+            !record.keys.every(fields.contains) ||
+            record['system'] is! bool ||
+            record.containsKey('bioPending') && record['bioPending'] is! bool ||
+            ((record['system'] == true ||
+                    record['bioPending'] == true ||
+                    slot != null) &&
+                (slot is! String || slot.isEmpty || slot.length > 64))) {
+          throw const FormatException();
+        }
       }
       return record;
     } catch (_) {
+      if (forRemoval) throw StateError('Saved sign-in record is unreadable');
       return null;
     }
   }
@@ -172,7 +202,7 @@ class QuickUnlockVault {
   }) {
     final generation = ++_generation;
     return _serial(() async {
-      final previous = await _read();
+      final previous = await _read(forRemoval: true);
       Map<String, dynamic>? pattern;
       if (grid != null) {
         if (nodes == null || nodes.isEmpty) {
@@ -225,7 +255,9 @@ class QuickUnlockVault {
         // Retire the previous authenticated slot before publishing a fresh
         // one. Its new namespace creates a fresh Keystore key even after the
         // old key was invalidated by a change of enrolled biometrics.
-        if (previous?['system'] == true || previous?['bioPending'] == true) {
+        if (previous?['system'] == true ||
+            previous?['bioPending'] == true ||
+            previous?['bioSlot'] != null) {
           await _eraseRecords();
         }
         if (!current()) throw StateError('Unlock configuration superseded');
@@ -380,8 +412,8 @@ class QuickUnlockVault {
   }
 
   Future<void> _eraseRecords() async {
-    final record = await _read();
-    if (record?['system'] == true || record?['bioPending'] == true) {
+    final record = await _read(forRemoval: true);
+    if (record?['bioSlot'] != null) {
       final slot = record?['bioSlot'];
       if (slot is! String || slot.length > 64) {
         throw StateError('Incomplete saved sign-in');
