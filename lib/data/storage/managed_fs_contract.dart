@@ -1,4 +1,11 @@
-enum ManagedFsFailureKind { unavailable, unsafe, changed, io, missingCatalog }
+enum ManagedFsFailureKind {
+  unavailable,
+  unsafe,
+  changed,
+  io,
+  missingCatalog,
+  erasurePending,
+}
 
 /// Safe to surface in diagnostics: never includes a path, owner or native text.
 final class ManagedFsFailure implements Exception {

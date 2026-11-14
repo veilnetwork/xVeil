@@ -1105,9 +1105,10 @@ actor cases retain ownership until confirmed close. These are macOS fixtures;
 Windows and mobile filesystem/runtime behavior are not physically qualified.
 
 A permanent `storage-lifetime` directory at the profile level now extends this
-barrier to unpublished and absent managed roots. It holds only a different fixed
-role tag and an empty lock sidecar, with no catalog, identity count, locator,
-credential or hidden-space fact. This constant coordination metadata must remain
+barrier to unpublished and absent managed roots. Its permanent role files hold
+only a different fixed tag and an empty lock sidecar, with no catalog, identity
+count, locator, credential or hidden-space fact. The separate erasure intent
+below may temporarily retain the public catalog. The constant role must remain
 when user data is erased, so a new creator cannot bypass an old exclusive owner
 by replacing the lock inode. Explicit profile/catalog-worker initialization
 creates it even when there are no managed identities. Read-only absent-root
@@ -1141,6 +1142,64 @@ This remains a coordination primitive, not whole-profile erasure. Durable
 deletion intent, startup recovery with a partially removed catalog, complete
 owned-entry cleanup and all OS-vault scopes remain required. The destructive
 action and new storage default stay off.
+
+### Durable intent before managed-root removal
+
+`ManagedRootErasure.prepare` is now an actor-side prerequisite for the future
+whole-profile wipe. Under exclusive parent/root admission it validates catalog
+membership, every identity's public role and recognized no-follow inventory.
+Unknown content, incomplete stores or unconfirmed resource close refuse without
+publishing. It records a bounded exact manifest (32,768 entries / 8 MiB), file
+object witnesses, sizes/modified stamps, profile/coordinator binding and the
+public catalog. It reads no encrypted payload, password or hidden-space roster.
+Oversized plans refuse rather than approving a truncated inventory.
+
+The immutable plan is flushed in a private staging directory and published
+without replacement as `storage-lifetime/erasure-pending/plan.json`. No payload
+removal precedes durable publication. Once any object occupies the pending name,
+ordinary profile admission, catalog workers and root creation refuse, including
+when the managed root is already absent. Malformed/linked intent is a refusal,
+not permission to initialize an empty catalog. An unpublished plan is retained
+only on crash; normal failure cleans only its exact owned staging files.
+
+`openPending` acquires the permanent exclusive parent independently of a
+surviving catalog, inner lease or payload. It rechecks the bounded plan and its
+binding; copied plans, traversal, object replacement, changed files and unexpected
+entries refuse before removal. The required scope-retirement callback must
+verify OS-vault absence (including accepted enrollment) before any planned
+unlink. Callback failure preserves all managed payloads; retries repeat it.
+This callback is only a contract here, not a claim that actual platform scopes
+are already integrated or verified.
+
+Removal retains exclusive parent ownership, closes no unrelated handle, checks
+ancestors/objects before each unlink and never recursively sweeps foreign
+entries. Missing planned entries permit restart after partial removal. The
+public identity list remains readable in the intent even after catalog removal,
+so the enclosing wipe can still derive known vault scopes. A newly inserted
+file is preserved and prevents nonrecursive parent removal. Reentrant cleanup
+and close while the accepted callback is running refuse.
+
+Host fixtures exercise plain/encrypted payloads, ciphertext blobs, scope refusal,
+mutation/path/schema/bounds controls, publication failures and independent writer
+SIGKILL before/after intent publication, after catalog unlink and after root
+unlink. A guard-disabled negative control fails all three ordinary-admission
+tests; it is a compiled mutation control, not a historical production defect
+reproduction. The first test run's one failure was an overly narrow busy-error
+matcher (SQLite busy is also a valid exclusion), corrected before qualification.
+
+The broad 49-file run passed 317 cases. Two later red filesystem-failure cases
+showed raw paths escaping from publication/removal errors; these are now wrapped
+as bounded `ManagedFsFailure(io)`, retaining the original stack without native
+message/path fields. The whole new admission/removal/crash files are requalified
+after that change; broad results are not presented as one final-source green run.
+
+The intent intentionally remains after all managed files disappear: this port
+does not yet finalize a full-profile wipe or expose one to the UI. Integration
+must first cover the legacy container/blobs, every known OS scope and pending
+enrollment, preferences, interrupted startup and explicit recovery reporting.
+Unknown/orphan staging content needs owned review; it is not swept by this
+manifest. Actual packaged mobile/Windows behavior, power loss and real OS-vault
+cleanup remain unqualified. Whole-profile erasure and the new default stay off.
 
 ### OS quick-entry cleanup before whole-profile erasure
 

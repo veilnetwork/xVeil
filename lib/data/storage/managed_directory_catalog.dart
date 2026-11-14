@@ -35,6 +35,7 @@ part 'managed_identity_usage.dart';
 part 'managed_identity_erase.dart';
 part 'managed_identity_erase_review.dart';
 part 'storage_profile_coordinator.dart';
+part 'managed_root_erasure.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
@@ -111,6 +112,7 @@ final class ManagedDirectoryCatalog {
     final path = _child(profile.path, 'identities');
     if (FileSystemEntity.typeSync(path, followLinks: false) ==
         FileSystemEntityType.notFound) {
+      StorageProfileCoordinator.openExisting(profile.path, fs: fs)?.close();
       return null;
     }
     final coordinator = StorageProfileCoordinator.openExisting(
