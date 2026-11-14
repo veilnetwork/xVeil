@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'android_microphone_lifetime.dart';
+import '../state/call_network_activity.dart';
 
 import 'package:veil_flutter/veil_flutter.dart'
     show VeilBackground, VeilBackgroundRetirement;
@@ -26,19 +27,26 @@ abstract interface class BackgroundResourceRetirement {
 }
 
 final class _SdkRetirement implements BackgroundResourceRetirement {
-  _SdkRetirement(this.owner, this.microphone);
+  _SdkRetirement(this.owner, this.microphone, this.network);
   final VeilBackgroundRetirement owner;
   final AndroidMicrophoneRetirement microphone;
+  final CallNetworkRetirement network;
   @override
   Future<void> verifyReleasedResources() async {
     await owner.verifyReleasedResources();
     await microphone.verifyReleasedResources();
+    await network.verifyReleasedResources();
   }
 
   @override
   Future<void> releaseAdmission() async {
+    await network.releaseNativeAdmission();
     await microphone.releaseNativeAdmission();
     await owner.releaseAdmission();
+    // Validate the whole synchronous publication before replacing any facade.
+    network.verifyPublicationReady();
+    microphone.verifyPublicationReady();
+    network.publishFreshLifetime();
     microphone.publishFreshLifetime();
   }
 }
@@ -71,24 +79,37 @@ class BackgroundServiceActions {
     this._retire,
     this._callStart,
     this._callPresentation,
+    this._sealResources,
   });
 
-  factory BackgroundServiceActions.platform() => BackgroundServiceActions(
-    start: VeilBackground.start,
-    stop: VeilBackground.stop,
-    retire: () async {
-      final microphone = AndroidMicrophoneLifetime.current()..sealAdmission();
-      final background = await VeilBackground.retire();
-      return _SdkRetirement(background, await microphone.retireForErasure());
-    },
-    callStart: VeilBackground.start,
-    callPresentation: VeilBackground.setCallPresentation,
-  );
+  factory BackgroundServiceActions.platform() {
+    final microphone = AndroidMicrophoneLifetime.current();
+    final network = CallNetworkActivity.shared;
+    return BackgroundServiceActions(
+      start: VeilBackground.start,
+      stop: VeilBackground.stop,
+      sealResources: () {
+        microphone.sealAdmission();
+        network.sealAdmission();
+      },
+      retire: () async {
+        final background = await VeilBackground.retire();
+        return _SdkRetirement(
+          background,
+          await microphone.retireForErasure(),
+          await network.retireForErasure(),
+        );
+      },
+      callStart: VeilBackground.start,
+      callPresentation: VeilBackground.setCallPresentation,
+    );
+  }
 
   final Future<void> Function() _start, _stop;
   final Future<BackgroundResourceRetirement> Function()? _retire;
   final BackgroundCallStart? _callStart;
   final BackgroundCallPresentation? _callPresentation;
+  final void Function()? _sealResources;
   final _accepted = <Future<void>>{};
   bool _retired = false;
   Future<BackgroundResourceRetirement>? _retiring;
@@ -164,16 +185,27 @@ class BackgroundServiceActions {
     final pending = _retiring;
     if (pending != null) return pending;
     final earlier = _accepted.toList(growable: false);
-    late final Future<BackgroundResourceRetirement> next;
-    next =
-        () async {
-          await Future.wait(earlier);
-          final retire = _retire;
-          if (retire == null) throw const BackgroundServiceUnavailable();
-          return _owner = await retire();
-        }().whenComplete(() {
-          if (identical(_retiring, next)) _retiring = null;
-        });
-    return _retiring = next;
+    final result = Completer<BackgroundResourceRetirement>();
+    _retiring = result.future;
+    try {
+      _sealResources?.call();
+    } catch (error, stack) {
+      _retiring = null;
+      result.completeError(error, stack);
+      return result.future;
+    }
+    unawaited(() async {
+      try {
+        await Future.wait(earlier);
+        final retire = _retire;
+        if (retire == null) throw const BackgroundServiceUnavailable();
+        result.complete(_owner = await retire());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      } finally {
+        _retiring = null;
+      }
+    }());
+    return result.future;
   }
 }

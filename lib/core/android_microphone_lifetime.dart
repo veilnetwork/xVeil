@@ -45,12 +45,17 @@ final class AndroidMicrophoneRetirement {
     _released = true;
   }
 
-  void publishFreshLifetime() {
+  void verifyPublicationReady() {
     if (_published) return;
     if (!_released ||
         !identical(AndroidMicrophoneLifetime._current, _lifetime)) {
       throw StateError('microphone retirement unavailable');
     }
+  }
+
+  void publishFreshLifetime() {
+    if (_published) return;
+    verifyPublicationReady();
     AndroidMicrophoneLifetime._current = AndroidMicrophoneLifetime._();
     _published = true;
   }
