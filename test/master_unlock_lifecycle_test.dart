@@ -126,6 +126,13 @@ class _Controller extends AppController {
   _Controller(this.gate);
   final _Gate gate;
   int builds = 0;
+  final maintenanceWaiting = Completer<void>();
+  @override
+  Future<void> waitForCompaction() {
+    if (!maintenanceWaiting.isCompleted) maintenanceWaiting.complete();
+    return super.waitForCompaction();
+  }
+
   @override
   AppState build() => const AppState(AppPhase.locked);
   @override
@@ -314,14 +321,22 @@ void main() {
         final f = await _fixture(_Stage.masterKeys);
         final unlocking = f.ctrl.unlock('master-fixture');
         await f.gate.entered.future;
+        Future<List<String>>? wiping;
         if (wipe) {
-          expect(await f.ctrl.wipeContainers(), isEmpty);
+          wiping = f.ctrl.wipeContainers();
+          await f.ctrl.maintenanceWaiting.future;
+          expect(
+            await f.file.exists(),
+            isTrue,
+            reason: 'an accepted key export must settle before file deletion',
+          );
         } else {
           await f.ctrl.startOver();
         }
         final io = List<String>.of(f.storage.io);
         f.gate.release.complete();
         await unlocking;
+        if (wiping != null) expect(await wiping, isEmpty);
         expect(f.storage.io, io);
         expect(f.ctrl.debugMasterKeys, isNull);
         expect(f.ctrl.debugRoster, isNull);

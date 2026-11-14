@@ -474,6 +474,43 @@ void main() {
   );
 
   test(
+    'fresh source installation requires release and cannot be repeated by an old owner',
+    () async {
+      final prepared = await prepare();
+      final receipt = await finish(prepared.worker, prepared.retirement);
+      var installs = 0;
+      final entered = Completer<void>(), release = Completer<void>();
+      Future<int> install(SharedPreferencesStorePlatform backend) async {
+        installs++;
+        expect(backend, same(source));
+        entered.complete();
+        await release.future;
+        return installs;
+      }
+
+      await expectLater(
+        prepared.retirement.bootstrapFresh(receipt, install),
+        throwsA(isA<LegacyProfilePreferencesFailure>()),
+      );
+      expect(installs, 0);
+      prepared.retirement.admitFreshLifetime(receipt);
+      final installing = prepared.retirement.bootstrapFresh(receipt, install);
+      await entered.future;
+      await expectLater(
+        prepared.retirement.bootstrapFresh(receipt, install),
+        throwsA(isA<LegacyProfilePreferencesFailure>()),
+      );
+      release.complete();
+      expect(await installing, 1);
+      await expectLater(
+        prepared.retirement.bootstrapFresh(receipt, install),
+        throwsA(isA<LegacyProfilePreferencesFailure>()),
+      );
+      expect(installs, 1);
+    },
+  );
+
+  test(
     'pending startup retains the original source without granting cleanup',
     () async {
       await blockSibling();

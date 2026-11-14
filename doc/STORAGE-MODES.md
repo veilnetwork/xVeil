@@ -2,6 +2,11 @@
 
 Status: implementation in progress; not part of the 0.13.101 release.
 
+The live full-profile wipe now has a bound controller/retry UI and a native
+mixed-storage qualification described below. Cold-start recovery is still a
+refusal screen. Managed storage remains disabled pending the remaining complete
+lifecycle, migration, maintenance and packaged-platform qualification.
+
 The owner requested an enumerable encrypted default, optional hidden storage,
 and an explicitly unencrypted store. Existing hidden containers must retain
 their current protection until the user requests and confirms a migration.
@@ -1816,9 +1821,9 @@ selected settings stayed absent and a blocked sibling remained intact. Other
 cases cover named/dotted profiles, acknowledgement failure, refused reads,
 interrupted cleanup, wrong scope and receipt, and read-only verification. Platform
 preferences are synthetic in these tests; no actual system preference domain,
-OS vault or real profile was erased. The full application wipe/recovery UI still
-must compose this owner with vault retirement, lifecycle drain and native release
-before managed storage can be enabled.
+OS vault or real profile was erased. The live binding below now composes this
+owner with vault retirement and native release. Cold-start recovery and broader
+lifecycle/platform qualification still prevent managed-storage activation.
 
 ## Network teardown before destructive ownership
 
@@ -1842,9 +1847,59 @@ closes retain their existing behavior.
 Regression qualification uses gated/failing fake node, transport and native-stop
 outcomes through the actual application controller and session code. It does not
 claim to have forced a real detached native thread or qualified platform service
-shutdown. This repairs a prerequisite for complete profile wipe/recovery; the
-managed wipe UI and cold recovery orchestration remain incomplete and managed
-storage remains disabled.
+shutdown. This repairs a prerequisite for the live binding below. Cold recovery
+and broader lifecycle qualification remain incomplete; managed storage stays
+disabled.
+
+## Live full-profile wipe and fresh lifetimes
+
+`AppController.wipeContainers` now dispatches a bound managed owner when its
+real guarded preference source and router are available. Unbound/custom setups
+still refuse instead of falling through to legacy best-effort deletion. The
+controller seals ordinary lifecycle admission, ends the old generation, retires
+accepted model work and pins navigation to a live retry screen. Failures keep
+that boundary sealed; lock/start-over cannot escape it into ordinary storage.
+
+The phrase-gated confirmation names all identity storage modes, settings, saved
+sign-in and owned downloaded models in the selected profile. Legacy container-only
+confirmation keeps its existing scope and wording.
+
+The owner joins lifecycle teardown and accepted work, including an ordinary
+unlock whose node is not published yet. Its final rollback/retirement is checked
+again after that join; a late stop refusal prevents intent publication. The
+owner checks runtime absence,
+actually suspends/closes the router and releases the preference file role before
+acquiring the native exclusive erasure worker. Vault and original platform-source
+retirements start together and both must settle before native payload removal.
+Native auxiliary scope always includes all known profile-owned model roots,
+including stale models after a configured-root change; it never targets external
+model overrides. Path aliases cannot cause the active configuration to omit
+owned old files from this full-profile operation.
+
+Finalization uses read-only external absence checks and the actual native release
+receipt. Old vault/source wrappers stay sealed. A one-use source bootstrap is
+bound to that released operation and its old global backend: it cannot reinstall
+preferences again after a successful fresh handoff. The fresh installer uses the
+original platform backend, not the retired file backend, and pins the selected
+profile and legacy path. Only after fresh preferences/router admission succeeds
+does the controller publish new model/settings lifetimes and onboarding. A
+failed fresh-router open retries that stage without deleting newly appearing data.
+
+Router facade retirement also synchronously rejects stale password/key openers.
+An accepted late opener is joined and its actual handle closed before release;
+ordinary session close remains reversible. Without this additional seal the
+host control reopened an old hidden facade and recreated the deleted container.
+
+Host qualification covers real hidden-volume and enumerable encrypted/plaintext
+stores, frontend-derived OS scope names with an in-memory vault, retained legacy
+platform source, OS refusal/retry, delayed model work, unowned runtime residue,
+stale facade writes, owned/external model roots and failed fresh-router handoff.
+It is not a real OS-vault or complete packaged UI/platform qualification. Cold
+restart recovery is still the existing refusal shell. Shutdown of all optional
+application services and late callbacks, process death/reconciliation during the
+new enclosing operation, shared hidden maintenance, explicit migration and
+all-online/platform qualification remain before activation. No released build
+or default is changed by this binding.
 
 ## Implementation boundaries
 

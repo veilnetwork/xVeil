@@ -74,6 +74,12 @@ abstract interface class StorageOpeningOwner {
   Future<void> settleOpening();
 }
 
+/// Permanent facade retirement. Closing an ordinary session is reversible;
+/// replacing/erasing a profile must also reject stale password/key openers.
+abstract interface class StorageRetirementOwner {
+  void retireOpening();
+}
+
 abstract interface class Storage {
   /// Unlock (or create on first run) the user's space with [password].
   /// Returns false if the password does not unlock any space.

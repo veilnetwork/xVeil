@@ -301,6 +301,8 @@ Future<bool> writeRememberedProfile(String supportDir, String profile) =>
 /// [environment] defaults to the process environment. It is a parameter for the
 /// same reason [AppProfiles.resolve] takes one: `XVEIL_PROFILE` must be shown
 /// to stay one-shot, and a test cannot set a variable on its own process.
+/// [legacyBackend] is the retained original platform source for a released
+/// fresh lifetime. It avoids migrating from the now-retired file backend.
 Future<String> installProfilePreferences({
   required String supportDir,
   required List<String> args,
@@ -308,8 +310,9 @@ Future<String> installProfilePreferences({
   OpenProfilePreferencesFile? openOwnedFile,
   void Function(String path)? validateSelectedFile,
   void Function(LegacyProfilePreferences source)? onResolvedLegacySource,
+  SharedPreferencesStorePlatform? legacyBackend,
 }) async {
-  final legacy = SharedPreferencesStorePlatform.instance;
+  final legacy = legacyBackend ?? SharedPreferencesStorePlatform.instance;
   final pointer = await readRememberedProfile(supportDir);
   final legacyPointer = await _legacyString(legacy, AppProfiles.activePref);
   final resolved = AppProfiles.resolveWithSource(
@@ -440,6 +443,7 @@ Future<String> installProfilePreferencesOrFallback({
   OpenProfilePreferencesFile? openOwnedFile,
   void Function(String path)? validateSelectedFile,
   void Function(LegacyProfilePreferences source)? onResolvedLegacySource,
+  SharedPreferencesStorePlatform? legacyBackend,
 }) async {
   try {
     return await installProfilePreferences(
@@ -449,6 +453,7 @@ Future<String> installProfilePreferencesOrFallback({
       openOwnedFile: openOwnedFile,
       validateSelectedFile: validateSelectedFile,
       onResolvedLegacySource: onResolvedLegacySource,
+      legacyBackend: legacyBackend,
     );
   } catch (e, st) {
     if (openOwnedFile != null) rethrow;

@@ -191,6 +191,10 @@ class AppL10nEs extends AppL10n {
       'Esto elimina de forma permanente el contenedor y TODAS las identidades que hay dentro, incluidas las ocultas o señuelo. No se puede deshacer: sin el contenedor los datos son irrecuperables, incluso con la contraseña correcta.';
 
   @override
+  String get profileWipeBody =>
+      'Se eliminarán permanentemente todas las identidades de este perfil, con almacenamiento oculto, cifrado o sin cifrar, junto con sus datos, ajustes, acceso rápido y modelos descargados. Se conservarán los demás perfiles y las carpetas externas.';
+
+  @override
   String get lockWipeTypePrompt =>
       'Para confirmar el borrado permanente, escribe esta frase exactamente:';
 

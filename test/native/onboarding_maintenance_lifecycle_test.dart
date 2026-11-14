@@ -1,3 +1,4 @@
+import '../support/retirement_secret_store.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -19,6 +20,7 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
@@ -129,6 +131,9 @@ void main() {
         final controller = _Controller();
         final c = ProviderContainer(
           overrides: [
+            quickUnlockSecretStoreProvider.overrideWithValue(
+              RetirementSecretStore(),
+            ),
             appControllerProvider.overrideWith(() => controller),
             singleSpaceStorageProvider.overrideWithValue(storage),
             nodeControllerProvider.overrideWithValue(_Node()),

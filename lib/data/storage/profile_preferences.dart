@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'profile_prefs_store.dart';
+import 'legacy_profile_preferences.dart';
 
 /// All application access uses a bound view, never the plugin singleton itself.
 /// The plugin routes even an old object's setters through its current global
@@ -49,6 +50,14 @@ class ProfilePreferencesLifetime {
   }
 
   final SharedPreferencesStorePlatform _backend;
+  LegacyProfilePreferences? get legacyPreferences {
+    _requireActive();
+    final backend = _backend;
+    return backend is ProfilePreferencesStore
+        ? backend.legacyPreferences
+        : null;
+  }
+
   final _PreferenceDrain? _priorDrain;
   final _pending = <Future<void>>{};
   Future<SharedPreferences>? _ready;
