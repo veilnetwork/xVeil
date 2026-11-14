@@ -44,6 +44,7 @@ Future<CapturedComposerMedia?> captureComposerMedia(
 ) async {
   if (!composerCameraSupported) return null;
   final lifetime = CaptureResourceLifetime.current();
+  final admission = lifetime.captureAdmission();
   final l = AppL10n.of(context);
   final video = await showDialog<bool>(
     context: context,
@@ -67,11 +68,14 @@ Future<CapturedComposerMedia?> captureComposerMedia(
       ],
     ),
   );
-  if (video == null || !context.mounted || !lifetime.isAdmitting) return null;
+  if (video == null || !context.mounted || !admission.isActive) return null;
   return Navigator.of(context).push<CapturedComposerMedia>(
     MaterialPageRoute(
-      builder: (_) =>
-          CameraCaptureScreen(video: video, captureLifetime: lifetime),
+      builder: (_) => CameraCaptureScreen(
+        video: video,
+        captureLifetime: lifetime,
+        captureAdmission: admission,
+      ),
     ),
   );
 }
@@ -81,11 +85,13 @@ class CameraCaptureScreen extends StatefulWidget {
     super.key,
     required this.video,
     this.captureLifetime,
+    this.captureAdmission,
     this.outputStore,
   });
 
   final bool video;
   final CaptureResourceLifetime? captureLifetime;
+  final CaptureAdmission? captureAdmission;
   @visibleForTesting
   final CaptureOutputStore? outputStore;
 
@@ -97,6 +103,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     with WidgetsBindingObserver {
   CameraController? _controller;
   late final CaptureResourceLifetime _captureLifetime;
+  late final CaptureAdmission _captureAdmission;
   late AttachmentCaptureWork _work;
   bool _disposing = false;
   List<CameraDescription> _cameras = const [];
@@ -121,6 +128,8 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     super.initState();
     _captureLifetime =
         widget.captureLifetime ?? CaptureResourceLifetime.current();
+    _captureAdmission =
+        widget.captureAdmission ?? _captureLifetime.captureAdmission();
     _work = _newWork();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_open());
@@ -130,6 +139,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     late final AttachmentCaptureWork work;
     work = AttachmentCaptureWork(
       lifetime: _captureLifetime,
+      admission: _captureAdmission,
       // ignore: invalid_use_of_visible_for_testing_member
       outputStore: widget.outputStore ?? const FileCaptureOutputStore(),
       onSealed: () {
@@ -303,7 +313,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
       await previous.retire();
     } catch (_) {}
     if (!mounted ||
-        !_captureLifetime.isAdmitting ||
+        !_captureAdmission.isActive ||
         !identical(_work, previous)) {
       return;
     }

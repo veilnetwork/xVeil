@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/storage/storage.dart';
 
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
 import '../core/local_authentication.dart';
 import '../domain/screen_lock.dart';
 import 'providers.dart';
@@ -325,6 +327,11 @@ class ScreenLockController extends Notifier<ScreenLockState> {
       return;
     }
     if (state.locked) return;
+    unawaited(
+      CaptureResourceLifetime.current().stopForPrivacy().catchError(
+        (Object _) => devLog(() => 'attachment privacy cleanup incomplete'),
+      ),
+    );
     state = state.copyWith(locked: true, wrongPassword: false);
   }
 

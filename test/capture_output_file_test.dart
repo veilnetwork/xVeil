@@ -129,4 +129,58 @@ void main() {
       expect(output.existsSync(), isFalse);
     },
   );
+  test(
+    'late stale output is retained for cleanup but cannot be consumed',
+    () async {
+      final old = lifetime.captureAdmission();
+      await lifetime.stopForPrivacy();
+      output.writeAsStringSync('late synthetic output');
+      store.refuse = true;
+      final late = CaptureOutputFile(
+        output.path,
+        lifetime: lifetime,
+        admission: old,
+        store: store,
+      );
+      expect(late.canUse, isFalse);
+      await expectLater(
+        late.use((_) async => fail('stale consumer')),
+        throwsA(isA<CaptureResourceRetirementFailure>()),
+      );
+      try {
+        await expectLater(
+          lifetime.retire(),
+          throwsA(isA<CaptureResourceRetirementFailure>()),
+        );
+        expect(output.existsSync(), isTrue);
+      } finally {
+        store.refuse = false;
+        await lifetime.retire();
+      }
+      expect(output.existsSync(), isFalse);
+    },
+  );
+
+  test('privacy stop joins a reader and rejects later use', () async {
+    final entered = Completer<void>(), release = Completer<void>();
+    final reading = source.use((path) async {
+      entered.complete();
+      await release.future;
+      return File(path).readAsString();
+    });
+    await entered.future;
+    final stopping = lifetime.stopForPrivacy();
+    try {
+      await Future<void>(() {});
+      expect(source.canUse, isFalse);
+      expect(store.removes, 0);
+      expect(output.existsSync(), isTrue);
+    } finally {
+      release.complete();
+      expect(await reading, 'synthetic bytes');
+      await stopping;
+    }
+    expect(output.existsSync(), isFalse);
+    expect(lifetime.captureAdmission().isActive, isTrue);
+  });
 }

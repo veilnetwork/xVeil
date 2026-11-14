@@ -17,6 +17,12 @@ class _Source implements CaptureResource {
   }
 }
 
+class _PrivateSource extends _Source implements PrivacyCaptureResource {
+  _PrivateSource(super.owner);
+  @override
+  Future<void> stopForPrivacy() => retire();
+}
+
 void main() {
   tearDown(CaptureResourceLifetime.resetForTesting);
   test(
@@ -82,5 +88,52 @@ void main() {
     source.acknowledgeWithoutRelease = false;
     await owner.retire();
     expect(source.retires, 2);
+  });
+  test(
+    'privacy interruption revokes old admission before stopping sources',
+    () async {
+      final scope = CaptureResourceLifetime.current();
+      final old = scope.captureAdmission();
+      final private = _PrivateSource(scope)..gate = Completer<void>();
+      final call = _Source(scope);
+      scope.admit(private, admission: old);
+      scope.admit(call);
+      final stopping = scope.stopForPrivacy();
+      try {
+        expect(old.isActive, isFalse);
+        expect(private.retires, 1);
+        expect(call.retires, 0, reason: 'screen lock is not a call hangup');
+        expect(scope.admit(_Source(scope), admission: old), isFalse);
+        expect(scope.captureAdmission().isActive, isTrue);
+        final other = CaptureResourceLifetime.isolatedForTesting();
+        expect(
+          other.admit(_Source(other), admission: scope.captureAdmission()),
+          isFalse,
+        );
+      } finally {
+        private.gate!.complete();
+        await stopping;
+        await scope.retire();
+      }
+      expect(call.retires, 1);
+    },
+  );
+
+  test('failed privacy stop retains owner and remains retryable', () async {
+    final scope = CaptureResourceLifetime.current();
+    final source = _PrivateSource(scope)..refuse = true;
+    scope.admit(source);
+    try {
+      await expectLater(scope.stopForPrivacy(), throwsStateError);
+      expect(scope.captureAdmission().isActive, isTrue);
+      await expectLater(
+        scope.retire(),
+        throwsA(isA<CaptureResourceRetirementFailure>()),
+      );
+    } finally {
+      source.refuse = false;
+      await scope.retire();
+    }
+    expect(source.retires, 3);
   });
 }

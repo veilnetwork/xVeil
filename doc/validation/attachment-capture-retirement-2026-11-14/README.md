@@ -73,8 +73,10 @@ camera shutdown or real OS-vault behavior. An unknown output deliberately keeps
 a refusing owner after hardware close. Resolving it after process restart needs
 separate cold-recovery work, not a guessed path or silently empty registry.
 
-Ordinary privacy-lock handling, independent Camera2/AAudio shutdown, projection
-retirement integration, Wi-Fi locks, cold application recovery and packaged
+Ordinary privacy-lock integration has subsequent
+[host qualification](../attachment-privacy-lock-2026-11-14/README.md).
+Independent Camera2/AAudio shutdown, projection retirement integration,
+Wi-Fi locks, cold application recovery and packaged
 migration/maintenance remain separate requirements. No runtime Android, iOS or
 group-camera qualification is claimed. The new storage modes remain disabled by
 `XVEIL_MANAGED_STORAGE`; no push or release is part of this cycle.

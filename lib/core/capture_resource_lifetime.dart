@@ -14,6 +14,24 @@ abstract interface class CaptureResource {
   Future<void> retire();
 }
 
+/// Only capture work which must stop under an in-app privacy cover. Ongoing
+/// calls keep their separate policy; a screen lock is not a call hangup.
+abstract interface class PrivacyCaptureResource implements CaptureResource {
+  Future<void> stopForPrivacy();
+}
+
+/// Bind before a chooser/permission await. Privacy interruption revokes old
+/// admissions without retiring the profile or reopening an old source.
+final class CaptureAdmission {
+  CaptureAdmission._(this._owner, this._generation);
+  final CaptureResourceLifetime _owner;
+  final int _generation;
+  bool get isActive =>
+      !_owner._sealed && _generation == _owner._privacyGeneration;
+  bool isActiveFor(CaptureResourceLifetime owner) =>
+      identical(_owner, owner) && isActive;
+}
+
 final class CaptureResourceRetirement {
   CaptureResourceRetirement._(this._owner);
   final CaptureResourceLifetime _owner;
@@ -48,11 +66,17 @@ final class CaptureResourceLifetime {
       CaptureResourceLifetime._();
   final _resources = <CaptureResource>{};
   bool _sealed = false;
+  int _privacyGeneration = 0;
   Future<CaptureResourceRetirement>? _retiring;
   CaptureResourceRetirement? _owner;
 
-  bool admit(CaptureResource source) {
-    if (_sealed) return false;
+  CaptureAdmission captureAdmission() =>
+      CaptureAdmission._(this, _privacyGeneration);
+
+  bool admit(CaptureResource source, {CaptureAdmission? admission}) {
+    if (_sealed || (admission != null && !admission.isActiveFor(this))) {
+      return false;
+    }
     _resources.add(source);
     return true;
   }
@@ -60,6 +84,19 @@ final class CaptureResourceLifetime {
   void forget(CaptureResource source) => _resources.remove(source);
   bool get isAdmitting => !_sealed;
   void sealAdmission() => _sealed = true;
+
+  /// Revoke chooser/permission continuations before asking any adapter to stop.
+  /// Failed owners remain registered for retry and for strong profile erasure.
+  /// New user actions may obtain a fresh admission; old widgets cannot do so.
+  Future<void> stopForPrivacy() {
+    _privacyGeneration++;
+    final stops = <Future<void>>[
+      for (final source in _resources.toList())
+        if (source is PrivacyCaptureResource)
+          Future<void>.sync(source.stopForPrivacy),
+    ];
+    return Future.wait(stops).then<void>((_) {});
+  }
 
   Future<CaptureResourceRetirement> retire() {
     sealAdmission();
