@@ -8221,4 +8221,11 @@ class AppL10nEn extends AppL10n {
   @override
   String get identitySetupReplayError =>
       'Setup could not finish. Check the password; save a report if the error repeats.';
+
+  @override
+  String get storageOwnedReclaim => 'Reclaim space';
+
+  @override
+  String get storageOwnedReclaimHelp =>
+      'Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically.';
 }

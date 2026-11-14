@@ -3779,5 +3779,7 @@
   "identitySetupRecoveryMasterBody": "If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead.",
   "identitySetupReplayBody": "Finish setting up this identity from the saved data.",
   "identitySetupReplayAction": "Finish setup",
-  "identitySetupReplayError": "Setup could not finish. Check the password; save a report if the error repeats."
+  "identitySetupReplayError": "Setup could not finish. Check the password; save a report if the error repeats.",
+  "storageOwnedReclaim": "Reclaim space",
+  "storageOwnedReclaimHelp": "Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically."
 }

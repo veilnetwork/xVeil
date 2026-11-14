@@ -138,6 +138,21 @@ void main() {
           reason: 'legacy visibility flag must not mislabel a managed backend',
         );
         await router.storage.putSetting('roundtrip', mode.name);
+        final beforeKeys = await router.storage.exportSpaceKeys();
+        final beforeCatalog = router.catalog.encode();
+        final beforeStorage = router.storage;
+        try {
+          expect(controller.canReclaimOwnedStorage, isTrue);
+          await controller.reclaimOwnedStorage();
+          expect(container.read(appControllerProvider).phase, AppPhase.ready);
+          expect(router.storage, same(beforeStorage));
+          expect(await router.storage.exportSpaceKeys(), beforeKeys);
+          expect(router.catalog.encode(), beforeCatalog);
+          expect(await router.storage.getSetting('roundtrip'), mode.name);
+        } finally {
+          beforeKeys.fillRange(0, beforeKeys.length, 0);
+        }
+
         await controller.lock();
         await router.close();
         container.dispose();

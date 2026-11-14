@@ -270,6 +270,29 @@ void main() {
                 (await active.storageUsage())!.totalBytes,
               );
             }
+            final activeStorage = container.read(storageProvider);
+            final priorSession = container.read(sessionProvider);
+            final priorCatalog = live.catalog.encode();
+            final priorKeys = await activeStorage.exportSpaceKeys();
+            try {
+              expect(controller.canReclaimOwnedStorage, row.label != 'hidden');
+              if (row.label == 'hidden') {
+                await expectLater(
+                  controller.reclaimOwnedStorage(),
+                  throwsStateError,
+                );
+              } else {
+                await controller.reclaimOwnedStorage();
+              }
+              expect(container.read(storageProvider), same(activeStorage));
+              expect(container.read(sessionProvider), same(priorSession));
+              expect(await activeStorage.exportSpaceKeys(), priorKeys);
+              expect(priorKeys, row.spaceKeys);
+              expect(live.catalog.encode(), priorCatalog);
+              expect(controller.activeIdentity, row.label);
+            } finally {
+              priorKeys.fillRange(0, priorKeys.length, 0);
+            }
             if (!allOnline) expect(live.location, row.storageLocator);
             expect(live.access, masterLocator);
             expect(container.read(storageAccessLocatorProvider), masterLocator);

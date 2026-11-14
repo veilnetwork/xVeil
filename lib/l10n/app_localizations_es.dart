@@ -8324,4 +8324,11 @@ class AppL10nEs extends AppL10n {
   @override
   String get identitySetupReplayError =>
       'No se pudo completar la creación. Revisa la contraseña; guarda un informe si el error se repite.';
+
+  @override
+  String get storageOwnedReclaim => 'Liberar espacio';
+
+  @override
+  String get storageOwnedReclaimHelp =>
+      'Compacta el almacenamiento de esta identidad conservando sus mensajes, archivos y claves. Normalmente el espacio se libera automáticamente.';
 }

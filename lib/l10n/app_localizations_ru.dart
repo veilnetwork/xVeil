@@ -8290,4 +8290,11 @@ class AppL10nRu extends AppL10n {
   @override
   String get identitySetupReplayError =>
       'Не удалось завершить создание. Проверьте пароль; сохраните отчёт, если ошибка повторится.';
+
+  @override
+  String get storageOwnedReclaim => 'Освободить место';
+
+  @override
+  String get storageOwnedReclaimHelp =>
+      'Сжимает хранилище этой личности, сохраняя сообщения, файлы и ключи. Обычно место освобождается автоматически.';
 }

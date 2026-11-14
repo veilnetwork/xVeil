@@ -45,10 +45,14 @@ final class ManagedIdentityStorage {
   late final HiddenVolumeStorage storage;
 
   void _bind() {
-    storage = HiddenVolumeStorage.async(_open, keysOpener: _openKeys)
-      ..useOnDiskTier(
-        Directory(ManagedIdentityLayout(_profile).blobDirectory(entry.id)),
-      );
+    storage =
+        HiddenVolumeStorage.async(
+          _open,
+          keysOpener: _openKeys,
+          ownedReclaimer: _reclaim,
+        )..useOnDiskTier(
+          Directory(ManagedIdentityLayout(_profile).blobDirectory(entry.id)),
+        );
   }
 
   Future<WorkerKvLogStore?> _openingWorker(
@@ -132,6 +136,14 @@ final class ManagedIdentityStorage {
   }
 
   Future<ManagedReclaimReport> reclaim({bool force = false}) {
+    final worker = _worker;
+    if (!storage.isOpen || worker == null) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);
+    }
+    return storage.reclaimOwnedStorage(force: force);
+  }
+
+  Future<ManagedReclaimReport> _reclaim(bool force) {
     final worker = _worker;
     if (!storage.isOpen || worker == null) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);

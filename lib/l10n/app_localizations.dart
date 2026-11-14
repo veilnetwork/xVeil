@@ -14255,6 +14255,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Setup could not finish. Check the password; save a report if the error repeats.'**
   String get identitySetupReplayError;
+
+  /// No description provided for @storageOwnedReclaim.
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaim space'**
+  String get storageOwnedReclaim;
+
+  /// No description provided for @storageOwnedReclaimHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically.'**
+  String get storageOwnedReclaimHelp;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

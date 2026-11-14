@@ -42,6 +42,7 @@ import '../domain/storage_usage.dart';
 import '../domain/storage_setup.dart';
 import '../domain/storage_initialization.dart';
 import '../domain/identity_setup_intent.dart';
+import '../data/storage/owned_storage_reclamation.dart';
 import '../data/storage/identity_setup_journal.dart';
 import '../domain/pending_identity_erase.dart';
 import '../domain/identity_erase_review.dart';
@@ -579,7 +580,9 @@ class AppController extends Notifier<AppState> {
   /// created space and start the session.
   /// Held ONLY between completeOnboarding and the first node boot, then
   /// dropped (P2): the master phrase the user just wrote down, from which the
-  /// node identity is derived. Never persisted anywhere.
+  /// node identity is derived. Interrupted creation also keeps an authenticated
+  /// copy inside that identity's setup journal until boot succeeds; it never
+  /// enters preferences or the public catalog.
   String? _pendingIdentityPhrase;
 
   /// Read the pending phrase AND clear it, in one step.
@@ -1909,6 +1912,51 @@ class AppController extends Notifier<AppState> {
         is ManagedStorageLocator;
   }
 
+  /// Independent identities keep their outer keys during reclamation. The
+  /// worker serializes native repacking with I/O; other hosted identities and
+  /// their sessions can stay online. Legacy shared-container compaction is a
+  /// different operation and is never a fallback for this capability.
+  bool get canReclaimOwnedStorage {
+    if (_setupRecovery != null ||
+        _identitySelections != 0 ||
+        state.phase != AppPhase.ready ||
+        !usesManagedStorage) {
+      return false;
+    }
+    final storage = ref.read(storageProvider);
+    return storage is OwnedStorageReclamation &&
+        (storage as OwnedStorageReclamation).supportsOwnedReclamation;
+  }
+
+  Future<void> reclaimOwnedStorage() {
+    if (!canReclaimOwnedStorage) {
+      return Future.error(
+        StateError('independent storage maintenance unavailable'),
+      );
+    }
+    final storage = ref.read(storageProvider);
+    final lease = leaseIdentity();
+    void check() {
+      if (!ref.mounted ||
+          !holdsIdentity(lease) ||
+          !identical(storage, ref.read(storageProvider))) {
+        throw StateError('storage maintenance session ended');
+      }
+    }
+
+    return _withCompaction(
+      () async {
+        check();
+        await (storage as OwnedStorageReclamation).reclaimOwnedStorage(
+          force: true,
+        );
+        check();
+      },
+      blocksUnlock: true,
+      ownedStorage: true,
+    );
+  }
+
   /// Compact the deniable container in place to reclaim dead padding (the
   /// log-structured store never shrinks on its own; only a repack does). The
   /// node + open store hold a `LOCK_EX`, so we tear the session down, compact
@@ -1983,7 +2031,10 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
+    // Hosted activation may still publish a new view while phase is ready.
+    // It has no single-active view job, but retains this selection admission.
     if (_endingSessions != 0 ||
+        _identitySelections != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
         _onboardingInFlight != null ||
@@ -2331,15 +2382,27 @@ class AppController extends Notifier<AppState> {
   Future<T> _withCompaction<T>(
     Future<T> Function() run, {
     bool blocksUnlock = false,
+    bool ownedStorage = false,
   }) async {
     if (_setupRecovery != null) {
       throw StateError('identity setup is incomplete');
     }
-    if (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+    if (ownedStorage) {
+      if (!canReclaimOwnedStorage) {
+        throw StateError('independent storage maintenance unavailable');
+      }
+    } else if (ref
+            .read(profileStorageRouterProvider)
+            ?.catalog
+            .identities
+            .isNotEmpty ??
         false) {
       throw StateError('managed storage requires mode-aware maintenance');
     }
+    // Hosted activation may still publish a new view while phase is ready.
+    // It has no single-active view job, but retains this selection admission.
     if (_endingSessions != 0 ||
+        _identitySelections != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
         _onboardingInFlight != null ||
