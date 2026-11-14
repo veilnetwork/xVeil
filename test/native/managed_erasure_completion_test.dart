@@ -495,6 +495,7 @@ void main() {
     'trailing',
     'oversize',
     'version',
+    'previousVersion',
     'size',
     'digest',
   ]) {
@@ -505,6 +506,7 @@ void main() {
         final original = jsonDecode(File(terminal()).readAsStringSync()) as Map;
         if (bad == 'missing') original.remove('plan');
         if (bad == 'version') original['v'] = 1.0;
+        if (bad == 'previousVersion') original['v'] = 2;
         if (bad == 'size') original['size'] = 8 * 1024 * 1024 + 1;
         if (bad == 'digest') original['sha256'] = 'no digest';
         final malformed = bad == 'oversize'

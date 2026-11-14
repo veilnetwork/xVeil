@@ -88,7 +88,7 @@ final class _ErasureCompletion {
           raw.length != 9 ||
           !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 2 ||
+          raw['v'] != 3 ||
           !objectId(raw['profile']) ||
           !objectId(raw['coordinator']) ||
           !objectId(raw['directory']) ||
@@ -126,7 +126,7 @@ final class _ErasureCompletion {
     final auxiliary = _RootErasePlan.decode(bytes, gate).auxiliary?.scope;
     auxiliary?.requireAbsent(gate);
     final record = <String, Object?>{
-      'v': 2,
+      'v': 3,
       'profile': gate._profileWitness.identity,
       'coordinator': gate._directoryWitness.identity,
       'directory': directory.identity,

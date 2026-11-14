@@ -6,6 +6,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:shared_preferences_platform_interface/types.dart';
 
 import '../../core/log.dart';
+import '../../domain/profile_preferences_layout.dart';
 import '../../core/posix_file_facts.dart';
 import 'app_profile.dart';
 
@@ -362,7 +363,7 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
 
 /// Where a profile keeps its preferences.
 String profilePrefsPath(String supportDir, String profile) =>
-    '${AppProfiles.directory(supportDir, profile)}/xveil.prefs.json';
+    '${AppProfiles.directory(supportDir, profile)}/${ProfilePreferencesLayout.file}';
 
 /// Where the ACTIVE PROFILE NAME is remembered.
 ///

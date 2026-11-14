@@ -18,6 +18,7 @@ void main() {
       try {
         for (final phase in [
           'afterPiece',
+          'afterPreferences',
           'afterAuxiliary',
           'planRemoved',
           'completionRemoved',
@@ -31,6 +32,8 @@ void main() {
           StorageProfileCoordinator.createOrOpen(profile).close();
           for (final name in [
             'xveil.store',
+            'xveil.prefs.json',
+            'xveil.prefs.json.tmp',
             'os-credentials.fixture',
             'blobs/${'a' * 16}/p0',
             ProfileModelLayout.speechFile,
@@ -54,19 +57,31 @@ void main() {
                 File('${fixture.path}/keep.txt').readAsStringSync(),
                 'synthetic keep.txt bytes',
               );
-              if (phase == 'afterPiece') {
+              if (phase == 'afterPiece' || phase == 'afterPreferences') {
                 expect(
                   File('${fixture.path}/xveil.store').existsSync(),
                   isTrue,
                 );
-                expect(
-                  File('${fixture.path}/blobs/${'a' * 16}/p0').existsSync(),
-                  isFalse,
-                );
+                if (phase == 'afterPiece') {
+                  expect(
+                    File('${fixture.path}/blobs/${'a' * 16}/p0').existsSync(),
+                    isFalse,
+                  );
+                }
               } else {
                 expect(
                   File('${fixture.path}/xveil.store').existsSync(),
                   isFalse,
+                );
+              }
+              if (phase == 'afterPreferences') {
+                expect(
+                  File('${fixture.path}/xveil.prefs.json').existsSync(),
+                  isFalse,
+                );
+                expect(
+                  File('${fixture.path}/xveil.prefs.json.tmp').existsSync(),
+                  isTrue,
                 );
               }
               if (phase == 'planRemoved') {
@@ -94,7 +109,7 @@ void main() {
             gate.close();
           } else {
             if (phase == 'planRemoved') {
-              final fresh = File('${fixture.path}/xveil.store')
+              final fresh = File('${fixture.path}/xveil.prefs.json')
                 ..writeAsStringSync('new, unowned data');
               expect(
                 () => ManagedRootErasure.openPending(profile),
@@ -142,6 +157,8 @@ void main() {
           }
           for (final name in [
             'xveil.store',
+            'xveil.prefs.json',
+            'xveil.prefs.json.tmp',
             'blobs',
             ProfileModelLayout.speechFile,
             'translate',

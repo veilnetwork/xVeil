@@ -6,6 +6,9 @@ import 'dart:io';
 import 'dart:isolate';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:xveil/data/storage/profile_preferences.dart';
+import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
 import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
@@ -98,6 +101,8 @@ void main() {
     }
     for (final name in [
       'xveil.store',
+      'xveil.prefs.json',
+      'xveil.prefs.json.tmp',
       '.xveil.store.hv-rotate.${'a' * 16}.tmp',
       'blobs/${'a' * 16}/p0',
       'blobs/${'a' * 16}/p1.tmp',
@@ -111,6 +116,7 @@ void main() {
       'translate/.github-downloads/${'b' * 16}-ru-en.veiltranslate.part',
       'keep.txt',
       'profiles/unrelated/xveil.store',
+      'profiles/unrelated/xveil.prefs.json',
     ]) {
       file(name);
     }
@@ -171,8 +177,12 @@ void main() {
         File(planPath()).readAsStringSync(),
         isNot(contains(fixture.path)),
       );
-      expect(raw['v'], 4);
+      expect(raw['v'], 5);
       expect((raw['auxiliary'] as Map)['entries'], isNotEmpty);
+      expect(
+        ((raw['auxiliary'] as Map)['scope'] as Map)['preferences'],
+        isTrue,
+      );
       await w.removeManagedFiles(retireScopes: r.retire);
       expect(store.values, isEmpty);
       var verificationCalls = 0;
@@ -206,6 +216,66 @@ void main() {
   );
 
   test(
+    'auxiliary erasure removes preferences and preserves unrelated preferences',
+    () async {
+      final w = await begin(), r = retirement(workers.last);
+      await w.removeManagedFiles(retireScopes: r.retire);
+      await w.removeAuxiliaryFiles(retireScopes: r.retire);
+      await w.finish(verifyOtherDataAbsent: r.verifyAbsent);
+      for (final name in ['xveil.prefs.json', 'xveil.prefs.json.tmp']) {
+        expect(File(path(name)).existsSync(), isFalse, reason: name);
+      }
+      expect(
+        File(path('profiles/unrelated/xveil.prefs.json')).readAsStringSync(),
+        'synthetic profiles/unrelated/xveil.prefs.json bytes',
+      );
+    },
+  );
+
+  test(
+    'accepted real preference writes drain before inventory and cannot recreate erased files',
+    () async {
+      final original = SharedPreferencesStorePlatform.instance;
+      final backend = await ProfilePreferencesStore.load(
+        path('xveil.prefs.json'),
+      );
+      SharedPreferencesStorePlatform.instance = backend;
+      final owner = ProfilePreferencesLifetime.current();
+      try {
+        final prefs = await owner.preferences;
+        final saves = [
+          prefs.setString('synthetic.choice', 'one'),
+          prefs.setBool('synthetic.flag', true),
+        ];
+        await owner.retire();
+        expect(await Future.wait(saves), [true, true]);
+        final pointer = file('xveil.profile');
+        final w = await begin(), r = retirement(workers.last);
+        await w.removeManagedFiles(retireScopes: r.retire);
+        await w.removeAuxiliaryFiles(
+          retireScopes: () async {
+            await owner.retire();
+            await r.retire();
+          },
+        );
+        await w.finish(verifyOtherDataAbsent: r.verifyAbsent);
+        await expectLater(prefs.setString('late', 'value'), throwsStateError);
+        for (final name in ['xveil.prefs.json', 'xveil.prefs.json.tmp']) {
+          expect(File(path(name)).existsSync(), isFalse);
+        }
+        expect(pointer.readAsStringSync(), 'synthetic xveil.profile bytes');
+        expect(
+          File(path('profiles/unrelated/xveil.prefs.json')).existsSync(),
+          isTrue,
+        );
+      } finally {
+        await owner.retire();
+        SharedPreferencesStorePlatform.instance = original;
+      }
+    },
+  );
+
+  test(
     'refused auxiliary retirement preserves the whole captured tree',
     () async {
       final w = await begin();
@@ -232,12 +302,29 @@ void main() {
     'new-rewrite',
     'foreign-child',
     'symlink',
+    'replace-preferences',
+    'grow-preferences',
+    'new-preference-temporary',
   ]) {
     test(
       'changed auxiliary $mutation refuses before OS side effects and preserves all files',
       () async {
+        if (mutation == 'new-preference-temporary') {
+          File(path('xveil.prefs.json.tmp')).deleteSync();
+        }
         final w = await begin();
         switch (mutation) {
+          case 'replace-preferences':
+            File(
+              path('xveil.prefs.json'),
+            ).renameSync(path('preserved-old-prefs'));
+            file('xveil.prefs.json');
+          case 'grow-preferences':
+            File(
+              path('xveil.prefs.json'),
+            ).writeAsStringSync('changed preferences');
+          case 'new-preference-temporary':
+            file('xveil.prefs.json.tmp');
           case 'replace':
             File(legacy).renameSync(path('preserved-old-container'));
             file('xveil.store');
@@ -281,12 +368,48 @@ void main() {
     },
   );
 
+  for (final invalid in ['directory', 'link']) {
+    test(
+      'a preference $invalid refuses capture without touching either profile',
+      () async {
+        final prefs = File(path('xveil.prefs.json'));
+        prefs.deleteSync();
+        final sibling = File(path('profiles/unrelated/xveil.prefs.json'));
+        if (invalid == 'directory') {
+          Directory(prefs.path).createSync();
+        } else {
+          Link(prefs.path).createSync(sibling.path);
+        }
+        final before = contents();
+        await expectLater(begin(), throwsA(isA<ManagedWorkerFailure>()));
+        expect(contents(), before);
+        expect(File(planPath()).existsSync(), isFalse);
+        expect(
+          FileSystemEntity.typeSync(prefs.path, followLinks: false),
+          invalid == 'directory'
+              ? FileSystemEntityType.directory
+              : FileSystemEntityType.link,
+        );
+        expect(
+          sibling.readAsStringSync(),
+          'synthetic profiles/unrelated/xveil.prefs.json bytes',
+        );
+      },
+      skip: Platform.isWindows && invalid == 'link'
+          ? 'POSIX symlink fixture'
+          : false,
+    );
+  }
+
   for (final bad in [
     'base',
     'traversal',
     'duplicate',
     'extra',
     'old-version',
+    'missing-preferences',
+    'disabled-preferences',
+    'invalid-preferences',
   ]) {
     test(
       'malformed auxiliary $bad is preserved on explicit recovery',
@@ -307,7 +430,13 @@ void main() {
           case 'extra':
             auxiliary['ignored'] = true;
           case 'old-version':
-            raw['v'] = 3;
+            raw['v'] = 4;
+          case 'missing-preferences':
+            (auxiliary['scope'] as Map).remove('preferences');
+          case 'disabled-preferences':
+            (auxiliary['scope'] as Map)['preferences'] = false;
+          case 'invalid-preferences':
+            (auxiliary['scope'] as Map)['preferences'] = 'true';
         }
         File(planPath()).writeAsStringSync(jsonEncode(raw), flush: true);
         final before = contents();
@@ -317,103 +446,124 @@ void main() {
     );
   }
 
-  test(
-    'terminal-only recovery refuses newly appearing auxiliary data without deleting it',
-    () async {
-      final w = await begin(), r = retirement(workers.last);
-      await w.removeManagedFiles(retireScopes: r.retire);
-      await w.removeAuxiliaryFiles(retireScopes: r.retire);
-      await w.close();
-      final actor = ManagedRootErasure.openPending(profile);
-      actors.add(actor);
-      await expectLater(
-        actor.finish(
-          verifyOtherDataAbsent: r.verifyAbsent,
-          afterStage: (stage) async {
-            if (stage == ManagedErasureFinishStage.planRemoved) {
-              final text = File(
-                '$profile/${StorageProfileCoordinator.directoryName}/${ManagedRootErasure.completionName}',
-              ).readAsStringSync();
-              for (final value in [
-                fixture.path,
-                'catalog',
-                'unlockScopes',
-                'entries',
-                'synthetic credential',
-                id.value,
-              ]) {
-                expect(text, isNot(contains(value)));
+  for (final replacement in [
+    'xveil.store',
+    'xveil.prefs.json',
+    'xveil.prefs.json.tmp',
+  ]) {
+    test(
+      'terminal-only recovery refuses newly appearing auxiliary data without deleting it ($replacement)',
+      () async {
+        final w = await begin(), r = retirement(workers.last);
+        await w.removeManagedFiles(retireScopes: r.retire);
+        await w.removeAuxiliaryFiles(retireScopes: r.retire);
+        await w.close();
+        final actor = ManagedRootErasure.openPending(profile);
+        actors.add(actor);
+        await expectLater(
+          actor.finish(
+            verifyOtherDataAbsent: r.verifyAbsent,
+            afterStage: (stage) async {
+              if (stage == ManagedErasureFinishStage.planRemoved) {
+                final text = File(
+                  '$profile/${StorageProfileCoordinator.directoryName}/${ManagedRootErasure.completionName}',
+                ).readAsStringSync();
+                for (final value in [
+                  fixture.path,
+                  'catalog',
+                  'unlockScopes',
+                  'entries',
+                  'synthetic credential',
+                  id.value,
+                ]) {
+                  expect(text, isNot(contains(value)));
+                }
+                throw StateError('synthetic terminal cut');
               }
-              throw StateError('synthetic terminal cut');
-            }
-          },
-        ),
-        throwsStateError,
-      );
-      actor.close();
-      expect(File(planPath()).existsSync(), isFalse);
-      file('xveil.store');
-      final before = contents();
-      await expectLater(recover(), throwsA(isA<ManagedWorkerFailure>()));
-      expect(contents(), before);
-      File(legacy).deleteSync();
-      final resumed = await recover();
-      await resumed.finish(verifyOtherDataAbsent: r.verifyAbsent);
-    },
-  );
+            },
+          ),
+          throwsStateError,
+        );
+        actor.close();
+        expect(File(planPath()).existsSync(), isFalse);
+        file(replacement);
+        final before = contents();
+        await expectLater(recover(), throwsA(isA<ManagedWorkerFailure>()));
+        expect(contents(), before);
+        File(path(replacement)).deleteSync();
+        final resumed = await recover();
+        await resumed.finish(verifyOtherDataAbsent: r.verifyAbsent);
+      },
+    );
+  }
 
-  test(
-    'release rechecks auxiliary absence after finalization before closing its grant',
-    () async {
-      final w = await begin(), r = retirement(workers.last);
-      await w.removeManagedFiles(retireScopes: r.retire);
-      await w.removeAuxiliaryFiles(retireScopes: r.retire);
-      await w.close();
-      final actor = ManagedRootErasure.openPending(profile);
-      actors.add(actor);
-      await actor.finish(verifyOtherDataAbsent: r.verifyAbsent);
-      final fresh = file('xveil.store');
-      try {
-        expect(actor.releaseCompleted, throwsA(isA<ManagedFsFailure>()));
-        expect(fresh.readAsStringSync(), 'synthetic xveil.store bytes');
-      } finally {
-        fresh.deleteSync();
-      }
-      final receipt = actor.releaseCompleted();
-      r.admitFreshLifetime(receipt);
-    },
-  );
+  for (final replacement in [
+    'xveil.store',
+    'xveil.prefs.json',
+    'xveil.prefs.json.tmp',
+  ]) {
+    test(
+      'release rechecks auxiliary absence after finalization before closing its grant ($replacement)',
+      () async {
+        final w = await begin(), r = retirement(workers.last);
+        await w.removeManagedFiles(retireScopes: r.retire);
+        await w.removeAuxiliaryFiles(retireScopes: r.retire);
+        await w.close();
+        final actor = ManagedRootErasure.openPending(profile);
+        actors.add(actor);
+        await actor.finish(verifyOtherDataAbsent: r.verifyAbsent);
+        final fresh = file(replacement);
+        try {
+          expect(actor.releaseCompleted, throwsA(isA<ManagedFsFailure>()));
+          expect(fresh.readAsStringSync(), 'synthetic $replacement bytes');
+        } finally {
+          fresh.deleteSync();
+        }
+        final receipt = actor.releaseCompleted();
+        r.admitFreshLifetime(receipt);
+      },
+    );
+  }
 
-  test(
-    'lost-release reconciliation retains auxiliary absence checks in the opaque binding',
-    () async {
-      final checkpoint = ReceivePort();
-      addTearDown(checkpoint.close);
-      final w = await begin(releaseGate: true, checkpoint: checkpoint.sendPort),
-          r = retirement(workers.last);
-      final binding = (await w.snapshot()).binding;
-      await w.removeManagedFiles(retireScopes: r.retire);
-      await w.removeAuxiliaryFiles(retireScopes: r.retire);
-      final result = w
-          .finish(verifyOtherDataAbsent: r.verifyAbsent)
-          .then<Object?>((v) => v, onError: (Object e) => e);
-      await checkpoint.first;
-      w.killReleasedWorkerForTesting();
-      expect(await result, isA<ManagedWorkerFailure>());
-      file('xveil.store');
-      final before = contents();
-      await expectLater(
-        reconcile(binding),
-        throwsA(isA<ManagedWorkerFailure>()),
-      );
-      expect(contents(), before);
-      File(legacy).deleteSync();
-      final recovered = await reconcile(binding);
-      final receipt = await recovered.finish(
-        verifyOtherDataAbsent: r.verifyAbsent,
-      );
-      expect(receipt.authorizes(binding), isTrue);
-      r.admitFreshLifetime(receipt);
-    },
-  );
+  for (final replacement in [
+    'xveil.store',
+    'xveil.prefs.json',
+    'xveil.prefs.json.tmp',
+  ]) {
+    test(
+      'lost-release reconciliation retains auxiliary absence checks in the opaque binding ($replacement)',
+      () async {
+        final checkpoint = ReceivePort();
+        addTearDown(checkpoint.close);
+        final w = await begin(
+              releaseGate: true,
+              checkpoint: checkpoint.sendPort,
+            ),
+            r = retirement(workers.last);
+        final binding = (await w.snapshot()).binding;
+        await w.removeManagedFiles(retireScopes: r.retire);
+        await w.removeAuxiliaryFiles(retireScopes: r.retire);
+        final result = w
+            .finish(verifyOtherDataAbsent: r.verifyAbsent)
+            .then<Object?>((v) => v, onError: (Object e) => e);
+        await checkpoint.first;
+        w.killReleasedWorkerForTesting();
+        expect(await result, isA<ManagedWorkerFailure>());
+        file(replacement);
+        final before = contents();
+        await expectLater(
+          reconcile(binding),
+          throwsA(isA<ManagedWorkerFailure>()),
+        );
+        expect(contents(), before);
+        File(path(replacement)).deleteSync();
+        final recovered = await reconcile(binding);
+        final receipt = await recovered.finish(
+          verifyOtherDataAbsent: r.verifyAbsent,
+        );
+        expect(receipt.authorizes(binding), isTrue);
+        r.admitFreshLifetime(receipt);
+      },
+    );
+  }
 }
