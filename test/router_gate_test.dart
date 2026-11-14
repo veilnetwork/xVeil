@@ -15,7 +15,26 @@ void main() {
     '/pick-identity',
     '/preparing',
     '/identity-erase-recovery',
+    '/identity-setup-recovery',
   ];
+
+  test('setup recovery pins deep links and ready leaves its screen', () {
+    for (final path in [
+      ...protected,
+      '/settings',
+      '/manage-identities',
+      '/lock',
+    ]) {
+      expect(
+        redirectForPhase(AppPhase.identitySetupRecovery, path),
+        path == '/identity-setup-recovery' ? null : '/identity-setup-recovery',
+      );
+    }
+    expect(
+      redirectForPhase(AppPhase.ready, '/identity-setup-recovery'),
+      '/home',
+    );
+  });
 
   test('erase recovery pins every route and ready leaves its screen', () {
     for (final path in [

@@ -9,10 +9,12 @@ class StorageProtectionChoice extends StatelessWidget {
     required this.selected,
     required this.onChanged,
     required this.onNext,
+    this.fixed = false,
   });
   final StorageProtection selected;
   final ValueChanged<StorageProtection> onChanged;
   final VoidCallback onNext;
+  final bool fixed;
 
   @override
   Widget build(BuildContext context) {
@@ -45,24 +47,25 @@ class StorageProtectionChoice extends StatelessWidget {
             Icons.folder_open_outlined,
           ),
         ])
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Card(
-              key: ValueKey('storage-protection-${mode.name}'),
-              color: mode == selected
-                  ? Theme.of(context).colorScheme.primaryContainer
-                  : null,
-              child: ListTile(
-                leading: Icon(icon),
-                title: HelpLabel(title: title, help: help),
-                subtitle: Text(brief),
-                trailing: mode == selected
-                    ? const Icon(Icons.check_circle)
+          if (!fixed || mode == selected)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Card(
+                key: ValueKey('storage-protection-${mode.name}'),
+                color: mode == selected
+                    ? Theme.of(context).colorScheme.primaryContainer
                     : null,
-                onTap: () => onChanged(mode),
+                child: ListTile(
+                  leading: Icon(icon),
+                  title: HelpLabel(title: title, help: help),
+                  subtitle: Text(brief),
+                  trailing: mode == selected
+                      ? const Icon(Icons.check_circle)
+                      : null,
+                  onTap: fixed ? null : () => onChanged(mode),
+                ),
               ),
             ),
-          ),
         if (selected == StorageProtection.unencrypted)
           Text(
             l.storageUnencryptedWarning,

@@ -8189,4 +8189,25 @@ class AppL10nEn extends AppL10n {
   @override
   String get decoyStorageHint =>
       'To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it.';
+
+  @override
+  String get identitySetupRecoveryTitle => 'Setup was not completed';
+
+  @override
+  String get identitySetupRecoveryBlank =>
+      'This space has no identity yet. You can create one here using the usual recovery certificate steps.';
+
+  @override
+  String get identitySetupRecoveryPending =>
+      'Setup stopped after writing data. xVeil will not start an identity or replace those records. Save a report and return to sign-in.';
+
+  @override
+  String get identitySetupRecoveryCreate => 'Create an identity in this space';
+
+  @override
+  String get identitySetupRecoveryMasterTitle => 'Were you creating a master?';
+
+  @override
+  String get identitySetupRecoveryMasterBody =>
+      'If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead.';
 }

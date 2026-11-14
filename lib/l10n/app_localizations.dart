@@ -14201,6 +14201,42 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it.'**
   String get decoyStorageHint;
+
+  /// No description provided for @identitySetupRecoveryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup was not completed'**
+  String get identitySetupRecoveryTitle;
+
+  /// No description provided for @identitySetupRecoveryBlank.
+  ///
+  /// In en, this message translates to:
+  /// **'This space has no identity yet. You can create one here using the usual recovery certificate steps.'**
+  String get identitySetupRecoveryBlank;
+
+  /// No description provided for @identitySetupRecoveryPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup stopped after writing data. xVeil will not start an identity or replace those records. Save a report and return to sign-in.'**
+  String get identitySetupRecoveryPending;
+
+  /// No description provided for @identitySetupRecoveryCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create an identity in this space'**
+  String get identitySetupRecoveryCreate;
+
+  /// No description provided for @identitySetupRecoveryMasterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Were you creating a master?'**
+  String get identitySetupRecoveryMasterTitle;
+
+  /// No description provided for @identitySetupRecoveryMasterBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead.'**
+  String get identitySetupRecoveryMasterBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

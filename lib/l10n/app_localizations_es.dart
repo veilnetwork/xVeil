@@ -8290,4 +8290,27 @@ class AppL10nEs extends AppL10n {
   @override
   String get decoyStorageHint =>
       'Para usar esta contraseña, elige Espacio oculto al iniciar sesión. Las identidades cifradas y sin cifrar siguen en el catálogo público. Una maestra sin cifrar expone las claves de todas las identidades vinculadas.';
+
+  @override
+  String get identitySetupRecoveryTitle => 'La creación no se completó';
+
+  @override
+  String get identitySetupRecoveryBlank =>
+      'Este espacio todavía no tiene una identidad. Puedes crearla aquí siguiendo los pasos habituales para guardar el certificado de recuperación.';
+
+  @override
+  String get identitySetupRecoveryPending =>
+      'La creación se detuvo tras guardar datos. xVeil no iniciará una identidad ni reemplazará esos registros. Guarda un informe y vuelve al acceso.';
+
+  @override
+  String get identitySetupRecoveryCreate =>
+      'Crear una identidad en este espacio';
+
+  @override
+  String get identitySetupRecoveryMasterTitle =>
+      '¿Estabas creando una maestra?';
+
+  @override
+  String get identitySetupRecoveryMasterBody =>
+      'Si creabas una maestra de coacción, vuelve a la maestra original y repite la operación con la misma contraseña. No crees aquí una identidad normal en su lugar.';
 }

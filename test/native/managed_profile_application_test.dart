@@ -226,7 +226,11 @@ void main() {
       await container.read(appControllerProvider.notifier).unlock('');
       expect(
         container.read(appControllerProvider).phase,
-        AppPhase.identityDamaged,
+        AppPhase.identitySetupRecovery,
+      );
+      expect(
+        container.read(appControllerProvider.notifier).canResumeIdentitySetup,
+        isTrue,
       );
       expect(router.storage.isOpen, isFalse);
       expect(await router.storage.open(password: ''), isTrue);

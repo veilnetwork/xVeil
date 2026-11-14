@@ -20,6 +20,7 @@ import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
 import '../../domain/storage_locator.dart';
 import '../../domain/storage_usage.dart';
+import '../../domain/storage_initialization.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
@@ -142,6 +143,7 @@ class HiddenVolumeStorage
         Storage,
         StorageOpeningOwner,
         StorageUsageSource,
+        StorageInitializationSource,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
@@ -7250,6 +7252,49 @@ class HiddenVolumeStorage
     _fileGate = result.then((_) {}, onError: (_) {});
     return result;
   }
+
+  @override
+  Future<bool> initializationIsBlank() => _fileSerialized(() async {
+    final store = _store!;
+    if (store is! CommitAnchorSource) return false;
+    final anchors = store as CommitAnchorSource;
+    final before = await anchors.commitSeq();
+    if (before < 0) return false;
+    final limit = store is InitializationNamespaceSource
+        ? await (store as InitializationNamespaceSource)
+              .initializationNamespaceLimit()
+        : 256;
+    if (limit < 2 || limit > 256) return false;
+    // Count includes KV AND append records, including unknown namespaces.
+    // A reduced limit requires backend validation of its excluded metadata.
+    for (var ns = 1; ns < limit; ns++) {
+      if (ns == Ns.settings) continue;
+      if (await store.count(ns) != 0) return false;
+    }
+    final count = await store.count(Ns.settings);
+    if (count < 0 || count > 2) return false;
+    final keys = await store.kvKeys(Ns.settings);
+    if (keys.length != count) return false; // A log in the settings namespace.
+    for (final key in keys) {
+      final name = utf8.decode(key, allowMalformed: false);
+      if (name != _legacyDeleteScrubKey &&
+          name != kPendingIdentitySetupSetting) {
+        return false;
+      }
+      final value = await store.get(Ns.settings, key);
+      if (value == null) return false;
+      try {
+        if (name == _legacyDeleteScrubKey
+            ? !(value.length == 1 && value.single == 1)
+            : !(value.length == 1 && value.single == 0x31)) {
+          return false;
+        }
+      } finally {
+        value.fillRange(0, value.length, 0);
+      }
+    }
+    return identical(_store, store) && await anchors.commitSeq() == before;
+  });
 
   @override
   Future<StorageUsage?> storageUsage() => _fileSerialized(() async {

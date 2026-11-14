@@ -1836,16 +1836,17 @@ void _damagedIdentityTests() {
     });
 
     test(
-      'an ABSENT record still opens a session — the two are not merged',
+      'a legacy config-only identity keeps its existing identity when the profile is absent',
       () async {
-        // The control. If "damaged" were implemented by refusing on anything
-        // unusual, a fresh/erased space would stop opening too and every
-        // legitimate empty-identity install would be bricked.
+        // A missing display-name record is recoverable when an existing node
+        // configuration still names the identity. Truly blank spaces instead
+        // require explicit initialization; absence alone must not mint a node.
         SharedPreferences.setMockInitialValues({'onboarded': true});
         final container = FakeHvContainer();
         final seeded = container.storage();
         await seeded.open(password: 'right', createIfMissing: true);
-        await seeded.close(); // created, never given an identity
+        await seeded.saveNodeConfig('legacy fixture identity config');
+        await seeded.close();
 
         final app = container.storage();
         final c = ProviderContainer(

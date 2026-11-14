@@ -22,6 +22,28 @@ import 'support/managed_store_fixture.dart';
 
 void main() {
   setUp(() => expect(ensureHiddenVolumeLoaded(), isTrue));
+  for (final namespace in [254, 255]) {
+    test(
+      'initialization refuses extra reserved namespace $namespace data',
+      () async {
+        final fixture = await ManagedStoreFixture.create();
+        final store = fixture.initialize();
+        try {
+          expect(store.initializationNamespaceLimit(), 254);
+          final raw = fixture
+              .tracked[1]; // Fixture content handle; never a public port.
+          raw.commit([
+            PutOp(namespace, Uint8List.fromList([99]), Uint8List.fromList([1])),
+          ]);
+          expect(store.initializationNamespaceLimit, throwsStateError);
+          expect(raw.get(namespace, Uint8List.fromList([99])), [1]);
+        } finally {
+          store.close();
+        }
+      },
+    );
+  }
+
   test(
     'long native sessions and cold reopen preserve the inclusive anchor boundary',
     () async {

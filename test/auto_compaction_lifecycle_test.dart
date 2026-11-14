@@ -39,10 +39,18 @@ class _CloseFailure extends HiddenVolumeStorage {
 
   @override
   Future<UserProfile?> loadProfile() async {
-    // Keep this test out of node boot. It observes the real unlock/automatic
-    // recovery path up to profile classification, not network initialization.
+    // Classification now precedes compaction: only an existing valid identity
+    // may reach automatic maintenance. Stop later, before network boot.
     profileReads++;
-    throw StateError('fixture profile classification stops here');
+    return const UserProfile(displayName: 'Fixture');
+  }
+
+  @override
+  Future<String?> getSetting(String key) async {
+    if (key == 'anonymous') {
+      throw StateError('fixture session boot stops here');
+    }
+    return super.getSetting(key);
   }
 
   @override
@@ -194,7 +202,9 @@ void main() {
           lockDuringClose ? ['fixture'] : ['fixture', 'fixture'],
           reason: 'a stale recovery must never open the locked container again',
         );
-        expect(storage.profileReads, lockDuringClose ? 0 : 1);
+        // The one classification read precedes compaction, including lock
+        // during close. No read is performed after a stale recovery reopens.
+        expect(storage.profileReads, 1);
         expect(backendCalls, stage == _Stage.closeFailure ? 0 : 1);
         expect(storage.isOpen, isFalse);
         expect(container.read(appControllerProvider).phase, AppPhase.locked);

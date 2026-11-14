@@ -8257,4 +8257,26 @@ class AppL10nRu extends AppL10n {
   @override
   String get decoyStorageHint =>
       'Для входа с этим паролем выберите «Скрытое пространство» на экране входа. Зашифрованные и открытые личности остаются в публичном каталоге. Незашифрованный мастер раскрывает ключи всех связанных с ним личностей.';
+
+  @override
+  String get identitySetupRecoveryTitle => 'Создание не завершено';
+
+  @override
+  String get identitySetupRecoveryBlank =>
+      'В этом пространстве ещё нет личности. Можно создать её здесь, пройдя обычные шаги сохранения сертификата восстановления.';
+
+  @override
+  String get identitySetupRecoveryPending =>
+      'Создание остановилось после записи данных. xVeil не запускает личность и не заменяет эти записи. Сохраните отчёт и вернитесь ко входу.';
+
+  @override
+  String get identitySetupRecoveryCreate =>
+      'Создать личность в этом пространстве';
+
+  @override
+  String get identitySetupRecoveryMasterTitle => 'Создавали мастер?';
+
+  @override
+  String get identitySetupRecoveryMasterBody =>
+      'Если создавали маскировочный мастер, вернитесь в основной мастер и повторите операцию с тем же паролем. Не создавайте здесь обычную личность вместо него.';
 }

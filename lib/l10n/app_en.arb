@@ -3770,5 +3770,11 @@
     }
   },
   "decoyStorageTitle": "Sign-in and storage",
-  "decoyStorageHint": "To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it."
+  "decoyStorageHint": "To use this password, choose Hidden space on the sign-in screen. Encrypted and unencrypted identities remain listed in the public catalog. An unencrypted master exposes the keys of every identity linked to it.",
+  "identitySetupRecoveryTitle": "Setup was not completed",
+  "identitySetupRecoveryBlank": "This space has no identity yet. You can create one here using the usual recovery certificate steps.",
+  "identitySetupRecoveryPending": "Setup stopped after writing data. xVeil will not start an identity or replace those records. Save a report and return to sign-in.",
+  "identitySetupRecoveryCreate": "Create an identity in this space",
+  "identitySetupRecoveryMasterTitle": "Were you creating a master?",
+  "identitySetupRecoveryMasterBody": "If you were creating a duress master, return to your original master and repeat that operation with the same password. Do not create an ordinary identity here instead."
 }
