@@ -15,11 +15,13 @@ import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/keep_all_online_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 const _auto = 'storage.autocompact.v1';
 
@@ -202,6 +204,9 @@ _fixture(_Stage stage, {bool allOnline = false, int childCount = 2}) async {
   );
   final c = ProviderContainer(
     overrides: [
+      // Wipe requires verified absence even without a saved-entry opt-in.
+      // This lifecycle fixture must not delegate that check to a real OS vault.
+      quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
       appControllerProvider.overrideWith(() => ctrl),
       singleSpaceStorageProvider.overrideWithValue(storage),
       keepAllOnlineProvider.overrideWith(() => _Options(gate, allOnline)),

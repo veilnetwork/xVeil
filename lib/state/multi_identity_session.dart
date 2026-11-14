@@ -10,7 +10,8 @@ import 'dart:typed_data';
 import '../data/node/bundled_seeds.dart'
     show IdentityPeers, kBundledSeedsDefault;
 import '../data/node/bundled_seeds_prefs.dart' show planIdentitySeeds;
-import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
+import '../data/node/embedded_node.dart'
+    show BootstrapPeerCfg, EmbeddedNodeController;
 import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/managed_identity_catalog.dart';
@@ -419,6 +420,35 @@ class MultiIdentitySession {
   final _storages = <String, Storage>{};
   final _nodes = <String, IdentityNode>{};
   final _messaging = <String, MessagingService>{};
+  // A timeout ends the wait, not this operation's lifetime. Keep the original
+  // future, including a failure, so another disposal cannot invent completion
+  // or replay a partially consumed native stop. Failed opaque disposers require
+  // process restart; pending work may still prove completion on a later check.
+  final _retiringTeardowns = Map<Object, Future<void>>.identity();
+  final _lateBoots = <Future<void>, String>{};
+
+  Future<void> _stopIdentityNode(IdentityNode node) async {
+    await node.dispose();
+    final controller = node.stack?.controller;
+    if (controller is EmbeddedNodeController &&
+        controller.lastStopWasAbandoned) {
+      throw StateError('native node stop was not confirmed');
+    }
+  }
+
+  Future<bool> _disposeRetained(
+    Object owner,
+    String what,
+    Future<void> Function() dispose,
+  ) async {
+    final work = _retiringTeardowns.putIfAbsent(
+      owner,
+      () => Future<void>.sync(dispose),
+    );
+    if (!await _bounded(what, () => work)) return false;
+    _retiringTeardowns.remove(owner);
+    return true;
+  }
 
   /// The shared-seed answer each identity's node was actually booted with,
   /// resolved from that identity's own space.
@@ -554,12 +584,17 @@ class MultiIdentitySession {
           // Attach the reaper HERE, not before the await: registered up front
           // it fires ahead of the success continuation and disposes a node we
           // actually wanted.
+          final reaped = booting.then<void>(
+            _stopIdentityNode,
+            // A failed opener acquired no published node; successful openers
+            // must instead prove their actual disposal completed.
+            onError: (Object _, StackTrace _) {},
+          );
+          _lateBoots[reaped] = spec.label;
+          // Observe failure immediately even if the user has not locked yet.
+          // Retain its original outcome for the next disposal admission check.
           unawaited(
-            booting.then((stranded) async {
-              try {
-                await stranded.dispose();
-              } catch (_) {}
-            }, onError: (_) {}),
+            reaped.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
           );
           rethrow;
         }
@@ -666,13 +701,17 @@ class MultiIdentitySession {
   /// "opening the store" for half an hour with the repack not even begun, and
   /// lock/wipe take this same path.
   ///
-  /// So each element gets a deadline. Abandoning a hung dispose leaves its work
-  /// running, which is why the budget is generous — but a straggler that fails
-  /// its next write is recoverable (container writes are atomic per commit) and
-  /// a container that never unlocks again is not.
+  /// Each wait gets a deadline, while the original operation remains owned.
+  /// Repeated disposal joins that same future, including a late boot's reaper.
+  /// Shared backing release still runs after a timeout, but does not prove the
+  /// network stopped. A failed opaque disposer is not replayed: it may already
+  /// have consumed native handles. The controller retains that uncertainty and
+  /// refuses new ownership until cleanup is confirmed or the process exits.
   final Duration _disposeBudget;
 
-  /// Teardown steps abandoned by the most recent [disposeAll].
+  /// Teardown steps still unconfirmed by the most recent [disposeAll].
+  /// Repeating disposal joins pending work and retains failures; only a
+  /// completed successful original disposer clears the corresponding entry.
   ///
   /// Abandoning is deliberate — a container that never unlocks again is worse
   /// than a straggler — but it is not free, and it used to be invisible outside
@@ -744,14 +783,32 @@ class MultiIdentitySession {
       _containerLockReleased = false;
       return;
     }
-    for (final entry in _messaging.entries) {
-      await _bounded('messaging dispose (${entry.key})', entry.value.dispose);
+    for (final entry in _lateBoots.entries.toList()) {
+      if (await _bounded(
+        'late node disposal (${entry.value})',
+        () => entry.key,
+      )) {
+        _lateBoots.remove(entry.key);
+      }
     }
-    for (final entry in _nodes.entries) {
-      await _bounded('node dispose (${entry.key})', entry.value.dispose);
+    for (final entry in _messaging.entries.toList()) {
+      if (await _disposeRetained(
+        entry.value,
+        'messaging dispose (${entry.key})',
+        entry.value.dispose,
+      )) {
+        _messaging.remove(entry.key);
+      }
     }
-    _messaging.clear();
-    _nodes.clear();
+    for (final entry in _nodes.entries.toList()) {
+      if (await _disposeRetained(
+        entry.value,
+        'node dispose (${entry.key})',
+        () => _stopIdentityNode(entry.value),
+      )) {
+        _nodes.remove(entry.key);
+      }
+    }
     _storages.clear();
     _bundledSeeds.clear();
     for (final entry in _managedOwners.entries.toList()) {

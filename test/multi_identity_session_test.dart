@@ -8,7 +8,10 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
-import 'package:xveil/data/node/embedded_node.dart' show BootstrapPeerCfg;
+import 'package:xveil/data/node/embedded_node.dart'
+    show BootstrapPeerCfg, EmbeddedNodeController;
+import 'package:xveil/data/veil_stack.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -669,8 +672,8 @@ void main() {
       reason: 'the lock must be released even when a dispose hangs',
     );
     // Abandoning is the right trade and it is not free: both nodes are still
-    // RUNNING — sockets open, network identity live — and their handles are
-    // gone from the session, so nothing can ask them to stop again. The caller
+    // RUNNING — sockets open, network identity live. Their original disposal
+    // is now retained; dropping it would make the next check lie. The caller
     // is about to tell the person they are locked, which is a claim about
     // exactly that, so it must not learn this from a debug log alone.
     expect(
@@ -686,6 +689,157 @@ void main() {
       reason: 'the report must name which step was abandoned, not just count',
     );
   });
+
+  test(
+    'repeated disposal joins the original pending node stop until it completes',
+    () async {
+      final gate = Completer<void>();
+      var stopped = 0, closed = 0;
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() => closed++)),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        disposeBudget: Duration.zero,
+        boot: (spec, storage) async => IdentityNode(
+          transport: _FakeTransport(_nid(spec.spaceId + 100)),
+          dispose: () {
+            stopped++;
+            return gate.future;
+          },
+        ),
+      );
+      await session.bootAll([_e('alice', 1)]);
+      try {
+        await session.disposeAll();
+        expect(session.abandonedTeardowns, isNotEmpty);
+        expect(session.containerLockReleased, isTrue);
+        await session.disposeAll();
+        expect(
+          session.abandonedTeardowns,
+          isNotEmpty,
+          reason: 'a repeated check cannot forget a still-running stop',
+        );
+        expect(stopped, 1, reason: 'retry must join, never start another stop');
+        expect(
+          closed,
+          2,
+          reason: 'pending network work must not retain the shared lock',
+        );
+      } finally {
+        gate.complete();
+      }
+      await gate.future;
+      await session.disposeAll();
+      expect(session.abandonedTeardowns, isEmpty);
+      expect(stopped, 1);
+    },
+  );
+
+  test(
+    'a failed node stop cannot become clean merely by checking again',
+    () async {
+      var stopped = 0;
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() {})),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        boot: (spec, storage) async => IdentityNode(
+          transport: _FakeTransport(_nid(spec.spaceId + 100)),
+          dispose: () async {
+            stopped++;
+            throw StateError('synthetic refusal');
+          },
+        ),
+      );
+      await session.bootAll([_e('alice', 1)]);
+      await session.disposeAll();
+      await session.disposeAll();
+      expect(session.abandonedTeardowns, isNotEmpty);
+      expect(
+        stopped,
+        1,
+        reason: 'a partially consumed stop is not safe to replay',
+      );
+      expect(session.containerLockReleased, isTrue);
+    },
+  );
+
+  test(
+    'a timed-out late boot and its reaper remain owned through disposal',
+    () async {
+      final arriving = Completer<IdentityNode>(), stopping = Completer<void>();
+      var stops = 0;
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() {})),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        bootTimeout: Duration.zero,
+        disposeBudget: Duration.zero,
+        boot: (spec, storage) => arriving.future,
+      );
+      await session.bootAll([_e('alice', 1)]);
+      await session.disposeAll();
+      expect(
+        session.abandonedTeardowns,
+        isNotEmpty,
+        reason: 'a late boot can still acquire a node after disposal returns',
+      );
+      arriving.complete(
+        IdentityNode(
+          transport: _FakeTransport(_nid(10)),
+          dispose: () {
+            stops++;
+            return stopping.future;
+          },
+        ),
+      );
+      await arriving.future;
+      await session.disposeAll();
+      expect(stops, 1);
+      expect(session.abandonedTeardowns, isNotEmpty);
+      stopping.complete();
+      await stopping.future;
+      await session.disposeAll();
+      expect(session.abandonedTeardowns, isEmpty);
+      expect(stops, 1);
+    },
+  );
+
+  test(
+    'a consumed native stop still cannot authorize a clean all-online teardown',
+    () async {
+      final controller = _AbandonedNode();
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() {})),
+        runtimeDirBase: '/synthetic',
+        listenPortBase: 9000,
+        boot: (spec, storage) async {
+          final transport = _FakeTransport(_nid(spec.spaceId + 100));
+          final stack = RealVeilStack.overParts(
+            controller: controller,
+            transport: transport,
+            myInvite: BootstrapInvite(
+              publicKey: Uint8List(32),
+              nonce: Uint8List(8),
+            ),
+          );
+          return IdentityNode(
+            transport: transport,
+            stack: stack,
+            dispose: stack.dispose,
+          );
+        },
+      );
+      await session.bootAll([_e('alice', 1)]);
+      await session.disposeAll();
+      expect(session.abandonedTeardowns, isNotEmpty);
+      controller.abandoned = false;
+      await session.disposeAll();
+      expect(session.abandonedTeardowns, isNotEmpty);
+      expect(controller.stops, 1);
+      expect(session.containerLockReleased, isTrue);
+    },
+  );
 
   test('a teardown that finishes reports nothing abandoned', () async {
     // The other half, and the reason it is here: a report that is never empty
@@ -801,5 +955,18 @@ class _ManagedStorage extends HiddenVolumeStorage {
     closes++;
     if (refuseClose) throw StateError('synthetic retained owner');
     await super.close();
+  }
+}
+
+class _AbandonedNode extends EmbeddedNodeController {
+  _AbandonedNode()
+    : super(configPath: '/synthetic', appSocketPath: '/synthetic');
+  int stops = 0;
+  bool abandoned = true;
+  @override
+  bool get lastStopWasAbandoned => abandoned;
+  @override
+  Future<void> stop() async {
+    stops++;
   }
 }

@@ -77,6 +77,7 @@ class _NoopTransport implements VeilTransport {
 
 class _StubNode implements NodeController {
   var stopped = 0;
+  bool refuseStop = false;
 
   /// When set, `stop` waits on it — a node whose FFI stop does not answer.
   Completer<void>? stopGate;
@@ -93,6 +94,7 @@ class _StubNode implements NodeController {
     stopped++;
     final gate = stopGate;
     if (gate != null) await gate.future;
+    if (refuseStop) throw StateError('synthetic late node stop refusal');
   }
 }
 
@@ -371,6 +373,30 @@ class _GatedNotifications extends NotificationService {
 }
 
 void main() {
+  test(
+    'one-active late rollback retains an unconfirmed node disposal',
+    () async {
+      final h = _oneActiveHarness();
+      await _settle(h.container);
+      await _seedSingleIdentity(h.container);
+      final unlocking = h.controller.unlock('pw');
+      await _pumpUntil(h.booting, 'one-active boot before rollback');
+      await h.controller.lock();
+      h.node.refuseStop = true;
+      h.gate.complete();
+      await unlocking;
+      expect(h.container.read(realStackProvider), isNull);
+      expect(h.node.stopped, 1);
+      await expectLater(h.controller.lock(), throwsStateError);
+      expect(h.controller.lastTeardown.complete, isFalse);
+      expect(
+        h.node.stopped,
+        1,
+        reason: 'do not replay a consumed failed rollback',
+      );
+    },
+  );
+
   test('one-active: a lock during the node boot leaves the node OFF and the '
       'container closed — the boot refuses to publish itself', () async {
     final h = _oneActiveHarness();

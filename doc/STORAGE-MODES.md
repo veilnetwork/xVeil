@@ -1820,6 +1820,32 @@ OS vault or real profile was erased. The full application wipe/recovery UI still
 must compose this owner with vault retirement, lifecycle drain and native release
 before managed storage can be enabled.
 
+## Network teardown before destructive ownership
+
+An empty session/stack provider is not proof that native shutdown completed.
+The application now retains the original stack disposal, including unpublished
+late-boot rollback, until its actual result is known. A second lock joins the
+same operation. Failure and a consumed/detached native stop remain unconfirmed;
+repeated checks cannot turn them into a successful teardown. The native-stop
+outcome is captured for the original operation; a later mutable controller
+status cannot retroactively authorize it.
+
+All-online sessions retain node and messaging disposers and timed-out boot
+reapers. Repeated disposal joins the accepted future instead of replaying a
+potentially consumed native handle. The shared backing can still close after a
+bounded wait, but the controller retains a session with unconfirmed network work
+and refuses another storage acquisition. Eventual successful completion clears
+the retained owner. An opaque failed disposer requires process restart rather
+than an invented successful retry; independently retryable managed-storage
+closes retain their existing behavior.
+
+Regression qualification uses gated/failing fake node, transport and native-stop
+outcomes through the actual application controller and session code. It does not
+claim to have forced a real detached native thread or qualified platform service
+shutdown. This repairs a prerequisite for complete profile wipe/recovery; the
+managed wipe UI and cold recovery orchestration remain incomplete and managed
+storage remains disabled.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

@@ -16,11 +16,13 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 class _Prefs extends SharedPreferencesStorePlatform {
   final values = <String, Object>{};
@@ -180,6 +182,9 @@ _fixture({bool deniable = false}) async {
   addTearDown(transport.dispose);
   final c = ProviderContainer(
     overrides: [
+      // Wipe requires verified absence even without a saved-entry opt-in.
+      // This lifecycle fixture must not delegate that check to a real OS vault.
+      quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
       appControllerProvider.overrideWith(() => ctrl),
       singleSpaceStorageProvider.overrideWithValue(storage),
       nodeControllerProvider.overrideWithValue(_Node()),
