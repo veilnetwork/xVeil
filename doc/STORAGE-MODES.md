@@ -1442,8 +1442,46 @@ managed-root deletion crash boundaries. The new-marker negative control failed
 on the old coordinator (three terminal admission cases), while existing pending
 cases passed; this is an integration guard for the new phase, not an attributed
 released defect. These checks do not qualify power loss or packaged Android /
-Windows, and do not implement legacy cleanup, fresh OS-vault ownership, startup
-recovery UI, migration or the other outstanding three-mode application work.
+Windows, and do not implement legacy cleanup, startup recovery UI, migration
+or the other outstanding three-mode application work. Saved-entry ownership
+after finalization is qualified separately below.
+
+## Saved-entry ownership after profile erasure
+
+`QuickUnlockRetirement.forManagedErasure` captures the immutable intent's scope
+set and an opaque binding while the plan is readable. A fresh saved-entry
+lifetime requires **both** verified OS retirement and a `ManagedErasureRelease`
+for that exact intent. The filesystem actor issues this receipt only after
+terminal finalization and successful native coordinator close. A deleted root,
+a pending final sync, another profile's receipt or a later erasure at the same
+path cannot stand in for that release. Terminal recovery retains the original
+binding even when the plan and its scope list have already been removed.
+These are cooperating-application lifetime proofs, not cryptographic authority
+against someone who can replace their own public metadata.
+
+The handoff validates the complete set of shared backend/scope states before
+changing any registry entry, with no intervening await. Accepted mutations must
+have settled. It then permanently detaches the old states; it never un-retires
+an old object. Repeated forget/configure/retirement through any old wrapper
+cannot read, write or delete a fresh profile's credentials. Other scopes and
+backend instances retain their existing ownership. The same OS store must still
+use the canonical shared provider instance within the UI isolate.
+
+`admitFreshStartupUnlock` applies this handoff and invalidates both cached vault
+and cached options providers. A disposed provider owner cannot consume it.
+Read-only options and biometric opens also recheck generation/retirement after
+awaits: late metadata cannot revive buttons, start a post-clear biometric
+prompt or return an old password. Three deterministic gated retirement cases
+failed on the previous code. The same checks cover ordinary forget, which
+remains explicitly re-enrollable outside permanent profile erasure.
+
+Host-native tests combine actual managed-root removal/finalization/reopen with
+an entirely fake OS vault, including wrong/replayed receipts, final-sync refusal,
+terminal-only recovery, duplicate old owners, queued deletion, late reads and
+provider replacement. No real Keychain/Keystore or identity is used. These
+ports are ready for the full wipe binding; they do not themselves wire the
+legacy file/preferences cleanup, absent-root intent creation or pending-erasure
+startup UI. The managed destructive guard and new default remain disabled.
 
 ## Implementation boundaries
 

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
-import 'package:xveil/core/quick_unlock_retirement.dart';
 import 'package:xveil/core/storage_unlock_scope.dart';
 import 'support/retirement_secret_store.dart';
 
