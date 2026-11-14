@@ -53,9 +53,12 @@ old facades remain required; this native receipt does not authorize file erasure
 
 ## Limits
 
-The runner was typechecked against the actual FlutterMacOS framework with a
+In this host-only round, the runner was typechecked against the actual FlutterMacOS framework with a
 no-op plugin-registration declaration. Plugin initialization, the packaged
 application and a native Flutter method-channel round trip were not run.
+The later [packaged follow-up](../macos-call-network-package-2026-11-15/README.md)
+exercised the real runner/channel without that stub; its scope and limits are
+recorded separately.
 
 Most failure scenarios use modeled Foundation ports. One host scenario acquires
 and ends a real ProcessInfo activity. This establishes API execution and native
