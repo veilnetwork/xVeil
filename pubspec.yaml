@@ -93,6 +93,9 @@ dependencies:
   # Production Android calls use the app-owned native Camera2 path; macOS uses
   # AVCaptureSession inside libveil_media.
   camera: ^0.12.0+2
+  # Retry an unacknowledged native close on the same backend and camera id;
+  # CameraController.dispose itself cannot retry a failed platform dispose.
+  camera_platform_interface: ^2.13.1
   # Pure-Dart SSH client for "My nodes" — connect to a server you run and
   # provision/check a veil node over SSH (no native code).
   dartssh2: ^2.9.0
@@ -157,9 +160,6 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  # Direct test seam for the attachment camera lifecycle. The production
-  # implementation remains selected by package:camera at runtime.
-  camera_platform_interface: ^2.13.1
   # Used directly by deterministic call timing tests. Keep them explicit
   # instead of relying on flutter_test's transitive dependency graph.
   clock: ^1.1.2

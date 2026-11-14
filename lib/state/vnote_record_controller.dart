@@ -18,6 +18,7 @@ import 'media_ffi.dart';
 import 'dart:io' show Platform;
 
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
 import 'android_camera_capture.dart';
 import 'mac_media_permissions.dart';
 import 'voice_record_controller.dart' show micPermissionProvider;
@@ -48,6 +49,7 @@ abstract class VnoteRecorder {
 class NativeVnoteRecorder implements VnoteRecorder {
   NativeVnoteRecorder(this._rec);
   final VeilVnoteRecorder _rec;
+  final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidCameraCapture? _cam;
 
   /// Null when there is no engine to record with, as well as when the engine
@@ -91,7 +93,7 @@ class NativeVnoteRecorder implements VnoteRecorder {
     // open + session configure, so its opening seconds held no video at all:
     // the timer ran, the preview sat on nothing, and playback showed a frozen
     // picture until the first frame finally landed.
-    final cam = AndroidCameraCapture();
+    final cam = AndroidCameraCapture(captureLifetime: _cameraLifetime);
     _cam = cam;
     final firstFrame = Completer<void>();
     final opened = await cam.start((y, u, v, w, h) {

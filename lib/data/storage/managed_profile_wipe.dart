@@ -8,6 +8,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../../core/local_authentication.dart';
 import '../../core/background_service_lifetime.dart';
+import '../../core/capture_resource_lifetime.dart';
 import '../../core/quick_unlock_vault.dart';
 import 'async_kv_log_store.dart';
 import 'legacy_profile_preferences.dart';
@@ -105,6 +106,8 @@ final class ManagedProfileWipe {
   final LocalScreenAuthentication _authentication;
   final Future<BackgroundResourceRetirement> Function() _retireBackground;
   BackgroundResourceRetirement? _background;
+  final _captures = CaptureResourceLifetime.current();
+  CaptureResourceRetirement? _captureRetirement;
   bool _backgroundAdmitted = false;
   final Future<void> Function() _quiesce, _verifyOtherDataAbsent;
   late final String _profileDirectory;
@@ -141,15 +144,27 @@ final class ManagedProfileWipe {
 
   Future<void> _verifyExternalAbsence() async {
     final vault = _vault, legacy = _legacy, background = _background;
-    if (vault == null || legacy == null || background == null) {
+    if (vault == null ||
+        legacy == null ||
+        background == null ||
+        _captureRetirement == null) {
       throw const ManagedProfileWipeFailure();
     }
     await Future.wait<void>([
       vault.verifyAbsent(),
       legacy.verifyAbsent(),
       background.verifyReleasedResources(),
+      _captureRetirement!.verifyReleasedResources(),
       _verifyOtherDataAbsent(),
     ]);
+  }
+
+  Future<void> _verifyCaptureResources() async {
+    if (_background == null || _captureRetirement == null) {
+      throw const ManagedProfileWipeFailure();
+    }
+    await _background!.verifyReleasedResources();
+    await _captureRetirement!.verifyReleasedResources();
   }
 
   Future<void> _resumeExitedWorker() async {
@@ -202,8 +217,10 @@ final class ManagedProfileWipe {
       await _releaseBackground();
       return;
     }
+    _captures.sealAdmission();
     _background ??= await _retireBackground();
-    await _background!.verifyReleasedResources();
+    _captureRetirement ??= await _captures.retire();
+    await _verifyCaptureResources();
     if (!_quiesced) {
       await _quiesce();
       await _verifyOtherDataAbsent();
@@ -251,9 +268,9 @@ final class ManagedProfileWipe {
       );
       _legacy ??= LegacyProfilePreferencesRetirement.forWorker(worker, _source);
       Future<void> retire() async {
-        await _background!.verifyReleasedResources();
+        await _verifyCaptureResources();
         await Future.wait<void>([_vault!.retire(), _legacy!.retire()]);
-        await _background!.verifyReleasedResources();
+        await _verifyCaptureResources();
       }
 
       if (!_managedRemoved) {
@@ -315,6 +332,7 @@ final class ManagedProfileWipe {
     // owner's lost successful reply. A separate token probe could reject that
     // legitimate retry after native admission was already released.
     await _background!.releaseAdmission();
+    _captureRetirement!.releaseAdmission();
     _backgroundAdmitted = true;
   }
 

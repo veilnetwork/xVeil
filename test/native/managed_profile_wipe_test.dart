@@ -13,6 +13,10 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:xveil/core/quick_unlock_vault.dart';
 import 'package:xveil/core/background_service_lifetime.dart';
 import 'package:xveil/core/android_microphone_lifetime.dart';
+import 'package:xveil/core/capture_resource_lifetime.dart';
+import 'package:xveil/state/android_camera_capture.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart';
+import '../support/camera_retirement_platform.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -324,6 +328,7 @@ void main() {
   });
   tearDown(() async {
     AndroidMicrophoneLifetime.debugReset();
+    CaptureResourceLifetime.resetForTesting();
     if (modelGate != null && !modelGate!.isCompleted) modelGate!.complete();
     app.dispose();
     await owner.close();
@@ -784,6 +789,39 @@ void main() {
       expect(session.existsSync(), isFalse);
       expect(File(legacy).existsSync(), isFalse);
       expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+
+  test(
+    'registered camera refusal preserves payloads and retry reaches same native id',
+    () async {
+      final previous = CameraPlatform.instance;
+      final platform = RetirementCameraPlatform();
+      CameraPlatform.instance = platform;
+      final capture = AndroidCameraCapture();
+      addTearDown(() async {
+        platform.refuseDispose = false;
+        await capture.retire();
+        CameraPlatform.instance = previous;
+      });
+      expect(
+        await capture.startAndroid420((_, _, _, _, _, _, _, _, _, _) => true),
+        isTrue,
+      );
+      platform.refuseDispose = true;
+      await expectLater(
+        controller.wipeContainers(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(File(legacy).existsSync(), isTrue);
+      expect(vault.values, hasLength(6));
+      expect(platform.errors, hasLength(1));
+      platform.refuseDispose = false;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(platform.errors, isEmpty);
+      expect(platform.disposals, 2);
+      expect(File(legacy).existsSync(), isFalse);
     },
   );
 

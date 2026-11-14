@@ -1,0 +1,100 @@
+import 'dart:async';
+import 'package:camera/camera.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart'
+    show CameraPlatform;
+import '../core/capture_resource_lifetime.dart';
+
+/// Bounded error text: platform labels, ids and messages stay on device.
+final class CameraCaptureRetirementFailure implements Exception {
+  const CameraCaptureRetirementFailure();
+  @override
+  String toString() => 'CameraCaptureRetirementFailure';
+}
+
+/// CameraController.dispose marks itself disposed before awaiting the platform.
+/// Repeating that wrapper after a lost/failed native close is a no-op. Retain
+/// the exact backend/id and retry the platform operation, never the wrapper.
+final class OwnedCameraController implements CaptureResource {
+  OwnedCameraController._(
+    this.controller,
+    this.platform,
+    this._lifetime,
+    this._automatic,
+  );
+  static final _owners = Expando<OwnedCameraController>();
+  final CaptureResourceLifetime _lifetime;
+  final bool _automatic;
+
+  static OwnedCameraController? tryOwn(
+    CameraController controller, {
+    required CaptureResourceLifetime lifetime,
+    bool automaticRetirement = true,
+  }) {
+    final platform = CameraPlatform.instance;
+    if (_owners[platform] != null) return null;
+    final owner = OwnedCameraController._(
+      controller,
+      platform,
+      lifetime,
+      automaticRetirement,
+    );
+    if (!lifetime.admit(owner)) return null;
+    _owners[platform] = owner;
+    return owner;
+  }
+
+  @override
+  Future<void> retire() {
+    if (_released) return Future.value();
+    // Attachment capture also owns pending output/files. Its widget must drain
+    // those before closing this lease; a camera-only proof cannot stand in.
+    if (!_automatic) {
+      return Future.error(const CameraCaptureRetirementFailure());
+    }
+    return close();
+  }
+
+  final CameraController controller;
+  final CameraPlatform platform;
+  bool _attempted = false, _released = false;
+  Future<void>? _closing;
+
+  Future<void> close() {
+    if (_released) return Future.value();
+    final pending = _closing;
+    if (pending != null) return pending;
+    final result = Completer<void>();
+    _closing = result.future;
+    unawaited(() async {
+      try {
+        if (!identical(_owners[platform], this)) {
+          throw const CameraCaptureRetirementFailure();
+        }
+        if (!_attempted) {
+          _attempted = true;
+          try {
+            if (controller.value.isStreamingImages) {
+              await controller.stopImageStream();
+            }
+          } catch (_) {
+            // Always attempt native disposal even if stream cancellation fails.
+          }
+          await controller.dispose();
+        } else {
+          final id = controller.cameraId;
+          if (id < 0) throw const CameraCaptureRetirementFailure();
+          await platform.dispose(id);
+        }
+        _released = true;
+        if (identical(_owners[platform], this)) _owners[platform] = null;
+        _lifetime.forget(this);
+        result.complete();
+      } catch (_) {
+        result.completeError(const CameraCaptureRetirementFailure());
+      } finally {
+        _closing = null;
+      }
+    }());
+    return result.future;
+  }
+}

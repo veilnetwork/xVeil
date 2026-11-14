@@ -6,6 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
+import 'owned_camera_controller.dart';
+
+export 'owned_camera_controller.dart' show CameraCaptureRetirementFailure;
 
 /// Receives one captured frame as tightly-packed I420 (y=w*h, u=v=cw*ch).
 typedef I420FrameSink =
@@ -58,7 +62,7 @@ int preferredExactCameraFps(Iterable<int> available) {
 /// a padded 16KB onion cell. Direct P2P uses the medium capture preset and lets
 /// WebRTC adapt it under the larger route-specific bitrate budget.
 /// One capturer per live call.
-class AndroidCameraCapture {
+class AndroidCameraCapture implements CaptureResource {
   AndroidCameraCapture({
     this.highQuality = false,
     this.requestedCameraId,
@@ -66,7 +70,10 @@ class AndroidCameraCapture {
     // a decision. Without a seam the supersede rule below can only be tested by
     // owning a camera, and it is a rule about awaits, not about hardware.
     @visibleForTesting Future<List<CameraDescription>> Function()? listCameras,
-  }) : _listCameras = listCameras ?? availableCameras;
+    @visibleForTesting this.onWorkerExit,
+    CaptureResourceLifetime? captureLifetime,
+  }) : _listCameras = listCameras ?? availableCameras,
+       _captureLifetime = captureLifetime ?? CaptureResourceLifetime.current();
 
   /// Direct P2P can afford a 720p capture source that WebRTC scales/adapts;
   /// padded onion media keeps the old low-resolution source.
@@ -77,6 +84,9 @@ class AndroidCameraCapture {
   /// must never silently open a different lens when it is unavailable.
   final String? requestedCameraId;
   final Future<List<CameraDescription>> Function() _listCameras;
+  final CaptureResourceLifetime _captureLifetime;
+  @visibleForTesting
+  final VoidCallback? onWorkerExit;
 
   /// Which start this is.
   ///
@@ -96,12 +106,20 @@ class AndroidCameraCapture {
 
   /// The start in flight, so `stop()` can WAIT for it rather than race it.
   Future<bool>? _starting;
+  final _acceptedStarts = <Future<bool>>{};
+  final _controllers = <CameraController, OwnedCameraController>{};
+  Future<void>? _stopping, _tearingDown, _retiring;
+  bool _retired = false;
 
   CameraController? _ctrl;
   String? get cameraId => _ctrl?.description.name;
   int _rotCw = 0; // clockwise rotation to make the frame upright (0/90/180/270)
   Isolate? _worker;
   ReceivePort? _workerResults;
+  ReceivePort? _workerExit;
+  StreamSubscription<Object?>? _workerExitSubscription;
+  Future<void>? _workerExited;
+  bool _workerLaunching = false;
   StreamSubscription<Object?>? _workerSubscription;
   SendPort? _workerJobs;
   I420FrameSink? _sink;
@@ -129,11 +147,30 @@ class AndroidCameraCapture {
   }
 
   Future<bool> _start({I420FrameSink? i420Sink, Android420FrameSink? rawSink}) {
-    final started = _startOnce(i420Sink: i420Sink, rawSink: rawSink);
-    _starting = started;
-    return started.whenComplete(() {
-      if (identical(_starting, started)) _starting = null;
-    });
+    if (_retired || !_captureLifetime.admit(this)) return Future.value(false);
+    final pending = _starting;
+    if (pending != null) return pending;
+    if (_stopping != null || _controllers.isNotEmpty || _worker != null) {
+      return Future.value(false);
+    }
+    final result = Completer<bool>();
+    _starting = result.future;
+    _acceptedStarts.add(result.future);
+    _startOnce(i420Sink: i420Sink, rawSink: rawSink).then(
+      (value) {
+        _starting = null;
+        _acceptedStarts.remove(result.future);
+        _forgetIfIdle();
+        result.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        _starting = null;
+        _acceptedStarts.remove(result.future);
+        _forgetIfIdle();
+        result.completeError(error, stack);
+      },
+    );
+    return result.future;
   }
 
   Future<bool> _startOnce({
@@ -158,7 +195,10 @@ class AndroidCameraCapture {
       // Missing/rejected selection must not leave an unused converter isolate.
       // Open it only once we know which physical camera will be attempted.
       if (i420Sink != null) await _startWorker(i420Sink);
-      if (gen != _generation) return false;
+      if (gen != _generation) {
+        await _teardown();
+        return false;
+      }
       // Camera frames arrive in sensor orientation; rotate them clockwise by
       // sensorOrientation so the far side sees an upright image. (Device-checked:
       // the front sensor here reports 90 -> a 90° CW rotation lands upright; the
@@ -173,10 +213,13 @@ class AndroidCameraCapture {
       // Superseded while the controller was opening. Nobody is holding this
       // capturer any more, so publishing the controller would hand the camera
       // to no one — `_openController` has already closed it.
-      if (ctrl == null) return false;
+      if (ctrl == null) {
+        await _teardown();
+        return false;
+      }
       if (gen != _generation) {
         try {
-          await ctrl.dispose();
+          await _closeController(ctrl);
         } catch (_) {}
         return false;
       }
@@ -236,7 +279,30 @@ class AndroidCameraCapture {
       _outputFrames++;
       activeSink(y, u, v, message.width, message.height);
     });
-    _worker = await Isolate.spawn(_cameraFrameWorker, results.sendPort);
+    final exited = Completer<void>();
+    final exit = ReceivePort();
+    _workerExit = exit;
+    _workerExited = exited.future;
+    _workerExitSubscription = exit.listen((_) {
+      if (!exited.isCompleted) {
+        onWorkerExit?.call();
+        exited.complete();
+      }
+    });
+    _workerLaunching = true;
+    try {
+      _worker = await Isolate.spawn(
+        _cameraFrameWorker,
+        results.sendPort,
+        onExit: exit.sendPort,
+      );
+    } catch (_) {
+      // No isolate was returned. There is no worker whose exit can be awaited.
+      if (!exited.isCompleted) exited.complete();
+      rethrow;
+    } finally {
+      _workerLaunching = false;
+    }
     _workerJobs = await ready.future.timeout(const Duration(seconds: 3));
   }
 
@@ -287,11 +353,21 @@ class AndroidCameraCapture {
         fps: fps,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
+      final owner = OwnedCameraController.tryOwn(
+        ctrl,
+        lifetime: _captureLifetime,
+      );
+      if (owner == null) {
+        await ctrl
+            .dispose(); // Not initialized: no platform resource was acquired.
+        return null;
+      }
+      _controllers[ctrl] = owner;
       try {
         await ctrl.initialize();
         if (gen != _generation) {
           try {
-            await ctrl.dispose();
+            await _closeController(ctrl);
           } catch (_) {}
           return null;
         }
@@ -305,7 +381,7 @@ class AndroidCameraCapture {
       } catch (error) {
         lastError = error;
         try {
-          await ctrl.dispose();
+          await _closeController(ctrl);
         } catch (_) {}
       }
     }
@@ -391,25 +467,36 @@ class AndroidCameraCapture {
   /// await (report24 MEDIA-1).
   static const Duration stopStartGrace = Duration(seconds: 2);
 
-  Future<void> stop() async {
-    // END THE CURRENT START FIRST, before anything is torn down: a start still
-    // walking its awaits has to learn it has been superseded before it can
-    // publish a controller, and this is the only thing that tells it.
+  Future<void> stop() {
+    _fence();
+    final pending = _stopping;
+    if (pending != null) return pending;
+    final result = Completer<void>();
+    _stopping = result.future;
+    _stopBounded().then(
+      (_) {
+        _stopping = null;
+        _forgetIfIdle();
+        result.complete();
+      },
+      onError: (Object error, StackTrace stack) {
+        _stopping = null;
+        _forgetIfIdle();
+        result.completeError(error, stack);
+      },
+    );
+    return result.future;
+  }
+
+  void _fence() {
     _generation++;
-    // THE FENCE, and it is synchronous on purpose: from this line no frame can
-    // reach the engine, whatever the platform does afterwards. Everything else
-    // here is allowed to be slow because of it — a bounded wait that left the
-    // sinks attached would only move the crash to a disposed engine.
     _sink = null;
     _rawSink = null;
+  }
+
+  Future<void> _stopBounded() async {
     final starting = _starting;
     if (starting != null) {
-      // It will stop at its next check; waiting means the teardown below runs
-      // after it has released whatever it opened, instead of racing it. Bounded
-      // because "at its next check" needs the platform to answer, and it may
-      // not: a superseded start disposes whatever it opened by itself
-      // (`_startOnce` checks the generation after every await), so leaving it
-      // behind leaks nothing.
       try {
         await starting.timeout(stopStartGrace);
       } catch (_) {}
@@ -417,7 +504,68 @@ class AndroidCameraCapture {
     await _teardown();
   }
 
-  Future<void> _teardown() async {
+  /// Stronger than normal hangup's bounded stop: seal this source permanently
+  /// and join ALL accepted starts, every known controller close and the actual
+  /// converter-isolate exit. No timeout is interpreted as absence. Platform
+  /// acknowledgements still need independent device qualification; this port
+  /// alone is not permission to erase an entire profile.
+  @override
+  Future<void> retire() {
+    _retired = true;
+    _fence();
+    final pending = _retiring;
+    if (pending != null) return pending;
+    final result = Completer<void>();
+    _retiring = result.future;
+    unawaited(() async {
+      try {
+        await Future.wait(
+          _acceptedStarts.toList().map((work) async {
+            try {
+              await work;
+            } catch (_) {}
+          }),
+        );
+        final stopping = _stopping;
+        if (stopping != null) {
+          try {
+            await stopping;
+          } catch (_) {}
+        }
+        await _teardown();
+        _captureLifetime.forget(this);
+        result.complete();
+      } catch (_) {
+        result.completeError(const CameraCaptureRetirementFailure());
+      } finally {
+        _retiring = null;
+      }
+    }());
+    return result.future;
+  }
+
+  void _forgetIfIdle() {
+    if (_acceptedStarts.isEmpty &&
+        _controllers.isEmpty &&
+        _worker == null &&
+        !_workerLaunching &&
+        _workerResults == null &&
+        _tearingDown == null &&
+        _stopping == null) {
+      _captureLifetime.forget(this);
+    }
+  }
+
+  Future<void> _closeController(CameraController controller) async {
+    final owner = _controllers[controller];
+    if (owner == null) return;
+    await owner.close();
+    _controllers.remove(controller);
+  }
+
+  Future<void> _teardown() {
+    final pending = _tearingDown;
+    if (pending != null) return pending;
     _sink = null;
     _rawSink = null;
     final c = _ctrl;
@@ -425,22 +573,45 @@ class AndroidCameraCapture {
     if (identical(androidCallCameraPreviewController.value, c)) {
       androidCallCameraPreviewController.value = null;
     }
-    if (c != null) {
+    final result = Completer<void>();
+    _tearingDown = result.future;
+    unawaited(() async {
+      Object? failure;
       try {
-        if (c.value.isStreamingImages) await c.stopImageStream();
-      } catch (_) {}
+        await Future.wait(_controllers.keys.toList().map(_closeController));
+      } catch (error) {
+        failure = error;
+      }
       try {
-        await c.dispose();
-      } catch (_) {}
-    }
-    _workerJobs = null;
-    _workerBusy = false;
-    _worker?.kill(priority: Isolate.immediate);
-    _worker = null;
-    await _workerSubscription?.cancel();
-    _workerSubscription = null;
-    _workerResults?.close();
-    _workerResults = null;
+        _workerJobs = null;
+        _workerBusy = false;
+        // A bounded ordinary stop may land while spawn itself is pending.
+        // The fenced start will clean its late worker; retire joins that start.
+        if (!_workerLaunching) {
+          _worker?.kill(priority: Isolate.immediate);
+          await _workerExited;
+          _worker = null;
+          await _workerSubscription?.cancel();
+          _workerSubscription = null;
+          _workerResults?.close();
+          _workerResults = null;
+          await _workerExitSubscription?.cancel();
+          _workerExitSubscription = null;
+          _workerExit?.close();
+          _workerExit = null;
+          _workerExited = null;
+        }
+      } catch (error) {
+        failure = error;
+      }
+      _tearingDown = null;
+      if (failure == null) {
+        result.complete();
+      } else {
+        result.completeError(const CameraCaptureRetirementFailure());
+      }
+    }());
+    return result.future;
   }
 }
 

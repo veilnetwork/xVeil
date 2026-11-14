@@ -10,6 +10,7 @@ import 'package:veil_media/veil_media.dart';
 import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/diagnostic_audio_output.dart';
 import '../core/ids.dart';
@@ -579,6 +580,7 @@ class VeilCallMediaController implements CallMediaController {
   AndroidNativeCallVideoRenderer? _androidVideoRenderer;
   AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
   final _microphoneForeground = AndroidCallForegroundService.bind();
+  final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final AndroidScreenCaptureFactory _screenCaptureFactory =
@@ -3416,6 +3418,7 @@ class VeilCallMediaController implements CallMediaController {
     _androidNativeCam = null;
     devLog(() => 'xVeil[call-media]: native Camera2 failed; plugin fallback');
     final cam = AndroidCameraCapture(
+      captureLifetime: _cameraLifetime,
       highQuality: highQuality,
       requestedCameraId: _selectedCameraId,
     );

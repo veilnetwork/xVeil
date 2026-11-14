@@ -17,9 +17,7 @@ void main() {
     // waited behind a camera — the call was over on screen with the microphone
     // still running.
     final hung = Completer<List<CameraDescription>>();
-    final capture = AndroidCameraCapture(
-      listCameras: () => hung.future,
-    );
+    final capture = AndroidCameraCapture(listCameras: () => hung.future);
 
     // Start, and leave it hanging inside `availableCameras`.
     unawaited(capture.start((_, _, _, _, _) {}));
@@ -31,7 +29,9 @@ void main() {
 
     expect(
       watch.elapsed,
-      lessThan(AndroidCameraCapture.stopStartGrace + const Duration(seconds: 1)),
+      lessThan(
+        AndroidCameraCapture.stopStartGrace + const Duration(seconds: 1),
+      ),
       reason: 'stop waited on a platform call that never answers',
     );
 
@@ -259,8 +259,9 @@ void main() {
       //
       // Watched fail: deleting the check after the camera list, and deleting
       // the generation bump in stop(), each redden this.
-      final src = File('lib/state/android_camera_capture.dart')
-          .readAsStringSync();
+      final src = File(
+        'lib/state/android_camera_capture.dart',
+      ).readAsStringSync();
 
       final start = body(src, 'Future<bool> _startOnce({');
       expect(
@@ -289,18 +290,18 @@ void main() {
             'not hand back a live controller',
       );
 
-      final stop = body(src, 'Future<void> stop() async {');
+      final stop = body(src, 'Future<void> stop() {');
+      final fence = body(src, 'void _fence() {');
       expect(
-        stop,
+        fence,
         contains('_generation++'),
         reason: 'stop does not end the current start, so nothing supersedes it',
       );
       expect(
-        stop.indexOf('_generation++'),
-        lessThan(stop.indexOf('await starting')),
+        stop.indexOf('_fence()'),
+        lessThan(stop.indexOf('_stopBounded()')),
         reason:
-            'the generation is ended AFTER the wait, so the start it waits for '
-            'still believes it is the current one and publishes its controller',
+            'the stop must fence synchronously before entering its bounded wait',
       );
     });
 
@@ -308,10 +309,12 @@ void main() {
       // Vacuity guard: both tests above pass on a start that does nothing at
       // all. This one shows the seam is really reached.
       var asked = 0;
-      final cam = AndroidCameraCapture(listCameras: () async {
-        asked++;
-        return const <CameraDescription>[];
-      });
+      final cam = AndroidCameraCapture(
+        listCameras: () async {
+          asked++;
+          return const <CameraDescription>[];
+        },
+      );
       expect(await cam.startAndroid420(noFrames), isFalse); // no cameras
       expect(asked, 1);
       await cam.stop();

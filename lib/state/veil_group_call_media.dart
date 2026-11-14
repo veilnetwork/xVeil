@@ -9,6 +9,7 @@ import 'package:veil_media/veil_media.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../core/capture_resource_lifetime.dart';
 import '../core/diagnostic_audio_output.dart';
 import '../core/diagnostic_journal.dart';
 import '../data/transport/veil_flutter_transport.dart';
@@ -437,6 +438,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
   final _microphoneForeground = AndroidCallForegroundService.bind();
+  final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
@@ -1682,7 +1684,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {
     if (_androidCamera != null) return;
-    final camera = AndroidCameraCapture();
+    final camera = AndroidCameraCapture(captureLifetime: _cameraLifetime);
     _androidCamera = camera;
     final started = await camera.start((y, u, v, width, height) {
       if (_engine != engine || !_videoRunning) return;
