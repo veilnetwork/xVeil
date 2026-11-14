@@ -17,6 +17,7 @@ import '../features/identity/identity_setup_recovery_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
+import '../features/bootstrap/profile_erasure_recovery_screen.dart';
 import '../features/network/managed_nodes_screen.dart';
 import '../features/network/network_screen.dart';
 import '../features/network/peers_screen.dart';
@@ -80,6 +81,10 @@ String? redirectForPhase(AppPhase phase, String location) {
       return location == '/identity-setup-recovery'
           ? null
           : '/identity-setup-recovery';
+    case AppPhase.profileErasureRecovery:
+      return location == '/profile-erasure-recovery'
+          ? null
+          : '/profile-erasure-recovery';
     case AppPhase.identityEraseRecovery:
       return location == '/identity-erase-recovery'
           ? null
@@ -101,6 +106,7 @@ String? redirectForPhase(AppPhase phase, String location) {
           location == '/lock' ||
           location == '/onboarding' ||
           location == '/pick-identity' ||
+          location == '/profile-erasure-recovery' ||
           location == '/identity-erase-recovery' ||
           location == '/identity-setup-recovery' ||
           location == '/preparing') {
@@ -216,6 +222,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           builder: (_, _) => const OnboardingScreen(),
         ),
       GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
+      GoRoute(
+        path: '/profile-erasure-recovery',
+        builder: (_, _) => const ProfileErasureRecoveryScreen(),
+      ),
       GoRoute(
         path: '/pick-identity',
         builder: (_, _) => const IdentityPickerScreen(),

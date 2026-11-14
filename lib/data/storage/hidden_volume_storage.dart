@@ -144,6 +144,7 @@ class HiddenVolumeStorage
     implements
         Storage,
         StorageOpeningOwner,
+        StorageRetirementOwner,
         StorageUsageSource,
         OwnedStorageReclamation,
         StorageInitializationSource,
@@ -229,15 +230,30 @@ class HiddenVolumeStorage
   // retry. Never open another identity until this handle confirms release.
   AsyncKvLogStore? _retiringStore;
   Future<bool>? _openingStore;
+  bool _openingRetired = false;
+
+  @override
+  void retireOpening() => _openingRetired = true;
 
   Future<bool> _trackOpening(Future<bool> Function() action) {
+    if (_openingRetired) {
+      return Future.error(StateError('storage facade has retired'));
+    }
     if (_openingStore != null) {
       return Future.error(StateError('storage opening is already in progress'));
     }
     late final Future<bool> result;
-    result = action().whenComplete(() {
-      if (identical(_openingStore, result)) _openingStore = null;
-    });
+    result = action()
+        .then((opened) async {
+          if (_openingRetired) {
+            await close();
+            throw StateError('storage facade has retired');
+          }
+          return opened;
+        })
+        .whenComplete(() {
+          if (identical(_openingStore, result)) _openingStore = null;
+        });
     _openingStore = result;
     return result;
   }

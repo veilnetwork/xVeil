@@ -161,10 +161,13 @@ final class LegacyProfilePreferencesRetirement {
     }
   }
   final LegacyProfilePreferences _source;
+  final SharedPreferencesStorePlatform _bootstrapBackend =
+      SharedPreferencesStorePlatform.instance;
   final ManagedErasureScopeLease _lease;
   final ManagedErasureBinding _binding;
   Future<void>? _pending;
   bool _verified = false, _released = false;
+  bool _bootstrapRunning = false, _bootstrapCompleted = false;
 
   void _requireBound() {
     _source._requireCurrent();
@@ -241,6 +244,33 @@ final class LegacyProfilePreferencesRetirement {
     quiescent();
     await _source.verifyAbsent();
     quiescent();
+  }
+
+  /// The original platform source is available to the fresh installer only
+  /// after this exact erasure has released and detached its old lifetime.
+  /// Never substitute the retired global file backend for the platform source.
+  Future<T> bootstrapFresh<T>(
+    ManagedErasureRelease release,
+    Future<T> Function(SharedPreferencesStorePlatform backend) install,
+  ) async {
+    if (!_released ||
+        !release.authorizes(_binding) ||
+        _bootstrapRunning ||
+        _bootstrapCompleted ||
+        !identical(
+          SharedPreferencesStorePlatform.instance,
+          _bootstrapBackend,
+        )) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+    _bootstrapRunning = true;
+    try {
+      final result = await install(_source._backend);
+      _bootstrapCompleted = true;
+      return result;
+    } finally {
+      _bootstrapRunning = false;
+    }
   }
 
   void admitFreshLifetime(ManagedErasureRelease release) {

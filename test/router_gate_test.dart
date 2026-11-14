@@ -16,7 +16,33 @@ void main() {
     '/preparing',
     '/identity-erase-recovery',
     '/identity-setup-recovery',
+    '/profile-erasure-recovery',
   ];
+
+  test('whole-profile erasure pins every ordinary route until completion', () {
+    for (final path in [
+      ...protected,
+      '/settings',
+      '/lock',
+      '/manage-identities',
+      '/profile-erasure-recovery',
+    ]) {
+      expect(
+        redirectForPhase(AppPhase.profileErasureRecovery, path),
+        path == '/profile-erasure-recovery'
+            ? null
+            : '/profile-erasure-recovery',
+      );
+    }
+    expect(
+      redirectForPhase(AppPhase.ready, '/profile-erasure-recovery'),
+      '/home',
+    );
+    expect(
+      redirectForPhase(AppPhase.onboarding, '/profile-erasure-recovery'),
+      '/onboarding',
+    );
+  });
 
   test('setup recovery pins deep links and ready leaves its screen', () {
     for (final path in [

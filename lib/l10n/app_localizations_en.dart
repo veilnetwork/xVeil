@@ -190,6 +190,10 @@ class AppL10nEn extends AppL10n {
       'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password.';
 
   @override
+  String get profileWipeBody =>
+      'This permanently deletes all identities in this profile, including hidden, encrypted and unencrypted storage, along with their data, settings, saved sign-in and downloaded models. Other profiles and external folders are preserved.';
+
+  @override
   String get lockWipeTypePrompt =>
       'To confirm permanent deletion, type this phrase exactly:';
 

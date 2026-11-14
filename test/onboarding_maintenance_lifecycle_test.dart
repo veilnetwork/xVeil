@@ -1,3 +1,4 @@
+import 'support/retirement_secret_store.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -18,6 +19,7 @@ import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
@@ -165,6 +167,7 @@ _fixture(_Stage stage, {bool deniable = false}) async {
   addTearDown(transport.dispose);
   final container = ProviderContainer(
     overrides: [
+      quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
       appControllerProvider.overrideWith(() => controller),
       singleSpaceStorageProvider.overrideWithValue(storage),
       nodeControllerProvider.overrideWithValue(_Node()),

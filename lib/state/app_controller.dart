@@ -27,6 +27,12 @@ import '../data/storage/container_rewrite_files.dart';
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/prefs_rollback_anchor.dart';
 import '../data/storage/storage.dart';
+import '../data/storage/managed_profile_wipe.dart';
+import '../data/storage/profile_preferences.dart';
+import '../data/storage/profile_storage_router_owner.dart';
+import '../core/local_authentication.dart';
+import 'locale_controller.dart';
+import 'theme_controller.dart';
 import '../data/storage/roster_identity_erase.dart';
 import '../data/veil_stack.dart';
 import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
@@ -100,6 +106,10 @@ enum AppPhase {
   /// Authenticated incomplete setup. Ordinary views and writes are forbidden.
   identitySetupRecovery,
 
+  /// Explicit whole-profile deletion. Ordinary storage admission stays sealed
+  /// across failures; only retry or a fresh lifetime after release may proceed.
+  profileErasureRecovery,
+
   /// Space unlocked, node starting/connected — show the messenger.
   ready,
 }
@@ -117,9 +127,11 @@ class AppState {
     this.identities = const [],
     this.activeIdentity,
     this.preparingReason = PreparingReason.node,
+    this.erasureBusy = false,
   });
 
   final AppPhase phase;
+  final bool erasureBusy;
   final Identity? identity;
   final bool unlockError;
 
@@ -146,6 +158,7 @@ class AppState {
     List<String>? identities,
     String? activeIdentity,
     PreparingReason? preparingReason,
+    bool? erasureBusy,
   }) => AppState(
     phase ?? this.phase,
     identity: identity ?? this.identity,
@@ -153,6 +166,7 @@ class AppState {
     identities: identities ?? this.identities,
     activeIdentity: activeIdentity ?? this.activeIdentity,
     preparingReason: preparingReason ?? PreparingReason.node,
+    erasureBusy: erasureBusy ?? this.erasureBusy,
   );
 }
 
@@ -445,13 +459,14 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _bootstrap() async {
+    final generation = _lifecycle;
     final prefs = await ref.read(prefsProvider.future);
     // Reading preferences is an async gap, and the controller can be disposed
     // inside it — a window closed during launch, an identity switch that
     // rebuilds the provider. Assigning state afterwards throws out of a future
     // nobody awaits, which surfaces as an unhandled error rather than as
     // anything a person could act on.
-    if (!ref.mounted) return;
+    if (!ref.mounted || _supersededSince(generation)) return;
     final onboarded =
         (prefs.getBool(_onboardedKey()) ?? false) ||
         (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
@@ -1260,6 +1275,7 @@ class AppController extends Notifier<AppState> {
   /// restart. One unlock at a time; latecomers are dropped (the in-flight run
   /// ends in ready/locked either way).
   bool _unlockInFlight = false;
+  Completer<void>? _unlockSettled;
   // Wipe waits for the complete reopening. StartOver only needs its accepted
   // marker write to settle before clearing prefs, not an unrelated node boot.
   Future<void>? _reopenInFlight;
@@ -1540,11 +1556,14 @@ class AppController extends Notifier<AppState> {
       devLog(() => 'xVeil[unlock]: ignored — an unlock is already in flight');
       return;
     }
+    final settled = _unlockSettled = Completer<void>();
     _unlockInFlight = true;
     try {
       await _unlockInner(password);
     } finally {
       _unlockInFlight = false;
+      if (identical(_unlockSettled, settled)) _unlockSettled = null;
+      settled.complete();
     }
   }
 
@@ -2444,6 +2463,9 @@ class AppController extends Notifier<AppState> {
   /// Forgetting a native Future does not cancel it: an opener can create the
   /// file, and a compactor can rename its replacement over the path afterwards.
   Future<void> waitForCompaction() async {
+    // A boot can own native work before it has any published stack/session.
+    // Join its complete unlock/rollback, not only the container opening.
+    await _unlockSettled?.future;
     await _reopenInFlight;
     await _onboardingInFlight;
     await _identityEditInFlight;
@@ -5657,6 +5679,9 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> lock() async {
+    if (_managedWipeSealed) {
+      throw const ManagedProfileWipeFailure();
+    }
     _endingSessions++;
     try {
       await _lockOwned();
@@ -6057,6 +6082,9 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    if (_managedWipeSealed) {
+      throw const ManagedProfileWipeFailure();
+    }
     _endingSessions++;
     try {
       await _startOverOwned();
@@ -6236,9 +6264,123 @@ class AppController extends Notifier<AppState> {
     return completed.future;
   }
 
+  ManagedProfileWipe? _managedWipe;
+  bool _managedWipeSealed = false;
+  Future<void>? _managedModelDrain;
+
+  Future<List<String>> _wipeManagedProfile(
+    ProfileStorageRouterOwner owner,
+  ) async {
+    try {
+      if (_managedWipe == null) {
+        final preferences = ProfilePreferencesLifetime.current();
+        final source = preferences.legacyPreferences;
+        if (source == null) {
+          // An unbound/mocked preference backend cannot authorize whole-profile
+          // deletion, including an otherwise empty managed catalog.
+          throw StateError('managed storage requires owned profile erasure');
+        }
+        if (!_managedWipeSealed) {
+          _managedWipeSealed = true;
+          _endingSessions++;
+          _endLifecycle();
+          _stopMediaCapture();
+          _managedModelDrain = ref.read(profileModelWorkProvider).retire();
+        }
+        state = const AppState(
+          AppPhase.profileErasureRecovery,
+          erasureBusy: true,
+        );
+        final runtime = ref.read(deniableBootProvider)?.runtimeDir;
+        Future<void> verifyRuntime() async {
+          if (runtime != null &&
+              FileSystemEntity.typeSync(runtime, followLinks: false) !=
+                  FileSystemEntityType.notFound) {
+            throw const ManagedProfileWipeFailure();
+          }
+        }
+
+        final job = _managedWipe = ManagedProfileWipe(
+          router: owner,
+          preferences: preferences,
+          source: source,
+          secretStore: ref.read(quickUnlockSecretStoreProvider),
+          authentication: ref.read(localScreenAuthenticationProvider),
+          verifyOtherDataAbsent: verifyRuntime,
+          quiesce: () async {
+            _incomplete.clear();
+            Future<void> leg(String name, Future<void> Function() work) async {
+              try {
+                await work();
+              } catch (_) {
+                _incomplete.add('leg:$name');
+              }
+            }
+
+            await leg('vpn', _stopVpnTunnelRecorded);
+            await leg(
+              'notifications',
+              () => ref.read(notificationServiceProvider).cancelAll(),
+            );
+            ref.read(opaqueNotificationPayloadsProvider).clear();
+            ref.read(notificationOwnersProvider).clear();
+            ref.read(screenLockProvider.notifier).forgetSession();
+            takePendingIdentityPhrase();
+            await leg('session', _teardownSession);
+            await leg('node', _teardownRealStack);
+            await leg('background', _stopBackgroundService);
+            await leg('accepted-work', waitForCompaction);
+            await leg('late-session', _drainRetiringSessions);
+            await leg('model-work', () async => await _managedModelDrain);
+            await leg('storage', () => ref.read(storageProvider).close());
+            await leg('runtime', _cleanRuntimeBase);
+            _clearMasterSession();
+            _lastTeardown = TeardownOutcome(List.unmodifiable(_incomplete));
+            if (_incomplete.isNotEmpty) throw const ManagedProfileWipeFailure();
+          },
+        );
+        ref.onDispose(() => unawaited(job.close().catchError((Object _) {})));
+      }
+      state = const AppState(
+        AppPhase.profileErasureRecovery,
+        erasureBusy: true,
+      );
+      await _managedWipe!.resume();
+      if (!ref.mounted) throw const ManagedProfileWipeFailure();
+      // Every old facade stays sealed. Only fresh preferences, router storage
+      // and model admission are published after the actual native release.
+      ref.invalidate(prefsProvider);
+      ref.invalidate(quickUnlockVaultProvider);
+      ref.invalidate(startupUnlockOptionsProvider);
+      ref.invalidate(profileModelWorkProvider);
+      ref.invalidate(whisperModelControllerProvider);
+      ref.invalidate(translationModelsControllerProvider);
+      ref.invalidate(localeProvider);
+      ref.invalidate(themeProvider);
+      ref.invalidate(backgroundNodeProvider);
+      ref.invalidate(keepAllOnlineProvider);
+      ref.invalidate(proxyRoutingProvider);
+      ref.invalidate(vpnControllerProvider);
+      _publishStorageRoute();
+      await ref.read(prefsProvider.future);
+      _managedWipeSealed = false;
+      _endingSessions--;
+      _managedWipe = null;
+      _managedModelDrain = null;
+      state = const AppState(AppPhase.onboarding);
+      return const [];
+    } catch (_) {
+      if (_managedWipeSealed && ref.mounted) {
+        state = const AppState(AppPhase.profileErasureRecovery);
+      }
+      rethrow;
+    }
+  }
+
   Future<List<String>> _wipeContainersOwned() async {
-    if (ref.read(profileStorageRouterOwnerProvider) != null ||
-        ref.read(profileStorageRouterProvider) != null) {
+    final owner = ref.read(profileStorageRouterOwnerProvider);
+    if (owner != null) return _wipeManagedProfile(owner);
+    if (ref.read(profileStorageRouterProvider) != null) {
       // An empty visible catalog may still coexist with a hidden container.
       // Every managed profile needs the full owned-erasure protocol; never
       // fall through to the legacy best-effort delete while its router lives.

@@ -50,6 +50,7 @@ final class ProfileStorageRouterOwner {
     if (pending != null) return pending;
     _available = false;
     _epoch++;
+    _router?.retireFacades();
     final result = _suspending = _enqueue(
       _release,
     ).whenComplete(() => _suspending = null);
@@ -92,6 +93,7 @@ final class ProfileStorageRouterOwner {
     _disposed = true;
     _available = false;
     _epoch++;
+    _router?.retireFacades();
     final result = _closing = _enqueue(() async {
       await _release();
       // A paused observer cannot hold up the native ownership release.

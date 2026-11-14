@@ -99,7 +99,29 @@ final class ProfileStorageRouter {
     return result;
   }
 
+  void _sealStores() {
+    for (final storage in _retiredStores) {
+      if (storage is StorageRetirementOwner) {
+        (storage as StorageRetirementOwner).retireOpening();
+      }
+    }
+  }
+
+  /// Synchronous admission seal; actual native release remains close()'s job.
+  void retireFacades() {
+    if (!_closing) {
+      _closing = true;
+      _epoch++;
+    }
+    final current = _storage;
+    if (current is StorageRetirementOwner) {
+      (current as StorageRetirementOwner).retireOpening();
+    }
+    _sealStores();
+  }
+
   Future<void> _retireStores() async {
+    _sealStores();
     for (final storage in _retiredStores.toList()) {
       if (storage is StorageOpeningOwner) {
         await (storage as StorageOpeningOwner).settleOpening();
@@ -276,8 +298,7 @@ final class ProfileStorageRouter {
 
   Future<void> close() {
     if (_closed) return Future.value();
-    _closing = true;
-    _epoch++;
+    retireFacades();
     _retiredRouters.add(this);
     return _closingJob ??= _enqueue(() async {
       final current = _storage;

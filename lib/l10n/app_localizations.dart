@@ -411,6 +411,12 @@ abstract class AppL10n {
   /// **'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password.'**
   String get lockWipeBody;
 
+  /// No description provided for @profileWipeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently deletes all identities in this profile, including hidden, encrypted and unencrypted storage, along with their data, settings, saved sign-in and downloaded models. Other profiles and external folders are preserved.'**
+  String get profileWipeBody;
+
   /// No description provided for @lockWipeTypePrompt.
   ///
   /// In en, this message translates to:
