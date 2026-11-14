@@ -103,9 +103,47 @@ final class ManagedRootErasure {
     owner.requireExclusiveMaintenance();
     final plan = await _RootErasePlan.capture(owner, catalog, unlockScopes);
     plan.validateTree(owner._coordinator);
+    _publishPlan(owner._coordinator, plan, owner.requireExclusiveMaintenance);
+  }
+
+  /// Explicit full-profile wipe without inventing a managed catalog. The
+  /// caller owns the permanent EXCLUSIVE role, including for hidden-only
+  /// profiles. The plan records root absence and the known OS scope names;
+  /// it never scans hidden storage. Caller retains/actually closes this role
+  /// after publication, then the explicit recovery actor owns continuation.
+  static Future<void> prepareAbsent(
+    StorageProfileCoordinator owner, {
+    required StorageUnlockScopes unlockScopes,
+  }) async {
+    try {
+      void requireHeld() => owner.requireHeld(exclusive: true);
+      requireHeld();
+      _ErasureCompletion.requireRootAbsent(owner);
+      final plan = _RootErasePlan(
+        owner._profileWitness.identity,
+        owner._directoryWitness.identity,
+        ManagedIdentityCatalog([]),
+        {},
+        unlockScopes,
+      );
+      _publishPlan(owner, plan, requireHeld);
+    } on FileSystemException catch (_, trace) {
+      Error.throwWithStackTrace(
+        const ManagedFsFailure(ManagedFsFailureKind.io),
+        trace,
+      );
+    }
+  }
+
+  static void _publishPlan(
+    StorageProfileCoordinator gate,
+    _RootErasePlan plan,
+    void Function() requirePreparationHeld,
+  ) {
+    requirePreparationHeld();
+    plan.validateTree(gate);
     final bytes = plan.encode();
-    final gate = owner._coordinator;
-    final fs = owner._fs;
+    final fs = gate._fs;
     final destination = ManagedDirectoryCatalog._child(
       gate.directory,
       pendingName,
@@ -133,7 +171,7 @@ final class ManagedRootErasure {
       file.writeAsBytesSync(bytes, flush: true);
       ManagedDirectoryCatalog._assertSame(file.path, files[_planName]!, fs);
       fs.syncDirectory(stage);
-      owner.requireExclusiveMaintenance();
+      requirePreparationHeld();
       plan.validateTree(gate);
       ManagedDirectoryCatalog._assertSame(stage, staged, fs);
       published = fs.publishDirectoryNoReplace(stage, destination);
@@ -426,8 +464,20 @@ final class _RootErasePlan {
     this.coordinator,
     this.catalog,
     this.entries,
-    this.unlockScopes,
-  );
+    this.unlockScopes, {
+    String? operation,
+  }) : operation = operation ?? _newOperation();
+  static String _newOperation() {
+    final random = Random.secure();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256),
+    ).map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// Distinguish successive empty-root intents even if filesystem object IDs
+  /// are reused. The plan digest carries this public nonce into release proofs.
+  final String operation;
   static const maxBytes = 8 * 1024 * 1024, maxEntries = 32768;
   final String profile, coordinator;
   final ManagedIdentityCatalog catalog;
@@ -551,7 +601,8 @@ final class _RootErasePlan {
     final result = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': 2,
+          'v': 3,
+          'operation': operation,
           'profile': profile,
           'coordinator': coordinator,
           'catalog': catalog.encode(),
@@ -571,9 +622,11 @@ final class _RootErasePlan {
       if (bytes.length > maxBytes) throw const FormatException();
       final raw = jsonDecode(utf8.decode(bytes));
       if (raw is! Map<String, dynamic> ||
-          raw.length != 6 ||
+          raw.length != 7 ||
           raw['v'] is! int ||
-          raw['v'] != 2 ||
+          raw['v'] != 3 ||
+          raw['operation'] is! String ||
+          !_id.hasMatch(raw['operation'] as String) ||
           raw['profile'] is! String ||
           raw['coordinator'] is! String ||
           raw['catalog'] is! String ||
@@ -591,7 +644,8 @@ final class _RootErasePlan {
         (raw['unlockScopes'] as List).cast<String>(),
       );
       final list = raw['entries'] as List;
-      if (list.isEmpty || list.length > maxEntries) {
+      if (list.length > maxEntries ||
+          list.isEmpty && catalog.identities.isNotEmpty) {
         throw const FormatException();
       }
       final entries = <String, _RootEraseEntry>{};
@@ -634,7 +688,7 @@ final class _RootErasePlan {
           }
         }
       }
-      if (entries['identities']?.directory != true) {
+      if (entries.isNotEmpty && entries['identities']?.directory != true) {
         throw const FormatException();
       }
       return _RootErasePlan(
@@ -643,6 +697,7 @@ final class _RootErasePlan {
         catalog,
         entries,
         scopes,
+        operation: raw['operation'] as String,
       );
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
@@ -687,7 +742,14 @@ final class _RootErasePlan {
   }
 
   void validateTree(StorageProfileCoordinator gate) {
+    gate.requireHeld(exclusive: true);
     validateBinding(gate);
+    if (entries.isEmpty) {
+      // An absent-root intent can never become authority to remove a later
+      // directory, file or link. This check also runs after enclosing awaits.
+      _ErasureCompletion.requireRootAbsent(gate);
+      return;
+    }
     for (final e in entries.values) {
       if (!validateEntry(gate, e) || !e.directory) continue;
       final expected = _children[e.path] ?? const <String>{};

@@ -1480,8 +1480,55 @@ an entirely fake OS vault, including wrong/replayed receipts, final-sync refusal
 terminal-only recovery, duplicate old owners, queued deletion, late reads and
 provider replacement. No real Keychain/Keystore or identity is used. These
 ports are ready for the full wipe binding; they do not themselves wire the
-legacy file/preferences cleanup, absent-root intent creation or pending-erasure
-startup UI. The managed destructive guard and new default remain disabled.
+legacy file/preferences cleanup, the owned erasure-worker integration or
+pending-erasure startup UI. The managed destructive guard and new default remain disabled.
+
+## Erasure when the enumerable root was never created
+
+`ManagedRootErasure.prepareAbsent` requires the existing permanent profile
+coordinator under an exclusive lifetime grant. It records absence without
+creating an ordinary catalog, identity, payload file or enumerable root. The
+same private no-replace publication path is used by both preparation variants.
+Each v3 plan also carries a fresh 128-bit public operation nonce. Its digest
+binds the final release proof even when successive empty-root plans otherwise
+have identical contents and the filesystem reuses the old directory number.
+The prior v2 shape has no such guarantee and is rejected, rather than silently
+upgraded or given fresh authorization. These unpublished feature formats have
+no automatic compatibility migration.
+
+The known saved-entry scope names remain durable even for a hidden-only profile;
+no hidden roster, hidden credentials or hidden-container contents are inspected.
+
+An empty `entries` inventory in the bounded v3 plan is valid only with an empty
+public catalog. It means the root **must remain absent**, including after the
+scope-retirement callback. A directory, regular file or link appearing there
+refuses publication/recovery/removal and is preserved. Recovery still binds the
+original profile/coordinator objects, blocks ordinary admission, repeats verified
+OS retirement and requires the enclosing cleanup verifier before terminal
+finalization and release. It does not treat missing managed files as proof that
+the legacy container, preferences or OS vault are empty.
+
+Focused host cases cover this contract, real role-file ownership,
+unchanged role files, no root initialization, unreadable saved-entry metadata,
+late foreign content, copied/malformed plans, publication failures and an actual
+fresh saved-entry lifetime with a fake OS store. A deliberate omission of the
+absence check makes three gate cases fail; this is a new-port integration
+control, not attribution to a released defect. A second negative case models
+ordinary directory-number reuse with real file I/O: the prior plan allowed an
+old release to authorize the next empty-root operation. The nonce closes that
+case; missing/invalid operation fields and the old format refuse intact.
+Eight actual writer SIGKILL
+boundaries cover before/after intent publication, after synthetic retirement,
+and all five terminal checkpoints. Before publication no data is deleted and
+unpublished staging remains for explicit ownership review. After publication,
+recovery completes the journaled protocol without manufacturing a catalog.
+
+The full wipe still needs an owned off-UI worker, cleanup of the selected legacy
+files/preferences/auxiliary payloads and abandoned staging with proved ownership,
+router replacement, and explicit pending/terminal startup recovery. Manual mixed
+maintenance/password rotation, master/unbound-child recovery, explicit migration
+and packaged-platform/real OS-vault qualification also remain. The new default
+and managed full-wipe application guard are unchanged.
 
 ## Implementation boundaries
 
