@@ -8,6 +8,8 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
+import 'package:xveil/state/android_screen_capture.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
@@ -814,6 +816,106 @@ void main() {
       expect(app.read(appControllerProvider).phase, AppPhase.onboarding);
     },
   );
+
+  test(
+    'projection stop refusal preserves profile payloads and key records',
+    () async {
+      const channel = MethodChannel('xveil/projection_erasure_refusal');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var refuse = true, stops = 0;
+      Object? session;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'start') {
+          session = (call.arguments as Map)['session'];
+          return true;
+        }
+        expect(call.method, 'stop');
+        expect((call.arguments as Map)['session'], session);
+        stops++;
+        if (refuse) {
+          throw PlatformException(code: 'synthetic_projection_refusal');
+        }
+        return null;
+      });
+      final projection = AndroidScreenCapture(
+        () {},
+        channel: channel,
+        isAndroid: true,
+      );
+      addTearDown(() async {
+        refuse = false;
+        await projection.stop();
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      expect(await projection.start((_, _, _, _, _) {}), isTrue);
+      Object? failure;
+      try {
+        await controller.wipeContainers();
+      } catch (error) {
+        failure = error;
+      }
+      expect(File(legacy).existsSync(), isTrue);
+      expect(vault.values, hasLength(6));
+      expect(failure, isA<ManagedProfileWipeFailure>());
+      expect(stops, 1);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      refuse = false;
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(stops, 2);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(vault.values, isEmpty);
+    },
+  );
+
+  test('profile erasure joins a pending projection consent reply', () async {
+    const channel = MethodChannel('xveil/projection_erasure_pending');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final consent = Completer<bool>(), stopEntered = Completer<void>();
+    Object? session;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'start') {
+        session = (call.arguments as Map)['session'];
+        return consent.future;
+      }
+      expect(call.method, 'stop');
+      expect((call.arguments as Map)['session'], session);
+      if (!stopEntered.isCompleted) stopEntered.complete();
+      return null;
+    });
+    final projection = AndroidScreenCapture(
+      () {},
+      channel: channel,
+      isAndroid: true,
+    );
+    addTearDown(() async {
+      if (!consent.isCompleted) consent.complete(true);
+      await projection.stop();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final starting = projection.start((_, _, _, _, _) {});
+    final wiping = controller.wipeContainers();
+    try {
+      expect(
+        await Future.any([
+          stopEntered.future.then((_) => true),
+          wiping.then((_) => false),
+        ]),
+        isTrue,
+        reason: 'a pending consent is cancelled before deleting files',
+      );
+      expect(File(legacy).existsSync(), isTrue);
+      expect(vault.values, hasLength(6));
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+    } finally {
+      consent.complete(true);
+      expect(await starting, isFalse);
+      expect(await wiping, isEmpty);
+    }
+    expect(File(legacy).existsSync(), isFalse);
+    expect(vault.values, isEmpty);
+  });
 
   test(
     'camera output cleanup refusal blocks erasure and retries the same file',
