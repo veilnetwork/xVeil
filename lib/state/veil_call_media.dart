@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 
@@ -14,6 +13,7 @@ import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/diagnostic_audio_output.dart';
 import '../core/ids.dart';
+import '../data/storage/profile_preferences.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
@@ -2683,7 +2683,7 @@ class VeilCallMediaController implements CallMediaController {
 
   Future<void> _readDevicePreferences() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await profilePreferences();
       _selectedCameraId = prefs.getString(_cameraPreferenceKey);
       _preferredMicrophoneLabel = prefs.getString(_microphonePreferenceKey);
       _preferredSpeakerLabel = prefs.getString(_speakerPreferenceKey);
@@ -2898,7 +2898,7 @@ class VeilCallMediaController implements CallMediaController {
       if (!engine.selectAudioInput(id)) return false;
       _selectedMicrophoneId = id;
       _preferredMicrophoneLabel = chosen.followsSystem ? null : chosen.label;
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await profilePreferences();
       if (chosen.followsSystem) {
         await prefs.remove(_microphonePreferenceKey);
       } else {
@@ -2924,7 +2924,7 @@ class VeilCallMediaController implements CallMediaController {
       if (!engine.selectAudioOutput(id)) return false;
       _selectedSpeakerId = id;
       _preferredSpeakerLabel = chosen.followsSystem ? null : chosen.label;
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await profilePreferences();
       if (chosen.followsSystem) {
         await prefs.remove(_speakerPreferenceKey);
       } else {
@@ -3012,7 +3012,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _selectedCameraId = id;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await profilePreferences();
       await prefs.setString(_cameraPreferenceKey, id);
     } catch (_) {}
     // A screen share owns the video source; remember the choice and apply it

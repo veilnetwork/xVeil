@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import 'app.dart';
@@ -28,6 +27,7 @@ import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
+import 'data/storage/profile_preferences.dart';
 import 'data/storage/profile_prefs_store.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
@@ -354,7 +354,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       // store that belongs to it. The default profile resolves to the
       // historical container path, so an existing install is untouched and a
       // user who never opens the switcher cannot tell this exists.
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await profilePreferences();
       final path = (override != null && override.isNotEmpty)
           ? override
           : AppProfiles.storePath(dir.path, activeProfile);

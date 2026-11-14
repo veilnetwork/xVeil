@@ -65,6 +65,18 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   /// Serializes writes so two rapid sets cannot interleave their file writes.
   Future<void> _writes = Future<void>.value();
+  bool _retired = false;
+
+  /// Seal ordinary writes synchronously and join every accepted file write.
+  /// Settlement is not proof of persistence; callers retain each save result.
+  Future<void> retire() {
+    _retired = true;
+    return _writes.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+  }
+
+  void _requireWritable() {
+    if (_retired) throw StateError('profile preference store has retired');
+  }
 
   /// Load the store at [path] (an absent or unreadable file is an empty store —
   /// this is preferences, and refusing to start over a corrupt preference file
@@ -119,6 +131,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// successful save, and the migration below emptied the only other copy on
   /// the strength of it (audit X-02).
   Future<bool> _flush() {
+    _requireWritable();
     final snapshot = <String, Object>{
       'v': _version,
       'e': {
@@ -126,8 +139,9 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           entry.key: {'t': entry.value.type, 'v': entry.value.value},
       },
     };
+    final encoded = jsonEncode(snapshot);
     final next = _writes.then(
-      (_) => writePrivateFileAtomically(_file, jsonEncode(snapshot)),
+      (_) => writePrivateFileAtomically(_file, encoded),
     );
     _writes = next;
     return next;
@@ -135,12 +149,17 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) {
-    _entries[key] = (type: valueType, value: value);
+    _requireWritable();
+    _entries[key] = (
+      type: valueType,
+      value: value is List<String> ? List<String>.of(value) : value,
+    );
     return _flush();
   }
 
   @override
   Future<bool> remove(String key) {
+    _requireWritable();
     _entries.remove(key);
     return _flush();
   }
@@ -152,6 +171,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   @override
   Future<bool> clearWithParameters(ClearParameters parameters) {
+    _requireWritable();
     final filter = parameters.filter;
     _entries.removeWhere(
       (key, _) =>
@@ -175,7 +195,9 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       for (final entry in _entries.entries)
         if (entry.key.startsWith(filter.prefix) &&
             (filter.allowList == null || filter.allowList!.contains(entry.key)))
-          entry.key: entry.value.value,
+          entry.key: entry.value.value is List<String>
+              ? List<String>.of(entry.value.value as List<String>)
+              : entry.value.value,
     };
   }
 
@@ -519,8 +541,11 @@ Future<String> installProfilePreferencesOrFallback({
 /// before the assignment, but "could not have happened" is a worse guarantee
 /// than "cannot".
 void installEphemeralPreferences() {
-  if (SharedPreferencesStorePlatform.instance is ProfilePreferencesStore) return;
-  SharedPreferencesStorePlatform.instance = InMemorySharedPreferencesStore.empty();
+  if (SharedPreferencesStorePlatform.instance is ProfilePreferencesStore) {
+    return;
+  }
+  SharedPreferencesStorePlatform.instance =
+      InMemorySharedPreferencesStore.empty();
 }
 
 Future<String?> _legacyString(
@@ -566,8 +591,9 @@ String lastPathSegment(String path, {bool? windows}) {
 /// `proxy_routing.x` (audit X-04). Only the longest match names a real profile;
 /// every shorter one is a suffix of that name.
 ({String owner, String key}) routeLegacyKey(String bare, Set<String> known) {
-  final byLength = known.where((name) => name != AppProfiles.defaultName).toList()
-    ..sort((a, b) => b.length.compareTo(a.length));
+  final byLength =
+      known.where((name) => name != AppProfiles.defaultName).toList()
+        ..sort((a, b) => b.length.compareTo(a.length));
   for (final name in byLength) {
     if (bare.endsWith('.$name')) {
       return (

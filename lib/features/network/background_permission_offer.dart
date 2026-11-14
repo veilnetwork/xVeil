@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_flutter/veil_flutter.dart';
 
+import '../../data/storage/profile_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/background_node_controller.dart'
     show kKeepNodeBackgroundPrefKey;
@@ -17,12 +17,12 @@ const kBackgroundOfferSuppressedPrefKey =
     'network.background_permission.offer_suppressed.v1';
 
 Future<bool> backgroundOfferSuppressed() async {
-  final prefs = await SharedPreferences.getInstance();
+  final prefs = await profilePreferences();
   return prefs.getBool(kBackgroundOfferSuppressedPrefKey) ?? false;
 }
 
 Future<void> suppressBackgroundOffer() async {
-  final prefs = await SharedPreferences.getInstance();
+  final prefs = await profilePreferences();
   await prefs.setBool(kBackgroundOfferSuppressedPrefKey, true);
 }
 
@@ -43,7 +43,7 @@ Future<void> maybeOfferBackgroundPermission(
   required Future<void> Function() enableBackground,
 }) async {
   if (!Platform.isAndroid) return;
-  final prefs = await SharedPreferences.getInstance();
+  final prefs = await profilePreferences();
   final enabled = prefs.getBool(kKeepNodeBackgroundPrefKey);
   final suppressed = prefs.getBool(kBackgroundOfferSuppressedPrefKey) ?? false;
   if (suppressed || enabled == false) return;

@@ -5,8 +5,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/storage/profile_preferences.dart';
 import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -55,7 +55,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadRevealed() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     final revealed = prefs.getBool(AppProfiles.revealedPref) ?? false;
     if (!mounted || !revealed) return;
     setState(() => _revealed = true);
@@ -70,7 +70,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     _taps = 0;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await profilePreferences();
     await prefs.setBool(AppProfiles.revealedPref, true);
     if (!mounted) return;
     setState(() => _revealed = true);
