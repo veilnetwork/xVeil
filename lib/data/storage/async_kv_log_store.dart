@@ -14,11 +14,13 @@ import 'kv_log_store.dart';
 import 'managed_catalog_store.dart';
 import 'managed_directory_catalog.dart';
 import 'managed_fs_contract.dart';
+import 'managed_fs_platform.dart' show ManagedFsPlatform;
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';
 import 'managed_sqlite_connection.dart';
 import '../../domain/identity_erase_review.dart';
+import '../../core/storage_unlock_scope.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import 'rollback_anchor.dart';
@@ -30,6 +32,7 @@ export 'kv_log_store.dart' show LogReadGroup;
 
 part 'worker_managed_identity.dart';
 part 'worker_managed_catalog.dart';
+part 'worker_managed_erasure.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -525,6 +528,10 @@ class _Err extends _Reply {
 }
 
 void _workerEntry(_OpenConfig cfg) {
+  if (cfg is _OpenManagedErasure) {
+    unawaited(_managedErasureEntry(cfg));
+    return;
+  }
   if (cfg is _OpenManagedCatalog) {
     _managedCatalogEntry(cfg);
     return;
@@ -551,6 +558,7 @@ void _workerEntry(_OpenConfig cfg) {
         paddingPreset: preset,
       )(keys),
       _OpenManagedIdentity() => _openManagedWorker(cfg),
+      _OpenManagedErasure() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
       _OpenManagedCatalog() => throw StateError(
         'catalog worker was not dispatched',
       ),
@@ -650,7 +658,10 @@ SendPort _serveWorker(
       case _CatalogSnapshotReq() ||
           _CatalogSelectReq() ||
           _CatalogEraseReq() ||
-          _CatalogReviewEraseReq():
+          _CatalogReviewEraseReq() ||
+          _ErasureSnapshotReq() ||
+          _ErasureRemoveReq() ||
+          _ErasureFinishReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):
         run(() {

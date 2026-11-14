@@ -11,7 +11,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'local_authentication.dart';
 import 'storage_unlock_scope.dart';
 import '../data/storage/managed_directory_catalog.dart'
-    show ManagedRootErasure, ManagedErasureBinding, ManagedErasureRelease;
+    show
+        ManagedRootErasure,
+        ManagedErasureBinding,
+        ManagedErasureRelease,
+        ManagedErasureSnapshot;
+import '../data/storage/async_kv_log_store.dart' show ManagedErasureScopeLease;
 
 part 'quick_unlock_retirement_impl.dart';
 

@@ -1480,8 +1480,8 @@ an entirely fake OS vault, including wrong/replayed receipts, final-sync refusal
 terminal-only recovery, duplicate old owners, queued deletion, late reads and
 provider replacement. No real Keychain/Keystore or identity is used. These
 ports are ready for the full wipe binding; they do not themselves wire the
-legacy file/preferences cleanup, the owned erasure-worker integration or
-pending-erasure startup UI. The managed destructive guard and new default remain disabled.
+legacy file/preferences cleanup or pending-erasure startup UI. The owned
+erasure worker and lost-reply reconciliation are qualified below. The managed destructive guard and new default remain disabled.
 
 ## Erasure when the enumerable root was never created
 
@@ -1523,12 +1523,64 @@ and all five terminal checkpoints. Before publication no data is deleted and
 unpublished staging remains for explicit ownership review. After publication,
 recovery completes the journaled protocol without manufacturing a catalog.
 
-The full wipe still needs an owned off-UI worker, cleanup of the selected legacy
-files/preferences/auxiliary payloads and abandoned staging with proved ownership,
+The full wipe still needs application binding to the owned worker, cleanup of
+the selected legacy files/preferences/auxiliary payloads and abandoned staging
+with proved ownership,
 router replacement, and explicit pending/terminal startup recovery. Manual mixed
 maintenance/password rotation, master/unbound-child recovery, explicit migration
 and packaged-platform/real OS-vault qualification also remain. The new default
 and managed full-wipe application guard are unchanged.
+
+## Owned erasure worker and lost-release reconciliation
+
+`ManagedErasureWorker` uses the existing supervised storage-worker transport,
+callback admission and confirmed-close protocol. Filesystem inventory and all
+native role/cleanup work run on its worker isolate. A new operation derives the
+complete saved-entry scope set from the actual catalog under exclusive admission;
+the UI supplies the ordinary profile namespace and exact legacy-path spelling,
+not a potentially stale catalog. Preparation, journal recovery and lost-release
+reconciliation are explicit separate entry points, with no inline fallback.
+
+`ManagedErasureSnapshot` is immutable public progress without native handles,
+credentials or hidden-space pointers. It is deliberately not OS-retirement
+authority. `QuickUnlockRetirement.forWorker` requires a live UI-side scope lease:
+a retained old snapshot/lease cannot capture fresh OS state after the worker
+starts finalizing, closes or dies. Terminal recovery has no fabricated empty
+scope list; an existing UI lifetime retains its earlier retirement owner.
+
+Accepted UI scope retirement and external verification remain owned until they
+settle even if the worker dies. Closing waits for this work. Native close errors
+and timeouts retain the owner; retries use the existing close attempt. If only
+the already-authorized final unlink sync failed, a later close retries that sync
+without rerunning external cleanup. A returned release also requires successful
+worker close. Worker death alone is never declared native release; a later
+explicit recovery must actually acquire its exclusive native role. Live failed
+owners are drained before another bootstrap touches the profile.
+
+A worker can finish unlinking the last marker and releasing its role, then die
+before its receipt reaches the UI. Explicit `ManagedErasureReconciliation`
+requires the original opaque binding, unchanged profile/coordinator objects,
+absence of both markers and the enumerable root, and a fresh **read-only**
+external absence verification under a new exclusive grant. It rechecks state
+after that await, syncs the coordinator directory to confirm marker absence,
+and actually closes before issuing the receipt. It creates no
+catalog and never deletes a newly appearing legacy file or OS record. The
+retained verified retirement owner can check known OS metadata absence without
+new deletion. New data, a marker, another profile or a failed check refuses.
+
+Host cases exercise actual encrypted/plaintext and absent-root inventories with
+fake OS storage, callback refusal, closure during accepted UI work, terminal-only
+recovery, late content, stale leases and final-sync failure. A gated actual worker
+is killed only **after** native release is independently witnessed and **before**
+its reply; explicit read-only reconciliation then recovers the exact binding and
+fresh saved-entry lifetime. A refused reconciliation sync retains the native
+owner and issues no receipt; retry requires verification and sync again.
+Separate protocol-only death testing uses no native
+handles. Compiled negative controls omit external re-verification (three failures),
+the accepted-work close barrier (one), and stale-lease admission checks (two).
+These qualify selected host boundaries, not arbitrary FFI abort cleanup or real
+Keychain/Keystore interactions. The full application wipe/startup/router binding
+and production activation remain unfinished and disabled.
 
 ## Implementation boundaries
 
