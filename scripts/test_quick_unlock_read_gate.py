@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run quick-unlock read ownership checks with Kotlin/JVM tools from the Gradle cache."""
+"""Run quick-unlock ownership/persistence checks with cached Kotlin/JVM tools."""
 import os
 from pathlib import Path
 import shutil
@@ -43,8 +43,14 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
         '-jvm-target', '17', '-d', output,
         str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockReadGate.kt'),
         str(ROOT / 'test/native/QuickUnlockReadGateSmoke.kt'),
+        str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockPersistence.kt'),
+        str(ROOT / 'test/native/QuickUnlockPersistenceSmoke.kt'),
     ], check=True)
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
         'network.veil.xveil.QuickUnlockReadGateSmokeKt',
     ], check=True)
+    subprocess.run([
+        java, '-cp', output + os.pathsep + classpath,
+        'network.veil.xveil.QuickUnlockPersistenceSmokeKt',
+    ], check=True, timeout=30)

@@ -1969,6 +1969,14 @@ protected deletion, and continuation through the recovered durable plan. OS
 ports in these tests are in-memory; actual Keychain/Keystore qualification and
 the complete cold application recovery gates remain open.
 
+The Android secret-store adapter now also waits for the pinned plugin's
+asynchronous preference writes to reach persistent storage. RAM readback cannot
+substitute for that barrier. Failure preserves the public cleanup intent and
+blocks native payload removal; host-native tests exercise refusal and retry.
+See [Android quick-unlock persistence](validation/android-quick-unlock-persistence-2026-11-15/README.md)
+for the modeled persistence boundary, Android compilation and remaining
+real-device/cold-terminal limits.
+
 Terminal admission first joins cleanup already accepted by the worker, while
 refusing new operations. Entering finalization seals that owner's scope-mutation
 grant. A failure cannot restore it from cached removing progress. Only a fresh

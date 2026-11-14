@@ -16,13 +16,13 @@ import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherFactory
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.security.KeyStore
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 
 /** Read existing FSS 10.3.4 slots without its process-wide decrypted-key cache.
- * Configuration/writes/deletion remain in the plugin; no storage format changes.
+ * The plugin still owns encryption/mutation; flush confirms its async writes.
+ * No storage format changes.
  */
 class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMessenger) {
     private class Read(val key: String, val reason: String, val result: MethodChannel.Result) {
@@ -32,10 +32,40 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
     private val worker = Executors.newSingleThreadExecutor()
     private val gate = QuickUnlockReadGate<Read>()
     private val channel = MethodChannel(messenger, "xveil/quick_unlock")
+    private val context = activity.applicationContext
+    private val persistence = QuickUnlockPersistence { name ->
+        context.getSharedPreferences(name, Activity.MODE_PRIVATE).edit().commit()
+    }
+    private var closed = false
 
     init {
         channel.setMethodCallHandler { call, result ->
-            if (call.method != "read") {
+            if (call.method == "flush") {
+                val args = call.arguments as? Map<*, *>
+                val key = args?.get("key") as? String
+                val biometric = args?.get("biometric") as? Boolean
+                if (closed || key == null || biometric == null) {
+                    result.error("invalid_request", "Invalid quick-unlock persistence request", null)
+                } else {
+                    try {
+                        QuickUnlockPersistence.namespace(key, biometric)
+                        // Do not block the UI thread. Accepted commits survive
+                        // dispose's executor shutdown and settle their own reply.
+                        worker.execute {
+                            try {
+                                persistence.flush(key, biometric)
+                                main.post { result.success(true) }
+                            } catch (_: Exception) {
+                                main.post {
+                                    result.error("persistence_failed", "Quick-unlock persistence not confirmed", null)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        result.error("persistence_failed", "Quick-unlock persistence not confirmed", null)
+                    }
+                }
+            } else if (call.method != "read") {
                 result.notImplemented()
             } else {
                 val key = call.argument<String>("key")
@@ -60,9 +90,7 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
 
     private fun prepare(read: Read) {
         try {
-            val namespace = "xveil_quick_bio_v1_" + MessageDigest.getInstance("SHA-256")
-                .digest(read.key.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }.take(24)
+            val namespace = QuickUnlockPersistence.namespace(read.key, true)
             val config = FlutterSecureStorageConfig(mapOf<String, Any>(
                 "storageNamespace" to namespace,
                 "keyCipherAlgorithm" to "AES_GCM_NoPadding",
@@ -163,6 +191,7 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
         }
     }
     fun dispose() {
+        closed = true
         gate.close()?.let { read ->
             read.cancellation.cancel()
             read.result.success(null)
