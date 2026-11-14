@@ -46,6 +46,7 @@ final class ManagedRootErasure {
   bool _finished = false;
   bool _releaseStarted = false;
   bool _operating = false;
+  bool _scopeRetirementSealed = false;
   late final _stamp = File(_planPath).statSync();
   String get _intentPath =>
       ManagedDirectoryCatalog._child(_gate.directory, pendingName);
@@ -83,6 +84,18 @@ final class ManagedRootErasure {
       phase == ManagedRootErasurePhase.removing ? catalog : null,
       phase == ManagedRootErasurePhase.removing ? unlockScopes : null,
     );
+  }
+
+  /// A fresh mutation boundary, unlike immutable progress. Pending/committed
+  /// finalization cannot grant another cleanup. A refused pre-terminal attempt
+  /// must revalidate its original removing plan before reopening this boundary.
+  ManagedErasureSnapshot retirementSnapshot() {
+    if (_scopeRetirementSealed) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
+    final view = snapshot();
+    view.unlockScopes;
+    return view;
   }
 
   /// A worker closing after an error may retry ONLY this already-authorized
@@ -332,6 +345,9 @@ final class ManagedRootErasure {
     if (_operating) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
+    if (_scopeRetirementSealed) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
     _operating = true;
     try {
       final plan = _removingPlan;
@@ -390,6 +406,9 @@ final class ManagedRootErasure {
     if (_operating) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
+    if (_scopeRetirementSealed) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
     _operating = true;
     try {
       final plan = _removingPlan;
@@ -443,6 +462,7 @@ final class ManagedRootErasure {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
     _operating = true;
+    _scopeRetirementSealed = true;
     try {
       _gate.requireHeld(exclusive: true);
       _ErasureCompletion.requireRootAbsent(_gate);
@@ -491,6 +511,21 @@ final class ManagedRootErasure {
       );
     } finally {
       _operating = false;
+      if (!_finished && _completion == null && !_releaseStarted) {
+        try {
+          // Publication may have reached disk before its caller saw an error.
+          // Only an absent terminal AND the original valid plan reopen this
+          // owner's removing phase. Unknown state remains sealed.
+          final terminal = _ErasureCompletion.openIfPresent(_gate);
+          if (terminal == null) {
+            _validate();
+            _scopeRetirementSealed = false;
+          } else {
+            terminal.validate(_gate);
+            _completion = terminal;
+          }
+        } catch (_) {}
+      }
     }
   }
 
