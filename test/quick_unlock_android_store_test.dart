@@ -38,23 +38,32 @@ void main() {
   var authenticatedReads = 0;
   const authenticatedChannel = MethodChannel('xveil/quick_unlock');
 
+  Future<Object?> nativeCall(MethodCall call) async {
+    if (call.method == 'flush') return true;
+    final arguments = Map<String, dynamic>.from(call.arguments as Map);
+    final key = arguments['key'] as String;
+    final biometric = call.method == 'read' || arguments['biometric'] == true;
+    final namespace = biometric
+        ? 'xveil_quick_bio_v1_${crypto.sha256.convert(utf8.encode(key)).toString().substring(0, 24)}'
+        : 'xveil_quick_pattern_v1';
+    if (call.method == 'contains') return values.containsKey('$namespace:$key');
+    if (call.method == 'remove') {
+      values.remove('$namespace:$key');
+      return true;
+    }
+    expect(call.method, 'read');
+    authenticatedReads++;
+    if (denyAuthentication) return null;
+    return values['$namespace:$key'];
+  }
+
   setUp(() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     values.clear();
     protectedNamespaces.clear();
     denyAuthentication = false;
     authenticatedReads = 0;
-    messenger.setMockMethodCallHandler(authenticatedChannel, (call) async {
-      if (call.method == 'flush') return true;
-      expect(call.method, 'read');
-      authenticatedReads++;
-      final arguments = Map<String, dynamic>.from(call.arguments as Map);
-      final key = arguments['key'] as String;
-      final namespace =
-          'xveil_quick_bio_v1_${crypto.sha256.convert(utf8.encode(key)).toString().substring(0, 24)}';
-      if (denyAuthentication) return null;
-      return values['$namespace:$key'];
-    });
+    messenger.setMockMethodCallHandler(authenticatedChannel, nativeCall);
     messenger.setMockMethodCallHandler(channel, (call) async {
       final arguments = Map<String, dynamic>.from(call.arguments as Map);
       final options = Map<String, dynamic>.from(arguments['options'] as Map);
@@ -184,7 +193,7 @@ void main() {
     final started = Completer<void>();
     final release = Completer<String?>();
     messenger.setMockMethodCallHandler(authenticatedChannel, (call) {
-      if (call.method == 'flush') return Future.value(true);
+      if (call.method != 'read') return nativeCall(call);
       started.complete();
       return release.future;
     });

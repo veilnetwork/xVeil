@@ -21,8 +21,8 @@ import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 
 /** Read existing FSS 10.3.4 slots without its process-wide decrypted-key cache.
- * The plugin still owns encryption/mutation; flush confirms its async writes.
- * No storage format changes.
+ * The plugin owns encryption; flush confirms its async writes. Raw presence
+ * and explicit record removal require no cipher initialization or format change.
  */
 class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMessenger) {
     private class Read(val key: String, val reason: String, val result: MethodChannel.Result) {
@@ -36,16 +36,25 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
     private val persistence = QuickUnlockPersistence { name ->
         context.getSharedPreferences(name, Activity.MODE_PRIVATE).edit().commit()
     }
+    private val records = QuickUnlockRecordStore(
+        FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix,
+    ) { namespace ->
+        val preferences = context.getSharedPreferences(namespace, Activity.MODE_PRIVATE)
+        object : QuickUnlockRecordPreferences {
+            override fun contains(key: String) = preferences.contains(key)
+            override fun removeAndCommit(key: String) = preferences.edit().remove(key).commit()
+        }
+    }
     private var closed = false
 
     init {
         channel.setMethodCallHandler { call, result ->
-            if (call.method == "flush") {
+            if (call.method == "flush" || call.method == "contains" || call.method == "remove") {
                 val args = call.arguments as? Map<*, *>
                 val key = args?.get("key") as? String
                 val biometric = args?.get("biometric") as? Boolean
                 if (closed || key == null || biometric == null) {
-                    result.error("invalid_request", "Invalid quick-unlock persistence request", null)
+                    result.error("invalid_request", "Invalid quick-unlock record request", null)
                 } else {
                     try {
                         QuickUnlockPersistence.namespace(key, biometric)
@@ -53,16 +62,22 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                         // dispose's executor shutdown and settle their own reply.
                         worker.execute {
                             try {
-                                persistence.flush(key, biometric)
-                                main.post { result.success(true) }
+                                val answer = when (call.method) {
+                                    "contains" -> records.contains(key, biometric)
+                                    "remove" -> { records.remove(key, biometric); true }
+                                    else -> { persistence.flush(key, biometric); true }
+                                }
+                                main.post { result.success(answer) }
                             } catch (_: Exception) {
                                 main.post {
-                                    result.error("persistence_failed", "Quick-unlock persistence not confirmed", null)
+                                    result.error(if (call.method == "flush") "persistence_failed" else "record_operation_failed",
+                                        "Quick-unlock record operation not confirmed", null)
                                 }
                             }
                         }
                     } catch (_: Exception) {
-                        result.error("persistence_failed", "Quick-unlock persistence not confirmed", null)
+                        result.error(if (call.method == "flush") "persistence_failed" else "record_operation_failed",
+                            "Quick-unlock record operation not confirmed", null)
                     }
                 }
             } else if (call.method != "read") {

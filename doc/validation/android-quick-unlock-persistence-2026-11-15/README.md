@@ -23,6 +23,10 @@ The missing step was persistence confirmation beneath that protocol.
 
 ## Correction
 
+The later [raw-record follow-up](../android-saved-entry-records-2026-11-15/README.md)
+moves Android deletion to its own synchronous native commit and avoids cipher
+initialization for presence/removal. The plugin-write barrier below remains.
+
 `QuickUnlockSecretStore` now awaits an Android-native persistence barrier after
 each successful plugin write/delete. The native bridge commits the selected
 namespace's wrapped-key store, algorithm/configuration store and encrypted-data
