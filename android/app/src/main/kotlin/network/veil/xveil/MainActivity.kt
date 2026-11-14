@@ -57,8 +57,8 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private var callForegroundOwner: String? = null
     private var nativeCallCamera: NativeCallCamera? = null
     private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
-    private var callWifiLock: WifiManager.WifiLock? = null
-    private var callWifiBackgroundLock: WifiManager.WifiLock? = null
+    private var callNetworkOwner: CallNetworkLocks? = null
+    private var callNetworkEngine: FlutterEngine? = null
     private var pendingCallAction: Map<String, String>? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
@@ -141,16 +141,24 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
                 }
             }.start()
         }
+        callNetworkOwner?.retire()
+        CallNetworkLocks.retryRetiredOwners()
+        val networkOwner = createCallNetworkLocks()
+        callNetworkOwner = networkOwner
+        callNetworkEngine = flutterEngine
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             callNetworkChannelName,
         ).setMethodCallHandler { call, result ->
-            when (call.method) {
+            if (callNetworkEngine !== flutterEngine || callNetworkOwner !== networkOwner) {
+                result.error("call_network", "Network engine has retired", null)
+            } else when (call.method) {
                 "setActive" -> {
+                    CallNetworkLocks.retryRetiredOwners()
                     val active = call.argument<Boolean>("active") ?: false
-                    result.success(setCallNetworkActive(active))
+                    result.success(networkOwner.setActive(active))
                 }
-                "isActive" -> result.success(callNetworkLocksHeld())
+                "isActive" -> result.success(networkOwner.isActive())
                 else -> result.notImplemented()
             }
         }
@@ -487,7 +495,10 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         quickUnlock?.dispose()
         mediaPermissions.close()
         documentExport?.dispose()
-        setCallNetworkActive(false)
+        callNetworkOwner?.retire()
+        callNetworkOwner = null
+        callNetworkEngine = null
+        CallNetworkLocks.retryRetiredOwners()
         releaseCallAudioRoute()
         super.onDestroy()
     }
@@ -593,59 +604,34 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
      * Starting in U HIGH_PERF is itself mapped to LOW_LATENCY by Android, so
      * acquiring a second lock cannot bypass those platform restrictions.
      * Pre-Q devices use HIGH_PERF alone.
-     * This lock never survives the active call/Activity lifecycle.
+     * Engine/Activity retirement requests release. An unconfirmed native
+     * release keeps its exact owner for retry instead of discarding the handle.
      */
     private fun needsBackgroundWifiLock(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
-    private fun callNetworkLocksHeld(): Boolean =
-        callWifiLock?.isHeld == true &&
-            (!needsBackgroundWifiLock() || callWifiBackgroundLock?.isHeld == true)
-
     @Suppress("DEPRECATION")
-    private fun setCallNetworkActive(active: Boolean): Boolean {
-        if (!active) {
-            for (lock in listOfNotNull(callWifiLock, callWifiBackgroundLock)) {
-                try {
-                    lock.takeIf { it.isHeld }?.release()
-                } catch (_: RuntimeException) {
-                }
-            }
-            callWifiLock = null
-            callWifiBackgroundLock = null
-            return false
-        }
-        if (callNetworkLocksHeld()) return true
-        // Reacquisition and a partial acquire failure release the entire set.
-        setCallNetworkActive(false)
-        return try {
-            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    private fun createCallNetworkLocks(): CallNetworkLocks {
+        val context = applicationContext
+        val tag = packageName
+        return CallNetworkLocks(needsBackgroundWifiLock()) { background ->
+            val wifi = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val mode = if (!background && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 WifiManager.WIFI_MODE_FULL_LOW_LATENCY
             } else {
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF
             }
-            val primary = wifi.createWifiLock(mode, "$packageName:call-low-latency")
-            callWifiLock = primary
-            primary.setReferenceCounted(false)
-            primary.acquire()
-            if (needsBackgroundWifiLock()) {
-                val background = wifi.createWifiLock(
-                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                    "$packageName:call-screen-off",
-                )
-                callWifiBackgroundLock = background
-                background.setReferenceCounted(false)
-                background.acquire()
+            val suffix = if (background) "call-screen-off" else "call-low-latency"
+            val lock = wifi.createWifiLock(mode, "$tag:$suffix")
+            object : CallNetworkLock {
+                override val isHeld: Boolean get() = lock.isHeld
+                override fun acquire() {
+                    lock.setReferenceCounted(false)
+                    lock.acquire()
+                }
+                override fun release() = lock.release()
             }
-            callNetworkLocksHeld()
-        } catch (error: RuntimeException) {
-            XVeilLog.w(applicationContext, "xveil-call-network") {
-                "Wi-Fi lock failed: $error"
-            }
-            setCallNetworkActive(false)
-            false
         }
     }
 
@@ -864,6 +850,11 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (callNetworkEngine === flutterEngine) {
+            callNetworkOwner?.retire()
+            callNetworkOwner = null
+            callNetworkEngine = null
+        }
         mediaPermissions.close()
         documentExport?.dispose()
         documentExport = null

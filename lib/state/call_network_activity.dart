@@ -23,6 +23,9 @@ class CallNetworkActivity {
   final Set<Object> _owners = Set.identity();
   Future<void> _tail = Future.value();
   bool _active = false;
+  // A rejected/lost acquire reply can still leave a native partial grant.
+  // Desired call owners and unconfirmed native cleanup are separate facts.
+  bool _cleanupPending = false;
 
   bool heldBy(Object owner) => _active && _owners.contains(owner);
 
@@ -33,11 +36,13 @@ class CallNetworkActivity {
   }
 
   Future<bool> acquire(Object owner) => _serialized(() async {
-    if (!_active) {
+    if (!_active || _cleanupPending) {
       try {
         _active = await _setActive(true);
+        _cleanupPending = !_active;
       } catch (_) {
         _active = false;
+        _cleanupPending = true;
       }
     }
     // Failed/unsupported acquisition cannot retain a dead call controller.
@@ -46,13 +51,18 @@ class CallNetworkActivity {
   });
 
   Future<void> release(Object owner) => _serialized(() async {
-    if (!_owners.remove(owner) || _owners.isNotEmpty) return;
+    _owners.remove(owner);
+    if (_owners.isNotEmpty) return;
+    _cleanupPending = _cleanupPending || _active;
+    if (!_cleanupPending) return;
     try {
-      await _setActive(false);
+      // false acknowledges inactive; true reports that resources remain.
+      _active = await _setActive(false);
+      _cleanupPending = _active;
     } catch (_) {
-      // An absent platform plugin must not prevent media teardown.
-    } finally {
-      _active = false;
+      // Teardown stays non-throwing, but it cannot turn an absent/failed reply
+      // into resource absence. A repeat release or acquire retries the port.
+      _cleanupPending = true;
     }
   });
 }

@@ -104,10 +104,10 @@ void main() {
         expect(await activity.acquire(owner), isFalse);
         await activity.release(owner);
       }
-      expect(calls, [true, true]);
+      expect(calls, [true, false, true, false]);
       expect(await activity.acquire(owner), isTrue);
       await activity.release(owner);
-      expect(calls, [true, true, true, false]);
+      expect(calls, [true, false, true, false, true, false]);
     },
   );
 
@@ -132,6 +132,67 @@ void main() {
       expect(await activity.acquire(stranger), isTrue);
       await activity.release(stranger);
       expect(calls, [true, false, true, false]);
+    },
+  );
+  test(
+    'failed native release remains retryable after the owner leaves',
+    () async {
+      var releases = 0;
+      final calls = <bool>[];
+      final activity = CallNetworkActivity(
+        setActive: (active) async {
+          calls.add(active);
+          if (!active && ++releases == 1) {
+            throw StateError('synthetic release refusal');
+          }
+          return active;
+        },
+      );
+      final owner = Object();
+      expect(await activity.acquire(owner), isTrue);
+      await activity.release(owner);
+      await activity.release(owner);
+      expect(calls, [true, false, false]);
+      expect(activity.heldBy(owner), isFalse);
+    },
+  );
+
+  test('a platform still-active reply is not a successful release', () async {
+    var releases = 0;
+    final calls = <bool>[];
+    final activity = CallNetworkActivity(
+      setActive: (active) async {
+        calls.add(active);
+        return active || ++releases == 1;
+      },
+    );
+    final owner = Object();
+    expect(await activity.acquire(owner), isTrue);
+    await activity.release(owner);
+    await activity.release(owner);
+    expect(calls, [true, false, false]);
+  });
+
+  test(
+    'a lost acquire reply still owns cleanup of a possible native grant',
+    () async {
+      var nativeHeld = false;
+      final activity = CallNetworkActivity(
+        setActive: (active) async {
+          nativeHeld = active;
+          if (active) throw StateError('synthetic grant reply lost');
+          return false;
+        },
+      );
+      final owner = Object();
+      expect(await activity.acquire(owner), isFalse);
+      expect(
+        nativeHeld,
+        isTrue,
+        reason: 'grant happened before the lost reply',
+      );
+      await activity.release(owner);
+      expect(nativeHeld, isFalse);
     },
   );
 }
