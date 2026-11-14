@@ -64,6 +64,7 @@ class _Store extends RetirementSecretStore {
   @override
   Future<void> write(String key, String value, {bool biometric = false}) async {
     calls++;
+    if (!biometric) await hold('write', key);
     await super.write(key, value, biometric: biometric);
   }
 
@@ -179,6 +180,52 @@ void main() {
     live.clear();
     fixture.deleteSync(recursive: true);
   });
+
+  test('captured actor retirement refuses after native owner close', () async {
+    final e = await intent('profile', [first]);
+    await vault(first).configure(password: 'old synthetic', system: true);
+    final r = retirement(e);
+    e.close();
+    final before = Map.of(store.values);
+    await expectLater(
+      r.retire(),
+      throwsA(isA<public_api.QuickUnlockRetirementFailure>()),
+    );
+    expect(store.values, before);
+  });
+
+  for (final operation in ['write', 'delete']) {
+    test(
+      'owner loss during OS $operation preserves a recoverable intent',
+      () async {
+        final e = await intent('profile', [first]);
+        await vault(first).configure(password: 'old synthetic', system: true);
+        final r = retirement(e);
+        store.arm(operation, first);
+        final removing = r.retire().then<Object?>(
+          (_) => null,
+          onError: (Object error) => error,
+        );
+        await store.entered.future;
+        final calls = store.calls;
+        e.close();
+        store.release.complete();
+        expect(await removing, isA<public_api.QuickUnlockRetirementFailure>());
+        expect(store.calls, calls, reason: 'no later OS call after owner loss');
+        expect(
+          store.values['false:xveil.quick.v1.$first'],
+          contains('"bioPending":true'),
+        );
+        final recovered = ManagedRootErasure.openPending(
+          '${fixture.path}/profile',
+        );
+        live.add(recovered);
+        final next = retirement(recovered);
+        await recovered.removeManagedFiles(retireScopes: (_) => next.retire());
+        expect(store.values, isEmpty);
+      },
+    );
+  }
 
   test(
     'only completed terminal protocol and actual native close issue a release',

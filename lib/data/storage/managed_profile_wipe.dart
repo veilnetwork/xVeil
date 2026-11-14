@@ -175,6 +175,13 @@ final class ManagedProfileWipe {
     } else {
       // A lost removal reply may have committed any prefix. Re-run only the
       // original immutable inventory; new/changed objects still refuse.
+      // Rebind mutation authority to this live worker. The retired scope state
+      // retains pending biometric-slot witnesses across these wrappers.
+      _vault = QuickUnlockRetirement.forWorker(
+        worker.scopeLease,
+        _secretStore,
+        _authentication,
+      );
       _legacy = LegacyProfilePreferencesRetirement.forWorker(worker, _source);
       _managedRemoved = _auxiliaryRemoved = false;
     }

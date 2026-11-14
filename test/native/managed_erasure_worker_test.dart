@@ -19,6 +19,18 @@ import '../support/retirement_secret_store.dart';
 
 class _Store extends RetirementSecretStore {
   int mutations = 0;
+  Completer<void>? removalReadEntered, removalReadRelease;
+  @override
+  Future<String?> read(String key, {bool biometric = false}) async {
+    final entered = removalReadEntered, release = removalReadRelease;
+    if (!biometric && entered != null && release != null) {
+      removalReadEntered = null;
+      entered.complete();
+      await release.future;
+    }
+    return super.read(key, biometric: biometric);
+  }
+
   @override
   Future<void> write(String key, String value, {bool biometric = false}) {
     mutations++;
@@ -185,6 +197,45 @@ void main() {
       },
     );
   }
+  test('captured worker retirement cannot mutate after owner close', () async {
+    await create(visible: false);
+    await seed();
+    final w = await begin();
+    final r = retire(w);
+    await w.close();
+    final before = Map.of(store.values), mutations = store.mutations;
+    await expectLater(r.retire(), throwsA(isA<QuickUnlockRetirementFailure>()));
+    expect(store.values, before);
+    expect(store.mutations, mutations);
+    expect(File(legacy).existsSync(), isTrue);
+    expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+  });
+
+  test('closing during accepted vault read refuses later mutations', () async {
+    await create(visible: false);
+    await seed();
+    final w = await begin();
+    final r = retire(w);
+    final entered = Completer<void>(), release = Completer<void>();
+    store.removalReadEntered = entered;
+    store.removalReadRelease = release;
+    final before = Map.of(store.values), mutations = store.mutations;
+    final removal = _outcome(w.removeManagedFiles(retireScopes: r.retire));
+    await entered.future;
+    final closing = _outcome(w.close());
+    release.complete();
+    expect(await removal, isA<ManagedWorkerFailure>());
+    expect(await closing, isNull);
+    expect(store.values, before);
+    expect(store.mutations, mutations);
+    expect(File(legacy).existsSync(), isTrue);
+    expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+    final recovered = await ManagedErasureWorker.recover(profile);
+    owners.add(recovered);
+    await recovered.removeManagedFiles(retireScopes: retire(recovered).retire);
+    expect(store.values, isEmpty);
+  });
+
   test(
     'callback refusal preserves the native payloads and a retryable intent',
     () async {
