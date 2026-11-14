@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,9 +70,14 @@ class _Vpn implements VpnBackend {
 class _Source extends InMemorySharedPreferencesStore {
   _Source(super.data) : super.withData();
   final removes = <String>[];
+  Completer<void>? removeEntered, removeRelease;
   @override
-  Future<bool> remove(String key) {
+  Future<bool> remove(String key) async {
     removes.add(key);
+    if (removeRelease case final gate?) {
+      if (!removeEntered!.isCompleted) removeEntered!.complete();
+      await gate.future;
+    }
     return super.remove(key);
   }
 }
@@ -109,10 +115,19 @@ class _BootTransport implements VeilTransport {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _Vault extends RetirementSecretStore {
+  int deletes = 0;
+  @override
+  Future<void> delete(String key, {bool biometric = false}) {
+    deletes++;
+    return super.delete(key, biometric: biometric);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory fixture;
-  late String legacy, profile;
+  late String legacy, profile, namespace;
   late SharedPreferencesStorePlatform original;
   late _Source source;
   late ProfileStorageRouterOwner owner;
@@ -120,7 +135,7 @@ void main() {
   late SharedPreferences oldView;
   late ProviderContainer app;
   late _Controller controller;
-  late RetirementSecretStore vault;
+  late _Vault vault;
   late List<ManagedStorageLocator> locators;
   bool failReopen = false;
   late Directory translationRoot;
@@ -177,6 +192,7 @@ void main() {
       'old',
       reason: 'a blocked sibling retains the actual migration source',
     );
+    namespace = boot.legacyPreferences!.profile;
     oldPreferences = ProfilePreferencesLifetime.current();
     oldView = await oldPreferences.preferences;
     expect(ensureHiddenVolumeLoaded(), isTrue);
@@ -223,7 +239,7 @@ void main() {
         return openRouter();
       },
     );
-    vault = RetirementSecretStore();
+    vault = _Vault();
     controller = _Controller();
     app = ProviderContainer(
       overrides: [
@@ -279,6 +295,262 @@ void main() {
     SharedPreferencesStorePlatform.instance = original;
     if (fixture.existsSync()) fixture.deleteSync(recursive: true);
   });
+
+  ManagedProfileWipe makeJob(Future<ManagedErasureWorker> Function() opener) =>
+      ManagedProfileWipe.withWorkerOpenerForTesting(
+        router: owner,
+        preferences: oldPreferences,
+        source: oldPreferences.legacyPreferences!,
+        secretStore: vault,
+        authentication: RetirementAuthentication(),
+        quiesce: () async {}, // Locked fixture has no network/model work.
+        verifyOtherDataAbsent: () async {},
+        openWorker: opener,
+      );
+
+  test(
+    'same live wipe resumes after worker death with accepted source work',
+    () async {
+      late ManagedErasureWorker worker;
+      final job = makeJob(
+        () async => worker = await ManagedErasureWorker.begin(
+          profileDirectory: profile,
+          profileNamespace: namespace,
+          legacyPath: legacy,
+          auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+        ),
+      );
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      source.removeEntered = Completer<void>();
+      source.removeRelease = Completer<void>();
+      var returned = false;
+      final failed = expectLater(
+        job.resume().whenComplete(() => returned = true),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      await source.removeEntered!.future;
+      worker.killReleasedWorkerForTesting();
+      expect(returned, isFalse);
+      expect(File(legacy).existsSync(), isTrue);
+      source.removeRelease!.complete();
+      await failed;
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+      await job.resume();
+      expect(owner.router.catalog.identities, isEmpty);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(vault.values, isEmpty);
+      expect((await source.getAll())['flutter.locale'], isNull);
+      expect((await source.getAll())['flutter.locale.decoy'], 'de');
+    },
+  );
+
+  test(
+    'lost release reply resumes read-only without repeating OS deletion',
+    () async {
+      final gate = ReceivePort();
+      addTearDown(gate.close);
+      late ManagedErasureWorker worker;
+      final job = makeJob(
+        () async =>
+            worker = await ManagedErasureWorker.beginWithReleaseGateForTesting(
+              profileDirectory: profile,
+              profileNamespace: namespace,
+              legacyPath: legacy,
+              auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+              afterNativeRelease: gate.sendPort,
+            ),
+      );
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      final failed = expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(await gate.first, isA<SendPort>());
+      final deletes = vault.deletes, removes = source.removes.length;
+      expect(File(legacy).existsSync(), isFalse);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      worker.killReleasedWorkerForTesting();
+      await failed;
+      await job.resume();
+      expect(owner.router.catalog.identities, isEmpty);
+      expect(vault.deletes, deletes);
+      expect(source.removes.length, removes);
+      expect(vault.values, isEmpty);
+      expect((await source.getAll())['flutter.locale.decoy'], 'de');
+    },
+  );
+
+  test(
+    'same live worker rechecks OS absence after failed final sync',
+    () async {
+      final key = vault.values.keys.first;
+      late ManagedErasureWorker worker;
+      final job = makeJob(
+        () async => worker =
+            await ManagedErasureWorker.beginWithFinalSyncFailureForTesting(
+              profileDirectory: profile,
+              profileNamespace: namespace,
+              legacyPath: legacy,
+              auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+            ),
+      );
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(worker.exitedUnexpectedly, isFalse);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      vault.values[key] = 'synthetic newly appeared';
+      final deletes = vault.deletes;
+      await expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(vault.values[key], 'synthetic newly appeared');
+      expect(vault.deletes, deletes);
+      expect(() => owner.router, throwsStateError);
+      vault.values.remove(key); // Fixture resolution, not recovery deletion.
+      await job.resume();
+      expect(owner.router.catalog.identities, isEmpty);
+      expect(vault.deletes, deletes);
+    },
+  );
+
+  for (final stage in [
+    ManagedErasureFinishStage.completionPublished,
+    ManagedErasureFinishStage.planRemoved,
+    ManagedErasureFinishStage.pendingRemoved,
+    ManagedErasureFinishStage.completionRemoved,
+  ]) {
+    test('live wipe resumes a worker interrupted at ${stage.name}', () async {
+      final gate = ReceivePort();
+      addTearDown(gate.close);
+      late ManagedErasureWorker worker;
+      final job = makeJob(
+        () async =>
+            worker = await ManagedErasureWorker.beginWithFinishGateForTesting(
+              profileDirectory: profile,
+              profileNamespace: namespace,
+              legacyPath: legacy,
+              auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+              checkpoint: gate.sendPort,
+              stage: stage,
+            ),
+      );
+      addTearDown(() async {
+        try {
+          await job.close();
+        } catch (_) {}
+      });
+      final failed = expectLater(
+        job.resume(),
+        throwsA(isA<ManagedProfileWipeFailure>()),
+      );
+      expect(await gate.first, isA<SendPort>());
+      final deletes = vault.deletes, removes = source.removes.length;
+      worker.killReleasedWorkerForTesting();
+      await failed;
+      await job.resume();
+      expect(owner.router.catalog.identities, isEmpty);
+      expect(File(legacy).existsSync(), isFalse);
+      expect(vault.values, isEmpty);
+      expect(vault.deletes, deletes);
+      expect(source.removes.length, removes);
+      expect((await source.getAll())['flutter.locale.decoy'], 'de');
+    });
+  }
+
+  for (final target in ['vault', 'bio', 'source', 'file']) {
+    test(
+      'read-only live retry preserves a new $target record until resolved',
+      () async {
+        final gate = ReceivePort();
+        addTearDown(gate.close);
+        final vaultKey = target == 'bio'
+            ? vault.values.keys.firstWhere((key) => key.startsWith('true:'))
+            : vault.values.keys.first;
+        late ManagedErasureWorker worker;
+        final job = makeJob(
+          () async => worker =
+              await ManagedErasureWorker.beginWithReleaseGateForTesting(
+                profileDirectory: profile,
+                profileNamespace: namespace,
+                legacyPath: legacy,
+                auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: legacy),
+                afterNativeRelease: gate.sendPort,
+              ),
+        );
+        addTearDown(() async {
+          try {
+            await job.close();
+          } catch (_) {}
+        });
+        final failed = expectLater(
+          job.resume(),
+          throwsA(isA<ManagedProfileWipeFailure>()),
+        );
+        expect(await gate.first, isA<SendPort>());
+        worker.killReleasedWorkerForTesting();
+        await failed;
+        switch (target) {
+          case 'vault':
+          case 'bio':
+            vault.values[vaultKey] = 'synthetic new secret';
+          case 'source':
+            await source.setValue('String', 'flutter.locale', 'new');
+          case 'file':
+            File(legacy).writeAsStringSync('synthetic new payload');
+        }
+        final deletes = vault.deletes, removes = source.removes.length;
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await expectLater(
+            job.resume(),
+            throwsA(isA<ManagedProfileWipeFailure>()),
+          );
+          expect(() => owner.router, throwsStateError);
+          expect(vault.deletes, deletes);
+          expect(source.removes.length, removes);
+          switch (target) {
+            case 'vault':
+            case 'bio':
+              expect(vault.values[vaultKey], 'synthetic new secret');
+            case 'source':
+              expect((await source.getAll())['flutter.locale'], 'new');
+            case 'file':
+              expect(File(legacy).readAsStringSync(), 'synthetic new payload');
+          }
+        }
+        // Only this fixture removes the new record; recovery must never do so.
+        switch (target) {
+          case 'vault':
+          case 'bio':
+            vault.values.remove(vaultKey);
+          case 'source':
+            await source.remove('flutter.locale');
+          case 'file':
+            File(legacy).deleteSync();
+        }
+        final afterResolution = source.removes.length;
+        await job.resume();
+        expect(owner.router.catalog.identities, isEmpty);
+        expect(vault.deletes, deletes);
+        expect(source.removes.length, afterResolution);
+      },
+    );
+  }
 
   test(
     'full controller wipe erases mixed storage and publishes fresh owners only after release',

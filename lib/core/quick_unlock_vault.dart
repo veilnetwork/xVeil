@@ -133,6 +133,10 @@ Future<List<int>> _patternKey(Map<String, Object> args) async {
 final class _QuickUnlockScopeState {
   int generation = 0;
   bool retired = false, detached = false;
+  // Live erasure witnesses only: deleting the public record also removes its
+  // biometric-slot address. Retain addresses, never secret values, until this
+  // old lifetime detaches so read-only retry can still verify protected slots.
+  final erasureBiometricKeys = <String>{};
   int pending = 0;
   Future<void> tail = Future<void>.value();
   static final _backends =
@@ -488,6 +492,9 @@ class QuickUnlockVault {
       final slot = record?['bioSlot'];
       if (slot is! String || slot.length > 64) {
         throw StateError('Incomplete saved sign-in');
+      }
+      if (_scopeState.retired) {
+        _scopeState.erasureBiometricKeys.add(_bioKey(slot));
       }
       // Leave a cleanup intent until protected deletion is verified. Even if
       // delete/auth fails, the next wipe still knows that this slot exists.

@@ -1890,14 +1890,35 @@ An accepted late opener is joined and its actual handle closed before release;
 ordinary session close remains reversible. Without this additional seal the
 host control reopened an old hidden facade and recreated the deleted container.
 
+Live retry now also observes erasure-worker death and resumes only its retained
+exact binding. A new exclusive native grant either recovers that same immutable
+pending inventory or reconciles an absent intent read-only. A different pending
+operation, a newly created root or new auxiliary payload is preserved and
+refused. Death is not treated as native release. Accepted UI cleanup remains
+joined before replacement, and the original platform-source retirement is
+rebound to the recovered live lease while other old wrappers stay sealed.
+
+Terminal recovery uses the live operation's retained, previously verified OS and
+source retirements; it never reconstructs a scope roster from an absent plan.
+Every finish attempt independently rechecks external absence, including a retry
+on the same worker after a failed final directory sync. A newly appearing OS or
+platform-source record blocks the fresh handoff without being deleted. Deleted
+biometric-slot addresses are retained only in the retired in-memory lifetime, so
+this read-only check covers protected slots after their public metadata is gone;
+no secret values or slot roster are added to the disk intent or terminal. Failed
+adoption remains retryable with the same recovered owner. Native boundary tests
+cover death during accepted source removal, four terminal-publication/removal
+stages and loss of the released reply, plus new OS/source/file records.
+
 Host qualification covers real hidden-volume and enumerable encrypted/plaintext
 stores, frontend-derived OS scope names with an in-memory vault, retained legacy
 platform source, OS refusal/retry, delayed model work, unowned runtime residue,
 stale facade writes, owned/external model roots and failed fresh-router handoff.
 It is not a real OS-vault or complete packaged UI/platform qualification. Cold
 restart recovery is still the existing refusal shell. Shutdown of all optional
-application services and late callbacks, process death/reconciliation during the
-new enclosing operation, shared hidden maintenance, explicit migration and
+application services and late callbacks, cold application-process recovery and
+loss of the initial preparation reply before the live binding is captured,
+shared hidden maintenance, explicit migration and
 all-online/platform qualification remain before activation. No released build
 or default is changed by this binding.
 

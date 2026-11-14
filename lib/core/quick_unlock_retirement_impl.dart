@@ -98,6 +98,11 @@ final class QuickUnlockRetirement {
         if (await vault.store.contains(vault._key)) {
           throw const QuickUnlockRetirementFailure();
         }
+        for (final key in vault._scopeState.erasureBiometricKeys) {
+          if (await vault.store.contains(key, biometric: true)) {
+            throw const QuickUnlockRetirementFailure();
+          }
+        }
       }
       requireQuiescent();
     } catch (_) {
