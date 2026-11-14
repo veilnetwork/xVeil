@@ -53,6 +53,8 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private var pipEventsChannel: MethodChannel? = null
     private var screenCaptureChannel: MethodChannel? = null
     private var screenCaptureEngine: FlutterEngine? = null
+    private var callForegroundEngine: FlutterEngine? = null
+    private var callForegroundOwner: String? = null
     private var nativeCallCamera: NativeCallCamera? = null
     private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
     private var callWifiLock: WifiManager.WifiLock? = null
@@ -152,21 +154,44 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
                 else -> result.notImplemented()
             }
         }
+        callForegroundEngine = flutterEngine
+        val microphoneOwner = java.util.UUID.randomUUID().toString()
+        callForegroundOwner = microphoneOwner
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             callForegroundChannelName,
         ).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "setActive" -> {
-                    val active = call.argument<Boolean>("active") ?: false
-                    if (active) {
-                        result.success(CallMicrophoneService.start(this))
-                    } else {
-                        CallMicrophoneService.stop(this)
-                        result.success(true)
+            if (callForegroundEngine !== flutterEngine || callForegroundOwner != microphoneOwner) {
+                result.error("call_foreground", "Microphone engine has retired", null)
+                return@setMethodCallHandler
+            }
+            try {
+                when (call.method) {
+                    "setActive" -> {
+                        val active = (call.arguments as? Map<*, *>)?.get("active") as? Boolean
+                            ?: throw IllegalArgumentException()
+                        if (active) {
+                            result.success(CallMicrophoneService.start(this, microphoneOwner))
+                        } else {
+                            CallMicrophoneService.stop(this, microphoneOwner)
+                            result.success(true)
+                        }
                     }
+                    "retire" -> result.success(CallMicrophoneService.retire(this))
+                    "verifyRetirement", "releaseRetirement" -> {
+                        val token = (call.arguments as? Map<*, *>)?.get("token") as? String
+                            ?: throw IllegalArgumentException()
+                        if (call.method == "verifyRetirement") {
+                            CallMicrophoneService.verifyRetirement(this, token)
+                        } else {
+                            CallMicrophoneService.releaseRetirement(this, token)
+                        }
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
-                else -> result.notImplemented()
+            } catch (_: Exception) {
+                result.error("call_foreground", "Microphone resource operation unavailable", null)
             }
         }
         MethodChannel(
@@ -853,7 +878,13 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         }
         // The Dart owner is gone; never leave the ongoing-call notification
         // (and its microphone grant) dangling past the engine.
-        CallMicrophoneService.stop(this)
+        if (callForegroundEngine === flutterEngine) {
+            callForegroundOwner?.let {
+                try { CallMicrophoneService.stop(this, it) } catch (_: Exception) {}
+            }
+            callForegroundOwner = null
+            callForegroundEngine = null
+        }
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'android_microphone_lifetime.dart';
+
 import 'package:veil_flutter/veil_flutter.dart'
     show VeilBackground, VeilBackgroundRetirement;
 
@@ -24,12 +26,21 @@ abstract interface class BackgroundResourceRetirement {
 }
 
 final class _SdkRetirement implements BackgroundResourceRetirement {
-  _SdkRetirement(this.owner);
+  _SdkRetirement(this.owner, this.microphone);
   final VeilBackgroundRetirement owner;
+  final AndroidMicrophoneRetirement microphone;
   @override
-  Future<void> verifyReleasedResources() => owner.verifyReleasedResources();
+  Future<void> verifyReleasedResources() async {
+    await owner.verifyReleasedResources();
+    await microphone.verifyReleasedResources();
+  }
+
   @override
-  Future<void> releaseAdmission() => owner.releaseAdmission();
+  Future<void> releaseAdmission() async {
+    await microphone.releaseNativeAdmission();
+    await owner.releaseAdmission();
+    microphone.publishFreshLifetime();
+  }
 }
 
 typedef BackgroundCallStart =
@@ -65,7 +76,11 @@ class BackgroundServiceActions {
   factory BackgroundServiceActions.platform() => BackgroundServiceActions(
     start: VeilBackground.start,
     stop: VeilBackground.stop,
-    retire: () async => _SdkRetirement(await VeilBackground.retire()),
+    retire: () async {
+      final microphone = AndroidMicrophoneLifetime.current()..sealAdmission();
+      final background = await VeilBackground.retire();
+      return _SdkRetirement(background, await microphone.retireForErasure());
+    },
     callStart: VeilBackground.start,
     callPresentation: VeilBackground.setCallPresentation,
   );
