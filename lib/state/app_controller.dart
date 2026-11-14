@@ -5992,9 +5992,11 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  Future<void> _forgetStartupUnlock() async {
+  Future<void> _forgetStartupUnlock({bool verifyAbsence = false}) async {
     final prefs = await ref.read(prefsProvider.future);
-    if (prefs.getBool(kStartupUnlockOptIn) == true) {
+    // The preference controls whether to OFFER quick entry. It cannot prove
+    // OS-vault absence after preference loss or an interrupted enrollment.
+    if (verifyAbsence || prefs.getBool(kStartupUnlockOptIn) == true) {
       await ref
           .read(quickUnlockVaultProvider)
           .forget()
@@ -6200,7 +6202,7 @@ class AppController extends Notifier<AppState> {
     _incomplete.clear();
     var quickUnlockRemoved = false;
     try {
-      await _forgetStartupUnlock();
+      await _forgetStartupUnlock(verifyAbsence: true);
       quickUnlockRemoved = true;
     } catch (_) {
       /* reported as a remaining OS credential below */

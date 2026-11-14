@@ -8011,7 +8011,8 @@ class AppL10nEs extends AppL10n {
       'No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.';
 
   @override
-  String get wipeLeftQuickUnlock => 'acceso rápido guardado en el sistema';
+  String get wipeLeftQuickUnlock =>
+      'acceso rápido guardado en el sistema (no se pudo verificar su eliminación)';
 
   @override
   String get startupUnlockSaveFailed =>

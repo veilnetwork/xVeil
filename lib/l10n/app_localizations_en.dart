@@ -7913,7 +7913,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get wipeLeftQuickUnlock =>
-      'saved quick sign-in in the OS secure store';
+      'saved quick sign-in in the OS secure store (removal could not be verified)';
 
   @override
   String get startupUnlockSaveFailed =>

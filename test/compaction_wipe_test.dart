@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -70,7 +71,12 @@ ProviderContainer _idleWipeContainer(Directory directory, String path) =>
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // These file-rewrite fixtures have no OS credentials. Provide an empty OS
+    // store so verified absence does not depend on an unavailable host plugin.
+    FlutterSecureStorage.setMockInitialValues({});
+  });
 
   for (final failRewrite in [false, true]) {
     test('wipe waits for rewrite to settle (failure=$failRewrite)', () async {
