@@ -286,6 +286,71 @@ void main() {
   );
 
   test(
+    'bound resume refuses another intent without mutating its inventory',
+    () async {
+      await create(visible: false);
+      final old = await begin();
+      final original = await old.snapshot();
+      final r = retire(old);
+      await old.removeManagedFiles(retireScopes: r.retire);
+      File(legacy).deleteSync();
+      await old.finish(verifyOtherDataAbsent: r.verifyAbsent);
+      File(legacy).writeAsStringSync('synthetic replacement payload');
+      final replacement = await begin();
+      final current = await replacement.snapshot();
+      expect(current.binding.sameOperation(original.binding), isFalse);
+      await replacement.close();
+      final before = files(profile);
+      await expectLater(
+        ManagedErasureWorker.resumeBound(profile, original.binding).then((
+          value,
+        ) {
+          owners.add(value); // Own unexpected success in omission controls too.
+          return value;
+        }),
+        throwsA(isA<ManagedWorkerFailure>()),
+      );
+      expect(files(profile), before);
+      expect(File(legacy).readAsStringSync(), 'synthetic replacement payload');
+      final resumed = await ManagedErasureWorker.resumeBound(
+        profile,
+        current.binding,
+      );
+      owners.add(resumed);
+      expect(
+        (await resumed.snapshot()).binding.sameOperation(current.binding),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'bound resume cannot erase a newly created root after terminal release',
+    () async {
+      await create(visible: false);
+      final old = await begin();
+      final original = await old.snapshot();
+      final r = retire(old);
+      await old.removeManagedFiles(retireScopes: r.retire);
+      File(legacy).deleteSync();
+      await old.finish(verifyOtherDataAbsent: r.verifyAbsent);
+      ManagedDirectoryCatalog.createOrOpen(profile).close();
+      final before = files(profile);
+      await expectLater(
+        ManagedErasureWorker.resumeBound(profile, original.binding).then((
+          value,
+        ) {
+          owners.add(value); // Own unexpected success in omission controls too.
+          return value;
+        }),
+        throwsA(isA<ManagedWorkerFailure>()),
+      );
+      expect(files(profile), before);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+    },
+  );
+
+  test(
     'worker death after native release before reply can reconcile read-only and retain OS lifetime',
     () async {
       await create(visible: false);

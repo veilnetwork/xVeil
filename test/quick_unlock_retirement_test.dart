@@ -127,6 +127,38 @@ void main() {
       expect(store.values, before);
     },
   );
+  test('read-only retirement detects a reappearing biometric record', () async {
+    await vault(first).configure(password: 'synthetic retired', system: true);
+    await vault(
+      unrelated,
+    ).configure(password: 'synthetic unrelated', system: true);
+    final key = store.values.keys.singleWhere(
+      (key) => key.startsWith('true:') && key.contains(first),
+    );
+    final saved = store.values[key]!;
+    final retirement = QuickUnlockRetirement(
+      store,
+      StorageUnlockScopes([first]),
+      auth,
+    );
+    await retirement.retire();
+    expect(store.values.keys.any((key) => key.contains(first)), isFalse);
+    store.values[key] = saved;
+    final before = Map.of(store.values);
+    await expectLater(
+      retirement.verifyAbsent(),
+      throwsA(isA<QuickUnlockRetirementFailure>()),
+    );
+    expect(
+      store.values,
+      before,
+      reason: 'absence verification must not delete',
+    );
+    store.values.remove(key); // The fixture, not the verifier, resolves this.
+    await retirement.verifyAbsent();
+    expect(await vault(unrelated).openSystem('fixture'), 'synthetic unrelated');
+  });
+
   test(
     'ordinary forget can explicitly re-enroll; another backend is independent',
     () async {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 // Keep descriptive public constructor parameters at this orchestration boundary.
 // ignore_for_file: prefer_initializing_formals
 
@@ -57,6 +59,30 @@ final class ManagedProfileWipe {
       throw const ManagedProfileWipeFailure();
     }
   }
+
+  /// A real worker with a deterministic fault boundary; never selected by
+  /// application configuration or an environment variable.
+  @visibleForTesting
+  factory ManagedProfileWipe.withWorkerOpenerForTesting({
+    required ProfileStorageRouterOwner router,
+    required ProfilePreferencesLifetime preferences,
+    required LegacyProfilePreferences source,
+    required QuickUnlockSecretStore secretStore,
+    required LocalScreenAuthentication authentication,
+    required Future<void> Function() quiesce,
+    required Future<void> Function() verifyOtherDataAbsent,
+    required Future<ManagedErasureWorker> Function() openWorker,
+  }) => ManagedProfileWipe(
+    router: router,
+    preferences: preferences,
+    source: source,
+    secretStore: secretStore,
+    authentication: authentication,
+    quiesce: quiesce,
+    verifyOtherDataAbsent: verifyOtherDataAbsent,
+  ).._openForTesting = openWorker;
+
+  Future<ManagedErasureWorker> Function()? _openForTesting;
   final ProfileStorageRouterOwner _router;
   final ProfilePreferencesLifetime _preferences;
   final LegacyProfilePreferences _source;
@@ -65,6 +91,8 @@ final class ManagedProfileWipe {
   final Future<void> Function() _quiesce, _verifyOtherDataAbsent;
   late final String _profileDirectory;
   ManagedErasureWorker? _worker;
+  ManagedErasureBinding? _binding;
+  bool _recoveryNeedsAdoption = false;
   QuickUnlockRetirement? _vault;
   LegacyProfilePreferencesRetirement? _legacy;
   ManagedErasureRelease? _receipt;
@@ -93,6 +121,52 @@ final class ManagedProfileWipe {
     return done.future;
   }
 
+  Future<void> _verifyExternalAbsence() async {
+    final vault = _vault, legacy = _legacy;
+    if (vault == null || legacy == null) {
+      throw const ManagedProfileWipeFailure();
+    }
+    await Future.wait<void>([
+      vault.verifyAbsent(),
+      legacy.verifyAbsent(),
+      _verifyOtherDataAbsent(),
+    ]);
+  }
+
+  Future<void> _resumeExitedWorker() async {
+    var worker = _worker;
+    if (_receipt != null || worker == null) return;
+    if (worker.exitedUnexpectedly) {
+      final binding = _binding;
+      if (binding == null) throw const ManagedProfileWipeFailure();
+      // The worker port joins all accepted callbacks before acquiring a new
+      // exclusive native grant. Death alone is never release authorization.
+      worker = await ManagedErasureWorker.resumeBound(
+        _profileDirectory,
+        binding,
+      );
+      _worker = worker; // Retain even if inspection/adoption fails next.
+      _recoveryNeedsAdoption = true;
+    }
+    if (!_recoveryNeedsAdoption) return;
+    final snapshot = await worker.snapshot();
+    if (snapshot.phase != ManagedRootErasurePhase.removing) {
+      // No roster can be reconstructed from a terminal or missing marker. The
+      // exact live operation must retain its previously verified retirements.
+      // New OS records are refused and preserved, never erased by this path.
+      if (_vault == null || _legacy == null) {
+        throw const ManagedProfileWipeFailure();
+      }
+      _managedRemoved = _auxiliaryRemoved = true;
+    } else {
+      // A lost removal reply may have committed any prefix. Re-run only the
+      // original immutable inventory; new/changed objects still refuse.
+      _legacy = LegacyProfilePreferencesRetirement.forWorker(worker, _source);
+      _managedRemoved = _auxiliaryRemoved = false;
+    }
+    _recoveryNeedsAdoption = false;
+  }
+
   Future<void> _resume() async {
     if (_freshRouter) return;
     if (!_quiesced) {
@@ -108,13 +182,19 @@ final class ManagedProfileWipe {
       await _preferences.releaseFile();
       _preferencesReleased = true;
     }
-    final worker = _worker ??= await ManagedErasureWorker.begin(
-      profileDirectory: _profileDirectory,
-      profileNamespace: _source.profile,
-      legacyPath: _source.legacyPath,
-      auxiliary: ProfileErasureAuxiliaryTargets(legacyPath: _source.legacyPath),
-    );
+    await _resumeExitedWorker();
+    final worker = _worker ??=
+        await (_openForTesting?.call() ??
+            ManagedErasureWorker.begin(
+              profileDirectory: _profileDirectory,
+              profileNamespace: _source.profile,
+              legacyPath: _source.legacyPath,
+              auxiliary: ProfileErasureAuxiliaryTargets(
+                legacyPath: _source.legacyPath,
+              ),
+            ));
     if (_receipt == null) {
+      _binding ??= worker.scopeLease.snapshot.binding;
       _vault ??= QuickUnlockRetirement.forWorker(
         worker.scopeLease,
         _secretStore,
@@ -131,14 +211,12 @@ final class ManagedProfileWipe {
         await worker.removeAuxiliaryFiles(retireScopes: retire);
         _auxiliaryRemoved = true;
       }
+      // A durable native terminal may skip its callback, even when the same
+      // worker survived a failed final sync. Recheck external owners on EVERY
+      // attempt, not only on a worker replacement. This check never deletes.
+      await _verifyExternalAbsence();
       _receipt = await worker.finish(
-        verifyOtherDataAbsent: () async {
-          await Future.wait<void>([
-            _vault!.verifyAbsent(),
-            _legacy!.verifyAbsent(),
-            _verifyOtherDataAbsent(),
-          ]);
-        },
+        verifyOtherDataAbsent: _verifyExternalAbsence,
       );
     }
     final receipt = _receipt!;

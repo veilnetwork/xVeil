@@ -1,6 +1,6 @@
 part of 'async_kv_log_store.dart';
 
-enum _ErasureOpen { prepare, recover, reconcile }
+enum _ErasureOpen { prepare, recover, reconcile, resumeBound }
 
 final class _OpenManagedErasure extends _OpenConfig {
   const _OpenManagedErasure({
@@ -12,6 +12,7 @@ final class _OpenManagedErasure extends _OpenConfig {
     this.auxiliary,
     this.binding,
     this.checkpoint,
+    this.finishGateStage,
     this.failFinalSyncForTesting = false,
   }) : super(paddingPresetTag: 0);
   final _ErasureOpen mode;
@@ -19,6 +20,7 @@ final class _OpenManagedErasure extends _OpenConfig {
   final ProfileErasureAuxiliaryTargets? auxiliary;
   final ManagedErasureBinding? binding;
   final SendPort? checkpoint;
+  final ManagedErasureFinishStage? finishGateStage;
   final bool failFinalSyncForTesting;
 }
 
@@ -71,6 +73,9 @@ final class ManagedErasureWorker {
   }
   final String profileDirectory;
   final WorkerKvLogStore _worker;
+
+  /// Observed transport death, not a native-release or cleanup witness.
+  bool get exitedUnexpectedly => _dead;
   ManagedErasureSnapshot? _snapshot;
   ManagedErasureRelease? _receipt;
   Future<ManagedErasureRelease>? _finishing;
@@ -98,6 +103,14 @@ final class ManagedErasureWorker {
     ManagedErasureBinding binding,
   ) => _open(profileDirectory, _ErasureOpen.reconcile, binding: binding);
 
+  /// Continue a retained live operation after observed worker death. Pending
+  /// recovery must match its exact binding; an absent intent permits only
+  /// read-only reconciliation under a new exclusive grant, never a new plan.
+  static Future<ManagedErasureWorker> resumeBound(
+    String profileDirectory,
+    ManagedErasureBinding binding,
+  ) => _open(profileDirectory, _ErasureOpen.resumeBound, binding: binding);
+
   @visibleForTesting
   static Future<ManagedErasureWorker> beginWithReleaseGateForTesting({
     required String profileDirectory,
@@ -115,15 +128,35 @@ final class ManagedErasureWorker {
   );
 
   @visibleForTesting
-  static Future<ManagedErasureWorker> beginWithFinalSyncFailureForTesting({
+  static Future<ManagedErasureWorker> beginWithFinishGateForTesting({
     required String profileDirectory,
     required String profileNamespace,
     required String legacyPath,
+    required SendPort checkpoint,
+    required ManagedErasureFinishStage stage,
+    ProfileErasureAuxiliaryTargets? auxiliary,
   }) => _open(
     profileDirectory,
     _ErasureOpen.prepare,
     profileNamespace: profileNamespace,
     legacyPath: legacyPath,
+    checkpoint: checkpoint,
+    finishGateStage: stage,
+    auxiliary: auxiliary,
+  );
+
+  @visibleForTesting
+  static Future<ManagedErasureWorker> beginWithFinalSyncFailureForTesting({
+    required String profileDirectory,
+    required String profileNamespace,
+    required String legacyPath,
+    ProfileErasureAuxiliaryTargets? auxiliary,
+  }) => _open(
+    profileDirectory,
+    _ErasureOpen.prepare,
+    profileNamespace: profileNamespace,
+    legacyPath: legacyPath,
+    auxiliary: auxiliary,
     failFinalSyncForTesting: true,
   );
 
@@ -150,6 +183,7 @@ final class ManagedErasureWorker {
     ProfileErasureAuxiliaryTargets? auxiliary,
     ManagedErasureBinding? binding,
     SendPort? checkpoint,
+    ManagedErasureFinishStage? finishGateStage,
     bool failFinalSyncForTesting = false,
   }) async {
     try {
@@ -185,6 +219,7 @@ final class ManagedErasureWorker {
             auxiliary: auxiliary,
             binding: binding,
             checkpoint: checkpoint,
+            finishGateStage: finishGateStage,
             failFinalSyncForTesting: failFinalSyncForTesting,
           ),
         ),
@@ -369,6 +404,16 @@ final class _ErasureFinalSyncFault extends ManagedFsPlatform {
   }
 }
 
+Future<void> _waitAtErasureCheckpoint(SendPort checkpoint) async {
+  final proceed = ReceivePort();
+  try {
+    checkpoint.send(proceed.sendPort);
+    await proceed.first;
+  } finally {
+    proceed.close();
+  }
+}
+
 Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
   ManagedDirectoryCatalog? root;
   StorageProfileCoordinator? gate;
@@ -440,6 +485,24 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           config.path,
           config.binding!,
         );
+      case _ErasureOpen.resumeBound:
+        final binding = config.binding;
+        if (binding == null) {
+          throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+        }
+        // This read chooses an opener, not admission. Both openers acquire
+        // actual exclusive ownership and repeat their marker/tree checks.
+        if (StorageProfileCoordinator.hasErasureIntent(config.path)) {
+          erasure = ManagedRootErasure.openPending(config.path);
+          if (!erasure.binding.sameOperation(binding)) {
+            throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+          }
+        } else {
+          reconciliation = ManagedErasureReconciliation.open(
+            config.path,
+            binding,
+          );
+        }
     }
   } catch (error) {
     try {
@@ -498,6 +561,13 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
                 await erasure.finish(
                   verifyOtherDataAbsent: () =>
                       _awaitManagedEraseAdmission(admission),
+                  afterStage: config.finishGateStage == null
+                      ? null
+                      : (stage) async {
+                          if (stage == config.finishGateStage) {
+                            await _waitAtErasureCheckpoint(config.checkpoint!);
+                          }
+                        },
                 );
                 released = erasure.releaseCompleted();
               } else {
@@ -507,14 +577,8 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
                 );
               }
               final checkpoint = config.checkpoint;
-              if (checkpoint != null) {
-                final proceed = ReceivePort();
-                try {
-                  checkpoint.send(proceed.sendPort);
-                  await proceed.first;
-                } finally {
-                  proceed.close();
-                }
+              if (checkpoint != null && config.finishGateStage == null) {
+                await _waitAtErasureCheckpoint(checkpoint);
               }
             }
             message.reply.send(_Ok(released));
