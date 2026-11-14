@@ -33,6 +33,8 @@ import 'kv_log_store.dart';
 import 'rollback_anchor.dart';
 import 'on_disk_blob_store.dart';
 import 'storage.dart';
+import 'owned_storage_reclamation.dart';
+import 'managed_reclaim_budget.dart';
 import 'package:xveil/core/log.dart';
 
 /// Reasonable upper bound for a single log scan. hidden-volume's log is the
@@ -143,6 +145,7 @@ class HiddenVolumeStorage
         Storage,
         StorageOpeningOwner,
         StorageUsageSource,
+        OwnedStorageReclamation,
         StorageInitializationSource,
         StorageSetupInspectionSource,
         RollbackAnchorReader,
@@ -162,7 +165,8 @@ class HiddenVolumeStorage
   /// the calling isolate) internally, so behaviour is unchanged; only the
   /// [HiddenVolumeStorage.async] path actually moves work off the UI isolate.
   HiddenVolumeStorage(SpaceOpener opener, {KeysSpaceOpener? keysOpener})
-    : _opener = syncWrappedSpaceOpener(opener),
+    : _ownedReclaimer = null,
+      _opener = syncWrappedSpaceOpener(opener),
       keysOpener = keysOpener == null
           ? null
           : syncWrappedKeysOpener(keysOpener);
@@ -170,7 +174,11 @@ class HiddenVolumeStorage
   /// OFF-ISOLATE: the opener — and every op it serves — runs on a dedicated
   /// WORKER isolate (UI thread never blocks on the hidden-volume FFI). The
   /// production single-identity path (main.dart wires `workerSpaceOpener`).
-  HiddenVolumeStorage.async(this._opener, {this.keysOpener});
+  HiddenVolumeStorage.async(
+    this._opener, {
+    this.keysOpener,
+    this._ownedReclaimer,
+  });
 
   /// Wrap an ALREADY-OPEN [KvLogStore] (e.g. one multi-space view of a shared
   /// backing). Used in "all identities online" mode where every identity's
@@ -179,7 +187,8 @@ class HiddenVolumeStorage
   /// Phase 2). [close] tears down the view (a no-op for a shared backing — the
   /// owner closes the backing once).
   HiddenVolumeStorage.fromStore(KvLogStore store)
-    : _opener = _noOpener,
+    : _ownedReclaimer = null,
+      _opener = _noOpener,
       keysOpener = null,
       _store = SyncWrappedAsyncKvLogStore(store);
 
@@ -188,11 +197,29 @@ class HiddenVolumeStorage
   /// the all-online path is off-isolate too (Phase 2). [open]/[openWithKeys]
   /// are not used; [close] is a no-op for a shared backing.
   HiddenVolumeStorage.fromAsyncStore(AsyncKvLogStore store)
-    : _opener = _noOpener,
+    : _ownedReclaimer = null,
+      _opener = _noOpener,
       keysOpener = null,
       _store = store;
 
   final AsyncSpaceOpener _opener;
+  final Future<ManagedReclaimReport> Function(bool force)? _ownedReclaimer;
+
+  @override
+  bool get supportsOwnedReclamation => _ownedReclaimer != null;
+
+  @override
+  Future<ManagedReclaimReport> reclaimOwnedStorage({bool force = false}) {
+    final reclaim = _ownedReclaimer;
+    if (reclaim == null) {
+      return Future.error(
+        UnsupportedError('independent reclamation unavailable'),
+      );
+    }
+    // Pin this facade and wait behind accepted file publication. close/erase
+    // drain the same gate, so neither can release an owner still reclaiming.
+    return _fileSerialized(() => reclaim(force));
+  }
 
   /// Opens a child space by its `SpaceKeys` (master mode). Null when this
   /// handle is not configured for keys-based open (single-identity build).

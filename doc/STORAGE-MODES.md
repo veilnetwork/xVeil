@@ -1035,6 +1035,41 @@ Enumerable identities remain in the catalog; a plaintext master still exposes
 all linked keys. Duress is not a promise to hide those public/plaintext facts.
 Explanations open on demand, with narrow/large-text RU/EN/ES widget checks.
 
+### Manual reclamation of the active enumerable identity
+
+An optional `OwnedStorageReclamation` capability connects the authenticated
+managed worker to the active storage facade. Settings exposes an explicit
+reclaim action for that identity; a password list is unnecessary because its
+outer keys remain stable and no other root is enumerated. Encrypted stores
+use their existing prepared content/maintenance repack; plaintext remains on
+SQLite FULL auto-vacuum and never invokes the encrypted compactor.
+
+The facade queues reclamation behind accepted file publications. Close and erase
+drain the same gate, retaining the exact owner until the operation settles. The
+worker independently serializes its native detached-payload interval with reads,
+writes and close. Controller maintenance excludes overlapping creation, edits,
+selection, unlock and other compaction; wipe joins accepted maintenance. Lock and
+dispose invalidate late success without reopening anything. Other hosted roots
+stay online; the UI disables repeated taps, refreshes usage after success and
+shows a generic failure without exporting backend text.
+
+Host-native application checks exercise encrypted/plaintext standalone roots
+and active managed children under hidden, encrypted and plaintext masters,
+including all-online hosting. They compare outer keys, facade/session identity,
+catalog bytes, retained data and cold access. Gated port/controller checks cover
+accepted file publication, close after success/refusal, retry, overlapping work,
+lock/dispose and legacy refusal. Two pre-fix gated cases reproduced maintenance
+being admitted during hosted identity activation (whose phase remains ready);
+both collection and independent maintenance now check the live selection count.
+Narrow, large-text RU/EN/ES widget cases exercise
+busy, success, failure and route disposal. These are synthetic host fixtures,
+not packaged platform or real-network qualification.
+
+This does not enable shared hidden-container compaction when enumerable entries
+exist. That path still requires a durable cross-root key-remapping protocol;
+manual password rotation, migration and whole-profile erase remain separate
+unfinished work. The managed-storage default switch remains off.
+
 ### Interrupted setup inspection and explicit continuation
 
 An authenticated space without a profile no longer automatically boots a new

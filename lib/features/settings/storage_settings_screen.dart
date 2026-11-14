@@ -48,6 +48,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   bool _autoCompact = false;
   bool _leanPadding = true;
   bool _loaded = false;
+  bool _reclaimingOwned = false;
 
   /// The two knobs behind the compaction offer. Defaults until [_load] answers,
   /// which is also what a container that will not open should show.
@@ -188,6 +189,29 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     if (agreed != true || !mounted) return;
     setState(() => _autoCompact = true);
     await ctrl.setAutoCompactEnabled(true);
+  }
+
+  Future<void> _reclaimOwned(AppL10n l) async {
+    if (_reclaimingOwned) return;
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
+    setState(() => _reclaimingOwned = true);
+    try {
+      await ctrl.reclaimOwnedStorage();
+      if (!mounted || !ctrl.holdsIdentity(lease)) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.actionDone)));
+      await _load();
+    } catch (_) {
+      if (mounted && ctrl.holdsIdentity(lease)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.settingsStorageCompactFailed)));
+      }
+    } finally {
+      if (mounted) setState(() => _reclaimingOwned = false);
+    }
   }
 
   Future<void> _compactAll(AppL10n l) async {
@@ -396,8 +420,23 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                   ),
                 if (ctrl.usesManagedStorage)
                   ListTile(
+                    key: const Key('owned-storage-reclaim'),
                     leading: const Icon(Icons.cleaning_services_outlined),
-                    title: Text(l.storageOwnedCleanup),
+                    title: HelpLabel(
+                      title: l.storageOwnedReclaim,
+                      help: l.storageOwnedReclaimHelp,
+                    ),
+                    subtitle: Text(l.storageOwnedCleanup),
+                    trailing: _reclaimingOwned
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : null,
+                    onTap: !_reclaimingOwned && ctrl.canReclaimOwnedStorage
+                        ? () => _reclaimOwned(l)
+                        : null,
                   ),
                 if (!ctrl.usesManagedStorage)
                   SwitchListTile(
