@@ -66,6 +66,11 @@ persistence barrier from the preceding round.
 
 ## Limits
 
+The subsequent [Android file-integrity qualification](../android-saved-entry-file-integrity-2026-11-15/README.md)
+runs these channel methods on Android, including removed keys and damaged files,
+and adds backing-file/cache validation. The limits below describe this earlier
+round rather than the follow-up's result.
+
 The new raw-record owner ran on the host JVM and compiled for Android; its new
 channel methods have not yet run on an Android device/emulator. The prior
 [40 Android process-death checks](../android-quick-unlock-restart-2026-11-15/README.md)

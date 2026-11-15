@@ -16,6 +16,7 @@ import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherFactory
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.security.KeyStore
+import java.io.File
 import java.util.concurrent.Executors
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
@@ -39,10 +40,18 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
     private val records = QuickUnlockRecordStore(
         FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix,
     ) { namespace ->
+        val backing = QuickUnlockPreferenceFile(File(context.dataDir, "shared_prefs/$namespace.xml").toPath(),
+            FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix + "_xveil.quick.v1.")
+        backing.contains() // Before framework loading can hide/repair malformed state.
         val preferences = context.getSharedPreferences(namespace, Activity.MODE_PRIVATE)
         object : QuickUnlockRecordPreferences {
-            override fun contains(key: String) = preferences.contains(key)
-            override fun removeAndCommit(key: String) = preferences.edit().remove(key).commit()
+            override fun contains(key: String): Boolean {
+                return backing.checkedSnapshot(preferences.all).containsKey(key)
+            }
+            override fun removeAndCommit(key: String): Boolean {
+                contains(key) // Never rewrite an unknown map from an empty fallback.
+                return preferences.edit().remove(key).commit()
+            }
         }
     }
     private var closed = false
@@ -68,9 +77,10 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                                     else -> { persistence.flush(key, biometric); true }
                                 }
                                 main.post { result.success(answer) }
-                            } catch (_: Exception) {
+                            } catch (error: Exception) {
                                 main.post {
-                                    result.error(if (call.method == "flush") "persistence_failed" else "record_operation_failed",
+                                    result.error(if (error is QuickUnlockRecordFileFailure) "record_store_unreadable"
+                                        else if (call.method == "flush") "persistence_failed" else "record_operation_failed",
                                         "Quick-unlock record operation not confirmed", null)
                                 }
                             }

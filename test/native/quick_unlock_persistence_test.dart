@@ -32,6 +32,7 @@ class _AppliedSecrets {
   final flushes = <Map<String, dynamic>>[];
   final entered = Completer<void>(), release = Completer<void>();
   bool hold = false, denyProtectedFlush = false, rejectPlugin = false;
+  bool unreadableRecords = false;
   Object? flushReply = true;
 
   String namespace(String key, bool biometric) => biometric
@@ -66,6 +67,9 @@ class _AppliedSecrets {
       final biometric = args['biometric'] as bool;
       final prefix = '${namespace(args['key'] as String, biometric)}:';
       final address = '$prefix${args['key']}';
+      if (unreadableRecords && call.method != 'flush') {
+        throw PlatformException(code: 'record_store_unreadable');
+      }
       if (call.method == 'contains') return memory.containsKey(address);
       expect(call.method, isIn(['flush', 'remove']));
       if (call.method == 'remove') memory.remove(address);
@@ -215,84 +219,94 @@ void main() {
     },
   );
 
-  test(
-    'native payload survives unconfirmed Android credential removal',
-    () async {
-      final fixture = Directory.systemTemp.createTempSync(
-        'xveil-vault-persist-',
-      );
-      ManagedRootErasure? erasure;
-      try {
-        final profile = '${fixture.path}/profile';
-        expect(
-          const ManagedFsPlatform().createPrivateDirectory(profile),
-          isTrue,
+  for (final unreadable in [false, true]) {
+    test(
+      'native payload survives ${unreadable ? 'unreadable records' : 'unconfirmed Android credential removal'}',
+      () async {
+        final fixture = Directory.systemTemp.createTempSync(
+          'xveil-vault-persist-',
         );
-        final owner = ManagedDirectoryCatalog.createOrOpen(profile);
-        final id = ManagedIdentityId('1' * 32);
+        ManagedRootErasure? erasure;
         try {
-          final data = ManagedIdentityFiles.createUnencrypted(owner, id: id);
-          try {
-            data.commit([
-              PutOp(1, Uint8List.fromList([1]), Uint8List.fromList([2, 3, 4])),
-            ]);
-          } finally {
-            data.close();
-          }
-        } finally {
-          owner.close();
-        }
-        final payloads = <String, List<int>>{
-          for (final file in Directory(
-            '$profile/identities',
-          ).listSync(recursive: true))
-            if (file is File) file.path: file.readAsBytesSync(),
-        };
-        expect(payloads, isNotEmpty);
-        final exclusive = ManagedDirectoryCatalog.openExclusiveMaintenance(
-          profile,
-        )!;
-        try {
-          await ManagedRootErasure.prepare(
-            exclusive,
-            unlockScopes: StorageUnlockScopes([scope]),
+          final profile = '${fixture.path}/profile';
+          expect(
+            const ManagedFsPlatform().createPrivateDirectory(profile),
+            isTrue,
           );
+          final owner = ManagedDirectoryCatalog.createOrOpen(profile);
+          final id = ManagedIdentityId('1' * 32);
+          try {
+            final data = ManagedIdentityFiles.createUnencrypted(owner, id: id);
+            try {
+              data.commit([
+                PutOp(
+                  1,
+                  Uint8List.fromList([1]),
+                  Uint8List.fromList([2, 3, 4]),
+                ),
+              ]);
+            } finally {
+              data.close();
+            }
+          } finally {
+            owner.close();
+          }
+          final payloads = <String, List<int>>{
+            for (final file in Directory(
+              '$profile/identities',
+            ).listSync(recursive: true))
+              if (file is File) file.path: file.readAsBytesSync(),
+          };
+          expect(payloads, isNotEmpty);
+          final exclusive = ManagedDirectoryCatalog.openExclusiveMaintenance(
+            profile,
+          )!;
+          try {
+            await ManagedRootErasure.prepare(
+              exclusive,
+              unlockScopes: StorageUnlockScopes([scope]),
+            );
+          } finally {
+            exclusive.close();
+          }
+          erasure = ManagedRootErasure.openPending(profile);
+          final store = QuickUnlockSecretStore();
+          await QuickUnlockVault(
+            store,
+            scope,
+            RetirementAuthentication(),
+          ).configure(password: 'synthetic password', system: true);
+          backend.disk.addAll(backend.memory);
+          final retirement = QuickUnlockRetirement.forManagedErasure(
+            erasure,
+            store,
+            RetirementAuthentication(),
+          );
+          backend.denyProtectedFlush = !unreadable;
+          backend.unreadableRecords = unreadable;
+          await expectLater(
+            erasure.removeManagedFiles(
+              retireScopes: (_) => retirement.retire(),
+            ),
+            throwsA(isA<QuickUnlockRetirementFailure>()),
+          );
+          for (final entry in payloads.entries) {
+            expect(File(entry.key).readAsBytesSync(), entry.value);
+          }
+          expect(erasure.phase, ManagedRootErasurePhase.removing);
+          backend.denyProtectedFlush = false;
+          backend.unreadableRecords = false;
+          await erasure.removeManagedFiles(
+            retireScopes: (_) => retirement.retire(),
+          );
+          await erasure.finish(verifyOtherDataAbsent: retirement.verifyAbsent);
+          expect(Directory('$profile/identities').existsSync(), isFalse);
+          expect(backend.disk, isEmpty);
         } finally {
-          exclusive.close();
+          erasure?.close();
+          fixture.deleteSync(recursive: true);
         }
-        erasure = ManagedRootErasure.openPending(profile);
-        final store = QuickUnlockSecretStore();
-        await QuickUnlockVault(
-          store,
-          scope,
-          RetirementAuthentication(),
-        ).configure(password: 'synthetic password', system: true);
-        backend.disk.addAll(backend.memory);
-        final retirement = QuickUnlockRetirement.forManagedErasure(
-          erasure,
-          store,
-          RetirementAuthentication(),
-        );
-        backend.denyProtectedFlush = true;
-        await expectLater(
-          erasure.removeManagedFiles(retireScopes: (_) => retirement.retire()),
-          throwsA(isA<QuickUnlockRetirementFailure>()),
-        );
-        for (final entry in payloads.entries) {
-          expect(File(entry.key).readAsBytesSync(), entry.value);
-        }
-        expect(erasure.phase, ManagedRootErasurePhase.removing);
-        backend.denyProtectedFlush = false;
-        await erasure.removeManagedFiles(
-          retireScopes: (_) => retirement.retire(),
-        );
-        await erasure.finish(verifyOtherDataAbsent: retirement.verifyAbsent);
-        expect(Directory('$profile/identities').existsSync(), isFalse);
-        expect(backend.disk, isEmpty);
-      } finally {
-        erasure?.close();
-        fixture.deleteSync(recursive: true);
-      }
-    },
-  );
+      },
+    );
+  }
 }
