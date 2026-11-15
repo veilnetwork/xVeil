@@ -588,10 +588,14 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
     // ENOENT (observed on a MediaTek Android 11). The app's PRIMARY data dir
     // (getApplicationSupportDirectory — where the container already lives,
     // proven writable) is where apps are expected to place unix sockets. Desktop
-    // keeps systemTemp (/tmp): short paths that stay under the ~104-char
-    // unix-socket path limit (the app-support dir there is long).
+    // POSIX desktop keeps systemTemp (/tmp) for short Unix socket paths.
+    // Windows uses authenticated loopback TCP and needs stable application-data
+    // ancestry: its Temp directory can grant other accounts replacement rights.
     final String runtimeBase;
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (Platform.isWindows) {
+      runtimeBase =
+          supportDirectory ?? (await getApplicationSupportDirectory()).path;
+    } else if (Platform.isAndroid || Platform.isIOS) {
       runtimeBase = (await getApplicationSupportDirectory()).path;
     } else {
       runtimeBase = Directory.systemTemp.path;

@@ -24,9 +24,15 @@ reopen on an isolated Windows 11 debug build. The
 [Windows preference follow-up](validation/windows-preferences-private-create-2026-11-15/README.md)
 fixes inherited file permissions with private creation and verifies real worker
 write/reopen plus a cold read in a separate AOT probe process, including an
-already-open stale reader. Identity payload persistence and the normal Windows
-UI remain unqualified. Android, full Windows mode qualification, application
-release AOT and activation are not yet complete.
+already-open stale reader. The
+[Windows mode qualification](validation/managed-storage-windows-modes-2026-11-15/README.md)
+now covers normal onboarding and cold reopen for all three modes, exact note/ID
+readback, plaintext read without a key, and return to both enumerable identities.
+It also exposed inherited runtime/control-key permissions; the
+[runtime-DACL follow-up](validation/windows-runtime-private-create-2026-11-15/README.md)
+fixes private creation and unsafe ancestry admission, with nine Windows native
+cases and the normal rebuilt app. Android, complete Windows destructive/recovery
+qualification, application release AOT and activation are not yet complete.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

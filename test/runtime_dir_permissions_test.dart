@@ -15,7 +15,7 @@ import 'package:xveil/data/veil_stack.dart';
 void main() {
   final posix = !Platform.isWindows;
   final skipReason = Platform.isWindows
-      ? 'POSIX modes only; Windows uses ACLs and restrictRuntimeDir skips it'
+      ? 'POSIX modes only; Windows DACLs use the native runtime probe'
       : null;
 
   test('the runtime directory is owner-only', () async {

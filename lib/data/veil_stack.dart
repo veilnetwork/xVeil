@@ -7,6 +7,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart' show visibleForTesting;
+import 'package:path/path.dart' as p;
 
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/secret_wipe.dart' show wipeSecretBytes;
@@ -42,6 +43,7 @@ import 'node/ratchet_ffi.dart'
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
+import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
 import '../state/ratchet_persistence.dart';
@@ -174,11 +176,10 @@ class TombstonedDeviceException implements Exception {
 /// On macOS and Linux the path can sit on a filesystem other local users
 /// share, so an unprotected directory is a real exposure and we refuse. On
 /// Android and iOS the directory is inside the app sandbox — the OS is already
-/// the boundary — and on Windows access is governed by the profile ACL, which
-/// a POSIX mode cannot describe and this code does not attempt to set. Failing
-/// the boot on those platforms would trade a guarantee they already have for
-/// an outage.
-bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
+/// the boundary. Windows requires an explicit private DACL: Temp and profile
+/// directories may inherit grants to other accounts even under a user profile.
+bool runtimeDirMustBePrivate() =>
+    Platform.isMacOS || Platform.isLinux || Platform.isWindows;
 
 /// How this platform carries the node's two LOCAL control channels: the admin
 /// socket the app drives the node through, and the app IPC socket it talks to
@@ -286,9 +287,17 @@ Future<String?> _chmod700(String dir) async {
 /// existed at the process umask. Returns false when the path was taken (or the
 /// creation failed for any other reason).
 bool _createExclusiveDir(String path) {
+  if (Platform.isWindows) {
+    // The protected DACL exists from the first instant. Tightening an inherited
+    // ACL later would not revoke handles opened during the permissive window.
+    if (!windows.createPrivateDirectory(path)) return false;
+    _assertWindowsRuntimePath(path, private: true);
+    return true;
+  }
   final rc = posixMkdir(path, 0x1C0); // 0700
   if (rc != null) return rc == 0;
-  // No libc binding (Windows): the pre-check is not atomic, but it is still a
+  // No libc binding on an unsupported platform: the pre-check is not atomic,
+  // but it is still a
   // refusal to adopt somebody else's directory rather than a silent reuse.
   if (FileSystemEntity.typeSync(path, followLinks: false) !=
       FileSystemEntityType.notFound) {
@@ -299,6 +308,82 @@ bool _createExclusiveDir(String path) {
     return true;
   } on FileSystemException {
     return false;
+  }
+}
+
+/// Inspect only canonical Windows paths. Every parent must prevent replacement
+/// by an untrusted account; read-only shared bases remain valid. The child
+/// itself additionally needs current-user ownership and a private DACL.
+void _assertWindowsRuntimePath(String path, {bool private = false}) {
+  try {
+    var current = Directory(path);
+    for (var depth = 0; depth < 256; depth++) {
+      final facts = windows.inspect(current.path);
+      if (!facts.directory ||
+          !facts.safeAncestor ||
+          (depth == 0 &&
+              private &&
+              (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
+        throw RuntimeDirNotPrivate(
+          path,
+          'unsafe Windows directory permissions',
+        );
+      }
+      final parent = current.parent;
+      if (parent.path == current.path) return;
+      current = parent;
+    }
+  } on RuntimeDirNotPrivate {
+    rethrow;
+  } catch (_) {
+    throw RuntimeDirNotPrivate(path, 'Windows directory verification failed');
+  }
+  throw RuntimeDirNotPrivate(path, 'Windows directory ancestry is too deep');
+}
+
+/// Resolve aliases once and use only the verified canonical path thereafter.
+/// Validate the nearest existing ancestor BEFORE creating missing parents;
+/// recursive Directory.create would follow mutable ancestors before admission.
+String _prepareWindowsRuntimeBase(String supplied) {
+  try {
+    if (supplied.trim().isEmpty || supplied.contains('\x00')) {
+      throw RuntimeDirNotPrivate(supplied, 'invalid Windows runtime base');
+    }
+    final absolute = p.normalize(p.absolute(supplied));
+    if (!RegExp(r'^[A-Za-z]:[\\/]').hasMatch(absolute) ||
+        FileSystemEntity.typeSync(absolute, followLinks: false) ==
+            FileSystemEntityType.link) {
+      throw RuntimeDirNotPrivate(supplied, 'unsupported Windows runtime base');
+    }
+    var existing = Directory(absolute);
+    final missing = <String>[];
+    while (!existing.existsSync()) {
+      if (missing.length >= 256 || existing.parent.path == existing.path) {
+        throw RuntimeDirNotPrivate(
+          supplied,
+          'no stable Windows runtime parent',
+        );
+      }
+      missing.add(p.basename(existing.path));
+      existing = existing.parent;
+    }
+    var canonical = existing.resolveSymbolicLinksSync();
+    _assertWindowsRuntimePath(canonical);
+    for (final name in missing.reversed) {
+      canonical = p.join(canonical, name);
+      // A racing trusted caller may create the same base. It still has to
+      // satisfy the full directory policy; it is never claimed as our child.
+      windows.createPrivateDirectory(canonical);
+      _assertWindowsRuntimePath(canonical);
+    }
+    return canonical;
+  } on RuntimeDirNotPrivate {
+    rethrow;
+  } catch (_) {
+    throw RuntimeDirNotPrivate(
+      supplied,
+      'Windows runtime base could not be verified',
+    );
   }
 }
 
@@ -328,7 +413,11 @@ Directory _createPrivateStagingDir(String base, String prefix) {
       FileSystemEntityType.link) {
     throw FileSystemException('staging base is a symlink', base);
   }
-  Directory(base).createSync(recursive: true);
+  if (Platform.isWindows) {
+    base = _prepareWindowsRuntimeBase(base);
+  } else {
+    Directory(base).createSync(recursive: true);
+  }
   for (var attempt = 0; attempt < 8; attempt++) {
     final path = '$base/${_randomName(prefix)}';
     if (_createExclusiveDir(path)) return Directory(path);
@@ -506,7 +595,11 @@ Future<String> claimRuntimeDirUnder(
       FileSystemEntityType.link) {
     throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
   }
-  await Directory(base).create(recursive: true);
+  if (Platform.isWindows) {
+    base = _prepareWindowsRuntimeBase(base);
+  } else {
+    await Directory(base).create(recursive: true);
+  }
 
   // Created EXCLUSIVELY: an existing name is somebody else's — a live sibling,
   // a dead run's leftovers, or something planted — and is never adopted. The
@@ -671,7 +764,17 @@ class RuntimeDirLease {
         FileSystemEntityType.link) {
       throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
     }
-    await Directory(base).create(recursive: true);
+    if (Platform.isWindows) {
+      base = _prepareWindowsRuntimeBase(base);
+      if (_forbiddenBase(base)) {
+        throw RuntimeDirNotPrivate(
+          base,
+          'canonical runtime base is a root or home',
+        );
+      }
+    } else {
+      await Directory(base).create(recursive: true);
+    }
 
     for (var attempt = 0; attempt < 8; attempt++) {
       final path = '$base/${_randomName(prefix)}';
@@ -679,8 +782,8 @@ class RuntimeDirLease {
       final secret = _randomSecret();
       await _writeRuntimeDirMarker(path, secret: secret);
       // Mode 0700 came from `mkdir` itself, but a filesystem that ignores it
-      // (some mounted shares do) must still be caught, and Windows has no mode
-      // to set at all — so the existing verify-or-refuse runs unchanged.
+      // (some mounted shares do) must still be caught. Windows creation and
+      // verification use the protected DACL rather than POSIX mode bits.
       await restrictRuntimeDir(path);
       return RuntimeDirLease._(
         path: path,
@@ -827,7 +930,12 @@ Future<void> restrictRuntimeDir(
   String dir, {
   Future<String?> Function(String dir)? chmod,
 }) async {
-  if (Platform.isWindows) return;
+  if (Platform.isWindows) {
+    // Refuse an already unsafe directory; do not tighten it after secrets or
+    // other users' handles may already exist there.
+    _assertWindowsRuntimePath(dir, private: true);
+    return;
+  }
   String? notApplied;
   try {
     notApplied = await (chmod ?? _chmod700)(dir);
@@ -3052,7 +3160,9 @@ class RealVeilStack {
     required String? identityDir,
   }) async {
     if (ratchetState is FfiRatchetStateHandle) {
-      ratchetState.bindPeerAuthorizationEvents(transport.peerAuthorizationChanges);
+      ratchetState.bindPeerAuthorizationEvents(
+        transport.peerAuthorizationChanges,
+      );
     }
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
