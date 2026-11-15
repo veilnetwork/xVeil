@@ -741,10 +741,9 @@ class EmbeddedNode {
   static int delegationValidUntil(String veilDir, {DynamicLibrary? lib}) {
     final dl = lib ?? _veilLib();
     final fn = dl
-        .lookupFunction<
-          _DelegationValidUntilNative,
-          _DelegationValidUntilDart
-        >('veil_device_delegation_valid_until');
+        .lookupFunction<_DelegationValidUntilNative, _DelegationValidUntilDart>(
+          'veil_device_delegation_valid_until',
+        );
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
     );
@@ -1840,9 +1839,7 @@ class EmbeddedNode {
     final sink = 'logs = "file"';
     final rendered = RegExp(r'^[ \t]*log_file[ \t]*=.*$', multiLine: true);
     final renderedSink = RegExp(r'^[ \t]*logs[ \t]*=.*$', multiLine: true);
-    var out = rendered.hasMatch(toml)
-        ? toml.replaceAll(rendered, line)
-        : null;
+    var out = rendered.hasMatch(toml) ? toml.replaceAll(rendered, line) : null;
     if (out == null) {
       const marker = '[global]\n';
       final idx = toml.indexOf(marker);
@@ -1878,10 +1875,11 @@ class EmbeddedNode {
   /// endpoint, for correlating the node's own periodic work (DHT publishes,
   /// lookups, transport bytes) against live-call latency. Pure helper (no
   /// FFI) so it is unit-testable; debug builds alone decide whether to call
-  /// it (same convention as the debug hook). No-op when [port] is null/zero
-  /// or a `[metrics]` table already exists.
+  /// it (same convention as the debug hook). Zero asks the OS for a free port,
+  /// so co-located hosted nodes never compete for one diagnostic endpoint.
+  /// No-op when [port] is null/negative or a `[metrics]` table already exists.
   static String withDebugMetrics(String toml, int? port) {
-    if (port == null || port <= 0) return toml;
+    if (port == null || port < 0) return toml;
     if (toml.contains('[metrics]')) return toml;
     return '$toml\n[metrics]\n'
         'listen = "tcp://127.0.0.1:$port"\n'

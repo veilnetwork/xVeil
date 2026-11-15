@@ -10,9 +10,8 @@ void main() {
   test(
     'production seeds contain no operator-owned UDP reflector endpoint',
     () async {
-      bool free(List<dynamic> entries) => entries
-          .whereType<Map<dynamic, dynamic>>()
-          .every(
+      bool free(List<dynamic> entries) =>
+          entries.whereType<Map<dynamic, dynamic>>().every(
             (entry) =>
                 !entry.containsKey('udp_reflector') &&
                 !entry.containsKey('udp_reflectors'),
@@ -101,9 +100,10 @@ void main() {
         publicKey: 'PK1=',
         nonce: 'N1=',
       );
-      final merged = mergeBootstrapPeers(const [sameNodeOtherTransport], const [
-        seed1,
-      ]);
+      final merged = mergeBootstrapPeers(
+        const [sameNodeOtherTransport],
+        const [seed1],
+      );
       expect(merged, hasLength(1));
       expect(merged.single.transport, 'tls://relay.example:9906');
     });
@@ -251,8 +251,13 @@ void main() {
     test('no-op without a port', () {
       const toml = 'listen = "x"\n';
       expect(EmbeddedNode.withDebugMetrics(toml, null), toml);
-      expect(EmbeddedNode.withDebugMetrics(toml, 0), toml);
       expect(EmbeddedNode.withDebugMetrics(toml, -1), toml);
+    });
+
+    test('zero requests an OS-assigned loopback metrics endpoint', () {
+      final out = EmbeddedNode.withDebugMetrics('listen = "x"\n', 0);
+      expect(out, contains('[metrics]'));
+      expect(out, contains('listen = "tcp://127.0.0.1:0"'));
     });
 
     test('appends a loopback-only [metrics] table', () {
