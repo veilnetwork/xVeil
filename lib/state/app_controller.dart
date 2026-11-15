@@ -2069,6 +2069,9 @@ class AppController extends Notifier<AppState> {
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
   /// down with no session and no explanation.
   Future<bool> beginCompactionCollection() async {
+    if (usesManagedStorage) {
+      throw StateError('independent storage requires owned maintenance');
+    }
     // Hosted activation may still publish a new view while phase is ready.
     // It has no single-active view job, but retains this selection admission.
     if (_endingSessions != 0 ||
@@ -2171,6 +2174,9 @@ class AppController extends Notifier<AppState> {
     })
   >
   probeCompactionIdentity(String password) async {
+    if (usesManagedStorage) {
+      throw StateError('independent storage requires owned maintenance');
+    }
     const closed = (
       opened: false,
       isMaster: false,
@@ -2220,18 +2226,19 @@ class AppController extends Notifier<AppState> {
             displayName: profile?.displayName,
             username: profile?.username,
             subordinates: <String>[
-              for (final e in roster ?? const <RosterEntry>[]) e.label,
+              for (final e in roster ?? const <RosterEntry>[])
+                if (e.storageLocator is LegacyStorageLocator) e.label,
             ],
             // What this password opened. Compaction keeps SPACES, and the keys are
             // what say which space this was — so a master's list of children can be
             // ticked off against the passwords actually typed.
             spaceKeys: spaceKeys,
-            // A master names every identity under it. Each of those is its own
-            // space with its own password: this list is what compaction would
-            // DESTROY if the person stopped at the master's password.
+            // Only children in this shared container require their passwords.
+            // Independently owned children are not copied or rekeyed here.
             children: [
               for (final e in roster ?? const <RosterEntry>[])
-                (label: e.label, keys: e.spaceKeys),
+                if (e.storageLocator is LegacyStorageLocator)
+                  (label: e.label, keys: e.spaceKeys),
             ],
           );
         } catch (_) {
@@ -2278,14 +2285,21 @@ class AppController extends Notifier<AppState> {
   /// a previously completed rewrite.
   ///
   /// Returns nonempty failure markers when repair is incomplete, never key
-  /// prefixes. Every space that carries a roster
-  /// is repaired, not just the one being used: a decoy master names the same
-  /// children and would break the same way.
+  /// prefixes. Every supplied hidden space carrying a roster is repaired,
+  /// including decoy masters. Independently owned child references stay intact.
+  /// References held by managed masters outside this replacement require a
+  /// separate recovery protocol before mixed-container maintenance is enabled.
   Future<List<String>> remapRostersAfterCompaction(
     List<({List<int> password, List<int> oldSpaceKeys})> credentials, {
     Storage? storageOverride,
   }) async {
     if (credentials.isEmpty) return const [];
+    // Explicit overrides belong to an unpublished legacy replacement, even
+    // if the currently selected root is independently owned. Without one,
+    // credentials may never be tried against that independent root.
+    if (storageOverride == null && usesManagedStorage) {
+      throw StateError('independent storage requires owned maintenance');
+    }
     final lease = leaseIdentity();
     void requireCurrentSession() {
       if (!ref.mounted || !holdsIdentity(lease)) {
@@ -2293,7 +2307,8 @@ class AppController extends Notifier<AppState> {
       }
     }
 
-    final Storage storage = storageOverride ?? ref.read<Storage>(storageProvider);
+    final Storage storage =
+        storageOverride ?? ref.read<Storage>(storageProvider);
     String hex(List<int> b) =>
         b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
@@ -2356,6 +2371,13 @@ class AppController extends Notifier<AppState> {
         var complete = true;
         var changed = false;
         for (final entry in roster) {
+          // Only this shared container was rekeyed. A managed child keeps its
+          // own keybox and outer keys, even if its bytes happen to match an
+          // old/new key in this container. The locator is the authority.
+          if (entry.storageLocator is ManagedStorageLocator) {
+            repaired.add(entry);
+            continue;
+          }
           final old = hex(entry.spaceKeys);
           // Another holder may already have committed before a later write
           // failed. A retry must recognize that completed repair rather than
@@ -2429,12 +2451,13 @@ class AppController extends Notifier<AppState> {
       if (!canReclaimOwnedStorage) {
         throw StateError('independent storage maintenance unavailable');
       }
-    } else if (ref
-            .read(profileStorageRouterProvider)
-            ?.catalog
-            .identities
-            .isNotEmpty ??
-        false) {
+    } else if (usesManagedStorage ||
+        (ref
+                .read(profileStorageRouterProvider)
+                ?.catalog
+                .identities
+                .isNotEmpty ??
+            false)) {
       throw StateError('managed storage requires mode-aware maintenance');
     }
     // Hosted activation may still publish a new view while phase is ready.

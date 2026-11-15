@@ -58,6 +58,12 @@ now verifies the rebuilt native library in an isolated ordinary-entry Android
 debug app: actual three-role headers, normal owned reclamation, password-based
 cold readback and hidden default/isolation checks pass. This emulator run does
 not close physical OEM, release AOT, other native targets or mixed-roster gates.
+The [compaction storage-scope follow-up](validation/compaction-storage-scope-2026-11-15/README.md)
+fixes legacy password coverage/roster repair for independently owned children
+and refuses credential operations against an active managed root. The 75-check
+run includes prepared native publication/refusal and unchanged sibling files.
+Cross-owner references held by managed masters still require recovery wiring;
+the mixed-profile compaction guard remains enabled.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

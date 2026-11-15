@@ -19,11 +19,13 @@ import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 // Drain an owned operation even when an earlier assertion fails. The test
 // awaits its actual result separately; cleanup must not leave a late opener
@@ -174,6 +176,7 @@ Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
   final container = ProviderContainer(
     overrides: [
       appControllerProvider.overrideWith(() => controller),
+      quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
       singleSpaceStorageProvider.overrideWithValue(storage),
       notificationServiceProvider.overrideWithValue(_Notifications()),
       vpnBackendProvider.overrideWithValue(_Vpn()),
@@ -537,9 +540,10 @@ void main() {
   test('collection teardown cannot close a session after lock', () async {
     final controller = _Controller();
     final f = await _parkCollection(controller);
-    await controller.lock();
+    final lease = controller.leaseIdentity();
+    final locking = controller.lock();
+    expect(controller.holdsIdentity(lease), isFalse);
     final callsAtLock = List<String>.of(f.storage.calls);
-    final closesAtLock = f.storage.closes;
     try {
       await controller.unlock('missing-fixture');
       expect(
@@ -550,12 +554,14 @@ void main() {
     } finally {
       f.node.release.complete();
       await _settle(f.collecting);
+      await _settle(locking);
     }
+    await locking;
     expect(await f.collecting, isFalse);
     expect(
       f.storage.closes,
-      closesAtLock,
-      reason: 'old collection touched storage after its lease ended',
+      1,
+      reason: 'only lock may close storage after collection was revoked',
     );
     expect(f.container.read(appControllerProvider).phase, AppPhase.locked);
     await controller.unlock('missing-fixture');
@@ -591,7 +597,9 @@ void main() {
     () async {
       final controller = _Controller();
       final f = await _parkCollection(controller);
-      await controller.lock();
+      final lease = controller.leaseIdentity();
+      final locking = controller.lock();
+      expect(controller.holdsIdentity(lease), isFalse);
       try {
         await expectLater(
           controller.probeCompactionIdentity('fixture'),
@@ -600,7 +608,9 @@ void main() {
       } finally {
         f.node.release.complete();
         await _settle(f.collecting);
+        await _settle(locking);
       }
+      await locking;
       expect(await f.collecting, isFalse);
       expect(
         (await controller.probeCompactionIdentity('fixture')).opened,
@@ -623,18 +633,25 @@ void main() {
                   reopenWith: 'fixture',
                 )
               : controller.cancelCompactionCollection('fixture');
+          Future<void>? locking;
           try {
             // Let an await of an absent probe complete too. A real collection
             // barrier must remain pending until its node teardown settles.
             await Future<void>.value();
             await Future<void>.value();
             expect(controller.unlocks, 0);
-            if (lockDuringWait) await controller.lock();
+            if (lockDuringWait) {
+              locking = controller.lock();
+              expect(controller.holdsIdentity(lease), isFalse);
+            }
           } finally {
             leaseContainer.node.release.complete();
             await _settle(leaseContainer.collecting);
+            if (locking != null) await _settle(locking);
             await _settle(recovering);
           }
+          if (locking != null) await locking;
+          await recovering;
           expect(controller.unlocks, lockDuringWait ? 0 : 1);
         },
       );
@@ -646,14 +663,16 @@ void main() {
     () async {
       final controller = _Controller();
       final f = await _parkCollection(controller);
-      final wiping = controller.wipeContainers();
+      final lease = controller.leaseIdentity();
+      var wipeSettled = false;
+      final wiping = controller.wipeContainers().whenComplete(
+        () => wipeSettled = true,
+      );
       try {
-        await Future.any<void>([
-          controller.waiting.future,
-          wiping.then(
-            (_) => throw StateError('wipe returned before collection'),
-          ),
-        ]);
+        expect(controller.holdsIdentity(lease), isFalse);
+        // Wipe may join the already-owned node disposal before reaching the
+        // collection barrier. Observe both, without requiring an older order
+        // or awaiting node disposal while this test still holds its gate.
         var settled = false;
         final barrier = controller.waitForCompaction().then(
           (_) => settled = true,
@@ -661,6 +680,7 @@ void main() {
         await Future<void>.value();
         await Future<void>.value();
         expect(settled, isFalse);
+        expect(wipeSettled, isFalse);
         expect(await f.file.exists(), isTrue);
         f.node.release.complete();
         await barrier;
