@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
+import 'managed_fs_windows.dart' as windows;
 
 /// A file owner, not permission to perform local I/O beside its native lease.
 abstract interface class ProfilePreferencesFile {
@@ -39,9 +40,8 @@ const int _ownerOnlyDir = 0x1C0; // 0700
 /// other local accounts share, so a posture file at a permissive umask is a
 /// real exposure and writing it is worse than not writing it. On Android and
 /// iOS the app sandbox is already the boundary, and on Windows access is
-/// governed by the profile ACL, which a POSIX mode cannot describe and this
-/// code does not attempt to set — refusing there would trade a guarantee those
-/// platforms already give for a broken settings screen.
+/// governed by a Windows DACL, applied and checked separately below. A POSIX
+/// chmod cannot establish that boundary.
 bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
 /// Create [dir] and make it owner-only.
@@ -74,7 +74,10 @@ Future<void> _ensurePrivateDir(Directory dir) async {
 /// resolved through PATH, which is the substitutable oracle audit C-01 was
 /// about.
 bool _restrictToOwner(String path) {
-  if (Platform.isWindows) return true;
+  if (Platform.isWindows) {
+    final facts = windows.inspect(path);
+    return !facts.directory && facts.ownedByCurrentUser && facts.ownerOnly;
+  }
   final rc = posixChmod(path, _ownerOnlyFile);
   if (!prefsFilesMustBePrivate()) return true;
   if (rc == null || rc != 0) {
@@ -106,6 +109,22 @@ bool _restrictToOwner(String path) {
     return false;
   }
   return true;
+}
+
+/// Never reuse an inherited-read temporary on Windows. Tightening its DACL
+/// does not revoke a reader's existing handle, which could then read the next
+/// payload. Remove only an owned stable leaf and reserve a fresh private file.
+/// A reader denying deletion makes the write fail before any payload changes.
+bool _prepareWindowsTemporary(File temp) {
+  if (FileSystemEntity.typeSync(temp.path, followLinks: false) !=
+      FileSystemEntityType.notFound) {
+    final facts = windows.inspect(temp.path);
+    if (facts.directory || !facts.ownedByCurrentUser || !facts.safeAncestor) {
+      return false;
+    }
+    temp.deleteSync();
+  }
+  return windows.createPrivateFile(temp.path);
 }
 
 /// Write [contents] to [file] durably, privately and atomically — or return
@@ -147,6 +166,7 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
     // values on disk at the umask for as long as the chmod takes to run, and
     // [_restrictToOwner]'s lstat is also what catches a link that won the race
     // between the type check above and this open.
+    if (Platform.isWindows && !_prepareWindowsTemporary(temp)) return false;
     final handle = await temp.open(mode: FileMode.writeOnly);
     try {
       if (!_restrictToOwner(temp.path)) return false;
@@ -193,6 +213,7 @@ bool writePrivateFileAtomicallySync(File file, String contents) {
     } else if (planted == FileSystemEntityType.directory) {
       return false;
     }
+    if (Platform.isWindows && !_prepareWindowsTemporary(temp)) return false;
     final handle = temp.openSync(mode: FileMode.writeOnly);
     try {
       if (!_restrictToOwner(temp.path)) return false;

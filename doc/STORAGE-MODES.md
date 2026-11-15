@@ -20,9 +20,13 @@ exposed additional retired-provider/startup-publication races. Their fixes pass
 570 checks and six real ready/lock cycles with zero uncaught errors. The
 [Windows bootstrap follow-up](validation/managed-storage-windows-bootstrap-2026-11-15/README.md)
 fixes fresh-worker DLL lookup and qualifies normal startup/cold coordination-role
-reopen on an isolated Windows 11 debug build. It does not yet qualify identity
-persistence there. Android, full Windows mode qualification, release AOT and
-activation are not yet complete.
+reopen on an isolated Windows 11 debug build. The
+[Windows preference follow-up](validation/windows-preferences-private-create-2026-11-15/README.md)
+fixes inherited file permissions with private creation and verifies real worker
+write/reopen plus a cold read in a separate AOT probe process, including an
+already-open stale reader. Identity payload persistence and the normal Windows
+UI remain unqualified. Android, full Windows mode qualification, application
+release AOT and activation are not yet complete.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
