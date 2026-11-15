@@ -95,3 +95,9 @@ creation's earlier locked-storage startup reads were not repeated here and stay
 open. Physical Android/OEM, complete platform destructive/recovery qualification,
 Windows source-directory durability, custom source-name journal binding,
 all-target native pin updates, release AOT and activation remain separate gates.
+
+
+Follow-up: [identity storage work admission](../identity-storage-service-admission-2026-11-15/README.md)
+resolves the retained creation/startup-read mechanism with gated regressions and
+fresh normal-main creation, conversion, switching and cold readback. Platform
+and activation gates above remain open.

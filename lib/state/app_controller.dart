@@ -1312,6 +1312,20 @@ class AppController extends Notifier<AppState> {
   int _identitySelections = 0;
   int _identitySelectionRequest = 0;
 
+  VoidCallback _suspendIdentityServiceAdmission() {
+    // Capture the provider controller, not this notifier's ref: accepted native
+    // cleanup may outlive a replaced AppController. Its own contribution must
+    // still retire without unsealing a queued replacement owner's operation.
+    final boundary = ref.read(identityStorageWorkDepthProvider.notifier);
+    boundary.state++;
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      if (boundary.mounted) boundary.state--;
+    };
+  }
+
   Future<bool> _withIdentityEdit(
     Future<bool> Function(_IdentityEdit) run, {
     bool supportsManagedMaster = false,
@@ -1354,6 +1368,7 @@ class AppController extends Notifier<AppState> {
       () => ref.mounted && !_supersededSince(lifecycle),
     );
     _identityEditOwner = edit;
+    final releaseServiceAdmission = _suspendIdentityServiceAdmission();
     try {
       await edit.step(_drainRetiringSessions);
       edit.keepAllOnline = ref.read(sessionProvider) != null;
@@ -1389,6 +1404,7 @@ class AppController extends Notifier<AppState> {
       } finally {
         _identityEditInFlight = null;
         _identityEditOwner = null;
+        releaseServiceAdmission();
         finished.complete();
       }
     }
@@ -3703,6 +3719,7 @@ class AppController extends Notifier<AppState> {
           request == _identitySelectionRequest,
     );
     work.keepAllOnline = keepAllOnline;
+    final releaseServiceAdmission = _suspendIdentityServiceAdmission();
     try {
       // A cancelled Future cannot release an accepted native opener. Join the
       // old owner's complete cleanup before touching its shared storage facade.
@@ -3751,6 +3768,7 @@ class AppController extends Notifier<AppState> {
           _identityViewInFlight = null;
           _identityViewKeepAllOnline = false;
         }
+        releaseServiceAdmission();
         finished.complete();
       }
     }
@@ -4009,6 +4027,7 @@ class AppController extends Notifier<AppState> {
     _identityViewKeepAllOnline = work.keepAllOnline;
     _identityViewOwner = work;
     _identitySelections++;
+    final releaseServiceAdmission = _suspendIdentityServiceAdmission();
     try {
       return await _rebootHostedNodesOwned(work);
     } on _IdentityEditEnded {
@@ -4024,6 +4043,7 @@ class AppController extends Notifier<AppState> {
           _identityViewInFlight = null;
           _identityViewKeepAllOnline = false;
         }
+        releaseServiceAdmission();
         finished.complete();
       }
     }
@@ -7230,7 +7250,10 @@ final appControllerProvider = NotifierProvider<AppController, AppState>(
 /// admission before its first await, while the old identity is still retained.
 /// This is a full-session boundary, not the cover-only screen lock.
 final sessionWorkIdentityProvider = Provider<NodeId?>((ref) {
-  if (ref.watch(sessionEndDepthProvider) != 0) return null;
+  if (ref.watch(sessionEndDepthProvider) != 0 ||
+      ref.watch(identityStorageWorkDepthProvider) != 0) {
+    return null;
+  }
   return ref.watch(
     appControllerProvider.select(
       (state) => state.phase == AppPhase.ready ? state.identity?.nodeId : null,

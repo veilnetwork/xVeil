@@ -208,6 +208,11 @@ final sessionProvider = StateProvider<MultiIdentitySession?>((ref) => null);
 /// must not construct a replacement service against the fallback/closed store.
 final sessionEndDepthProvider = StateProvider<int>((ref) => 0);
 
+/// Accepted identity/storage owners suppress new UI session work until their
+/// complete cleanup/recovery settles. A queued selection can overlap the edit
+/// it joins, so each owner holds its own counted admission lease.
+final identityStorageWorkDepthProvider = StateProvider<int>((ref) => 0);
+
 /// Single-identity services have no MultiIdentitySession to join their cleanup.
 /// Keep retired provider instances owned across transport/provider replacement.
 final sessionServiceOwnerProvider = Provider((ref) => SessionServiceOwner());
