@@ -22,6 +22,15 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   final _ctrl = TextEditingController();
   bool _busy = false;
 
+  // Managed storage needs the whole-profile erasure owner, even when its
+  // visible catalog is empty: it may still hold hidden data. A bare router
+  // must never offer legacy container deletion as the fallback.
+  // The confirmation captures this scope; the controller still validates
+  // ownership and persists its recovery intent before deleting anything.
+  bool get _canWipe =>
+      ref.read(profileStorageRouterOwnerProvider) != null ||
+      ref.read(profileStorageRouterProvider) == null;
+
   @override
   void dispose() {
     _ctrl.dispose();
@@ -77,12 +86,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           // Surface the irreversible delete right here: "start over" keeps the
           // container (deniability), so a user who actually wants a clean slate
           // would otherwise never find the corner-tucked wipe.
-          if (!(ref
-                  .read(profileStorageRouterProvider)
-                  ?.catalog
-                  .identities
-                  .isNotEmpty ??
-              false))
+          if (_canWipe)
             TextButton(
               style: TextButton.styleFrom(
                 foregroundColor: Theme.of(ctx).colorScheme.error,
@@ -173,7 +177,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         !choiceRequired &&
         access is ManagedStorageLocator &&
         access.protection == StorageProtection.unencrypted;
-    final canWipe = router == null || router.catalog.identities.isEmpty;
+    final canWipe = _canWipe;
     final hasError = ref.watch(
       appControllerProvider.select((s) => s.unlockError),
     );

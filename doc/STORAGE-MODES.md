@@ -40,6 +40,12 @@ covers normal creation/cold reopen for all three modes on an Android 15 AOSP
 emulator, exact identity/note readback, a no-key plaintext read and return to both
 enumerable modes. Physical Android/OEM, complete platform destructive/recovery
 qualification, application release AOT and activation are not yet complete.
+The [Android maintenance follow-up](validation/managed-storage-android-reclaim-wipe-2026-11-15/README.md)
+qualifies actual owned reclamation of both visible modes with sibling payloads
+unchanged, then whole-profile deletion and cold onboarding. It also repairs
+stale lock-screen wipe admission for owned and unowned managed routers. These
+small-fixture runs make no space-savings claim and do not close platform crash,
+credential/model-inventory, mixed-roster maintenance or physical OEM gates.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
