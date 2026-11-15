@@ -3,6 +3,7 @@ import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
 import 'dart:convert';
 import 'dart:typed_data';
+import '../core/session_service_owner.dart';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -193,6 +194,10 @@ final sessionProvider = StateProvider<MultiIdentitySession?>((ref) => null);
 /// the previous AppState.identity for teardown. Retained async signer values
 /// must not construct a replacement service against the fallback/closed store.
 final sessionEndDepthProvider = StateProvider<int>((ref) => 0);
+
+/// Single-identity services have no MultiIdentitySession to join their cleanup.
+/// Keep retired provider instances owned across transport/provider replacement.
+final sessionServiceOwnerProvider = Provider((ref) => SessionServiceOwner());
 
 
 /// In a session, the label of the identity the UI currently shows. Changing it

@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/app_controller.dart';
@@ -16,7 +17,7 @@ NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 
 class _ReadyController extends AppController {
   @override
-  AppState build() => const AppState(AppPhase.ready);
+  AppState build() => AppState(AppPhase.ready, identity: Identity(nodeId: _id(1)));
 }
 
 class _Storage extends HiddenVolumeStorage {

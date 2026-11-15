@@ -13,8 +13,13 @@ same identity after process death, rejecting a wrong password. Its real lifecycl
 run also exposed service-recreation/startup-read races during lock. The
 [shutdown qualification](validation/managed-app-session-shutdown-2026-11-15/README.md)
 records their fixes, three real unlock/lock cycles and the 543-check final run.
-Plaintext/hidden packaged runs, remaining platform checks and activation are not
-yet complete. Earlier section-local “remaining” notes are historical; this
+The [mode-switch follow-up](validation/managed-storage-mode-switch-shutdown-2026-11-15/README.md)
+also qualifies normal plaintext/hidden onboarding, cold reopen and note
+persistence, with existing sibling payloads unchanged. Immediate switching
+exposed additional retired-provider/startup-publication races. Their fixes pass
+570 checks and six real ready/lock cycles with zero uncaught errors. Android,
+Windows, release AOT and activation are not yet complete.
+Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
 The owner requested an enumerable encrypted default, optional hidden storage,

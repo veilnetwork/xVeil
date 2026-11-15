@@ -211,7 +211,7 @@ class CloudService implements ArchiveCloud {
   StreamSubscription<String>? _contentSub;
   Timer? _reconcileTimer;
   Timer? _integrityTimer;
-  Future<void>? _started, _loadingLocal, _closing;
+  Future<void>? _started, _closing;
   Future<void> _mutationChain = Future.value();
   bool _closed = false;
 
@@ -223,9 +223,7 @@ class CloudService implements ArchiveCloud {
   }
 
   Future<void> _start() async {
-    final loading = _loadLocal();
-    _loadingLocal = loading;
-    await loading;
+    await _loadLocal();
     // `close` sweeps once and sets the flag; everything below it is installed
     // AFTER awaits. A close that lands in one of those windows cancelled
     // subscriptions that did not exist yet, and this then went on to install
@@ -612,6 +610,7 @@ class CloudService implements ArchiveCloud {
     );
     await _saveIndex();
     await _saveClaims();
+    if (_closed) return;
 
     // Keep every unresolved note head, but scrub any prior revision that the
     // merged DAG no longer references. This handles remote merge revisions and
@@ -2121,10 +2120,11 @@ class CloudService implements ArchiveCloud {
 
   Future<void> _close() async {
     // Provider disposal cannot await, but the messaging owner can. Keep its
-    // storage alive through local initialization, without waiting for network
-    // reconciliation. Failures remain the start caller's result; cleanup still
-    // runs, and concurrent close callers join this same barrier.
-    await _loadingLocal?.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    // storage alive through local initialization AND its initial index/claim
+    // publication. GroupCloudSyncPort.records reads the local device journal;
+    // background replica fetches/posts are not awaited by start. Failures remain
+    // the start caller's result, and cleanup still runs.
+    await _started?.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     _reconcileTimer?.cancel();
     _integrityTimer?.cancel();
     await _syncSub?.cancel();
