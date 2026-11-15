@@ -9,6 +9,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../../domain/identity_erase_review.dart';
 import '../../core/storage_unlock_scope.dart';
+import '../../core/saved_entry_addresses.dart';
 import '../../domain/storage_protection.dart';
 import '../../domain/storage_usage.dart';
 import '../native_libs.dart' show envLibPath;
@@ -40,6 +41,7 @@ part 'managed_identity_erase_review.dart';
 part 'storage_profile_coordinator.dart';
 part 'managed_root_erasure.dart';
 part 'profile_erasure_completion.dart';
+part 'application_erasure_journal.dart';
 part 'managed_erasure_reconciliation.dart';
 part 'profile_erasure_auxiliary.dart';
 

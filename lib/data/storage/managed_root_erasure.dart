@@ -34,6 +34,7 @@ final class ManagedRootErasure {
       );
   static const pendingName = 'erasure-pending';
   static const completionName = 'erasure-complete.json';
+  static const applicationJournalName = 'application-erasure.json';
   static const _planName = 'plan.json';
   final StorageProfileCoordinator _gate;
 
@@ -43,6 +44,7 @@ final class ManagedRootErasure {
   final _RootErasePlan? _plan;
   final ManagedPathWitness? _directory, _file;
   _ErasureCompletion? _completion;
+  _ApplicationErasureJournal? _applicationJournal;
   bool _finished = false;
   bool _releaseStarted = false;
   bool _operating = false;
@@ -83,8 +85,55 @@ final class ManagedRootErasure {
       phase,
       phase == ManagedRootErasurePhase.removing ? catalog : null,
       phase == ManagedRootErasurePhase.removing ? unlockScopes : null,
+      savedEntryWitness: _savedEntryWitness(),
     );
   }
+
+  String? _savedEntryWitness() {
+    if (_gate._closed) return null;
+    _applicationJournal ??= _ApplicationErasureJournal.openIfPresent(
+      _gate,
+      binding,
+    );
+    final journal = _applicationJournal;
+    if (journal == null) return null;
+    if (_plan != null &&
+        jsonEncode(journal.records.scopes.ids) !=
+            jsonEncode(_plan.unlockScopes.ids)) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    if (journal._unlinked) return journal.records.encode();
+    journal.validate(_gate);
+    return journal.records.encode();
+  }
+
+  /// Publish the enclosing application's recovery addresses while this exact
+  /// removing plan still grants a live role. No OS operation is performed here.
+  void persistSavedEntryWitness(
+    String encoded,
+  ) => ManagedDirectoryCatalog._safe(() {
+    if (_operating || _scopeRetirementSealed) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
+    }
+    _validate();
+    final records = SavedEntryAddresses.decode(encoded);
+    if (!binding._applicationProfile ||
+        jsonEncode(records.scopes.ids) != jsonEncode(unlockScopes.ids)) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    _applicationJournal ??= _ApplicationErasureJournal.publish(
+      _gate,
+      binding,
+      records,
+    );
+    if (_applicationJournal!.records.encode() != records.encode()) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    _applicationJournal!.validate(_gate);
+    // Set the retained owner before sync: an ambiguous acknowledgment can be
+    // retried without replacing the published journal or admitting removal.
+    _gate._fs.syncDirectory(_gate.directory);
+  });
 
   /// A fresh mutation boundary, unlike immutable progress. Pending/committed
   /// finalization cannot grant another cleanup. A refused pre-terminal attempt
@@ -100,7 +149,9 @@ final class ManagedRootErasure {
 
   /// A worker closing after an error may retry ONLY this already-authorized
   /// final sync before releasing its native role. No external cleanup is run.
-  bool get finalSyncPending => _completion?.unlinked == true && !_finished;
+  bool get finalSyncPending =>
+      (_completion?.unlinked == true && !_finished) ||
+      (_applicationJournal?.unlinkPending ?? false);
 
   /// Only the original removing plan can answer an unacknowledged prepare.
   /// A terminal has no such roster/request authority and is never upgraded.
@@ -467,8 +518,25 @@ final class ManagedRootErasure {
       _gate.requireHeld(exclusive: true);
       _ErasureCompletion.requireRootAbsent(_gate);
       _plan?.auxiliary?.scope.requireAbsent(_gate);
-      if (_finished) return; // Lost reply, same still-held lifetime only.
+      final savedEntries = _savedEntryWitness();
+      if (_finished) {
+        if (savedEntries != null) await verifyOtherDataAbsent();
+        return; // Lost reply, same still-held lifetime only.
+      }
       _completion ??= _ErasureCompletion.openIfPresent(_gate);
+      if (_completion != null && savedEntries != null) {
+        await verifyOtherDataAbsent();
+        if (!_completion!.unlinked) {
+          _completion!.validate(_gate);
+        } else if (FileSystemEntity.typeSync(
+              _ErasureCompletion._path(_gate),
+              followLinks: false,
+            ) !=
+            FileSystemEntityType.notFound) {
+          throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+        }
+        _applicationJournal!.validate(_gate);
+      }
       if (_completion == null) {
         _validate();
         await verifyOtherDataAbsent();
@@ -532,23 +600,28 @@ final class ManagedRootErasure {
   /// Proof is issued only after durable terminal finalization AND successful
   /// native role/lock close. A failed close issues no permission for new OS
   /// scope owners; retry uses the same consuming-close owner.
-  ManagedErasureRelease releaseCompleted() {
+  ManagedErasureRelease releaseCompleted() => ManagedDirectoryCatalog._safe(() {
     if (_operating || !_finished) {
       throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending);
     }
     if (!_releaseStarted) {
       _ErasureCompletion.requireRootAbsent(_gate);
       binding._auxiliaryScope?.requireAbsent(_gate);
+      _applicationJournal ??= _ApplicationErasureJournal.openIfPresent(
+        _gate,
+        binding,
+      );
+      _applicationJournal?.removeAndSync(_gate);
       // Once a consuming close starts, retry that owned close only; its lease
       // may no longer admit ordinary reads after a partial native release.
       _releaseStarted = true;
     }
     close();
     return ManagedErasureRelease._(binding);
-  }
+  });
 
   void close() {
-    if (_operating || (_completion?.unlinked == true && !_finished)) {
+    if (_operating || finalSyncPending) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
     }
     _gate.close();
@@ -562,8 +635,9 @@ final class ManagedErasureSnapshot {
     this.binding,
     this.phase,
     this._catalog,
-    this._scopes,
-  );
+    this._scopes, {
+    this.savedEntryWitness,
+  });
   final ManagedErasureBinding binding;
 
   /// Observes the bound auxiliary scope; not a standalone cleanup grant.
@@ -572,6 +646,9 @@ final class ManagedErasureSnapshot {
   final ManagedRootErasurePhase phase;
   final ManagedIdentityCatalog? _catalog;
   final StorageUnlockScopes? _scopes;
+
+  /// Read-only addresses, not the missing terminal's mutation scope roster.
+  final String? savedEntryWitness;
   ManagedIdentityCatalog get catalog =>
       _catalog ??
       (throw const ManagedFsFailure(ManagedFsFailureKind.erasurePending));

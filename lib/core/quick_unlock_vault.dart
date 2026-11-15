@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'local_authentication.dart';
 import 'storage_unlock_scope.dart';
+import 'saved_entry_addresses.dart';
 import '../data/storage/managed_directory_catalog.dart'
     show
         ManagedRootErasure,

@@ -115,6 +115,7 @@ final class ManagedProfileWipe {
   ManagedErasureBinding? _binding;
   bool _recoveryNeedsAdoption = false;
   QuickUnlockRetirement? _vault;
+  QuickUnlockAbsenceWitness? _savedEntries;
   LegacyProfilePreferencesRetirement? _legacy;
   ManagedErasureRelease? _receipt;
   bool _quiesced = false, _suspended = false, _preferencesReleased = false;
@@ -267,9 +268,25 @@ final class ManagedProfileWipe {
         _authentication,
       );
       _legacy ??= LegacyProfilePreferencesRetirement.forWorker(worker, _source);
+      // Publish outside the worker's retirement callback: that callback runs
+      // while its native actor awaits us and must not reenter the same actor.
+      if (!_managedRemoved) {
+        _savedEntries ??= await _vault!.prepareAbsenceWitness();
+        await worker.persistSavedEntryWitness(_savedEntries!.encode());
+      }
       Future<void> retire() async {
         await _verifyCaptureResources();
-        await Future.wait<void>([_vault!.retire(), _legacy!.retire()]);
+        await Future.wait<void>([
+          _vault!.retire(
+            persistWitness: (current) async {
+              if (_savedEntries == null ||
+                  current.encode() != _savedEntries!.encode()) {
+                throw const ManagedProfileWipeFailure();
+              }
+            },
+          ),
+          _legacy!.retire(),
+        ]);
         await _verifyCaptureResources();
       }
 
