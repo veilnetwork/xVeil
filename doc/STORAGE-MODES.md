@@ -7,6 +7,12 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [mixed-session crash qualification](validation/mixed-session-ack-crash-2026-11-16/README.md)
+now verifies 36 acknowledged messages across simultaneously open hidden,
+encrypted and plaintext identities after SIGKILL and cold reopen, with a
+negative control against fabricated ACKs. Its 31-check run qualifies the host
+storage/ingress boundary; native ratchet, platform and activation gates remain.
+
 The [hosted compaction follow-up](validation/managed-compaction-access-root-2026-11-15/README.md)
 separates access-root credentials from hidden keep-set authority, restores
 confirmed source ownership and the selected hosted view, and fixes completion
