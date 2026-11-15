@@ -10,6 +10,7 @@ enum ManagedWorkerFailureKind {
   ambiguous,
   invalid,
   backend,
+  recoveryRequired,
 }
 
 /// Bounded transport error: never contains native messages, paths, IDs or keys.
@@ -291,7 +292,7 @@ void _wipeManagedInitial(List<KvLogOp> records) {
 
 final class _ManagedWorkerOwner {
   _ManagedWorkerOwner(this.root, this.store) : failure = null;
-  _ManagedWorkerOwner.retiring(this.root, this.failure) : store = null;
+  _ManagedWorkerOwner.retiring(this.root, this.failure, {this.store});
   final ManagedDirectoryCatalog root;
   final ManagedIdentityStore? store;
   final ManagedWorkerFailureKind? failure;
@@ -319,6 +320,7 @@ SendPort _serveManagedCleanup(void Function() close) {
 
 _ManagedWorkerOwner _openManagedWorker(_OpenManagedIdentity config) {
   ManagedDirectoryCatalog? root;
+  ManagedIdentityStore? store;
   try {
     root = config.action == _ManagedWorkerAction.create
         ? ManagedDirectoryCatalog.createOrOpen(config.path)
@@ -336,7 +338,7 @@ _ManagedWorkerOwner _openManagedWorker(_OpenManagedIdentity config) {
       }
     }
     final credential = config.credential;
-    final store = switch (config.action) {
+    store = switch (config.action) {
       _ManagedWorkerAction.create =>
         encrypted
             ? ManagedIdentityFiles.createEncrypted(
@@ -373,14 +375,26 @@ _ManagedWorkerOwner _openManagedWorker(_OpenManagedIdentity config) {
               )
             : ManagedIdentityFiles.resumeUnencrypted(root, id: id),
     };
+    if (ManagedLegacyReferenceRepair.hasPendingJournal(store)) {
+      // The app's catalog owner must quiesce its shared grants and recover
+      // under exclusive ownership. Never expose stale references meanwhile.
+      throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.recoveryRequired,
+      );
+    }
     return _ManagedWorkerOwner(root, store);
   } catch (error) {
     try {
+      store?.close();
       root?.close();
     } catch (_) {
       // Root still owns the partial open. Keep a cleanup-only worker alive and
       // hand its close capability to the caller's retirement registry.
-      return _ManagedWorkerOwner.retiring(root!, _managedFailureKind(error));
+      return _ManagedWorkerOwner.retiring(
+        root!,
+        _managedFailureKind(error),
+        store: store,
+      );
     }
     rethrow;
   } finally {

@@ -23,6 +23,15 @@ abstract final class ManagedLegacyReferenceRepair {
   /// Private in-volume file; its plaintext mode follows its owning identity.
   static const journalFile = 'storage:legacy-reference-repair.v1';
 
+  /// Presence only, after authenticating this store. Partial/corrupt declarations
+  /// also require recovery; this is not an authorization or validity verdict.
+  static bool hasPendingJournal(ManagedIdentityStore store) =>
+      ['file:$journalFile', 'ondisk:$journalFile'].any(
+        (key) =>
+            store.get(Ns.settings, Uint8List.fromList(utf8.encode(key))) !=
+            null,
+      );
+
   static void _wipeRows(List<RosterEntry>? rows) {
     for (final row in rows ?? const <RosterEntry>[]) {
       row.spaceKeys.fillRange(0, row.spaceKeys.length, 0);
