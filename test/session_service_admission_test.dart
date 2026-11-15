@@ -214,7 +214,13 @@ void main() {
     },
   );
 
-  for (final boundary in ['ending', 'locked', 'preparing', 'recovery']) {
+  for (final boundary in [
+    'ending',
+    'locked',
+    'preparing',
+    'recovery',
+    'storage-work',
+  ]) {
     test('eager fallback streams do not start work while $boundary', () async {
       final storage = _ConversationProbe();
       final c = ProviderContainer(
@@ -234,6 +240,9 @@ void main() {
       );
       if (boundary == 'ending') {
         c.read(sessionEndDepthProvider.notifier).state = 1;
+      }
+      if (boundary == 'storage-work') {
+        c.read(identityStorageWorkDepthProvider.notifier).state = 1;
       }
       final service = c.read(messagingServiceProvider);
       final subscription = service.changes.listen((_) {});
@@ -255,7 +264,13 @@ void main() {
     });
   }
 
-  for (final boundary in ['locked', 'ending', 'preparing', 'recovery']) {
+  for (final boundary in [
+    'locked',
+    'ending',
+    'preparing',
+    'recovery',
+    'storage-work',
+  ]) {
     final ending = boundary == 'ending';
     test(
       'group and document services avoid dependencies while $boundary',
@@ -285,6 +300,9 @@ void main() {
         // Seed a retained signer even though the current session admits no work.
         await c.read(groupSignerProvider.future);
         if (ending) c.read(sessionEndDepthProvider.notifier).state = 1;
+        if (boundary == 'storage-work') {
+          c.read(identityStorageWorkDepthProvider.notifier).state = 1;
+        }
         expect(c.read(groupServiceProvider), isNull);
         expect(c.read(cloudDocumentReplicationServiceProvider), isNull);
         expect(dependencyReads, 0);

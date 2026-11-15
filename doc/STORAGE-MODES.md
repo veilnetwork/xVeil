@@ -16,8 +16,12 @@ used a debug loopback fallback are withdrawn. The
 [hosted-node follow-up](validation/hosted-node-metrics-2026-11-15/README.md)
 fixes colliding diagnostic ports and status remount, then verifies actual native
 IDs through compaction/cold reopen and the exact hidden note, with 160 regression
-checks plus a real two-node startup test. Identity-edit startup admission and the
-remaining platform gates still block activation.
+checks plus a real two-node startup test. The
+[identity-work admission follow-up](validation/identity-storage-service-admission-2026-11-15/README.md)
+then seals service startup while a master/child facade is changing. Fresh normal
+onboarding, master conversion, both actual node IDs, isolated notes and cold
+reopen pass with 149 regression checks. Remaining platform gates still block
+activation.
 
 Packaged application qualification is now in progress. The isolated macOS app
 has created an encrypted identity through normal onboarding and reopened that

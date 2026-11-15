@@ -10,16 +10,22 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/chat.dart';
+import 'package:xveil/state/cloud_document_providers.dart';
+import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/messaging_providers.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/keep_all_online_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 enum _Stage {
   activeKeys,
@@ -45,6 +51,19 @@ class _Storage extends HiddenVolumeStorage {
       failActivation = false;
   String owner = '';
   int keyOpens = 0;
+  int serviceReads = 0;
+  @override
+  Future<String?> getSetting(String key) {
+    if (armed) serviceReads++;
+    return super.getSetting(key);
+  }
+
+  @override
+  Future<List<Conversation>> loadConversations() {
+    if (armed) serviceReads++;
+    return super.loadConversations();
+  }
+
   File? publishOnCreate;
   final io = <String>[];
   final keys = <Uint8List>[];
@@ -238,6 +257,7 @@ _fixture(_Stage stage) async {
   final c = ProviderContainer(
     overrides: [
       appControllerProvider.overrideWith(() => ctrl),
+      quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
       singleSpaceStorageProvider.overrideWithValue(storage),
       keepAllOnlineProvider.overrideWith(_Options.new),
       notificationServiceProvider.overrideWithValue(_Notifications(storage)),
@@ -278,6 +298,168 @@ Future<bool> _add(_Controller ctrl) => ctrl.addIdentity(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final stage in [
+    _Stage.activeKeys,
+    _Stage.masterOpen,
+    _Stage.childOpen,
+  ]) {
+    for (final locked in [false, true]) {
+      test(
+        'identity storage service admission while adding at ${stage.name} lock=$locked',
+        () async {
+          final f = await _fixture(stage);
+          expect(f.c.read(sessionWorkIdentityProvider), isNotNull);
+          final adding = _add(f.ctrl);
+          await f.storage.entered.future;
+          try {
+            // The UI still retains the old identity while its facade may already
+            // point at a master, a new child, or a pending native opener.
+            expect(f.c.read(sessionWorkIdentityProvider), isNull);
+            final reads = f.storage.serviceReads;
+            final messaging = f.c.read(messagingServiceProvider);
+            expect(f.c.read(groupServiceProvider), isNull);
+            expect(f.c.read(cloudDocumentReplicationServiceProvider), isNull);
+            await Future<void>.delayed(Duration.zero);
+            expect(
+              f.storage.serviceReads,
+              reads,
+              reason: 'no service startup against the edit facade',
+            );
+            await messaging.dispose();
+            if (locked) await f.ctrl.lock();
+          } finally {
+            if (!f.storage.release.isCompleted) f.storage.release.complete();
+            await adding;
+          }
+          expect(await adding, !locked);
+          expect(
+            f.c.read(sessionWorkIdentityProvider),
+            locked ? isNull : f.c.read(appControllerProvider).identity!.nodeId,
+          );
+        },
+      );
+    }
+  }
+  for (final stage in [
+    _SelectionStage.close,
+    _SelectionStage.open,
+    _SelectionStage.adopted,
+  ]) {
+    test(
+      'identity storage service admission while switching at ${stage.name}',
+      () async {
+        final f = await _fixture(_Stage.childOpen);
+        f.storage.selectionStage = stage;
+        final selecting = f.ctrl.switchIdentity('second-fixture');
+        await f.storage.entered.future;
+        try {
+          expect(f.c.read(sessionWorkIdentityProvider), isNull);
+        } finally {
+          f.storage.release.complete();
+          await selecting;
+        }
+        await selecting;
+        expect(f.ctrl.activeIdentity, 'second-fixture');
+        expect(
+          f.c.read(sessionWorkIdentityProvider),
+          f.c.read(appControllerProvider).identity!.nodeId,
+        );
+      },
+    );
+  }
+  test(
+    'identity storage service admission seals before retired cleanup',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      f.storage.release.complete();
+      final entered = Completer<void>(), release = Completer<void>();
+      f.c.read(sessionServiceOwnerProvider).register(() async {
+        entered.complete();
+        await release.future;
+        expect(f.storage.isOpen, isTrue);
+        expect((await f.storage.loadProfile())!.displayName, 'first-fixture');
+      });
+      final adding = _add(f.ctrl);
+      await entered.future;
+      try {
+        expect(f.c.read(sessionWorkIdentityProvider), isNull);
+        expect(f.storage.isOpen, isTrue);
+      } finally {
+        release.complete();
+        await adding;
+      }
+      expect(await adding, isTrue);
+      expect(
+        f.c.read(sessionWorkIdentityProvider),
+        f.c.read(appControllerProvider).identity!.nodeId,
+      );
+    },
+  );
+  test('queued selection retains its own service admission owner', () async {
+    final f = await _fixture(_Stage.childOpen);
+    final adding = _add(f.ctrl);
+    await f.storage.entered.future;
+    final selecting = f.ctrl.switchIdentity('second-fixture');
+    expect(f.c.read(identityStorageWorkDepthProvider), 2);
+    expect(f.c.read(sessionWorkIdentityProvider), isNull);
+    f.storage.release.complete();
+    expect(await adding, isFalse);
+    await selecting;
+    expect(f.c.read(identityStorageWorkDepthProvider), 0);
+    expect(f.ctrl.activeIdentity, 'second-fixture');
+    expect(
+      f.c.read(sessionWorkIdentityProvider),
+      f.c.read(appControllerProvider).identity!.nodeId,
+    );
+  });
+  test(
+    'notifier rebuild retains in-flight service admission ownership',
+    () async {
+      final f = await _fixture(_Stage.childOpen);
+      final adding = _add(f.ctrl);
+      await f.storage.entered.future;
+      expect(f.c.read(identityStorageWorkDepthProvider), 1);
+      // Riverpod rebuilds this same mock notifier; this is not a user lock or
+      // disposal. It must not reset the shared count while accepted work owns it.
+      f.c.invalidate(appControllerProvider);
+      expect(f.c.read(appControllerProvider).phase, AppPhase.locked);
+      expect(
+        identical(f.c.read(appControllerProvider.notifier), f.ctrl),
+        isTrue,
+      );
+      expect(f.c.read(identityStorageWorkDepthProvider), 1);
+      f.storage.release.complete();
+      expect(await adding, isTrue);
+      expect(f.c.read(identityStorageWorkDepthProvider), 0);
+      expect(
+        f.c.read(sessionWorkIdentityProvider),
+        f.c.read(appControllerProvider).identity!.nodeId,
+      );
+      expect(f.storage.isOpen, isTrue);
+    },
+  );
+  test('hosted reboot suspends services through accepted cleanup', () async {
+    final f = await _fixture(_Stage.childOpen);
+    f.storage.release.complete();
+    final entered = Completer<void>(), release = Completer<void>();
+    f.c.read(sessionServiceOwnerProvider).register(() async {
+      entered.complete();
+      await release.future;
+      expect(f.storage.isOpen, isTrue);
+    });
+    final reboot = f.ctrl.rebootHostedNodes();
+    await entered.future;
+    try {
+      expect(f.c.read(identityStorageWorkDepthProvider), 1);
+      expect(f.c.read(sessionWorkIdentityProvider), isNull);
+    } finally {
+      release.complete();
+    }
+    // The fixture deliberately refuses actual native boot. It must still
+    // retire its admission lease after joining the accepted shutdown.
+    expect(await reboot, isFalse);
+    expect(f.c.read(identityStorageWorkDepthProvider), 0);
+  });
   for (final pick in [false, true]) {
     for (final stage in _SelectionStage.values) {
       if (pick && stage == _SelectionStage.notifications) continue;
