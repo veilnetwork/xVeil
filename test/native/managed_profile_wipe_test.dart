@@ -136,8 +136,10 @@ class _BootTransport implements VeilTransport {
 
 class _Vault extends RetirementSecretStore {
   int deletes = 0;
+  void Function(String key, bool biometric)? beforeDelete;
   @override
   Future<void> delete(String key, {bool biometric = false}) {
+    beforeDelete?.call(key, biometric);
     deletes++;
     return super.delete(key, biometric: biometric);
   }
@@ -405,6 +407,34 @@ void main() {
     openWorker: opener,
   );
 
+  test(
+    'production wipe publishes exact recovery addresses before OS deletion',
+    () async {
+      final expected = vault.values.keys.toSet();
+      final file = File(
+        '$profile/${StorageProfileCoordinator.directoryName}/${ManagedRootErasure.applicationJournalName}',
+      );
+      var observed = 0;
+      vault.beforeDelete = (_, _) {
+        expect(file.existsSync(), isTrue);
+        final record = jsonDecode(file.readAsStringSync()) as Map;
+        final saved = QuickUnlockAbsenceWitness.decode(
+          record['records'] as String,
+        );
+        expect({
+          for (final scope in saved.scopes.ids) 'false:xveil.quick.v1.$scope',
+          for (final key in saved.protectedKeys) 'true:$key',
+        }, expected);
+        expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+        observed++;
+      };
+      expect(await controller.wipeContainers(), isEmpty);
+      expect(observed, greaterThan(0));
+      expect(file.existsSync(), isFalse);
+      expect(vault.values, isEmpty);
+    },
+  );
+
   for (final lost in ['reply', 'worker']) {
     test(
       'lost initial $lost retries the same published application intent',
@@ -655,7 +685,14 @@ void main() {
         throwsA(isA<ManagedProfileWipeFailure>()),
       );
       expect(worker.exitedUnexpectedly, isFalse);
-      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isTrue);
+      expect(
+        StorageProfileCoordinator.hasErasureIntent(
+          profile,
+          includeApplicationJournal: false,
+        ),
+        isFalse,
+      );
       vault.values[key] = 'synthetic newly appeared';
       final deletes = vault.deletes;
       await expectLater(

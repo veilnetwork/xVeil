@@ -2,6 +2,10 @@
 
 ## Recovery requirement
 
+The subsequent [application-journal implementation](../application-erasure-journal-2026-11-15/README.md)
+connects this capture barrier to durable publication and native finalization.
+The implementation limits below describe the original capture-only round.
+
 The native full-profile erasure terminal deliberately retains no OS credential
 roster. The live application owner remembers protected quick-unlock slot
 addresses, but a restarted application loses them after public metadata is

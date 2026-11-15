@@ -52,6 +52,7 @@ final class StorageProfileCoordinator {
   static bool hasErasureIntent(
     String supplied, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
+    bool includeApplicationJournal = true,
   }) => ManagedDirectoryCatalog._safe(() {
     final profile = ManagedDirectoryCatalog._admitProfile(supplied, fs);
     final path = ManagedDirectoryCatalog._child(profile.path, directoryName);
@@ -61,7 +62,12 @@ final class StorageProfileCoordinator {
     }
     final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
     final pending =
-        [ManagedRootErasure.pendingName, ManagedRootErasure.completionName].any(
+        [
+          ManagedRootErasure.pendingName,
+          ManagedRootErasure.completionName,
+          if (includeApplicationJournal)
+            ManagedRootErasure.applicationJournalName,
+        ].any(
           (name) =>
               FileSystemEntity.typeSync(
                 ManagedDirectoryCatalog._child(path, name),
@@ -243,7 +249,11 @@ final class StorageProfileCoordinator {
     }
     _lease.requireHeld(exclusive: exclusive);
     if (!_erasureRecovery &&
-        [ManagedRootErasure.pendingName, ManagedRootErasure.completionName].any(
+        [
+          ManagedRootErasure.pendingName,
+          ManagedRootErasure.completionName,
+          ManagedRootErasure.applicationJournalName,
+        ].any(
           (name) =>
               FileSystemEntity.typeSync(
                 ManagedDirectoryCatalog._child(directory, name),

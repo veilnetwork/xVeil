@@ -6,6 +6,7 @@ enum _ErasureOpen {
   recoverApplicationRequest,
   recover,
   reconcile,
+  reconcileApplicationJournal,
   resumeBound,
 }
 
@@ -39,6 +40,11 @@ final class _ErasureSnapshotReq extends _Req {
 
 final class _ErasureRetirementSnapshotReq extends _Req {
   const _ErasureRetirementSnapshotReq(super.reply);
+}
+
+final class _ErasurePersistWitnessReq extends _Req {
+  const _ErasurePersistWitnessReq(this.encoded, super.reply);
+  final String encoded;
 }
 
 final class _ErasureRemoveReq extends _Req {
@@ -148,6 +154,12 @@ final class ManagedErasureWorker {
     String profileDirectory,
     ManagedErasureBinding binding,
   ) => _open(profileDirectory, _ErasureOpen.reconcile, binding: binding);
+
+  /// Cold read-only continuation after native plan/terminal removal. An
+  /// application journal is required; this never manufactures mutation scopes.
+  static Future<ManagedErasureWorker> reconcileApplicationJournal(
+    String profileDirectory,
+  ) => _open(profileDirectory, _ErasureOpen.reconcileApplicationJournal);
 
   /// Continue a retained live operation after observed worker death. Pending
   /// recovery must match its exact binding; an absent intent permits only
@@ -369,6 +381,20 @@ final class ManagedErasureWorker {
     );
   }
 
+  Future<void> persistSavedEntryWitness(String encoded) {
+    _requireOpen();
+    scopeLease.snapshot; // Terminal progress cannot acquire this mutation.
+    return _track(
+      _bounded(
+        _worker._call<ManagedErasureSnapshot>(
+          (reply) => _ErasurePersistWitnessReq(encoded, reply),
+        ),
+      ).then((value) {
+        _snapshot = value;
+      }),
+    );
+  }
+
   Future<void> removeManagedFiles({
     required Future<void> Function() retireScopes,
   }) {
@@ -492,8 +518,13 @@ final class ManagedErasureWorker {
 final class _ErasureFinalSyncFault extends ManagedFsPlatform {
   bool _published = false, _failed = false;
   @override
-  bool publishFileNoReplace(String from, String to) =>
-      _published = super.publishFileNoReplace(from, to);
+  bool publishFileNoReplace(String from, String to) {
+    final published = super.publishFileNoReplace(from, to);
+    if (to.endsWith('/${ManagedRootErasure.completionName}')) {
+      _published = published;
+    }
+    return published;
+  }
   @override
   void syncDirectory(String path) {
     if (_published &&
@@ -597,6 +628,10 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
           config.path,
           config.binding!,
         );
+      case _ErasureOpen.reconcileApplicationJournal:
+        reconciliation = ManagedErasureReconciliation.openApplicationJournal(
+          config.path,
+        );
       case _ErasureOpen.resumeBound:
         final binding = config.binding;
         if (binding == null) {
@@ -604,7 +639,10 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
         }
         // This read chooses an opener, not admission. Both openers acquire
         // actual exclusive ownership and repeat their marker/tree checks.
-        if (StorageProfileCoordinator.hasErasureIntent(config.path)) {
+        if (StorageProfileCoordinator.hasErasureIntent(
+          config.path,
+          includeApplicationJournal: false,
+        )) {
           erasure = ManagedRootErasure.openPending(config.path);
           if (!erasure.binding.sameOperation(binding)) {
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
@@ -656,6 +694,12 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
               throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
             }
             message.reply.send(_Ok(erasure.retirementSnapshot()));
+          case _ErasurePersistWitnessReq(:final encoded):
+            if (erasure == null) {
+              throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
+            }
+            erasure.persistSavedEntryWitness(encoded);
+            message.reply.send(_Ok(erasure.snapshot()));
           case _ErasureRemoveReq(:final admission):
             if (erasure == null) {
               throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
@@ -703,11 +747,15 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
             closing = true;
             final owner = erasure;
             if (owner?.finalSyncPending ?? false) {
-              await owner!.finish(
-                verifyOtherDataAbsent: () => Future.error(
-                  const ManagedFsFailure(ManagedFsFailureKind.unsafe),
-                ),
-              );
+              if (owner!.phase == ManagedRootErasurePhase.complete) {
+                owner.releaseCompleted();
+              } else {
+                await owner.finish(
+                  verifyOtherDataAbsent: () => Future.error(
+                    const ManagedFsFailure(ManagedFsFailureKind.unsafe),
+                  ),
+                );
+              }
             }
             cleanup();
             message.reply.send(const _Ok(null));

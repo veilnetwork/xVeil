@@ -2052,10 +2052,12 @@ verify absence without reading passwords or granting deletion authority.
 
 The [capture qualification](validation/saved-entry-recovery-capture-2026-11-15/README.md)
 includes absent-record initialization refusal, persistence ordering, changed-slot
-preservation and native-profile composition. The enclosing application recovery
-journal still needs implementation; this increment publishes no disk witness
-and does not change the native terminal's roster-free format or enable managed
-storage.
+preservation and native-profile composition. The enclosing
+[application recovery journal](validation/application-erasure-journal-2026-11-15/README.md)
+now publishes those addresses before OS-record deletion, blocks ordinary startup
+through native terminal removal and supports read-only journal-only recovery.
+The native terminal remains roster-free. Cold application UI/platform handoff
+still needs implementation; managed storage is not enabled by this change.
 
 ## Implementation boundaries
 
