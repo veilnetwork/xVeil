@@ -471,6 +471,7 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
         final managed = await bootstrapManagedProfile(
           profileDirectory: managedPath,
           legacyFactory: makeLegacyStorage,
+          legacyPath: File(path).absolute.path,
         );
         if (managed.erasurePending) {
           return (

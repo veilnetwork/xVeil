@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'legacy_compaction_source.dart';
+
 // `meta`, not `flutter/foundation`: this file sits on the headless daemon's
 // import graph, which a gate test keeps Flutter-free.
 import 'package:meta/meta.dart' show visibleForTesting;
@@ -574,9 +576,15 @@ void _workerEntry(_OpenConfig cfg) {
         paddingPreset: preset,
       )(keys),
       _OpenManagedIdentity() => _openManagedWorker(cfg),
-      _OpenManagedLegacyCompaction() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
-      _OpenManagedErasure() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
-      _OpenProfilePreferences() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
+      _OpenManagedLegacyCompaction() => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.mode,
+      ),
+      _OpenManagedErasure() => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.mode,
+      ),
+      _OpenProfilePreferences() => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.mode,
+      ),
       _OpenManagedCatalog() => throw StateError(
         'catalog worker was not dispatched',
       ),

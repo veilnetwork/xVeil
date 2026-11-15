@@ -15,6 +15,7 @@ typedef ManagedProfileBootstrap = ({
 Future<ManagedProfileBootstrap> bootstrapManagedProfile({
   required String profileDirectory,
   required Storage Function() legacyFactory,
+  String? legacyPath,
   ManagedFsPlatform inspectionFs = const ManagedFsPlatform(),
 }) async {
   bool pending() => StorageProfileCoordinator.hasErasureIntent(
@@ -27,6 +28,7 @@ Future<ManagedProfileBootstrap> bootstrapManagedProfile({
     router = await ProfileStorageRouter.open(
       profileDirectory: profileDirectory,
       legacyFactory: legacyFactory,
+      legacyPath: legacyPath,
     );
   } catch (_) {
     if (pending()) return (erasurePending: true, owner: null);
@@ -39,6 +41,7 @@ Future<ManagedProfileBootstrap> bootstrapManagedProfile({
       reopen: () => ProfileStorageRouter.open(
         profileDirectory: profileDirectory,
         legacyFactory: legacyFactory,
+        legacyPath: legacyPath,
       ),
     ),
   );

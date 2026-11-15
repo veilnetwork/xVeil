@@ -132,6 +132,13 @@ collection admits the coordinated route. Ordinary packaged lifecycle, physical
 OEM/platform recovery, custom-source binding, Windows durability, complete
 credential/model inventory, release AOT and all-target native packaging remain
 open. Managed defaults stay OFF.
+The [custom-source binding follow-up](validation/custom-source-compaction-binding-2026-11-15/README.md)
+now carries the configured profile-local container leaf through bootstrap,
+compaction and authenticated private recovery intents. Default-path and custom
+native crash/recovery checks pass; packaged macOS publication is qualified,
+while its post-publication cold readback remains incomplete. Windows source
+durability, physical OEM/platform recovery, complete credential/model inventory,
+release AOT and all-target native packaging remain open. Defaults stay OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

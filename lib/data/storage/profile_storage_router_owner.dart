@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
+
+import 'legacy_compaction_source.dart';
 
 import 'profile_storage_router.dart';
 import 'async_kv_log_store.dart';
@@ -16,9 +17,10 @@ final class ProfileStorageRouterOwner {
     required Future<ProfileStorageRouter> Function() reopen,
   }) : _router = initial,
        _profile = initial.profileDirectory,
+       _sourceName = initial.legacySourceName,
        _openReplacement = reopen;
 
-  final String _profile;
+  final String _profile, _sourceName;
   final Future<ProfileStorageRouter> Function() _openReplacement;
   final _changes = StreamController<void>.broadcast(sync: true);
   Stream<void> get changes => _changes.stream;
@@ -92,7 +94,8 @@ final class ProfileStorageRouterOwner {
       _router = candidate;
       if (_disposed ||
           ticket != _epoch ||
-          candidate.profileDirectory != _profile) {
+          (candidate.profileDirectory != _profile ||
+              candidate.legacySourceName != _sourceName)) {
         await _release();
         throw StateError('storage router replacement superseded');
       }
@@ -104,8 +107,8 @@ final class ProfileStorageRouterOwner {
   /// Explicit mixed-profile maintenance; the ordinary legacy guard stays on.
   /// All credentials must already be collected, including plaintext consent.
   /// This scopes the entire native publisher, not merely its UI await. Source
-  /// name is checked because the current private journal binds xveil.store;
-  /// alternate source-name support must not silently target another file.
+  /// name must match the router's immutable binding. Recovery journals carry
+  /// that leaf privately, so neither publication nor cold recovery guesses it.
   Future<ManagedLegacyCompactionResult> compactLegacy({
     required String legacyPath,
     required Map<ManagedIdentityId, Uint8List> authorizations,
@@ -118,13 +121,12 @@ final class ProfileStorageRouterOwner {
         _router?.location is! LegacyStorageLocator) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.busy);
     }
-    final expected = File.fromUri(
-      Directory(Directory(_profile).parent.path).uri.resolve('xveil.store'),
-    ).absolute.uri.normalizePath();
-    if (legacyPath.isEmpty ||
-        legacyPath.contains('\x00') ||
-        !File(legacyPath).isAbsolute ||
-        File(legacyPath).absolute.uri.normalizePath() != expected) {
+    try {
+      if (LegacyCompactionSource.nameForPath(_profile, legacyPath) !=
+          _sourceName) {
+        throw const FormatException('legacy source binding mismatch');
+      }
+    } on FormatException {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
     }
     final keys = <ManagedIdentityId, Uint8List>{};
@@ -175,6 +177,7 @@ final class ProfileStorageRouterOwner {
               final worker = _legacyCompaction =
                   await ManagedLegacyCompactionWorker.open(
                     profileDirectory: _profile,
+                    sourceName: _sourceName,
                     authorizations: keys,
                     credentials: keep,
                     plaintextApproved: approved,
@@ -214,13 +217,19 @@ final class ProfileStorageRouterOwner {
             try {
               final candidate = await _openReplacement();
               _router = candidate;
+              if (candidate.profileDirectory != _profile ||
+                  candidate.legacySourceName != _sourceName) {
+                await _release();
+                throw StateError('storage router replacement superseded');
+              }
               if (candidate.access != access) await candidate.select(access);
               if (candidate.location != location) {
                 await candidate.select(location, access: false);
               }
               if (_disposed ||
                   ticket != _epoch ||
-                  candidate.profileDirectory != _profile) {
+                  (candidate.profileDirectory != _profile ||
+                      candidate.legacySourceName != _sourceName)) {
                 await _release();
                 throw StateError('storage router replacement superseded');
               }

@@ -18,11 +18,13 @@ import 'package:xveil/domain/storage_protection.dart';
 Uint8List _bytes(String value) => Uint8List.fromList(utf8.encode(value));
 
 class CompactionProfileFixture {
+  CompactionProfileFixture({this.sourceName = 'xveil.store'});
+  final String sourceName;
   final directory = Directory.systemTemp.createTempSync(
     'xveil-compaction-worker-',
   );
   String get profile => '${directory.path}/visible-storage';
-  String get source => '${directory.path}/xveil.store';
+  String get source => '${directory.path}/$sourceName';
   ManagedIdentityId id(int n) => ManagedIdentityId('$n' * 32);
   final keys = <ManagedIdentityId, Uint8List>{};
   final old = <String, Uint8List>{};
@@ -136,6 +138,7 @@ class CompactionProfileFixture {
         owner: root,
         authorizations: keys,
         changes: changes,
+        sourceName: sourceName,
       );
       for (final id in keys.keys) {
         final storage = HiddenVolumeStorage.fromStore(
@@ -182,6 +185,7 @@ class CompactionProfileFixture {
   }) async {
     final worker = await ManagedLegacyCompactionWorker.open(
       profileDirectory: profile,
+      sourceName: sourceName,
       authorizations: auth ?? authorizations(),
       credentials: keep ?? credentials(),
       plaintextApproved: approved ?? {id(2)},

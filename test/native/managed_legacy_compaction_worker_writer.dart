@@ -6,6 +6,12 @@ import 'dart:typed_data';
 
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/hv_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/compaction_roster_remap.dart';
+import 'package:xveil/data/storage/managed_directory_catalog.dart';
+import 'package:xveil/data/storage/legacy_compaction_source.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/domain/storage_locator.dart';
 
 // Only the parent harness supplies these private, synthetic capabilities.
@@ -14,7 +20,11 @@ Future<void> main(List<String> args) async {
   final fixture = Directory(args[0]).resolveSymbolicLinksSync();
   final temporary = Directory.systemTemp.resolveSymbolicLinksSync();
   if (!fixture.startsWith('$temporary/xveil-compaction-worker-') ||
-      !['prepared', 'reply-pending'].contains(args[1])) {
+      ![
+        'prepared',
+        'reply-pending',
+        'published-unrepaired',
+      ].contains(args[1])) {
     exit(3);
   }
   if (!ensureHiddenVolumeLoaded()) exit(4);
@@ -42,6 +52,51 @@ Future<void> main(List<String> args) async {
     marker.renameSync('$fixture/ready');
   }
 
+  if (args[1] == 'published-unrepaired') {
+    final sourceName =
+        body['sourceName'] as String? ?? LegacyCompactionSource.defaultName;
+    final profile = '$fixture/visible-storage';
+    final owner = ManagedDirectoryCatalog.openExclusiveMaintenance(profile)!;
+    hv.HvPreparedCompaction? plan;
+    final changes = <LegacyCompactionKeyChange>[];
+    try {
+      plan = hv.HvPreparedCompaction.prepare(
+        LegacyCompactionSource.path(profile, sourceName),
+        [for (final value in credentials) value.password],
+      );
+      final staged = HiddenVolumeStorage(hvSpaceOpener(plan.stagedPath));
+      try {
+        final failed = await remapCompactionRosters(
+          staged,
+          credentials,
+          check: () {},
+          onMapped: (before, after) => changes.add((
+            before: Uint8List.fromList(before),
+            after: Uint8List.fromList(after),
+          )),
+        );
+        if (failed.isNotEmpty) exit(7);
+      } finally {
+        await staged.close();
+      }
+      await ManagedLegacyReferenceRepair.prepare(
+        owner: owner,
+        authorizations: keys,
+        changes: changes,
+        sourceName: sourceName,
+      );
+      plan.commit();
+      ready();
+      // Publication is real; external rosters have not been repaired yet.
+      while (true) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    } finally {
+      plan?.close();
+      owner.close();
+    }
+  }
+
   final gate = ReceivePort();
   final subscription = gate.listen((dynamic message) {
     if (message is! SendPort || args[1] != 'reply-pending') exit(5);
@@ -52,6 +107,7 @@ Future<void> main(List<String> args) async {
   final worker = args[1] == 'reply-pending'
       ? await ManagedLegacyCompactionWorker.openWithReplyGateForTesting(
           profileDirectory: '$fixture/visible-storage',
+          sourceName: body['sourceName'] as String? ?? 'xveil.store',
           authorizations: keys,
           credentials: credentials,
           plaintextApproved: approved,
@@ -59,6 +115,7 @@ Future<void> main(List<String> args) async {
         )
       : await ManagedLegacyCompactionWorker.open(
           profileDirectory: '$fixture/visible-storage',
+          sourceName: body['sourceName'] as String? ?? 'xveil.store',
           authorizations: keys,
           credentials: credentials,
           plaintextApproved: approved,
