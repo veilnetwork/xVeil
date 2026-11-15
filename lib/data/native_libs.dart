@@ -200,8 +200,8 @@ void debugResetNativeLibHandles() => _openedLibs.clear();
 /// (e.g. the embedded-node bindings, which don't go through the plugin's own
 /// loader). On Android `DynamicLibrary.open` returns a handle whose symbols are
 /// NOT placed in the global (`process()`) scope, so callers must use THIS
-/// handle; on iOS/desktop the symbols are process-global. Mirrors how the
-/// plugin bindings pick their handle per platform.
+/// handle. Windows DLL exports and Linux's local dlopen scope likewise require
+/// their own handle, including in a fresh worker with no preload cache.
 DynamicLibrary processLibFor(String base) {
   // The handle this process actually opened, when there is one. On Linux this
   // is the ONLY answer that works: the library is dlopen'd into a local scope
@@ -217,11 +217,12 @@ DynamicLibrary processLibFor(String base) {
     return lib;
   }
 
-  if (Platform.isLinux) {
+  if (Platform.isLinux || Platform.isWindows) {
     // Reached when nobody preloaded — the headless runtime and the worker
-    // isolates both come this way. Same candidate order as [loadNativeLib], so
-    // there is one set of rules about where a library may come from, then the
-    // soname for a system install.
+    // isolates both come this way. Windows preference workers also run before
+    // the UI's node preload, and a parent's handle cache is isolate-local.
+    // Same candidate order as [loadNativeLib], so
+    // there is one set of rules about where a library may come from.
     for (final path in nativeLibCandidates(base)) {
       if (!File(path).existsSync()) continue;
       try {
@@ -232,13 +233,18 @@ DynamicLibrary processLibFor(String base) {
         // Try the next candidate.
       }
     }
-    try {
-      final lib = DynamicLibrary.open(nativeLibFileName(base));
-      rememberNativeLib(base, lib);
-      return lib;
-    } catch (_) {
-      // Fall through: a host that linked the symbols in still resolves below.
+    if (Platform.isLinux) {
+      try {
+        final lib = DynamicLibrary.open(nativeLibFileName(base));
+        rememberNativeLib(base, lib);
+        return lib;
+      } catch (_) {
+        // Fall through: a host that linked the symbols in still resolves below.
+      }
     }
+    // Windows uses only the explicit bundle paths above. A bare DLL name can
+    // search the working directory; a missing packaged DLL must not load one
+    // supplied by whoever chose that directory.
   }
 
   return DynamicLibrary.process();

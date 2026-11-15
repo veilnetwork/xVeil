@@ -3,8 +3,36 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/log.dart';
+
+/// Windows keeps both toast history and the COM activator outside our data
+/// directory. A separately named QA executable must also separate these IDs.
+/// One build namespace changes all three fields together; it is never derived
+/// from an identity, a password, or the number of hidden spaces.
+WindowsInitializationSettings windowsNotificationSettingsForNamespace(
+  String namespace,
+) {
+  if (namespace.isEmpty) {
+    return const WindowsInitializationSettings(
+      appName: 'xVeil',
+      appUserModelId: 'VeilNetwork.xVeil',
+      guid: 'c83f7894-6540-4f51-9d67-03cb858d9f6f',
+    );
+  }
+  if (!RegExp(r'^[a-z0-9][a-z0-9-]{0,31}$').hasMatch(namespace)) {
+    throw ArgumentError('Invalid Windows notification namespace');
+  }
+  return WindowsInitializationSettings(
+    appName: 'xVeil ($namespace)',
+    appUserModelId: 'VeilNetwork.xVeil.$namespace',
+    guid: Uuid().v5(
+      Namespace.url.value,
+      'urn:veilnetwork:xveil:notifications:$namespace',
+    ),
+  );
+}
 
 /// Thin wrapper over `flutter_local_notifications` for incoming-message alerts.
 ///
@@ -152,13 +180,11 @@ class NotificationService {
         requestSoundPermission: false,
       );
       const linux = LinuxInitializationSettings(defaultActionName: 'Open');
-      const windows = WindowsInitializationSettings(
-        appName: 'xVeil',
-        appUserModelId: 'VeilNetwork.xVeil',
-        guid: 'c83f7894-6540-4f51-9d67-03cb858d9f6f',
+      final windows = windowsNotificationSettingsForNamespace(
+        const String.fromEnvironment('XVEIL_WINDOWS_NOTIFICATION_NAMESPACE'),
       );
       await _plugin.initialize(
-        settings: const InitializationSettings(
+        settings: InitializationSettings(
           android: android,
           iOS: darwin,
           macOS: darwin,
