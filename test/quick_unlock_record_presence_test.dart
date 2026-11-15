@@ -135,6 +135,30 @@ void main() {
     expect(cipherOperations, 0);
   });
 
+  for (final deleting in [false, true]) {
+    test(
+      'unreadable record store refuses ${deleting ? 'removal' : 'presence'}',
+      () async {
+        messenger.setMockMethodCallHandler(native, (call) async {
+          throw PlatformException(code: 'record_store_unreadable');
+        });
+        await expectLater(
+          deleting
+              ? const QuickUnlockSecretStore().delete(key, biometric: true)
+              : const QuickUnlockSecretStore().contains(key, biometric: true),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              'record_store_unreadable',
+            ),
+          ),
+        );
+        expect(cipherOperations, 0);
+      },
+    );
+  }
+
   test('Darwin keeps the matching local-only read policy', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     messenger.setMockMethodCallHandler(plugin, (call) async {

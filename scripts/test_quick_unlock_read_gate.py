@@ -18,6 +18,7 @@ MODULES = [
     ('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.8.0'),
     ('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
     ('org.jetbrains', 'annotations', '13.0'),
+    ('net.sf.kxml', 'kxml2', '2.3.0'),
 ]
 
 jars = []
@@ -47,6 +48,8 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
         str(ROOT / 'test/native/QuickUnlockPersistenceSmoke.kt'),
         str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockRecordStore.kt'),
         str(ROOT / 'test/native/QuickUnlockRecordStoreSmoke.kt'),
+        str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockPreferenceFile.kt'),
+        str(ROOT / 'test/native/QuickUnlockPreferenceFileSmoke.kt'),
     ], check=True)
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
@@ -55,6 +58,10 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
         'network.veil.xveil.QuickUnlockPersistenceSmokeKt',
+    ], check=True, timeout=30)
+    subprocess.run([
+        java, '-cp', output + os.pathsep + classpath,
+        'network.veil.xveil.QuickUnlockPreferenceFileSmokeKt',
     ], check=True, timeout=30)
     subprocess.run([
         java, '-cp', output + os.pathsep + classpath,
