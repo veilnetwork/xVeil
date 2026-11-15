@@ -374,6 +374,14 @@ export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/<installed-version>"
 Use the actual NDK path reported by Android Studio or your SDK installation.
 On Linux and Windows the path will be different.
 
+Stage the verified pinned call engine for each selected Android ABI before
+building; see [Call media engine](#call-media-engine-webrtc). Android loads
+`libveil_media.so` during activity startup, including debug builds. Both the
+builder and direct Flutter/Gradle builds refuse a missing engine before
+packaging. The presence check does not replace the engine's ABI, export or
+source-provenance checks. For a single-device debug build, select its target
+explicitly, for example `flutter build apk --debug --target-platform android-arm64`.
+
 Prepare the hidden-volume libraries, then build the application:
 
 ```sh

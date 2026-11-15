@@ -72,6 +72,39 @@ val whisperModelSource = sequenceOf(
 val whisperNativeLibrary = file("src/main/jniLibs/arm64-v8a/libveil_whisper.so")
 val generatedWhisperAssets = layout.buildDirectory.dir("generated/whisperAssets")
 
+val requestedNativeAbis =
+    (providers.gradleProperty("target-platform").orNull
+        ?: "android-arm,android-arm64,android-x64").split(",").map { platform ->
+        when (platform) {
+            "android-arm" -> "armeabi-v7a"
+            "android-arm64" -> "arm64-v8a"
+            "android-x64" -> "x86_64"
+            else -> throw GradleException("Unsupported Android target: $platform")
+        }
+    }
+val callMediaLibraries = requestedNativeAbis.map { abi ->
+    abi to file("src/main/jniLibs/$abi/libveil_media.so")
+}
+val verifyCallMedia by tasks.registering {
+    // Capture serializable values, not the Kotlin build-script instance.
+    val libraries = callMediaLibraries
+    inputs.property("abis", requestedNativeAbis)
+    inputs.files(libraries.map { it.second })
+    doLast {
+        // Camera/renderer class initialization loads this before Dart starts.
+        // A successful APK build without it therefore produces a startup crash,
+        // including debug builds invoked directly through Flutter/Gradle.
+        val missing = libraries.filterNot { it.second.isFile }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "xVeil: missing mandatory libveil_media.so for " +
+                    missing.joinToString { it.first } +
+                    ". Stage the verified call engine before building Android.",
+            )
+        }
+    }
+}
+
 val prepareWhisperModel by tasks.registering {
     val outputDir = generatedWhisperAssets
     inputs.property("modelPath", whisperModelSource?.absolutePath ?: "missing")
@@ -196,19 +229,9 @@ android {
         // a fresh arm64 SDK can be packaged alongside stale x86/arm32 binaries.
         // Split APKs already select their ABIs and cannot also use ndk filters.
         if (project.findProperty("split-per-abi")?.toString()?.toBoolean() != true) {
-            val targetPlatforms =
-                (project.findProperty("target-platform")?.toString()
-                    ?: "android-arm,android-arm64,android-x64").split(",")
             ndk {
                 abiFilters.clear()
-                abiFilters += targetPlatforms.map { platform ->
-                    when (platform) {
-                        "android-arm" -> "armeabi-v7a"
-                        "android-arm64" -> "arm64-v8a"
-                        "android-x64" -> "x86_64"
-                        else -> throw GradleException("Unsupported Android target: $platform")
-                    }
-                }
+                abiFilters += requestedNativeAbis
             }
         }
     }
@@ -266,6 +289,7 @@ android {
 
 tasks.named("preBuild").configure {
     dependsOn(prepareWhisperModel)
+    dependsOn(verifyCallMedia)
 }
 
 kotlin {
