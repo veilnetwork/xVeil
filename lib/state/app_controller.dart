@@ -32,6 +32,11 @@ import '../data/storage/managed_profile_wipe.dart';
 import '../data/storage/profile_preferences.dart';
 import '../data/storage/profile_storage_router_owner.dart';
 import '../data/storage/compaction_roster_remap.dart';
+import '../data/storage/async_kv_log_store.dart'
+    show
+        ManagedLegacyCompactionResult,
+        ManagedLegacyCompactionFailure,
+        ManagedWorkerFailureKind;
 import '../core/local_authentication.dart';
 import 'locale_controller.dart';
 import 'theme_controller.dart';
@@ -40,6 +45,8 @@ import '../data/veil_stack.dart';
 import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
 import '../data/whisper_model_store.dart' show WhisperModelStore;
 import '../domain/storage_compaction_policy.dart';
+import '../domain/compaction_profile_authorization.dart';
+import '../data/storage/managed_identity_catalog.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/p2p_policy.dart' as p2p;
@@ -1926,15 +1933,25 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// Enumerable owners only; this is not an inventory of hidden spaces.
+  List<ManagedStorageLocator> get compactionVisibleIdentities => [
+    for (final entry
+        in ref.read(profileStorageRouterProvider)?.catalog.identities ??
+            const <ManagedIdentityEntry>[])
+      entry.locator,
+  ];
+
   /// Whether storage compaction is available: only for a SINGLE identity.
   /// `compact_known` keeps ONLY the space whose password is supplied and DROPS
   /// every other (decoy) space, so it must never run on a master/multi-identity
   /// container with just one password. `_masterKeys` is set only when a roster
-  /// was found, so its absence means a lone space.
+  /// was found, so its absence means a lone space. A visible-owner catalog
+  /// additionally requires the coordinated collection/publication route.
   bool get canCompactStorage =>
       _setupRecovery == null &&
       !usesManagedStorage &&
       _masterKeys == null &&
+      compactionVisibleIdentities.isEmpty &&
       ref.read(deniableBootProvider)?.storePath != null;
 
   bool get usesManagedStorage {
@@ -2030,6 +2047,33 @@ class AppController extends Notifier<AppState> {
     required CompactionRoster roster,
     required String reopenWith,
   }) async {
+    return _compactStorageKeeping(roster: roster, reopenWith: reopenWith);
+  }
+
+  Future<({int before, int after})> compactStorageKeepingWithProfile({
+    required CompactionRoster roster,
+    required String reopenWith,
+    required CompactionProfileAuthorization profileAuthorization,
+  }) {
+    if (usesManagedStorage ||
+        ref.read(profileStorageRouterOwnerProvider) == null ||
+        compactionVisibleIdentities.isEmpty ||
+        !profileAuthorization.isComplete ||
+        !profileAuthorization.matchesInventory(compactionVisibleIdentities)) {
+      throw StateError('complete current profile authority is required');
+    }
+    return _compactStorageKeeping(
+      roster: roster,
+      reopenWith: reopenWith,
+      profileAuthorization: profileAuthorization,
+    );
+  }
+
+  Future<({int before, int after})> _compactStorageKeeping({
+    required CompactionRoster roster,
+    required String reopenWith,
+    CompactionProfileAuthorization? profileAuthorization,
+  }) async {
     if (roster.length == 0) {
       throw StateError(
         'compaction with an empty roster would delete every '
@@ -2069,6 +2113,7 @@ class AppController extends Notifier<AppState> {
       // What each password opened before the repack — the only way back from
       // a roster that names its children by keys the repack has just changed.
       credentials: credentials,
+      profileAuthorization: profileAuthorization,
     );
   }
 
@@ -2086,6 +2131,10 @@ class AppController extends Notifier<AppState> {
   Future<bool> beginCompactionCollection() async {
     if (usesManagedStorage) {
       throw StateError('independent storage requires owned maintenance');
+    }
+    if (compactionVisibleIdentities.isNotEmpty &&
+        ref.read(profileStorageRouterOwnerProvider) == null) {
+      throw StateError('mixed compaction requires a profile owner');
     }
     // Hosted activation may still publish a new view while phase is ready.
     // It has no single-active view job, but retains this selection admission.
@@ -2285,6 +2334,94 @@ class AppController extends Notifier<AppState> {
     return current() ? result : closed;
   }
 
+  /// Probe exactly one selected enumerable owner without switching the active
+  /// view, guessing other passwords, or creating missing files. Plaintext
+  /// admission requires the separate affirmative action supplied by the UI.
+  Future<
+    ({
+      Uint8List keys,
+      String? name,
+      List<({String label, List<int> keys})> children,
+    })?
+  >
+  probeCompactionVisibleIdentity(
+    ManagedStorageLocator identity, {
+    String password = '',
+    bool plaintextApproved = false,
+  }) async {
+    if (usesManagedStorage ||
+        !compactionVisibleIdentities.contains(identity) ||
+        (identity.protection == StorageProtection.unencrypted &&
+            !plaintextApproved) ||
+        (identity.protection == StorageProtection.encrypted &&
+            password.isEmpty)) {
+      throw StateError('explicit compaction owner admission is required');
+    }
+    final source = ref.read(storageProvider);
+    if (_endingSessions != 0 ||
+        _identitySelections != 0 ||
+        _identityViewInFlight != null ||
+        _identityEditInFlight != null ||
+        _onboardingInFlight != null ||
+        _compactionProbeInFlight != null ||
+        _compactionCollectionInFlight != null ||
+        _compactionInFlight != null ||
+        _wipeInFlight != null ||
+        _unlockInFlight ||
+        source.isOpen) {
+      throw StateError('container must be idle and closed before a probe');
+    }
+    final router = ref.read(profileStorageRouterProvider)!;
+    final lease = leaseIdentity();
+    bool current() => ref.mounted && holdsIdentity(lease);
+    final finished = Completer<void>();
+    _compactionProbeInFlight = finished.future;
+    Storage? storage;
+    Uint8List? keys;
+    List<RosterEntry>? roster;
+    var handedOff = false, closed = false;
+    try {
+      storage = ref.read(compactionVisibleStorageProvider)(
+        router.profileDirectory,
+        ManagedIdentityEntry.fromLocator(identity),
+      );
+      if (!await storage.open(password: password) || !current()) return null;
+      roster = await _readRosterForCompaction(storage);
+      if (!current()) return null;
+      final profile = await storage.loadProfile();
+      if (!current()) return null;
+      keys = await storage.exportSpaceKeys();
+      if (!current() || keys.length != 64) return null;
+      // Close is part of admission. A late lock or a refused close cannot
+      // return authority that another operation could use after its owner ends.
+      await storage.close();
+      closed = true;
+      if (!current()) return null;
+      final result = (
+        keys: keys,
+        name: profile?.username ?? profile?.displayName,
+        children: [
+          for (final child in roster ?? const <RosterEntry>[])
+            if (child.storageLocator is LegacyStorageLocator)
+              (label: child.label, keys: Uint8List.fromList(child.spaceKeys)),
+        ],
+      );
+      handedOff = true;
+      return result;
+    } finally {
+      try {
+        if (!closed) await storage?.close();
+      } finally {
+        if (!handedOff && keys != null) wipeSecretBytes(keys);
+        _releaseKeys(
+          (roster ?? const <RosterEntry>[]).map((entry) => entry.spaceKeys),
+        );
+        _compactionProbeInFlight = null;
+        finished.complete();
+      }
+    }
+  }
+
   /// Put the space keys of a compacted container back into the rosters that
   /// name them.
   ///
@@ -2309,8 +2446,8 @@ class AppController extends Notifier<AppState> {
   /// Returns nonempty failure markers when repair is incomplete, never key
   /// prefixes. Every supplied hidden space carrying a roster is repaired,
   /// including decoy masters. Independently owned child references stay intact.
-  /// References held by managed masters outside this replacement require a
-  /// separate recovery protocol before mixed-container maintenance is enabled.
+  /// References held outside this replacement require the full-profile worker
+  /// used by compactStorageKeepingWithProfile; this helper cannot repair them.
   Future<List<String>> remapRostersAfterCompaction(
     List<({List<int> password, List<int> oldSpaceKeys})> credentials, {
     Storage? storageOverride,
@@ -2342,12 +2479,15 @@ class AppController extends Notifier<AppState> {
     required List<Uint8List> passwords,
     required String reopenWith,
     List<({List<int> password, List<int> oldSpaceKeys})> credentials = const [],
+    CompactionProfileAuthorization? profileAuthorization,
   }) async {
     // The collection/dialog owns its buffers and may discard them while native
     // preparation awaits. Retain one immutable-by-ownership snapshot through
     // staged repair, publication and recovery, including rejected admission.
     final copied = <({Uint8List password, Uint8List oldSpaceKeys})>[];
+    CompactionProfileSnapshot? visible;
     try {
+      visible = profileAuthorization?.snapshot();
       for (final entry in credentials) {
         copied.add((
           password: Uint8List.fromList(entry.password),
@@ -2359,10 +2499,15 @@ class AppController extends Notifier<AppState> {
           passwords: passwords,
           reopenWith: reopenWith,
           credentials: copied,
+          visible: visible,
         ),
         blocksUnlock: true,
+        mixedProfile: visible != null,
       );
     } finally {
+      for (final key in visible?.authorizations.values ?? const <Uint8List>[]) {
+        wipeSecretBytes(key);
+      }
       for (final bytes in passwords) {
         wipeSecretBytes(bytes);
       }
@@ -2386,6 +2531,7 @@ class AppController extends Notifier<AppState> {
     Future<T> Function() run, {
     bool blocksUnlock = false,
     bool ownedStorage = false,
+    bool mixedProfile = false,
   }) async {
     if (_setupRecovery != null) {
       throw StateError('identity setup is incomplete');
@@ -2395,12 +2541,13 @@ class AppController extends Notifier<AppState> {
         throw StateError('independent storage maintenance unavailable');
       }
     } else if (usesManagedStorage ||
-        (ref
-                .read(profileStorageRouterProvider)
-                ?.catalog
-                .identities
-                .isNotEmpty ??
-            false)) {
+        (!mixedProfile &&
+            (ref
+                    .read(profileStorageRouterProvider)
+                    ?.catalog
+                    .identities
+                    .isNotEmpty ??
+                false))) {
       throw StateError('managed storage requires mode-aware maintenance');
     }
     // Hosted activation may still publish a new view while phase is ready.
@@ -2453,7 +2600,14 @@ class AppController extends Notifier<AppState> {
     required List<Uint8List> passwords,
     required String reopenWith,
     required List<({List<int> password, List<int> oldSpaceKeys})> credentials,
+    CompactionProfileSnapshot? visible,
   }) async {
+    final mixedOwner = visible == null
+        ? null
+        : ref.read(profileStorageRouterOwnerProvider);
+    if (visible != null && mixedOwner == null) {
+      throw StateError('mixed compaction requires a profile owner');
+    }
     final lease = leaseIdentity();
     void requireCurrentSession() {
       if (!ref.mounted || !holdsIdentity(lease)) {
@@ -2497,6 +2651,8 @@ class AppController extends Notifier<AppState> {
       'store close',
       () => ref.read(storageProvider).close(),
     );
+    Object? publicationFailure;
+    ManagedLegacyCompactionResult? mixedResult;
     try {
       requireCurrentSession();
       // `compact_known` opens the container under LOCK_EX and BLOCKS for it.
@@ -2510,42 +2666,64 @@ class AppController extends Notifier<AppState> {
           'compaction would wait forever on a lock we still hold',
         );
       }
-      await ref.read(preparedContainerCompactorProvider)(
-        path,
-        passwords,
-        dylibPath: _hvDylibPath(),
-        repairMetadata: (stagedPath) async {
-          requireCurrentSession();
-          final staged = ref.read(compactionStagedStorageProvider)(stagedPath);
-          try {
-            var stale = await remapRostersAfterCompaction(
-              credentials,
-              storageOverride: staged,
-            );
+      if (mixedOwner != null) {
+        mixedResult = await mixedOwner.compactLegacy(
+          legacyPath: path,
+          authorizations: visible!.authorizations,
+          credentials: credentials,
+          plaintextApproved: visible.plaintextApproved,
+          beforePublication: () async => requireCurrentSession(),
+        );
+      } else {
+        await ref.read(preparedContainerCompactorProvider)(
+          path,
+          passwords,
+          dylibPath: _hvDylibPath(),
+          repairMetadata: (stagedPath) async {
             requireCurrentSession();
-            if (stale.isNotEmpty) {
-              // Retry metadata only. The replacement has not been published
-              // and must never be copied/rekeyed again to recover this read.
-              stale = await remapRostersAfterCompaction(
+            final staged = ref.read(compactionStagedStorageProvider)(
+              stagedPath,
+            );
+            try {
+              var stale = await remapRostersAfterCompaction(
                 credentials,
                 storageOverride: staged,
               );
               requireCurrentSession();
+              if (stale.isNotEmpty) {
+                // Retry metadata only. The replacement has not been published
+                // and must never be copied/rekeyed again to recover this read.
+                stale = await remapRostersAfterCompaction(
+                  credentials,
+                  storageOverride: staged,
+                );
+                requireCurrentSession();
+              }
+              if (stale.isNotEmpty) {
+                throw const CompactionRosterRepairIncomplete();
+              }
+            } finally {
+              // A close failure must refuse publication too. The native
+              // publisher independently rejects any surviving staged handle.
+              await staged.close();
             }
-            if (stale.isNotEmpty) {
-              throw const CompactionRosterRepairIncomplete();
-            }
-          } finally {
-            // A close failure must refuse publication too. The native
-            // publisher independently rejects any surviving staged handle.
-            await staged.close();
-          }
-          // Returning grants publication. Lock/wipe/switch before this
-          // point aborts the replacement, leaving original bytes intact.
-          requireCurrentSession();
-        },
-      );
+            // Returning grants publication. Lock/wipe/switch before this
+            // point aborts the replacement, leaving original bytes intact.
+            requireCurrentSession();
+          },
+        );
+      }
       requireCurrentSession();
+    } catch (error) {
+      publicationFailure = error;
+      if (mixedResult != null && error is! ManagedLegacyCompactionFailure) {
+        throw ManagedLegacyCompactionFailure(
+          ManagedWorkerFailureKind.backend,
+          mayHaveApplied: true,
+          recovery: mixedResult.recovery,
+        );
+      }
+      rethrow;
     } finally {
       // A lock/wipe/switch can end the session while teardown or the native
       // rewrite is pending. Never turn that explicit boundary into a fresh
@@ -2554,7 +2732,30 @@ class AppController extends Notifier<AppState> {
       // gate before the authorized recovery; the maintenance barrier still
       // covers that recovery, so wipe cannot pass an in-flight reopen.
       _manualCompactionBlocksUnlock = false;
-      if (ref.mounted && holdsIdentity(lease)) await unlock(reopenWith);
+      if (ref.mounted &&
+          holdsIdentity(lease) &&
+          (mixedOwner == null || mixedOwner.isAvailable)) {
+        try {
+          await unlock(reopenWith);
+        } catch (error, stack) {
+          if (mixedOwner == null) rethrow;
+          if (publicationFailure == null) {
+            throw ManagedLegacyCompactionFailure(
+              ManagedWorkerFailureKind.backend,
+              mayHaveApplied: true,
+              recovery: mixedResult?.recovery,
+            );
+          }
+          // Preserve the native publication/recovery qualifier as the primary
+          // outcome. Failure to reopen must never turn applied into retryable.
+          errorJournal.record(
+            kind: 'storage-compaction-reopen',
+            error: StateError('could not reopen after compaction'),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+      }
     }
     final after = await File(path).length();
     // Remember the post-compaction size: the auto-compact trigger compares the

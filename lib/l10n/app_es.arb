@@ -3302,5 +3302,8 @@
   "storageOwnedReclaim": "Liberar espacio",
   "storageOwnedReclaimHelp": "Compacta el almacenamiento de esta identidad conservando sus mensajes, archivos y claves. Normalmente el espacio se libera automáticamente.",
   "profileErasurePendingTitle": "El borrado del almacenamiento no ha terminado",
-  "profileErasurePendingBody": "Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente."
+  "profileErasurePendingBody": "Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente.",
+  "compactOfferVisibleHint": "Estos almacenes separados conservan sus datos. Desbloquee cada uno para actualizar los enlaces a identidades ocultas.",
+  "compactOfferApprovePlaintext": "Permitir actualizar enlaces",
+  "compactOfferOutcomeUncertain": "El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades."
 }

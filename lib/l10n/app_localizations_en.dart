@@ -8239,4 +8239,15 @@ class AppL10nEn extends AppL10n {
   @override
   String get profileErasurePendingBody =>
       'Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished.';
+
+  @override
+  String get compactOfferVisibleHint =>
+      'These separate stores keep their data. Unlock each to update links to hidden identities.';
+
+  @override
+  String get compactOfferApprovePlaintext => 'Allow link updates';
+
+  @override
+  String get compactOfferOutcomeUncertain =>
+      'The container may already have changed. Do not repeat compaction. Reopen the app to check your identities.';
 }

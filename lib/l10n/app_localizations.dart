@@ -14285,6 +14285,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished.'**
   String get profileErasurePendingBody;
+
+  /// No description provided for @compactOfferVisibleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'These separate stores keep their data. Unlock each to update links to hidden identities.'**
+  String get compactOfferVisibleHint;
+
+  /// No description provided for @compactOfferApprovePlaintext.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow link updates'**
+  String get compactOfferApprovePlaintext;
+
+  /// No description provided for @compactOfferOutcomeUncertain.
+  ///
+  /// In en, this message translates to:
+  /// **'The container may already have changed. Do not repeat compaction. Reopen the app to check your identities.'**
+  String get compactOfferOutcomeUncertain;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

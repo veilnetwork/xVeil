@@ -3784,5 +3784,8 @@
   "storageOwnedReclaim": "Reclaim space",
   "storageOwnedReclaimHelp": "Repack this identity’s storage while preserving its messages, files and keys. Space is normally reclaimed automatically.",
   "profileErasurePendingTitle": "Storage erasure is not finished",
-  "profileErasurePendingBody": "Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished."
+  "profileErasurePendingBody": "Some data may already have been deleted. Normal sign-in is temporarily blocked to avoid replacing data while erasure is unfinished.",
+  "compactOfferVisibleHint": "These separate stores keep their data. Unlock each to update links to hidden identities.",
+  "compactOfferApprovePlaintext": "Allow link updates",
+  "compactOfferOutcomeUncertain": "The container may already have changed. Do not repeat compaction. Reopen the app to check your identities."
 }
