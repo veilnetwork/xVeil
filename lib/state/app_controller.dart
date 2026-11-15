@@ -5888,7 +5888,33 @@ class AppController extends Notifier<AppState> {
 
   /// Tear down an all-online session (all nodes + messaging + the shared lock)
   /// and clear its providers. No-op when there is no session.
-  Future<void> _teardownSession() async {
+  Future<void> _teardownSession() =>
+      _withProviderServicesDrained(_teardownSessionResources);
+
+  Future<void> _withProviderServicesDrained(
+    Future<void> Function() teardown,
+  ) async {
+    Object? firstError;
+    StackTrace? firstStack;
+    try {
+      await ref.read(sessionServiceOwnerProvider).drain();
+    } catch (error, stack) {
+      firstError = error;
+      firstStack = stack;
+    }
+    // A failed service must not skip stopping the node/releasing the session.
+    try {
+      await teardown();
+    } catch (error, stack) {
+      firstError ??= error;
+      firstStack ??= stack;
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStack!);
+    }
+  }
+
+  Future<void> _teardownSessionResources() async {
     final session = ref.read(sessionProvider);
     if (session == null && _retiringSessions.isEmpty) return;
     ref.read(sessionProvider.notifier).state = null;
@@ -5953,7 +5979,12 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  Future<void> _teardownRealStack() async {
+  Future<void> _teardownRealStack() =>
+      _withProviderServicesDrained(_teardownRealStackResources);
+
+  Future<void> _teardownRealStackResources() async {
+    // The owner has joined current and already-retired fallback providers while
+    // their native ratchet handles and storage were still open.
     final stack = ref.read(realStackProvider);
     if (stack != null) {
       // Both of these happen BEFORE the dispose, and the order is the fix.

@@ -31,6 +31,7 @@ import '../data/veil_stack.dart';
 
 /// Constructed once and kept alive for the session; starts listening eagerly.
 final messagingServiceProvider = Provider<MessagingService>((ref) {
+  final admitted = ref.watch(sessionWorkIdentityProvider) != null;
   // All-online: use the ACTIVE identity's OWN pipeline from the session, so we
   // don't spin up a second service on its transport (which would double-process
   // its inbound). The session owns/disposes it; switching just re-resolves here.
@@ -74,6 +75,18 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     videoThumbMaker: makeVideoThumbB64,
     imageThumbMaker: makeMessageThumbB64,
   );
+  if (!admitted) {
+    // Eager UI listeners may rebuild this provider while the old native stack
+    // is detached, or remain subscribed on the locked screen. Expose streams,
+    // but start no reads, retries or registrations.
+    ref.onDispose(service.dispose);
+    return service;
+  }
+  final close = ref.read(sessionServiceOwnerProvider).register(service.dispose);
+  ref.onDispose(() => unawaited(close().catchError((Object error) {
+      // The owner retains a failed closer so lock also reports this failure.
+      devLog(() => 'xVeil[messaging]: provider shutdown failed: $error');
+    })));
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
   // The durable half of the ratchet, over the SAME storage this service writes
   // messages to — so an identity's chain keys can only ever land in that
@@ -248,7 +261,6 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
       if (m != null) unawaited(startWithLiveRelays(m));
     }
   });
-  ref.onDispose(service.dispose);
   return service;
 });
 
@@ -361,10 +373,7 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   // unlock reaches ready; without this guard the first locked read terminated
   // the stream with "storage is locked" and the chat list stayed on that error
   // after a successful unlock.
-  final ready = ref.watch(
-    appControllerProvider.select((state) => state.phase == AppPhase.ready),
-  );
-  if (!ready) {
+  if (ref.watch(sessionWorkIdentityProvider) == null) {
     yield const <Conversation>[];
     return;
   }
@@ -410,10 +419,7 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
 /// unlock has finished.
 final pendingClearRequestsProvider =
     StreamProvider<List<PendingClearRequest>>((ref) async* {
-      final ready = ref.watch(
-        appControllerProvider.select((state) => state.phase == AppPhase.ready),
-      );
-      if (!ready) {
+      if (ref.watch(sessionWorkIdentityProvider) == null) {
         yield const <PendingClearRequest>[];
         return;
       }

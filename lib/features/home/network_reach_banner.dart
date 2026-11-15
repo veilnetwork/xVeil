@@ -10,6 +10,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/messaging.dart' show messagingServiceProvider;
 import '../../state/providers.dart';
+import '../../state/app_controller.dart' show sessionWorkIdentityProvider;
 
 /// Why the app has nobody to talk to, when it has nobody to talk to.
 enum NetworkReach {
@@ -192,6 +193,15 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // The old home route may still build during lock/navigation. Do not make
+    // its status strip recreate session services while teardown owns them.
+    if (ref.watch(sessionWorkIdentityProvider) == null) {
+      _settle?.cancel();
+      _pending = null;
+      _connectedAt = null;
+      _shown = NetworkReach.reachable;
+      return const SizedBox.shrink();
+    }
     final phase =
         ref.watch(nodeStatusProvider).asData?.value.phase ?? NodePhase.starting;
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;

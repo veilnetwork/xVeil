@@ -12,8 +12,11 @@ without adding any. No production relay or user profile is modified.
 Normal onboarding exposes encrypted, hidden and unencrypted choices. Leaving the
 choice untouched creates one **encrypted** catalog entry with separate keybox,
 content and maintenance files. The recovery certificate is copied through the
-real UI; the previous clipboard contents are restored without publication.
-This does not qualify the native save-file dialog.
+real UI. The driver restored the previous clipboard immediately without
+publication, but the application's unconditional secret-clear timer can clear
+that restoration 45 seconds later. Persistent clipboard preservation was not
+qualified; the earlier wording overstated this. This does not qualify the
+native save-file dialog.
 
 After full process death, a wrong password is refused and the right password
 opens the same identity. The actual native node starts and the application
