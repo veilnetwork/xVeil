@@ -104,7 +104,9 @@ class _IdentitySetupRecoveryScreenState
                     const SizedBox(height: 12),
                     Text(
                       isMaster
-                          ? l.masterSetupReplayBody
+                          ? controller.setupRecoveryIsMasterAppend
+                                ? l.masterAppendReplayBody
+                                : l.masterSetupReplayBody
                           : canReplay
                           ? l.identitySetupReplayBody
                           : canCreate

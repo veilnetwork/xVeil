@@ -3308,5 +3308,6 @@
   "compactOfferOutcomeUncertain": "El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades.",
   "masterSetupReplayBody": "Completa la creación del maestro y su nueva identidad con el plan guardado. Se conservarán las identidades existentes.",
   "masterSetupReplayPassword": "Contraseña del maestro",
-  "masterSetupReplayChildPassword": "Contraseña de la nueva identidad"
+  "masterSetupReplayChildPassword": "Contraseña de la nueva identidad",
+  "masterAppendReplayBody": "Continúa añadiendo la nueva identidad. Se conservarán los datos existentes."
 }

@@ -8260,4 +8260,8 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get masterSetupReplayChildPassword => 'Password for the new identity';
+
+  @override
+  String get masterAppendReplayBody =>
+      'Continue adding the new identity. Your existing data will be kept.';
 }

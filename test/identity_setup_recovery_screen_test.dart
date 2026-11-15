@@ -67,9 +67,13 @@ Widget _view(
 );
 
 class _MasterReplayController extends _SetupController {
-  _MasterReplayController(this.root, this.child) : super(false);
+  _MasterReplayController(this.root, this.child, {this.append = false})
+    : super(false);
   final StorageProtection root;
   final StorageProtection? child;
+  final bool append;
+  @override
+  bool get setupRecoveryIsMasterAppend => append;
   final result = Completer<bool>();
   final requests = <(String, String)>[];
   @override
@@ -89,6 +93,34 @@ class _MasterReplayController extends _SetupController {
 }
 
 void main() {
+  for (final language in ['ru', 'en', 'es']) {
+    testWidgets(
+      'append recovery describes adding without replacing the master ($language)',
+      (tester) async {
+        final controller = _MasterReplayController(
+          StorageProtection.encrypted,
+          null,
+          append: true,
+        );
+        final container = ProviderContainer(
+          overrides: [appControllerProvider.overrideWith(() => controller)],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(_view(container, language: language));
+        final context = tester.element(
+          find.byType(IdentitySetupRecoveryScreen),
+        );
+        final l = AppL10n.of(context);
+        expect(find.text(l.masterAppendReplayBody), findsOneWidget);
+        expect(find.text(l.masterSetupReplayBody), findsNothing);
+        expect(
+          find.byKey(const Key('master-setup-child-password')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final root in StorageProtection.values) {
     for (final child in [null, ...StorageProtection.values]) {
       testWidgets(

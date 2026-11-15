@@ -351,6 +351,7 @@ class _SetupRecovery {
     this.canReplay = false,
     this.canReplayMaster = false,
     this.childProtection,
+    this.appendingMaster = false,
   });
   final IdentityStorageLocator root;
   final Uint8List keys;
@@ -358,6 +359,7 @@ class _SetupRecovery {
   final bool canReplay;
   final bool canReplayMaster;
   StorageProtection? childProtection;
+  final bool appendingMaster;
   void destroy() => wipeSecretBytes(keys);
 }
 
@@ -381,6 +383,8 @@ class AppController extends Notifier<AppState> {
   bool get canResumeIdentitySetup => _setupRecovery?.canInitialize ?? false;
   bool get canReplayIdentitySetup => _setupRecovery?.canReplay ?? false;
   bool get canReplayMasterSetup => _setupRecovery?.canReplayMaster ?? false;
+  bool get setupRecoveryIsMasterAppend =>
+      _setupRecovery?.appendingMaster ?? false;
   StorageProtection? get setupRecoveryChildProtection =>
       _setupRecovery?.childProtection;
   @visibleForTesting
@@ -521,8 +525,9 @@ class AppController extends Notifier<AppState> {
 
   Future<Storage> _storageForIdentityEdit(
     IdentityStorageLocator locator,
-    _IdentityEdit edit,
-  ) async {
+    _IdentityEdit edit, {
+    bool freshFacade = false,
+  }) async {
     edit.check();
     final router = ref.read(profileStorageRouterProvider);
     if (router == null) {
@@ -536,7 +541,9 @@ class AppController extends Notifier<AppState> {
     }
     edit.viewReadable = false;
     edit.own(router.storage);
-    if (router.location != locator) {
+    // A failed selection can retire its old facade before the locator changes.
+    // Recovery must select a fresh owner at that same authenticated address.
+    if (router.location != locator || freshFacade) {
       await _updateStorageRoute(() => router.select(locator, access: false));
     }
     // Register before the cancellation check: the transition is accepted work
@@ -1442,7 +1449,11 @@ class AppController extends Notifier<AppState> {
             await store.close();
           }
           await edit.step(router.refresh);
-          final parent = await _storageForIdentityEdit(context.root, edit);
+          final parent = await _storageForIdentityEdit(
+            context.root,
+            edit,
+            freshFacade: true,
+          );
           if (await edit.step(() => parent.openWithKeys(keys))) {
             final marker = await edit.step(
               () => parent.getSetting(kPendingMasterSetupSetting),
@@ -5254,6 +5265,8 @@ class AppController extends Notifier<AppState> {
     }
 
     MasterSetupIntent? creationIntent;
+    IdentityStorageLocator? pendingRoot;
+    Uint8List? pendingKeys;
     try {
       final master = converting
           ? await create(masterMode)
@@ -5304,6 +5317,8 @@ class AppController extends Notifier<AppState> {
         await edit.step(master.close);
         return await refuse();
       }
+      pendingRoot = masterLocator;
+      pendingKeys = masterKeys;
       final base =
           existing ??
           [
@@ -5321,25 +5336,24 @@ class AppController extends Notifier<AppState> {
       // Persist the exact planned slot before child creation. The public
       // catalog alone cannot reconstruct the original hidden source or label.
       final plannedChild = ProfileStorageRouter.newLocation(protection);
-      if (converting) {
-        creationIntent = MasterSetupIntent.create(
+      creationIntent = MasterSetupIntent.create(
+        root: masterLocator,
+        keys: masterKeys,
+        base: base,
+        childLocator: plannedChild,
+        childLabel: label,
+        childAnonymous: anonymous,
+        append: !converting,
+      );
+      await edit.step(
+        () => MasterSetupJournal.prepare(
+          storage: master,
+          intent: creationIntent!,
           root: masterLocator,
           keys: masterKeys,
-          base: base,
-          childLocator: plannedChild,
-          childLabel: label,
-          childAnonymous: anonymous,
-        );
-        await edit.step(
-          () => MasterSetupJournal.prepare(
-            storage: master,
-            intent: creationIntent!,
-            root: masterLocator,
-            keys: masterKeys,
-            check: edit.check,
-          ),
-        );
-      }
+          check: edit.check,
+        ),
+      );
       await edit.step(master.close);
       await _updateStorageRoute(
         () => router.select(plannedChild, create: true, access: false),
@@ -5354,7 +5368,7 @@ class AppController extends Notifier<AppState> {
           createIfMissing: true,
         ),
       )) {
-        return await refuse();
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
       }
       final childKeys = await edit.step(child.exportSpaceKeys);
       final hasChildProfile = await edit.step(child.loadProfile) != null;
@@ -5379,12 +5393,34 @@ class AppController extends Notifier<AppState> {
             await edit.step(
               () => child.getSetting(kPendingIdentitySetupSetting),
             ),
+          ) ||
+          child is! StorageInitializationSource ||
+          !await edit.step(
+            () =>
+                (child as StorageInitializationSource).initializationIsBlank(),
           )) {
         await edit.step(child.close);
+        final rejectedOwner = await _storageForIdentityEdit(
+          masterLocator,
+          edit,
+        );
+        if (!await edit.step(() => rejectedOwner.openWithKeys(masterKeys))) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+        }
+        await edit.step(
+          () => MasterSetupJournal.abortPrepared(
+            storage: rejectedOwner,
+            intent: creationIntent!,
+            root: masterLocator,
+            keys: masterKeys,
+            check: edit.check,
+          ),
+        );
+        await edit.step(rejectedOwner.close);
         return await refuse();
       }
-      MasterSetupChildProof? childProof;
-      if (converting) {
+      final MasterSetupChildProof childProof;
+      {
         // The child has no personalized payload until its actual keys have
         // been recorded in the parent. Hidden spaces share one file owner, so
         // close and reopen the exact stores rather than holding both at once.
@@ -5392,11 +5428,11 @@ class AppController extends Notifier<AppState> {
         await edit.step(router.refresh);
         final journalOwner = await _storageForIdentityEdit(masterLocator, edit);
         if (!await edit.step(() => journalOwner.openWithKeys(masterKeys))) {
-          return await refuse();
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
         }
         final recorded = await MasterSetupJournal.attachChild(
           storage: journalOwner,
-          intent: creationIntent!,
+          intent: creationIntent,
           childKeys: childKeys,
           root: masterLocator,
           keys: masterKeys,
@@ -5408,7 +5444,7 @@ class AppController extends Notifier<AppState> {
         await edit.step(journalOwner.close);
         child = await _storageForIdentityEdit(childLocator, edit);
         if (!await edit.step(() => child.openWithKeys(childKeys))) {
-          return await refuse();
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
         }
         childProof = await edit.step(
           () => MasterSetupJournal.initializeChild(
@@ -5419,54 +5455,25 @@ class AppController extends Notifier<AppState> {
             check: edit.check,
           ),
         );
-      } else {
-        await edit.step(
-          () => child.saveProfile(UserProfile(displayName: label)),
-        );
       }
       await edit.step(child.close);
       await edit.step(router.refresh);
       final owner = await _storageForIdentityEdit(masterLocator, edit);
       if (!await edit.step(() => owner.openWithKeys(masterKeys))) {
-        return await refuse();
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
       }
-      // Re-read the authoritative roster before appending. Creation still
-      // requires an empty master; an existing one must keep every current row.
-      final onDisk = await edit.step(owner.loadRoster);
-      if ((converting && onDisk != null) ||
-          (!converting && (onDisk == null || onDisk.isEmpty)) ||
-          (onDisk?.any(
-                (row) =>
-                    row.label == label || listEquals(row.spaceKeys, childKeys),
-              ) ??
-              false)) {
-        await edit.step(owner.close);
-        return await refuse();
-      }
-      final updated = [
-        ...?onDisk,
-        if (onDisk == null) ...base,
-        RosterEntry(
-          label: label,
-          spaceKeys: childKeys,
-          anonymous: anonymous,
-          storageLocator: childLocator,
+      final updated = creationIntent.copyRoster();
+      edit.keys.addAll(updated.map((row) => row.spaceKeys));
+      await edit.step(
+        () => MasterSetupJournal.publishAndFinish(
+          storage: owner,
+          intent: creationIntent!,
+          childProof: childProof,
+          root: masterLocator,
+          keys: masterKeys,
+          check: edit.check,
         ),
-      ];
-      if (converting) {
-        await edit.step(
-          () => MasterSetupJournal.publishAndFinish(
-            storage: owner,
-            intent: creationIntent!,
-            childProof: childProof!,
-            root: masterLocator,
-            keys: masterKeys,
-            check: edit.check,
-          ),
-        );
-      } else {
-        await edit.step(() => owner.saveRoster(updated));
-      }
+      );
       if (converting) {
         if (masterLocator is LegacyStorageLocator &&
             previousAccess == masterLocator) {
@@ -5494,6 +5501,49 @@ class AppController extends Notifier<AppState> {
       rethrow;
     } catch (error) {
       devLog(() => 'xVeil[identity]: routed add failed (${error.runtimeType})');
+      if (edit.current() &&
+          creationIntent != null &&
+          pendingRoot != null &&
+          pendingKeys != null) {
+        try {
+          await edit.step(_teardownSession);
+          await edit.step(_teardownRealStack);
+          for (final store in edit.storages) {
+            await edit.step(store.close);
+          }
+          await edit.step(router.refresh);
+          final parent = await _storageForIdentityEdit(
+            pendingRoot,
+            edit,
+            freshFacade: true,
+          );
+          if (await edit.step(() => parent.openWithKeys(pendingKeys!))) {
+            final marker = await edit.step(
+              () => parent.getSetting(kPendingMasterSetupSetting),
+            );
+            if (marker == '1') {
+              // A lost native reply may have advanced the intent. Classify its
+              // actual durable state instead of reopening an old active child.
+              await _parkSetupRecovery(parent, false, _lifecycle);
+              return false;
+            }
+            await edit.step(parent.close);
+            if (marker == '0' && creationIntent.childKnown) {
+              // Completion may be durable despite a lost reply. Never reopen
+              // the prior cached membership and hide the accepted new child.
+              // Ordinary authenticated unlock rereads the authoritative roster.
+              _endLifecycle();
+              _clearMasterSession();
+              state = const AppState(AppPhase.locked);
+              return false;
+            }
+          }
+        } on _IdentityEditEnded {
+          rethrow;
+        } catch (_) {
+          edit.check();
+        }
+      }
       return await refuse();
     } finally {
       creationIntent?.destroy();
@@ -7419,6 +7469,7 @@ class AppController extends Notifier<AppState> {
       if (!ref.mounted || _supersededSince(gen)) return;
       var replayable = false;
       var replayableMaster = false;
+      var appendingMaster = false;
       StorageProtection? childProtection;
       final marker = await storage.getSetting(kPendingIdentitySetupSetting);
       final masterMarker = await storage.getSetting(kPendingMasterSetupSetting);
@@ -7443,6 +7494,7 @@ class AppController extends Notifier<AppState> {
               check: check,
             );
             replayableMaster = true;
+            appendingMaster = masterIntent.append;
             if (!masterIntent.childKnown) {
               childProtection = switch (masterIntent.childLocator) {
                 LegacyStorageLocator() => StorageProtection.hidden,
@@ -7514,6 +7566,7 @@ class AppController extends Notifier<AppState> {
         canReplay: replayable,
         canReplayMaster: replayableMaster,
         childProtection: childProtection,
+        appendingMaster: appendingMaster,
       );
       adopted = true;
       state = const AppState(AppPhase.identitySetupRecovery);

@@ -8330,4 +8330,8 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get masterSetupReplayChildPassword => 'Пароль новой личности';
+
+  @override
+  String get masterAppendReplayBody =>
+      'Продолжите добавление личности. Существующие данные сохранятся.';
 }

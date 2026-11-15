@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/local_authentication.dart';
@@ -97,6 +98,7 @@ void main() {
         final containers = <ProviderContainer>[];
         final keys = <Uint8List>[];
         final vault = _Vault();
+        var receiptState = 'complete';
         final sameLegacy =
             sourceMode == StorageProtection.hidden &&
             masterMode == StorageProtection.hidden;
@@ -322,6 +324,7 @@ void main() {
             );
             expect(container.read(appControllerProvider).phase, AppPhase.ready);
             expect(router.catalog.identities, hasLength(count));
+            receiptState = 'aborted';
           }
           if (masterMode != StorageProtection.unencrypted) {
             expect(
@@ -423,10 +426,51 @@ void main() {
             final decoded = jsonDecode(utf8.decode(receipt!));
             expect(decoded, {
               'v': 1,
-              'complete': true,
+              receiptState: true,
               'digest': isA<String>(),
+              'attempt': isA<String>(),
             });
             expect(base64.decode(decoded['digest'] as String), hasLength(32));
+            final rootKeys = await coldRouter.storage.exportSpaceKeys();
+            final expectedBase = MasterSetupIntent.create(
+              root: masterLocator,
+              keys: rootKeys,
+              base: receiptState == 'complete'
+                  ? roster.sublist(0, roster.length - 1)
+                  : roster,
+              childLocator: receiptState == 'complete'
+                  ? roster.last.storageLocator
+                  : const LegacyStorageLocator(),
+              childLabel: receiptState == 'complete'
+                  ? roster.last.label
+                  : 'existing hidden collision',
+              childAnonymous: receiptState == 'complete'
+                  ? roster.last.anonymous
+                  : false,
+              append: true,
+            );
+            final expected = receiptState == 'complete'
+                ? expectedBase.withChildKeys(roster.last.spaceKeys)
+                : expectedBase.copy();
+            final encoded = expected.encode();
+            final body = jsonDecode(utf8.decode(encoded));
+            encoded.fillRange(0, encoded.length, 0);
+            body['attempt'] = decoded['attempt'];
+            expect(base64.decode(decoded['attempt'] as String), hasLength(16));
+            final bytes = Uint8List.fromList(utf8.encode(jsonEncode(body)));
+            try {
+              expect(
+                decoded['digest'],
+                base64.encode(sha256.convert(bytes).bytes),
+                reason:
+                    'receipt belongs to the latest append or rejected candidate, not the original conversion',
+              );
+            } finally {
+              bytes.fillRange(0, bytes.length, 0);
+              rootKeys.fillRange(0, rootKeys.length, 0);
+              expected.destroy();
+              expectedBase.destroy();
+            }
           } finally {
             receipt?.fillRange(0, receipt.length, 0);
           }

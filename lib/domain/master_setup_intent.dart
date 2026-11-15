@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math' show Random;
 
 import 'package:crypto/crypto.dart';
 import '../core/secret_wipe.dart';
@@ -29,16 +30,23 @@ final class MasterSetupIntent {
     this.childLabel,
     this.childAnonymous,
     this._childKeys,
+    this.append,
+    this._attempt,
   );
 
   static const maxBytes = 16 * 1024;
   static const maxBaseEntries = 32;
+  // Above the number of minimum-size rows fitting the existing roster-file
+  // ceiling. Append metadata never duplicates the roster's payload.
+  static const maxAppendEntries = 65536;
   final IdentityStorageLocator root, childLocator;
   final String childLabel;
   final bool childAnonymous;
+  final bool append;
   final Uint8List _owner;
   final List<RosterEntry> _base;
   final Uint8List? _childKeys;
+  final Uint8List? _attempt;
   bool _destroyed = false;
 
   factory MasterSetupIntent.create({
@@ -48,11 +56,16 @@ final class MasterSetupIntent {
     required IdentityStorageLocator childLocator,
     required String childLabel,
     bool childAnonymous = false,
+    bool append = false,
   }) {
     if (keys.length != 64) {
       throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
     }
     final owner = Uint8List.fromList(sha256.convert(keys).bytes);
+    final random = Random.secure();
+    final attempt = Uint8List.fromList(
+      List.generate(16, (_) => random.nextInt(256)),
+    );
     try {
       return _build(
         root,
@@ -62,9 +75,12 @@ final class MasterSetupIntent {
         childLabel,
         childAnonymous,
         null,
+        append,
+        attempt,
       );
     } finally {
       wipeSecretBytes(owner);
+      wipeSecretBytes(attempt);
     }
   }
 
@@ -92,12 +108,15 @@ final class MasterSetupIntent {
     String childLabel,
     bool anonymous,
     Uint8List? childKeys,
+    bool append,
+    Uint8List? attempt,
   ) {
     if (owner.length != 32 ||
         base.isEmpty ||
-        base.length > maxBaseEntries ||
+        base.length > (append ? maxAppendEntries : maxBaseEntries) ||
         !_label(childLabel) ||
-        childKeys != null && childKeys.length != 64) {
+        childKeys != null && childKeys.length != 64 ||
+        attempt != null && attempt.length != 16) {
       throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
     }
     final labels = <String>{childLabel};
@@ -109,13 +128,16 @@ final class MasterSetupIntent {
         throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
       }
     }
-    final seenKeys = <Uint8List>[];
+    final seenKeys = <String>{};
     for (final row in base) {
-      if (!_label(row.label) ||
+      if (!(append
+              ? row.label.isNotEmpty &&
+                    utf8.decode(utf8.encode(row.label)) == row.label
+              : _label(row.label)) ||
           !labels.add(row.label) ||
           row.spaceKeys.length != 64 ||
           _same(owner, sha256.convert(row.spaceKeys).bytes) ||
-          seenKeys.any((keys) => _same(keys, row.spaceKeys))) {
+          !seenKeys.add(sha256.convert(row.spaceKeys).toString())) {
         throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
       }
       if (row.storageLocator case ManagedStorageLocator(:final id)) {
@@ -123,11 +145,10 @@ final class MasterSetupIntent {
           throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
         }
       }
-      seenKeys.add(row.spaceKeys);
     }
     if (childKeys != null &&
         (_same(owner, sha256.convert(childKeys).bytes) ||
-            seenKeys.any((keys) => _same(keys, childKeys)))) {
+            seenKeys.contains(sha256.convert(childKeys).toString()))) {
       throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
     }
     final result = MasterSetupIntent._(
@@ -141,6 +162,8 @@ final class MasterSetupIntent {
       childLabel,
       anonymous,
       childKeys == null ? null : Uint8List.fromList(childKeys),
+      append,
+      attempt == null ? null : Uint8List.fromList(attempt),
     );
     try {
       final check = result.encode();
@@ -161,6 +184,11 @@ final class MasterSetupIntent {
   bool get childKnown {
     _live();
     return _childKeys != null;
+  }
+
+  String? get attemptId {
+    _live();
+    return _attempt == null ? null : base64.encode(_attempt);
   }
 
   List<RosterEntry> copyBase() {
@@ -200,7 +228,54 @@ final class MasterSetupIntent {
       childLabel,
       childAnonymous,
       keys,
+      append,
+      _attempt,
     );
+  }
+
+  MasterSetupIntent copy() {
+    _live();
+    return _build(
+      root,
+      _owner,
+      _base,
+      childLocator,
+      childLabel,
+      childAnonymous,
+      _childKeys,
+      append,
+      _attempt,
+    );
+  }
+
+  static Map<String, Object> _row(RosterEntry e) => {
+    'label': e.label,
+    'keys': base64.encode(e.spaceKeys),
+    'anonymous': e.anonymous,
+    'locator': e.storageLocator.encode(),
+  };
+
+  static Uint8List _baseDigest(List<RosterEntry> rows) {
+    final bytes = Uint8List.fromList(
+      utf8.encode(jsonEncode([for (final row in rows) _row(row)])),
+    );
+    try {
+      return Uint8List.fromList(sha256.convert(bytes).bytes);
+    } finally {
+      wipeSecretBytes(bytes);
+    }
+  }
+
+  static bool requiresRoster(Uint8List bytes) {
+    try {
+      if (bytes.isEmpty || bytes.length > maxBytes) {
+        throw const FormatException();
+      }
+      final m = jsonDecode(utf8.decode(bytes));
+      return m is Map && m['v'] == 2 && m['operation'] == 'append';
+    } catch (_) {
+      throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+    }
   }
 
   void validateOwner(IdentityStorageLocator actualRoot, Uint8List keys) {
@@ -227,38 +302,44 @@ final class MasterSetupIntent {
   Uint8List encode() => _encode(false);
   Uint8List _encode(bool planOnly) {
     _live();
-    Map<String, Object> row(RosterEntry e) => {
-      'label': e.label,
-      'keys': base64.encode(e.spaceKeys),
-      'anonymous': e.anonymous,
-      'locator': e.storageLocator.encode(),
-    };
-    final bytes = Uint8List.fromList(
-      utf8.encode(
-        jsonEncode({
-          'v': 1,
-          'root': root.encode(),
-          'owner': base64.encode(_owner),
-          'base': [for (final e in _base) row(e)],
-          'child': {
-            'label': childLabel,
-            'anonymous': childAnonymous,
-            'locator': childLocator.encode(),
-            'keys': planOnly || _childKeys == null
-                ? null
-                : base64.encode(_childKeys),
-          },
-        }),
-      ),
-    );
-    if (bytes.length > maxBytes) {
-      wipeSecretBytes(bytes);
-      throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+    final digest = append ? _baseDigest(_base) : null;
+    try {
+      final bytes = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'v': append ? 2 : 1,
+            if (append) 'operation': 'append',
+            'root': root.encode(),
+            'owner': base64.encode(_owner),
+            if (_attempt != null) 'attempt': base64.encode(_attempt),
+            'base': append
+                ? {'count': _base.length, 'digest': base64.encode(digest!)}
+                : [for (final e in _base) _row(e)],
+            'child': {
+              'label': childLabel,
+              'anonymous': childAnonymous,
+              'locator': childLocator.encode(),
+              'keys': planOnly || _childKeys == null
+                  ? null
+                  : base64.encode(_childKeys),
+            },
+          }),
+        ),
+      );
+      if (bytes.length > maxBytes) {
+        wipeSecretBytes(bytes);
+        throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+      }
+      return bytes;
+    } finally {
+      if (digest != null) wipeSecretBytes(digest);
     }
-    return bytes;
   }
 
-  factory MasterSetupIntent.decode(Uint8List bytes) {
+  factory MasterSetupIntent.decode(
+    Uint8List bytes, {
+    List<RosterEntry>? roster,
+  }) {
     final buffers = <Uint8List>[];
     bool shape(Object? value, Set<String> keys) =>
         value is Map<String, dynamic> &&
@@ -279,43 +360,90 @@ final class MasterSetupIntent {
         throw const FormatException();
       }
       final m = jsonDecode(utf8.decode(bytes));
-      if (!shape(m, {'v', 'root', 'owner', 'base', 'child'}) ||
+      final append = m is Map && m['v'] == 2 && m['operation'] == 'append';
+      final hasAttempt = m is Map && m.containsKey('attempt');
+      if (!shape(m, {
+            'v',
+            'root',
+            'owner',
+            'base',
+            'child',
+            if (append) 'operation',
+            if (hasAttempt) 'attempt',
+          }) ||
           m['v'] is! int ||
-          m['v'] != 1 ||
-          m['base'] is! List ||
-          (m['base'] as List).isEmpty ||
-          (m['base'] as List).length > maxBaseEntries ||
+          m['v'] != (append ? 2 : 1) ||
           !shape(m['child'], {'label', 'anonymous', 'locator', 'keys'})) {
         throw const FormatException();
       }
       final rows = <RosterEntry>[];
-      for (final row in m['base'] as List) {
-        if (!shape(row, {'label', 'keys', 'anonymous', 'locator'}) ||
-            row['label'] is! String ||
-            row['anonymous'] is! bool) {
+      if (append) {
+        final base = m['base'];
+        if (!shape(base, {'count', 'digest'}) ||
+            base['count'] is! int ||
+            base['count'] < 1 ||
+            base['count'] > maxAppendEntries ||
+            roster == null ||
+            (roster.length != base['count'] &&
+                roster.length != base['count'] + 1)) {
           throw const FormatException();
         }
-        rows.add(
-          RosterEntry(
-            label: row['label'],
-            spaceKeys: decodeKey(row['keys'], 64),
-            anonymous: row['anonymous'],
-            storageLocator: IdentityStorageLocator.decode(row['locator']),
-          ),
-        );
+        rows.addAll(roster.take(base['count'] as int));
+        final digest = _baseDigest(rows);
+        buffers.add(digest);
+        if (!_same(digest, decodeKey(base['digest'], 32))) {
+          throw const FormatException();
+        }
+      } else {
+        if (m['base'] is! List ||
+            (m['base'] as List).isEmpty ||
+            (m['base'] as List).length > maxBaseEntries) {
+          throw const FormatException();
+        }
+        for (final row in m['base'] as List) {
+          if (!shape(row, {'label', 'keys', 'anonymous', 'locator'}) ||
+              row['label'] is! String ||
+              row['anonymous'] is! bool) {
+            throw const FormatException();
+          }
+          rows.add(
+            RosterEntry(
+              label: row['label'],
+              spaceKeys: decodeKey(row['keys'], 64),
+              anonymous: row['anonymous'],
+              storageLocator: IdentityStorageLocator.decode(row['locator']),
+            ),
+          );
+        }
       }
       final child = m['child'];
       if (child['label'] is! String || child['anonymous'] is! bool) {
         throw const FormatException();
       }
+      final childLocator = IdentityStorageLocator.decode(child['locator']);
+      final childKeys = child['keys'] == null
+          ? null
+          : decodeKey(child['keys'], 64);
+      if (append && roster!.length == rows.length + 1) {
+        final last = roster.last;
+        if (childKeys == null ||
+            last.label != child['label'] ||
+            last.anonymous != child['anonymous'] ||
+            last.storageLocator != childLocator ||
+            !_same(last.spaceKeys, childKeys)) {
+          throw const FormatException();
+        }
+      }
       return _build(
         IdentityStorageLocator.decode(m['root']),
         decodeKey(m['owner'], 32),
         rows,
-        IdentityStorageLocator.decode(child['locator']),
+        childLocator,
         child['label'],
         child['anonymous'],
-        child['keys'] == null ? null : decodeKey(child['keys'], 64),
+        childKeys,
+        append,
+        hasAttempt ? decodeKey(m['attempt'], 16) : null,
       );
     } catch (_) {
       throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
@@ -332,6 +460,7 @@ final class MasterSetupIntent {
       wipeSecretBytes(row.spaceKeys);
     }
     if (_childKeys != null) wipeSecretBytes(_childKeys);
+    if (_attempt != null) wipeSecretBytes(_attempt);
     _destroyed = true;
   }
 }
