@@ -301,6 +301,11 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     storage: storage,
     runtimeDirBase: spec.runtimeBase,
     listenPort: spec.listenPort,
+    // A debug-hook build also enables native metrics. The single-node default
+    // is process-wide: reusing it here makes the second node's apply-config
+    // fail even though its own QUIC listener is free. Keep metrics available
+    // on distinct OS-assigned loopback ports for every hosted node.
+    debugMetricsPort: 0,
     anonymous: spec.anonymous,
     lanListen: spec.lanListen,
     lazyMining: spec.lazyMining,

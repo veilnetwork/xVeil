@@ -283,7 +283,10 @@ Future<void> _runBootstrappedApplication({
 
   final priorFlutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
-    devLog(() => 'xVeil[uncaught:flutter]: ${details.exceptionAsString()}');
+    devLog(
+      () =>
+          'xVeil[uncaught:flutter]: ${details.exceptionAsString()}\n${details.stack}',
+    );
     errorJournal.record(
       kind: 'flutter',
       error: details.exception,

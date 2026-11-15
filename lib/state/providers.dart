@@ -212,7 +212,6 @@ final sessionEndDepthProvider = StateProvider<int>((ref) => 0);
 /// Keep retired provider instances owned across transport/provider replacement.
 final sessionServiceOwnerProvider = Provider((ref) => SessionServiceOwner());
 
-
 /// In a session, the label of the identity the UI currently shows. Changing it
 /// (a switch) re-points [storageProvider] / [messagingServiceProvider] to that
 /// identity WITHOUT stopping any node — all stay online.
@@ -533,7 +532,13 @@ final seedEntriesProvider = FutureProvider<List<BootstrapInvite>>((ref) async {
 /// network tab was opened) shows the real status instead of being stuck on the
 /// stream's pre-subscription default ("connecting").
 final nodeStatusProvider = StreamProvider<NodeStatus>((ref) async* {
-  final node = ref.watch(nodeControllerProvider);
+  // Follow the controller's lifecycle inputs directly. A paused, always-alive
+  // stream can outlive the home route during maintenance. Watching its cached
+  // derived controller makes remount flush that dependency and invalidate this
+  // stream synchronously inside the widget build. Keep the shared/injectable
+  // controller owner, but rebuild from its state inputs instead of that edge.
+  if (ref.watch(realStackProvider) == null) ref.watch(nodeBootStateProvider);
+  final node = ref.read(nodeControllerProvider);
   yield node.current;
   yield* node.status();
 });

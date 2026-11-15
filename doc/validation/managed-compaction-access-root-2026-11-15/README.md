@@ -91,3 +91,9 @@ admission observations, then repeat full real-node identity checks. Physical
 Android/OEM and complete cross-platform destructive/recovery qualification,
 Windows source-directory durability, custom source-name journal binding,
 all-target native pin updates, release AOT and default activation remain open.
+
+
+Follow-up: [hosted diagnostics and status remount](../hosted-node-metrics-2026-11-15/README.md)
+resolves the diagnostic-port and framework-notification observations above and
+qualifies actual node identities through compaction and cold reopen. The earlier
+demo-ID comparisons remain excluded; other listed activation gates remain open.
