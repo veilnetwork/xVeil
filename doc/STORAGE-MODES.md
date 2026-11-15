@@ -31,7 +31,14 @@ readback, plaintext read without a key, and return to both enumerable identities
 It also exposed inherited runtime/control-key permissions; the
 [runtime-DACL follow-up](validation/windows-runtime-private-create-2026-11-15/README.md)
 fixes private creation and unsafe ancestry admission, with nine Windows native
-cases and the normal rebuilt app. Android, complete Windows destructive/recovery
+cases and the normal rebuilt app. The
+[Android bootstrap follow-up](validation/managed-storage-android-bootstrap-2026-11-15/README.md)
+fixes rejection of Android's app-owned 0771 parent directory and missing-media
+build admission. The
+[Android mode qualification](validation/managed-storage-android-modes-2026-11-15/README.md)
+covers normal creation/cold reopen for all three modes on an Android 15 AOSP
+emulator, exact identity/note readback, a no-key plaintext read and return to both
+enumerable modes. Physical Android/OEM, complete platform destructive/recovery
 qualification, application release AOT and activation are not yet complete.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.

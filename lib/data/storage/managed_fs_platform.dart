@@ -12,8 +12,10 @@ export 'managed_fs_contract.dart';
 
 /// Android's AID_SYSTEM (1000) owns the app-data ancestors and its protected
 /// system group may write them. It is an OS authority, not an application UID.
-/// This exception is Android-only and never grants privacy/ownership to a
-/// system-owned identity file. Ordinary shared/OEM/media groups remain refused.
+/// Android also creates getFilesDir() as 0771 under the app's own UID/GID.
+/// Only the full current app UID (including its user offset) can qualify that
+/// group, and only for directory ancestry. Neither exception grants privacy to
+/// a file. Ordinary shared/OEM/media/cache groups remain refused.
 ({bool ownerOnly, bool ownedByCurrentUser, bool safeAncestor})
 managedPosixPathPolicy(
   PosixFileFacts facts, {
@@ -24,9 +26,22 @@ managedPosixPathPolicy(
       facts.uid == currentUid ||
       facts.uid == 0 ||
       (android && facts.uid == 1000);
+  // AOSP Process.FIRST/LAST_APPLICATION_UID, scoped by UserHandle's user offset.
+  // A coincidentally equal Unix UID/GID outside Android is not this authority.
+  final appId = currentUid % 100000;
+  final ownAndroidDirectoryGroup =
+      android &&
+      currentUid >= 10000 &&
+      appId >= 10000 &&
+      appId <= 19999 &&
+      facts.isDirectory &&
+      facts.uid == currentUid &&
+      facts.gid == currentUid;
   final otherWrite = facts.permissions & 2 != 0;
   final groupWrite =
-      facts.permissions & 0x10 != 0 && !(android && facts.gid == 1000);
+      facts.permissions & 0x10 != 0 &&
+      !(android && facts.gid == 1000) &&
+      !ownAndroidDirectoryGroup;
   return (
     ownerOnly: facts.permissions & 0x3f == 0,
     ownedByCurrentUser: facts.uid == currentUid,

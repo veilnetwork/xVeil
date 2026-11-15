@@ -515,12 +515,12 @@ def _staged_media_so(abi: str) -> str:
 
 
 def _check_media_staged() -> None:
-    """Refuse to start a release build that would ship without call media.
+    """Refuse to start an Android build without its mandatory startup engine.
 
     The prebuilt is gitignored, so a FRESH CLONE has nothing here and nothing
-    downstream notices: gradle packages whatever ABI directories exist, the
-    build goes green, and the APK installs and runs right up until someone
-    records a voice message. v0.9.1 shipped exactly this way.
+    downstream notices: gradle packages whatever ABI directories exist. Android
+    camera/renderer class initialization now loads it while MainActivity starts,
+    so a missing engine can terminate even a debug app before its first screen.
 
     Checked before the build rather than only after it because the build costs
     minutes and this costs a stat call.
@@ -534,12 +534,12 @@ def _check_media_staged() -> None:
     raise RuntimeError(
         f"MISSING {_MEDIA_SO} for {', '.join(missing)} — this build would ship\n"
         "    an ABI without call media, which is the failure this check exists\n"
-        "    for: the APK installs, runs, and throws only when someone records.\n"
+        "    for: the APK can install but terminate before its first screen.\n"
         f"    Expected at {where}\n"
         "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
         "    video notes, in-chat video, calls and speech-to-text all load it;\n"
         "    without it each one throws 'library libveil_media.so not found'.\n"
-        "    Restore it by copying the .so from a checkout that has one, or\n"
+        "    Restore the verified engine from the pinned release, or\n"
         "    rebuild it on an x86_64 Linux host with a WebRTC checkout:\n"
         f"      WEBRTC_BUILD=~/webrtc-android {_MEDIA_BUILD_SCRIPT}"
     )
@@ -762,7 +762,11 @@ def _android(release: bool) -> list[Step]:
     # that is shrugged off leaves the previous one in place — which is exactly
     # what shipped for three days. A host without bash cannot run it at all;
     # there the freshness gate after the build is what refuses the leftovers.
+    # Android's camera/renderer load this before Dart starts, even in debug.
+    # No later native build creates it, so refuse before spending time on Rust
+    # and wrapper compilation. Desktop's optional-engine policy is different.
     steps = [
+        Step("call media staged", call=_check_media_staged),
         Step(
             "native libraries (hidden_volume has no gradle cargo step)",
             argv=sh("scripts/build-mobile.sh", "android") if have("bash") else [],
@@ -803,7 +807,6 @@ def _android(release: bool) -> list[Step]:
             )
         )
     if release:
-        steps.append(Step("call media staged", call=_check_media_staged))
         # Done here rather than in a shell script so a Windows host can also
         # produce release APKs — and so the signing check cannot drift from
         # the build it guards. scripts/build-android-release.sh calls this.
