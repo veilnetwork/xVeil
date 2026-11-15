@@ -19,6 +19,7 @@ import '../data/storage/managed_directory_catalog.dart'
 import '../data/storage/async_kv_log_store.dart' show ManagedErasureScopeLease;
 
 part 'quick_unlock_retirement_impl.dart';
+part 'quick_unlock_absence_witness.dart';
 
 /// Separate namespaces prevent changing cipher policy for an existing key.
 /// This port also makes cancellation, write refusal and restart testable without
@@ -227,12 +228,24 @@ class QuickUnlockVault {
       if (forRemoval) throw StateError('Saved sign-in lifetime retired');
       return null;
     }
+    if (forRemoval) {
+      final present = await store.contains(_key);
+      if (_scopeState.detached) {
+        throw StateError('Saved sign-in lifetime retired');
+      }
+      if (!present) return null;
+    }
     final raw = await store.read(_key);
     if (_scopeState.detached) {
       if (forRemoval) throw StateError('Saved sign-in lifetime retired');
       return null;
     }
-    if (raw == null) return null;
+    if (raw == null) {
+      if (forRemoval) {
+        throw StateError('Saved sign-in record changed during removal');
+      }
+      return null;
+    }
     try {
       if (raw.length > 16000) throw const FormatException();
       final record = jsonDecode(raw);
@@ -524,7 +537,10 @@ class QuickUnlockVault {
         : null;
   }
 
-  Future<void> _eraseRecords({void Function()? requireAuthority}) async {
+  Future<void> _eraseRecords({
+    void Function()? requireAuthority,
+    Set<String>? capturedProtectedKeys,
+  }) async {
     requireAuthority?.call();
     final record = await _read(forRemoval: true);
     requireAuthority?.call();
@@ -532,6 +548,10 @@ class QuickUnlockVault {
       final slot = record?['bioSlot'];
       if (slot is! String || slot.length > 64) {
         throw StateError('Incomplete saved sign-in');
+      }
+      if (capturedProtectedKeys != null &&
+          !capturedProtectedKeys.contains(_bioKey(slot))) {
+        throw StateError('Saved sign-in changed after capture');
       }
       if (_scopeState.retired) {
         _scopeState.erasureBiometricKeys.add(_bioKey(slot));
@@ -569,15 +589,50 @@ class QuickUnlockVault {
   // Bound erasure must still own its removing operation when queued work runs
   // and after every OS await. An already-issued platform call is joined, but
   // loss of ownership cannot authorize another mutation or successful cleanup.
-  Future<void> _retireBoundForErasure(void Function() requireAuthority) {
+  Future<List<String>> _captureForErasure(void Function()? requireAuthority) {
     try {
-      requireAuthority();
+      requireAuthority?.call();
     } catch (error, trace) {
       return Future.error(error, trace);
     }
     _scopeState.retired = true;
     ++_generation;
-    return _serial(() => _eraseRecords(requireAuthority: requireAuthority));
+    return _serial(() async {
+      requireAuthority?.call();
+      // Presence is read without cipher initialization on Android. An absent
+      // public record must not initialize a new cipher while preparing erase.
+      final present = await store.contains(_key);
+      requireAuthority?.call();
+      final record = present ? await _read(forRemoval: true) : null;
+      requireAuthority?.call();
+      if (present && record == null) {
+        throw StateError('Saved sign-in record changed during capture');
+      }
+      final slot = record?['bioSlot'];
+      if (slot != null) {
+        _scopeState.erasureBiometricKeys.add(_bioKey(slot as String));
+      }
+      return List<String>.unmodifiable(_scopeState.erasureBiometricKeys);
+    });
+  }
+
+  Future<void> _retireCapturedForErasure(
+    Set<String> protectedKeys,
+    void Function()? requireAuthority,
+  ) {
+    try {
+      requireAuthority?.call();
+    } catch (error, trace) {
+      return Future.error(error, trace);
+    }
+    _scopeState.retired = true;
+    ++_generation;
+    return _serial(
+      () => _eraseRecords(
+        requireAuthority: requireAuthority,
+        capturedProtectedKeys: protectedKeys,
+      ),
+    );
   }
 
   /// Only after a durable profile-erasure intent. Existing wrappers cannot

@@ -2042,6 +2042,21 @@ qualification, VPN/capture/other-writer retirement and cold recovery remain open
 This boundary does not claim completed `onDestroy` and does not enable managed
 storage or alter its default.
 
+## Saved-entry recovery capture
+
+Vault retirement now seals all selected scopes and joins accepted enrollment
+before capturing an immutable set of OS-record addresses. An optional persistence
+callback must settle before removal, and an address that appears after capture
+is preserved rather than silently added to that set. Decoded witnesses can
+verify absence without reading passwords or granting deletion authority.
+
+The [capture qualification](validation/saved-entry-recovery-capture-2026-11-15/README.md)
+includes absent-record initialization refusal, persistence ordering, changed-slot
+preservation and native-profile composition. The enclosing application recovery
+journal still needs implementation; this increment publishes no disk witness
+and does not change the native terminal's roster-free format or enable managed
+storage.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
