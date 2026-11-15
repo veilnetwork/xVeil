@@ -6437,15 +6437,23 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _forgetStartupUnlock({bool verifyAbsence = false}) async {
+    final locator = ref.read(storageAccessLocatorProvider);
+    final vault = ref.read(quickUnlockVaultProvider);
+    final managedSiblings = [
+      for (final entry
+          in ref.read(profileStorageRouterProvider)?.catalog.identities ?? [])
+        entry.locator,
+    ].whereType<ManagedStorageLocator>().toList(growable: false);
     final prefs = await ref.read(prefsProvider.future);
     // The preference controls whether to OFFER quick entry. It cannot prove
     // OS-vault absence after preference loss or an interrupted enrollment.
-    if (verifyAbsence || prefs.getBool(kStartupUnlockOptIn) == true) {
-      await ref
-          .read(quickUnlockVaultProvider)
-          .forget()
-          .timeout(const Duration(seconds: 15));
-      if (!await prefs.remove(kStartupUnlockOptIn)) {
+    if (verifyAbsence || startupUnlockConsented(prefs, locator)) {
+      await vault.forget().timeout(const Duration(seconds: 15));
+      if (!await clearStartupUnlockConsent(
+        prefs,
+        locator,
+        managedSiblings: managedSiblings,
+      )) {
         throw StateError('Saved sign-in removal not recorded');
       }
     }

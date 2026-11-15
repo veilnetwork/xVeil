@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/local_authentication.dart';
+import '../core/startup_unlock_consent.dart';
+export '../core/startup_unlock_consent.dart';
 import '../core/quick_unlock_vault.dart';
 import '../data/storage/app_profile.dart';
 import 'providers.dart';
@@ -8,8 +10,6 @@ import '../domain/storage_locator.dart';
 import '../core/storage_unlock_scope.dart';
 import '../data/storage/managed_directory_catalog.dart'
     show ManagedErasureRelease;
-
-const kStartupUnlockOptIn = 'quick_unlock_os_store.v1';
 
 final quickUnlockSecretStoreProvider = Provider<QuickUnlockSecretStore>(
   (_) => const QuickUnlockSecretStore(),
@@ -77,12 +77,14 @@ void admitFreshStartupUnlock(
 
 final startupUnlockOptionsProvider =
     FutureProvider.autoDispose<StartupUnlockOptions>((ref) async {
+      final locator = ref.watch(storageAccessLocatorProvider);
+      final vault = ref.watch(quickUnlockVaultProvider);
       final prefs = await ref.watch(prefsProvider.future);
-      if (prefs.getBool(kStartupUnlockOptIn) != true) {
+      if (!startupUnlockConsented(prefs, locator)) {
         return const StartupUnlockOptions();
       }
       try {
-        return await ref.watch(quickUnlockVaultProvider).options();
+        return await vault.options();
       } catch (_) {
         return const StartupUnlockOptions();
       }
