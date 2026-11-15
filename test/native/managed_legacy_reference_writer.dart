@@ -13,7 +13,12 @@ Future<void> main(List<String> args) async {
   final fixture = Directory(args[0]).resolveSymbolicLinksSync();
   final temporary = Directory.systemTemp.resolveSymbolicLinksSync();
   if (!fixture.startsWith('$temporary/xveil-external-references-') ||
-      !['prepared', 'published'].contains(args[1])) {
+      ![
+        'prepared',
+        'published',
+        'worker-prepared',
+        'worker-published',
+      ].contains(args[1])) {
     exit(3);
   }
   final body =
@@ -43,47 +48,65 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  try {
-    await hv.compactKnownPreparedAsync(
-      '$fixture/xveil.store',
-      [
-        for (final password in old.keys)
-          Uint8List.fromList(utf8.encode(password)),
-      ],
-      dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
-      repairMetadata: (staged) async {
-        final changes = <LegacyCompactionKeyChange>[];
+  Future<void> repair(String staged) async {
+    final changes = <LegacyCompactionKeyChange>[];
+    try {
+      for (final entry in old.entries) {
+        final space = hv.HvSpace.open(
+          path: staged,
+          password: Uint8List.fromList(utf8.encode(entry.key)),
+        );
         try {
-          for (final entry in old.entries) {
-            final space = hv.HvSpace.open(
-              path: staged,
-              password: Uint8List.fromList(utf8.encode(entry.key)),
-            );
-            try {
-              changes.add((
-                before: Uint8List.fromList(entry.value),
-                after: space.spaceKeys(),
-              ));
-            } finally {
-              space.close();
-            }
-          }
-          await ManagedLegacyReferenceRepair.prepare(
-            owner: owner,
-            authorizations: keys,
-            changes: changes,
-          );
-          if (args[1] == 'prepared') await waitForKill();
+          changes.add((
+            before: Uint8List.fromList(entry.value),
+            after: space.spaceKeys(),
+          ));
         } finally {
-          for (final change in changes) {
-            change.before.fillRange(0, change.before.length, 0);
-            change.after.fillRange(0, change.after.length, 0);
-          }
+          space.close();
         }
-      },
-    );
+      }
+      await ManagedLegacyReferenceRepair.prepare(
+        owner: owner,
+        authorizations: keys,
+        changes: changes,
+      );
+      if (args[1].endsWith('prepared')) await waitForKill();
+    } finally {
+      for (final change in changes) {
+        change.before.fillRange(0, change.before.length, 0);
+        change.after.fillRange(0, change.after.length, 0);
+      }
+    }
+  }
+
+  final credentials = [
+    for (final password in old.keys) Uint8List.fromList(utf8.encode(password)),
+  ];
+  try {
+    if (args[1].startsWith('worker-')) {
+      final plan = hv.HvPreparedCompaction.prepare(
+        '$fixture/xveil.store',
+        credentials,
+      );
+      try {
+        await repair(plan.stagedPath);
+        plan.commit();
+      } finally {
+        plan.close();
+      }
+    } else {
+      await hv.compactKnownPreparedAsync(
+        '$fixture/xveil.store',
+        credentials,
+        dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+        repairMetadata: repair,
+      );
+    }
     await waitForKill();
   } finally {
+    for (final password in credentials) {
+      password.fillRange(0, password.length, 0);
+    }
     owner.close();
     for (final key in keys.values) {
       key.fillRange(0, key.length, 0);

@@ -83,6 +83,12 @@ authenticates the selected identity and acquires exclusive recovery ownership.
 All-owner compaction-dialog preparation, Windows source durability, full worker
 crash-boundary qualification and activation remain open. Unjournaled opens do
 not probe the hidden source or acquire exclusive maintenance ownership.
+The [worker-local prepared-owner follow-up](validation/prepared-worker-owner-2026-11-15/README.md)
+adds a synchronous native capability for the worker that holds full-profile
+leases, without dispatching publication to another isolate. Plugin checks and
+actual process-death checkpoints qualify its publication/abort behavior. The
+application's all-owner dialog and worker operation still need to be connected;
+this prerequisite does not change defaults or bypass the mixed-profile guard.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
