@@ -36,6 +36,8 @@ import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
+import 'package:xveil/state/startup_unlock.dart' show quickUnlockSecretStoreProvider;
 
 Future<void> _settle(ProviderContainer c) async {
   for (
@@ -376,6 +378,9 @@ void main() {
       final vpnBackend = _SilentVpnBackend();
       final c = ProviderContainer(
         overrides: [
+          quickUnlockSecretStoreProvider.overrideWithValue(
+            RetirementSecretStore(),
+          ),
           storageProvider.overrideWith((ref) => container.storage()),
           // The tunnel is a leg of the wipe like the two model roots below,
           // and for the same reason it has to be ANSWERABLE here: the real

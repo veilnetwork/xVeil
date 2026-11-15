@@ -113,11 +113,16 @@ final publicSpaceSubscriptionListProvider =
 
 /// Builds the real signer from the GUI app's active deniable identity.
 final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
-  final selfId = ref.watch(
-    appControllerProvider.select((state) => state.identity?.nodeId),
-  );
+  final selfId = ref.watch(sessionWorkIdentityProvider);
   if (selfId == null) return null;
-  final toml = await ref.read(storageProvider).loadNodeConfig();
+  final storage = ref.watch(storageProvider);
+  if (!storage.isOpen) return null;
+  final toml = await storage.loadNodeConfig();
+  if (!ref.mounted ||
+      ref.read(sessionWorkIdentityProvider) != selfId ||
+      !identical(ref.read(storageProvider), storage)) {
+    return null;
+  }
   if (toml == null) return null;
   try {
     final result = EmbeddedNode.signMessage(toml, Uint8List(0));
@@ -185,11 +190,19 @@ Future<void> _warnIfDocumentDisownsThisDevice(
 const kOwnDevicePullInterval = Duration(minutes: 15);
 
 final groupServiceProvider = Provider<GroupService?>((ref) {
+  final selfId = ref.watch(sessionWorkIdentityProvider);
+  if (selfId == null) return null;
+  final storage = ref.watch(storageProvider);
+  if (!storage.isOpen) return null;
   // Keep document ingress wired for this unlocked identity even before the
   // document UI exists; pending invites must survive until explicit adopt.
   final replication = ref.watch(cloudDocumentReplicationServiceProvider);
-  final signer = ref.watch(groupSignerProvider).value;
-  if (signer == null) return null;
+  final signerState = ref.watch(groupSignerProvider);
+  // AsyncValue retains its previous value while a replacement loads. That
+  // value belongs to the previous identity/storage owner until proven current.
+  if (signerState.isLoading || signerState.hasError) return null;
+  final signer = signerState.value;
+  if (signer == null || signer.selfId != selfId) return null;
   final messaging = ref.read(messagingServiceProvider);
   final tasks = AsyncTasks();
   final transport = ref.watch(veilTransportProvider);
@@ -197,7 +210,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       ? transport.mailboxCrypto()
       : LoopbackMailboxCrypto(senderForOpen: signer.selfId);
   final service = GroupService(
-    ref.read(storageProvider),
+    storage,
     signer,
     epochService: GroupEpochService(epochCrypto),
     ourCertVersion: 1,

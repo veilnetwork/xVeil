@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import '../core/error_journal.dart';
+import '../core/ids.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/secret_wipe.dart';
 
@@ -1289,7 +1290,13 @@ class AppController extends Notifier<AppState> {
   Future<void>? _identityViewInFlight;
   _IdentityEdit? _identityViewOwner;
   bool _identityViewKeepAllOnline = false;
-  int _endingSessions = 0;
+  int _endingSessionCount = 0;
+  int get _endingSessions => _endingSessionCount;
+  set _endingSessions(int value) {
+    _endingSessionCount = value;
+    if (ref.mounted) ref.read(sessionEndDepthProvider.notifier).state = value;
+  }
+
   int _identitySelections = 0;
   int _identitySelectionRequest = 0;
 
@@ -6874,6 +6881,18 @@ final class StorageReclaim {
 final appControllerProvider = NotifierProvider<AppController, AppState>(
   AppController.new,
 );
+
+/// Identity allowed to create ordinary UI session services. Teardown seals
+/// admission before its first await, while the old identity is still retained.
+/// This is a full-session boundary, not the cover-only screen lock.
+final sessionWorkIdentityProvider = Provider<NodeId?>((ref) {
+  if (ref.watch(sessionEndDepthProvider) != 0) return null;
+  return ref.watch(
+    appControllerProvider.select(
+      (state) => state.phase == AppPhase.ready ? state.identity?.nodeId : null,
+    ),
+  );
+});
 
 /// What a teardown could not confirm it finished.
 ///

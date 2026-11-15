@@ -189,6 +189,12 @@ final sessionBuilderProvider = Provider<SessionBuilder>(
 /// unlocked with `keepAllOnline`; null otherwise (single / one-active mode).
 final sessionProvider = StateProvider<MultiIdentitySession?>((ref) => null);
 
+/// Synchronous admission boundary while lock/start-over/profile wipe still keep
+/// the previous AppState.identity for teardown. Retained async signer values
+/// must not construct a replacement service against the fallback/closed store.
+final sessionEndDepthProvider = StateProvider<int>((ref) => 0);
+
+
 /// In a session, the label of the identity the UI currently shows. Changing it
 /// (a switch) re-points [storageProvider] / [messagingServiceProvider] to that
 /// identity WITHOUT stopping any node — all stay online.

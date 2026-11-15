@@ -2,10 +2,20 @@
 
 Status: implementation in progress; not part of the 0.13.101 release.
 
-The live full-profile wipe now has a bound controller/retry UI and a native
-mixed-storage qualification described below. Cold-start recovery is still a
-refusal screen. Managed storage remains disabled pending the remaining complete
-lifecycle, migration, maintenance and packaged-platform qualification.
+Managed storage remains disabled in production defaults. The live full-profile
+wipe, persistent recovery journal and cold-start recovery owner are implemented;
+the chronological sections below record their individual qualifications. Android
+saved-entry presence/removal and ordinary metadata reads avoid key initialization.
+
+Packaged application qualification is now in progress. The isolated macOS app
+has created an encrypted identity through normal onboarding and reopened that
+same identity after process death, rejecting a wrong password. Its real lifecycle
+run also exposed service-recreation/startup-read races during lock. The
+[shutdown qualification](validation/managed-app-session-shutdown-2026-11-15/README.md)
+records their fixes, three real unlock/lock cycles and the 543-check final run.
+Plaintext/hidden packaged runs, remaining platform checks and activation are not
+yet complete. Earlier section-local “remaining” notes are historical; this
+opening status and the newest qualification reports describe current evidence.
 
 The owner requested an enumerable encrypted default, optional hidden storage,
 and an explicitly unencrypted store. Existing hidden containers must retain
@@ -23,7 +33,7 @@ store must explicitly warn that someone with filesystem access can read its
 contents and impersonate the local identity. It is never the default or an
 automatic fallback after an encrypted store fails to open.
 
-## What is implemented now
+## Initial implementation and subsequent qualifications
 
 The legacy `StorageMode.plain` onboarding choice only persists a preference;
 bootstrap still supplies `HiddenVolumeStorage` for both choices. It is not a
