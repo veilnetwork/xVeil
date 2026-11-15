@@ -4,10 +4,12 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -21,6 +23,7 @@ import 'package:xveil/domain/compaction_profile_authorization.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/domain/storage_protection.dart';
+import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
@@ -32,6 +35,8 @@ import '../support/fake_hv_container.dart';
 class _Controller extends AppController {
   final reopened = <String>[];
   bool failReopen = false;
+  String reopenStage = 'not-started';
+  Object? reopenError;
   bool authorizationCurrent = true;
   @override
   bool holdsIdentity(IdentityLease lease) =>
@@ -40,10 +45,47 @@ class _Controller extends AppController {
   AppState build() => const AppState(AppPhase.ready);
   @override
   Future<void> unlock(String password) async {
-    expect(await ref.read(storageProvider).open(password: password), isTrue);
-    reopened.add(password);
-    if (failReopen) throw StateError('fixture reopen failed');
-    state = const AppState(AppPhase.ready);
+    try {
+      final router = ref.read(profileStorageRouterProvider);
+      final access = router?.access;
+      if (router != null && router.location != access) {
+        reopenStage = 'select-access';
+        await router.select(access!, access: false);
+        ref.read(storageRouteRevisionProvider.notifier).state++;
+        ref.invalidate(storageProvider);
+      }
+      final storage = ref.read(storageProvider);
+      reopenStage = 'open-access';
+      if (!await storage.open(password: password)) {
+        throw StateError('fixture access credential refused');
+      }
+      reopened.add(password);
+      if (failReopen) throw StateError('fixture reopen failed');
+      if (access is ManagedStorageLocator) {
+        reopenStage = 'read-access-roster';
+        final rows = (await (storage as HiddenVolumeStorage)
+            .loadRosterForMaintenance())!;
+        final keys = Uint8List.fromList(
+          rows.firstWhere((row) => row.label == 'master-fixture').spaceKeys,
+        );
+        try {
+          reopenStage = 'close-access';
+          await storage.close();
+          reopenStage = 'select-hidden';
+          await router!.select(const LegacyStorageLocator(), access: false);
+          ref.read(storageRouteRevisionProvider.notifier).state++;
+          ref.invalidate(storageProvider);
+          reopenStage = 'open-hidden-by-updated-key';
+          expect(await ref.read(storageProvider).openWithKeys(keys), isTrue);
+        } finally {
+          keys.fillRange(0, keys.length, 0);
+        }
+      }
+      state = const AppState(AppPhase.ready);
+    } catch (error) {
+      reopenError = error;
+      rethrow;
+    }
   }
 }
 
@@ -77,7 +119,10 @@ Future<({ProviderContainer container, _Controller controller})> _bindProbe(
 }) async {
   Future<ProfileStorageRouter> route() => ProfileStorageRouter.open(
     profileDirectory: f.profile,
-    legacyFactory: () => HiddenVolumeStorage.async(workerSpaceOpener(f.source)),
+    legacyFactory: () => HiddenVolumeStorage.async(
+      workerSpaceOpener(f.source),
+      keysOpener: workerKeysSpaceOpener(f.source),
+    ),
   );
   final owner = ProfileStorageRouterOwner(await route(), reopen: route);
   f.owners.add(owner);
@@ -99,7 +144,10 @@ Future<({ProviderContainer container, _Controller controller})> _bindProbe(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    errorJournal.clear();
+  });
   if (Platform.isWindows) {
     test(
       'mixed collection requires source-directory durability',
@@ -114,6 +162,9 @@ void main() {
     'warning-reopen',
     'success-reopen',
     'pending-recovery',
+    'managed-access-encrypted',
+    'managed-access-plain',
+    'managed-access-wrong',
   ]) {
     final incomplete = mode == 'incomplete';
     test('ordinary collection and controller publish safely ($mode)', () async {
@@ -125,10 +176,25 @@ void main() {
       }
       Future<ProfileStorageRouter> route() => ProfileStorageRouter.open(
         profileDirectory: f.profile,
-        legacyFactory: () =>
-            HiddenVolumeStorage.async(workerSpaceOpener(f.source)),
+        legacyFactory: () => HiddenVolumeStorage.async(
+          workerSpaceOpener(f.source),
+          keysOpener: workerKeysSpaceOpener(f.source),
+        ),
       );
-      final owner = ProfileStorageRouterOwner(await route(), reopen: route);
+      final router = await route();
+      if (mode.startsWith('managed-access')) {
+        await router.select(
+          ManagedStorageLocator(
+            id: mode == 'managed-access-plain' ? f.id(2) : f.id(1),
+            protection: mode == 'managed-access-plain'
+                ? StorageProtection.unencrypted
+                : StorageProtection.encrypted,
+          ),
+        );
+        await router.rememberAccess();
+        await router.select(const LegacyStorageLocator(), access: false);
+      }
+      final owner = ProfileStorageRouterOwner(router, reopen: route);
       f.owners.add(owner);
       final controller = _Controller();
       final container = ProviderContainer(
@@ -226,7 +292,31 @@ void main() {
         expect(controller.reopened, isEmpty);
         await owner.close();
         await f.verify(published: false);
+      } else if (mode == 'managed-access-wrong') {
+        await expectLater(
+          controller.compactStorageKeepingWithProfile(
+            roster: roster,
+            reopenWith: 'incorrect-access-fixture',
+            profileAuthorization: authority,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'bound access credential',
+              'compaction access credential refused',
+            ),
+          ),
+        );
+        expect(File(f.source).readAsBytesSync(), before);
+        expect(controller.reopened, isEmpty);
+        await owner.close();
+        await f.verify(published: false);
       } else {
+        final reopen = mode == 'managed-access-plain'
+            ? ''
+            : mode == 'managed-access-encrypted'
+            ? 'visible-fixture'
+            : 'master-fixture';
         if (mode == 'warning-reopen') {
           final linked = await Process.run('/bin/ln', [
             f.source,
@@ -237,7 +327,7 @@ void main() {
         controller.failReopen = mode.endsWith('reopen');
         final compacting = controller.compactStorageKeepingWithProfile(
           roster: roster,
-          reopenWith: 'master-fixture',
+          reopenWith: reopen,
           profileAuthorization: authority,
         );
         // A disappearing route owns/disposes its model. The accepted command
@@ -276,11 +366,18 @@ void main() {
             ),
           );
         } else {
-          final result = await compacting;
+          final result = await compacting.catchError((
+            Object error,
+            StackTrace stack,
+          ) {
+            fail(
+              'Unexpected operation outcome: $error; fixture ${controller.reopenStage}: ${controller.reopenError}; reopen frames: ${errorJournal.entries.where((entry) => entry.kind == 'storage-compaction-reopen').map((entry) => entry.frames).toList()}',
+            );
+          });
           expect(result.before, greaterThan(0));
           expect(result.after, greaterThan(0));
         }
-        expect(controller.reopened, ['master-fixture']);
+        expect(controller.reopened, [reopen]);
         expect(
           await container.read(storageProvider).loadFile('fixture-body'),
           f.payload,

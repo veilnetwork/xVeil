@@ -7,6 +7,14 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [hosted compaction follow-up](validation/managed-compaction-access-root-2026-11-15/README.md)
+separates access-root credentials from hidden keep-set authority, restores
+confirmed source ownership and the selected hosted view, and fixes completion
+on a replaced settings route. Normal-main macOS compaction and cold hidden-note
+readback pass, with 185 regression checks. Hidden network-ID comparisons that
+used a debug loopback fallback are withdrawn; hosted-node bind failures and
+identity-edit startup admission still block full application qualification.
+
 Packaged application qualification is now in progress. The isolated macOS app
 has created an encrypted identity through normal onboarding and reopened that
 same identity after process death, rejecting a wrong password. Its real lifecycle

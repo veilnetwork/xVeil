@@ -190,7 +190,17 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     // has finished is an assertion — which is where it fired, throwing out of
     // `initState` and skipping the one password this dialog must never lose.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _accept(widget.currentPassword, silent: true);
+      if (!mounted) return;
+      final access = ref
+          .read(appControllerProvider.notifier)
+          .compactionAccessLocator;
+      if (access is ManagedStorageLocator) {
+        if (access.protection == StorageProtection.encrypted) {
+          _acceptVisible(access, suppliedPassword: widget.currentPassword);
+        }
+      } else {
+        _accept(widget.currentPassword, silent: true);
+      }
     });
   }
 
@@ -272,17 +282,20 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     }
   }
 
-  Future<void> _acceptVisible(ManagedStorageLocator identity) async {
+  Future<void> _acceptVisible(
+    ManagedStorageLocator identity, {
+    String? suppliedPassword,
+  }) async {
     if (_busy || _failedRun || !_current || _visible.contains(identity)) return;
     final l = AppL10n.of(context);
     final plaintext = identity.protection == StorageProtection.unencrypted;
-    String password = '';
+    String password = suppliedPassword ?? '';
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (!plaintext) {
+      if (!plaintext && suppliedPassword == null) {
         var input = '';
         final value = await showDialog<String>(
           context: context,
@@ -367,16 +380,45 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     setState(() => _busy = true);
     try {
       final ctrl = ref.read(appControllerProvider.notifier);
-      final operation = _visible.identities.isEmpty
-          ? ctrl.compactStorageKeeping(
-              roster: _roster,
-              reopenWith: widget.currentPassword,
-            )
-          : ctrl.compactStorageKeepingWithProfile(
-              roster: _roster,
-              reopenWith: widget.currentPassword,
-              profileAuthorization: _visible,
-            );
+      // Own rejection recovery too: callers waiting after a route redirect
+      // must not return before the closed collection session is restored.
+      final operation = () async {
+        try {
+          return await (_visible.identities.isEmpty
+              ? ctrl.compactStorageKeeping(
+                  roster: _roster,
+                  reopenWith: widget.currentPassword,
+                )
+              : ctrl.compactStorageKeepingWithProfile(
+                  roster: _roster,
+                  reopenWith: widget.currentPassword,
+                  profileAuthorization: _visible,
+                ));
+        } catch (error) {
+          final unknownPublication =
+              error is ManagedLegacyCompactionFailure &&
+              error.mayHaveApplied &&
+              error.recovery == null;
+          if (!unknownPublication) {
+            try {
+              await ctrl.recoverCompactionCollection(
+                lease: widget.lease,
+                reopenWith: widget.currentPassword,
+              );
+            } catch (_, stack) {
+              errorJournal.record(
+                kind: 'storage-compaction-recovery',
+                error: StateError(
+                  'could not restore refused compaction collection',
+                ),
+                stack: stack,
+                atMs: DateTime.now().millisecondsSinceEpoch,
+              );
+            }
+          }
+          rethrow;
+        }
+      }();
       widget.onOperationStarted(operation);
       final sizes = await operation;
       _closeCompactionRoute(route, sizes);
@@ -389,8 +431,8 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
           : incomplete
           ? l.settingsStorageCompactRepairIncomplete
           : l.settingsStorageCompactFailed;
-      // The controller has already attempted to reopen the session in finally.
-      // Do not probe or retry against that open handle. Close this offer and
+      // The operation has joined authorized recovery, including early refusal.
+      // Do not probe or retry against that reopened handle. Close this offer and
       // start a new collection if the person wants another attempt.
       errorJournal.record(
         kind: 'storage-compaction',
