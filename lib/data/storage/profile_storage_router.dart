@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'legacy_compaction_source.dart';
+
 import '../../domain/identity_erase_review.dart';
 import '../../domain/storage_locator.dart';
 import '../../domain/storage_protection.dart';
@@ -17,8 +19,14 @@ typedef ProfileIdentityStorageFactory =
 /// Owns immutable facades across selections; old asynchronous work keeps its
 /// old facade and can never be redirected into a newly selected identity.
 final class ProfileStorageRouter {
-  ProfileStorageRouter._(this.profileDirectory, this._catalog, this._factory);
+  ProfileStorageRouter._(
+    this.profileDirectory,
+    this._catalog,
+    this._factory,
+    this.legacySourceName,
+  );
   final String profileDirectory;
+  final String legacySourceName;
   final ManagedCatalogWorker _catalog;
   final ProfileIdentityStorageFactory _factory;
   final _retiredStores = <Storage>{};
@@ -44,11 +52,15 @@ final class ProfileStorageRouter {
   static Future<ProfileStorageRouter> open({
     required String profileDirectory,
     required Storage Function() legacyFactory,
+    String? legacyPath,
     ProfileIdentityStorageFactory? storageFactory,
   }) async {
     profileDirectory = Directory(
       profileDirectory,
     ).absolute.uri.normalizePath().toFilePath();
+    final sourceName = legacyPath == null
+        ? LegacyCompactionSource.defaultName
+        : LegacyCompactionSource.nameForPath(profileDirectory, legacyPath);
     for (final retired in _retiredRouters.toList()) {
       if (retired.profileDirectory == profileDirectory) await retired.close();
     }
@@ -71,6 +83,7 @@ final class ProfileStorageRouter {
                                 ManagedIdentityEntry.fromLocator(location),
                                 password: password,
                                 keys: keys,
+                                sourceName: sourceName,
                               ),
                             );
                           },
@@ -85,12 +98,14 @@ final class ProfileStorageRouter {
                                 ManagedIdentityEntry.fromLocator(location),
                                 password: password,
                                 keys: keys,
+                                sourceName: sourceName,
                               ),
                             );
                           },
                         ))
                   .storage,
           },
+      sourceName,
     );
     // The bootstrap owns its cleanup even before a facade is published.
     _retiredRouters.add(router);

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'legacy_compaction_source.dart';
+
 import 'package:crypto/crypto.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:meta/meta.dart' show visibleForTesting;

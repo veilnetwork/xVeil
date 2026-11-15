@@ -165,9 +165,11 @@ abstract final class ManagedLegacyReferenceRepair {
     required ManagedDirectoryCatalog owner,
     required Map<ManagedIdentityId, Uint8List> authorizations,
     required List<LegacyCompactionKeyChange> changes,
+    String sourceName = LegacyCompactionSource.defaultName,
   }) {
     final copied = _LegacyReferenceIntent.copyChanges(changes);
     return _run<void>(owner, authorizations, (entries, keys, check) async {
+      LegacyCompactionSource.validateName(sourceName);
       final plans = <ManagedIdentityId, _LegacyReferenceIntent>{};
       try {
         for (final entry in entries) {
@@ -204,6 +206,7 @@ abstract final class ManagedLegacyReferenceRepair {
                 entry.locator,
                 keys[entry.id]!,
                 relevant,
+                sourceName,
               );
               plans[entry.id] = intent;
               if (existing != null && !existing.same(intent)) {
@@ -269,7 +272,12 @@ abstract final class ManagedLegacyReferenceRepair {
   static Future<LegacyReferenceRepairOutcome> resume({
     required ManagedDirectoryCatalog owner,
     required Map<ManagedIdentityId, Uint8List> authorizations,
-  }) => _resume(owner: owner, authorizations: authorizations);
+    String sourceName = LegacyCompactionSource.defaultName,
+  }) => _resume(
+    owner: owner,
+    authorizations: authorizations,
+    sourceName: sourceName,
+  );
 
   /// Recover one authenticated root without inspecting other private journals.
   /// Later rewrite preparation still authenticates every visible owner and
@@ -278,13 +286,21 @@ abstract final class ManagedLegacyReferenceRepair {
     required ManagedDirectoryCatalog owner,
     required ManagedIdentityId identity,
     required Uint8List keys,
-  }) => _resume(owner: owner, authorizations: {identity: keys}, only: identity);
+    String sourceName = LegacyCompactionSource.defaultName,
+  }) => _resume(
+    owner: owner,
+    authorizations: {identity: keys},
+    only: identity,
+    sourceName: sourceName,
+  );
 
   static Future<LegacyReferenceRepairOutcome> _resume({
     required ManagedDirectoryCatalog owner,
     required Map<ManagedIdentityId, Uint8List> authorizations,
     ManagedIdentityId? only,
+    required String sourceName,
   }) => _run(owner, authorizations, (entries, keys, check) async {
+    LegacyCompactionSource.validateName(sourceName);
     final intents = <ManagedIdentityId, _LegacyReferenceIntent>{};
     try {
       for (final entry in entries) {
@@ -295,6 +311,9 @@ abstract final class ManagedLegacyReferenceRepair {
           check();
           if (intent == null) return;
           intent.validate(entry.locator, keys[entry.id]!);
+          if (intent.sourceName != sourceName) {
+            throw const LegacyReferenceRepairFailure();
+          }
           final rows = await master.loadRosterForMaintenance();
           try {
             check();
@@ -310,9 +329,9 @@ abstract final class ManagedLegacyReferenceRepair {
         Directory(owner.profileDirectory).parent.path,
         owner._fs,
       );
-      final source = ManagedDirectoryCatalog._child(
-        profile.path,
-        'xveil.store',
+      final source = LegacyCompactionSource.path(
+        owner.profileDirectory,
+        sourceName,
       );
       final sourceWitness = owner._fs.requirePrivateFile(source);
       void stableSource() {
@@ -390,7 +409,13 @@ abstract final class ManagedLegacyReferenceRepair {
 }
 
 final class _LegacyReferenceIntent {
-  _LegacyReferenceIntent(this.root, this.masterDigest, this.changes);
+  _LegacyReferenceIntent(
+    this.root,
+    this.masterDigest,
+    this.changes,
+    this.sourceName,
+  );
+  final String sourceName;
   final ManagedStorageLocator root;
   final Uint8List masterDigest;
   final List<LegacyCompactionKeyChange> changes;
@@ -434,16 +459,19 @@ final class _LegacyReferenceIntent {
     ManagedStorageLocator root,
     Uint8List keys,
     List<LegacyCompactionKeyChange> changes,
+    String sourceName,
   ) => _LegacyReferenceIntent(
     root,
     Uint8List.fromList(sha256.convert(keys).bytes),
     copyChanges(changes),
+    LegacyCompactionSource.validateName(sourceName),
   );
 
   Uint8List encode() => Uint8List.fromList(
     utf8.encode(
       jsonEncode({
-        'v': 1,
+        'v': 2,
+        'source': sourceName,
         'root': root.encode(),
         'master': base64.encode(masterDigest),
         'changes': [
@@ -460,13 +488,23 @@ final class _LegacyReferenceIntent {
     try {
       if (bytes.length > maxBytes) throw const LegacyReferenceRepairFailure();
       final value = jsonDecode(utf8.decode(bytes));
-      if (value is! Map<String, dynamic> ||
-          value.length != 4 ||
-          value['v'] != 1 ||
-          value['v'] is! int ||
-          !value.keys.toSet().containsAll({'v', 'root', 'master', 'changes'})) {
+      if (value is! Map<String, dynamic> || value['v'] is! int) {
         throw const LegacyReferenceRepairFailure();
       }
+      final expected = switch (value['v']) {
+        1 => {'v', 'root', 'master', 'changes'},
+        2 => {'v', 'source', 'root', 'master', 'changes'},
+        _ => throw const LegacyReferenceRepairFailure(),
+      };
+      if (value.length != expected.length ||
+          !value.keys.toSet().containsAll(expected)) {
+        throw const LegacyReferenceRepairFailure();
+      }
+      final sourceName = value['v'] == 1
+          ? LegacyCompactionSource.defaultName
+          : value['source'];
+      if (sourceName is! String) throw const LegacyReferenceRepairFailure();
+      LegacyCompactionSource.validateName(sourceName);
       final root = IdentityStorageLocator.decode(value['root']);
       if (root is! ManagedStorageLocator) {
         throw const LegacyReferenceRepairFailure();
@@ -498,7 +536,12 @@ final class _LegacyReferenceIntent {
           rethrow;
         }
       }
-      return _LegacyReferenceIntent(root, digest, copyChanges(decoded));
+      return _LegacyReferenceIntent(
+        root,
+        digest,
+        copyChanges(decoded),
+        sourceName,
+      );
     } catch (_) {
       digest?.fillRange(0, digest.length, 0);
       throw const LegacyReferenceRepairFailure();

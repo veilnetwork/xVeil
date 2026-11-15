@@ -19,10 +19,12 @@ final class _CatalogRecoverReferencesReq extends _Req {
     this.entry,
     this.password,
     this.keys,
+    this.sourceName,
     super.reply,
   );
   final ManagedIdentityEntry entry;
   final Uint8List? password, keys;
+  final String sourceName;
 }
 
 final class _CatalogEraseReq extends _Req {
@@ -137,12 +139,15 @@ final class ManagedCatalogWorker {
     ManagedIdentityEntry entry, {
     Uint8List? password,
     Uint8List? keys,
+    String sourceName = LegacyCompactionSource.defaultName,
   }) {
+    LegacyCompactionSource.validateName(sourceName);
     final pass = password == null ? null : Uint8List.fromList(password);
     final key = keys == null ? null : Uint8List.fromList(keys);
     return _worker
         ._call<LegacyReferenceRepairOutcome>(
-          (reply) => _CatalogRecoverReferencesReq(entry, pass, key, reply),
+          (reply) =>
+              _CatalogRecoverReferencesReq(entry, pass, key, sourceName, reply),
         )
         .whenComplete(() {
           pass?.fillRange(0, pass.length, 0);
@@ -239,6 +244,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
     Uint8List? keys;
     var released = false;
     try {
+      LegacyCompactionSource.validateName(request.sourceName);
       final owner = current();
       if (owner == null) {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
@@ -287,6 +293,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
         owner: root!,
         identity: entry.id,
         keys: keys,
+        sourceName: request.sourceName,
       );
     } finally {
       try {

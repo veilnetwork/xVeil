@@ -68,11 +68,13 @@ final class _OpenManagedLegacyCompaction extends _OpenConfig {
     required this.authorizations,
     required this.credentials,
     required this.plaintextApproved,
+    required this.sourceName,
     this.beforeReply,
   }) : super(paddingPresetTag: 0);
   final Map<ManagedIdentityId, Uint8List> authorizations;
   final List<CompactionCredential> credentials;
   final Set<ManagedIdentityId> plaintextApproved;
+  final String sourceName;
   final SendPort? beforeReply;
 }
 
@@ -104,11 +106,13 @@ final class ManagedLegacyCompactionWorker {
     required Map<ManagedIdentityId, Uint8List> authorizations,
     required List<CompactionCredential> credentials,
     required Set<ManagedIdentityId> plaintextApproved,
+    String sourceName = LegacyCompactionSource.defaultName,
   }) => _open(
     profileDirectory: profileDirectory,
     authorizations: authorizations,
     credentials: credentials,
     plaintextApproved: plaintextApproved,
+    sourceName: sourceName,
   );
 
   @visibleForTesting
@@ -118,11 +122,13 @@ final class ManagedLegacyCompactionWorker {
     required List<CompactionCredential> credentials,
     required Set<ManagedIdentityId> plaintextApproved,
     required SendPort beforeReply,
+    String sourceName = LegacyCompactionSource.defaultName,
   }) => _open(
     profileDirectory: profileDirectory,
     authorizations: authorizations,
     credentials: credentials,
     plaintextApproved: plaintextApproved,
+    sourceName: sourceName,
     beforeReply: beforeReply,
   );
 
@@ -132,7 +138,9 @@ final class ManagedLegacyCompactionWorker {
     required List<CompactionCredential> credentials,
     required Set<ManagedIdentityId> plaintextApproved,
     SendPort? beforeReply,
+    required String sourceName,
   }) async {
+    LegacyCompactionSource.validateName(sourceName);
     final profile = ManagedWorkerIdentity._profileKey(profileDirectory);
     final keys = <ManagedIdentityId, Uint8List>{};
     final copied = <CompactionCredential>[];
@@ -183,6 +191,7 @@ final class ManagedLegacyCompactionWorker {
             authorizations: keys,
             credentials: copied,
             plaintextApproved: approved,
+            sourceName: sourceName,
             beforeReply: beforeReply,
           ),
         ),
@@ -266,6 +275,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
   }
 
   try {
+    LegacyCompactionSource.validateName(config.sourceName);
     if (Platform.isWindows) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
     }
@@ -300,10 +310,8 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
     }
   }
 
-  final source = File.fromUri(
-    Directory(
-      Directory(owner.profileDirectory).parent.path,
-    ).uri.resolve('xveil.store'),
+  final source = File(
+    LegacyCompactionSource.path(owner.profileDirectory, config.sourceName),
   );
 
   void checkInventory() {
@@ -407,6 +415,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
     await ManagedLegacyReferenceRepair.resume(
       owner: owner,
       authorizations: config.authorizations,
+      sourceName: config.sourceName,
     );
     await preflight();
     final before = source.lengthSync();
@@ -449,6 +458,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
       await ManagedLegacyReferenceRepair.prepare(
         owner: owner,
         authorizations: config.authorizations,
+        sourceName: config.sourceName,
         changes: changes,
       );
       await _awaitManagedEraseAdmission(publication);
@@ -474,6 +484,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
           recovery = await ManagedLegacyReferenceRepair.resume(
             owner: owner,
             authorizations: config.authorizations,
+            sourceName: config.sourceName,
           );
           lastRecovery = recovery;
         }
