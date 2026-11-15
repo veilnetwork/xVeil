@@ -4,6 +4,11 @@ Status: backend foundation qualified; application creation/recovery integration
 is still incomplete. Managed production defaults remain OFF. No release or
 platform activation is implied by this report.
 
+The subsequent [ordinary-creation completion follow-up](../master-setup-creation-completion-2026-11-15/README.md)
+connects preparation to normal routed conversion and adds child/parent
+completion. The preparation-only statements below describe this earlier
+checkpoint; full authenticated application recovery remains incomplete.
+
 ## Problem and scope
 
 Pending-master admission already prevents an unfinished master from becoming an

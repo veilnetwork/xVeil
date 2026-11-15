@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,8 @@ import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/profile_storage_router.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/master_setup_intent.dart';
+import 'package:xveil/domain/storage_setup.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_protection.dart';
@@ -403,6 +406,30 @@ void main() {
             'third',
           ]);
           expect(roster[1].anonymous, isTrue);
+          expect(
+            await coldRouter.storage.getSetting(kPendingMasterSetupSetting),
+            '0',
+          );
+          final receipt = await coldRouter.storage.loadFile(
+            kMasterSetupJournalFile,
+            maxBytes: MasterSetupIntent.maxBytes,
+          );
+          expect(
+            receipt,
+            isNotNull,
+            reason: 'ordinary conversion must finish its protected intent',
+          );
+          try {
+            final decoded = jsonDecode(utf8.decode(receipt!));
+            expect(decoded, {
+              'v': 1,
+              'complete': true,
+              'digest': isA<String>(),
+            });
+            expect(base64.decode(decoded['digest'] as String), hasLength(32));
+          } finally {
+            receipt?.fillRange(0, receipt.length, 0);
+          }
         } finally {
           for (final container in containers.reversed) {
             await container.read(appControllerProvider.notifier).lock();
