@@ -16,30 +16,43 @@ class IdentitySetupRecoveryScreen extends ConsumerStatefulWidget {
 class _IdentitySetupRecoveryScreenState
     extends ConsumerState<IdentitySetupRecoveryScreen> {
   final _password = TextEditingController();
+  final _childPassword = TextEditingController();
   bool _busy = false, _failed = false;
   @override
   void dispose() {
     _password.clear();
     _password.dispose();
+    _childPassword.clear();
+    _childPassword.dispose();
     super.dispose();
   }
 
   Future<void> _replay() async {
+    final controller = ref.read(appControllerProvider.notifier);
     if (_busy ||
-        !ref.read(appControllerProvider.notifier).canReplayIdentitySetup) {
+        !(controller.canReplayIdentitySetup ||
+            controller.canReplayMasterSetup)) {
       return;
     }
-    final controller = ref.read(appControllerProvider.notifier);
     setState(() {
       _busy = true;
       _failed = false;
     });
     try {
-      final ok = await controller.replayIdentitySetup(
-        controller.setupRecoveryProtection == StorageProtection.unencrypted
-            ? ''
-            : _password.text,
-      );
+      final password =
+          controller.setupRecoveryProtection == StorageProtection.unencrypted
+          ? ''
+          : _password.text;
+      final ok = controller.canReplayMasterSetup
+          ? await controller.replayMasterSetup(
+              password,
+              childPassword:
+                  controller.setupRecoveryChildProtection ==
+                      StorageProtection.unencrypted
+                  ? ''
+                  : _childPassword.text,
+            )
+          : await controller.replayIdentitySetup(password);
       if (mounted &&
           ref.read(appControllerProvider).phase ==
               AppPhase.identitySetupRecovery) {
@@ -50,6 +63,7 @@ class _IdentitySetupRecoveryScreenState
     } finally {
       if (mounted) {
         _password.clear();
+        _childPassword.clear();
         setState(() => _busy = false);
       }
     }
@@ -60,7 +74,13 @@ class _IdentitySetupRecoveryScreenState
     final l = AppL10n.of(context);
     ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
-    final canReplay = controller.canReplayIdentitySetup;
+    final isMaster = controller.canReplayMasterSetup;
+    final canReplay = controller.canReplayIdentitySetup || isMaster;
+    final needsChildPassword =
+        isMaster &&
+        controller.setupRecoveryChildProtection != null &&
+        controller.setupRecoveryChildProtection !=
+            StorageProtection.unencrypted;
     final canCreate = controller.canResumeIdentitySetup;
     return PopScope(
       canPop: false,
@@ -83,7 +103,9 @@ class _IdentitySetupRecoveryScreenState
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      canReplay
+                      isMaster
+                          ? l.masterSetupReplayBody
+                          : canReplay
                           ? l.identitySetupReplayBody
                           : canCreate
                           ? l.identitySetupRecoveryBlank
@@ -102,10 +124,27 @@ class _IdentitySetupRecoveryScreenState
                           autocorrect: false,
                           enabled: !_busy,
                           decoration: InputDecoration(
-                            labelText: l.lockPasswordHint,
+                            labelText: isMaster
+                                ? l.masterSetupReplayPassword
+                                : l.lockPasswordHint,
                           ),
                           onSubmitted: (_) => _replay(),
                         ),
+                      if (needsChildPassword) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          key: const Key('master-setup-child-password'),
+                          controller: _childPassword,
+                          obscureText: true,
+                          enableSuggestions: false,
+                          autocorrect: false,
+                          enabled: !_busy,
+                          decoration: InputDecoration(
+                            labelText: l.masterSetupReplayChildPassword,
+                          ),
+                          onSubmitted: (_) => _replay(),
+                        ),
+                      ],
                       if (_failed)
                         Padding(
                           padding: const EdgeInsets.only(top: 12),
@@ -146,6 +185,7 @@ class _IdentitySetupRecoveryScreenState
                       key: const Key('identity-setup-lock'),
                       onPressed: () async {
                         _password.clear();
+                        _childPassword.clear();
                         await controller.lock();
                       },
                       icon: const Icon(Icons.lock_outline),

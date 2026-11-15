@@ -171,6 +171,13 @@ roster and atomic non-replayable receipt/cleared marker. Native interruption
 and process-death controls cover preparation and completion. Application
 recovery UI/replay, planned-child reconciliation, transactional existing-master
 appends and remaining activation gates are still open; defaults remain OFF.
+The [application master-recovery follow-up](validation/master-setup-app-recovery-2026-11-16/README.md)
+now connects authenticated continuation to the recovery screen and edit owner.
+It handles the planned child's absent/partial/known states without replacing a
+failed open, then completes and re-enters the ordinary roster. Host-native
+controller and headless screen checks pass; lock/disposal and lost final replies
+preserve the accepted state. Existing-master appends, packaged/physical recovery
+and the remaining activation audit stay open. Defaults remain OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

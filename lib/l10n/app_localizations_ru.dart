@@ -8320,4 +8320,14 @@ class AppL10nRu extends AppL10n {
   @override
   String get compactOfferOutcomeUncertain =>
       'Контейнер мог уже измениться. Не повторяйте сжатие. Перезапустите приложение и проверьте личности.';
+
+  @override
+  String get masterSetupReplayBody =>
+      'Завершите создание мастера и новой личности по сохранённому плану. Существующие личности сохранятся.';
+
+  @override
+  String get masterSetupReplayPassword => 'Пароль мастера';
+
+  @override
+  String get masterSetupReplayChildPassword => 'Пароль новой личности';
 }

@@ -58,6 +58,7 @@ Future<void> main(List<String> args) async {
         'before-publication',
         'prepared',
         'child-known',
+        'child-created',
         'child-profile-staged',
         'roster-published',
         'completed',
@@ -98,10 +99,11 @@ Future<void> main(List<String> args) async {
   final child = ManagedIdentityFiles.createEncrypted(
     owner,
     id: fixture.id('b'),
-    password: fixture.password,
+    password: fixture.childPassword,
   );
   final childKeys = child.exportKeys();
   child.close();
+  if (args[1] == 'child-created') mark(path, args[1]);
   storage = HiddenVolumeStorage.fromStore(fixture.openRoot(owner));
   final ready = await MasterSetupJournal.attachChild(
     storage: storage,

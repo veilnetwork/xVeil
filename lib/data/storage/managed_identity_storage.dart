@@ -36,6 +36,18 @@ final class ManagedIdentityStorage {
     _bind();
   }
 
+  /// Explicit recovery of an authenticated parent's exact planned child.
+  /// Does not create a replacement after any authentication/backend failure.
+  ManagedIdentityStorage.forPlannedRecovery({
+    required String profileDirectory,
+    required this.entry,
+    this.recoverReferences,
+  }) : _profile = _profilePath(profileDirectory),
+       _creationPending = false {
+    _plannedPending = true;
+    _bind();
+  }
+
   static String _profilePath(String path) =>
       Directory(path).absolute.uri.normalizePath().toFilePath();
 
@@ -43,6 +55,7 @@ final class ManagedIdentityStorage {
   final ManagedIdentityEntry entry;
   final ManagedReferenceRecovery? recoverReferences;
   bool _creationPending;
+  bool _plannedPending = false;
   bool _opening = false;
   WorkerKvLogStore? _worker;
 
@@ -114,7 +127,20 @@ final class ManagedIdentityStorage {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
       }
       final created = _creationPending;
+      final planned = _plannedPending;
       final worker = await _openingWorker(() {
+        if (planned) {
+          return entry.protection == StorageProtection.encrypted
+              ? ManagedWorkerIdentity.openPlannedEncrypted(
+                  profileDirectory: _profile,
+                  id: entry.id,
+                  password: password,
+                )
+              : ManagedWorkerIdentity.openPlannedUnencrypted(
+                  profileDirectory: _profile,
+                  id: entry.id,
+                );
+        }
         if (created) {
           return entry.protection == StorageProtection.encrypted
               ? ManagedWorkerIdentity.createEncrypted(
@@ -144,6 +170,7 @@ final class ManagedIdentityStorage {
         );
       });
       if (worker != null && created) _creationPending = false;
+      if (worker != null && planned) _plannedPending = false;
       return worker;
     } finally {
       password.fillRange(0, password.length, 0);
@@ -151,7 +178,7 @@ final class ManagedIdentityStorage {
   }
 
   Future<WorkerKvLogStore?> _openKeys(Uint8List keys) async {
-    if (_creationPending) {
+    if (_creationPending || _plannedPending) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
     }
     // Retain our own copy across a possible recovery RPC and retry. The caller

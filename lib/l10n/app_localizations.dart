@@ -14303,6 +14303,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The container may already have changed. Do not repeat compaction. Reopen the app to check your identities.'**
   String get compactOfferOutcomeUncertain;
+
+  /// No description provided for @masterSetupReplayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish creating the master and its new identity from the saved plan. Existing identities will be kept.'**
+  String get masterSetupReplayBody;
+
+  /// No description provided for @masterSetupReplayPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Master password'**
+  String get masterSetupReplayPassword;
+
+  /// No description provided for @masterSetupReplayChildPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password for the new identity'**
+  String get masterSetupReplayChildPassword;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

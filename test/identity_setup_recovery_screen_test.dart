@@ -66,7 +66,90 @@ Widget _view(
   ),
 );
 
+class _MasterReplayController extends _SetupController {
+  _MasterReplayController(this.root, this.child) : super(false);
+  final StorageProtection root;
+  final StorageProtection? child;
+  final result = Completer<bool>();
+  final requests = <(String, String)>[];
+  @override
+  bool get canReplayMasterSetup => true;
+  @override
+  StorageProtection? get setupRecoveryProtection => root;
+  @override
+  StorageProtection? get setupRecoveryChildProtection => child;
+  @override
+  Future<bool> replayMasterSetup(
+    String masterPassword, {
+    String childPassword = '',
+  }) {
+    requests.add((masterPassword, childPassword));
+    return result.future;
+  }
+}
+
 void main() {
+  for (final root in StorageProtection.values) {
+    for (final child in [null, ...StorageProtection.values]) {
+      testWidgets(
+        'master recovery collects only necessary credentials $root/$child',
+        (tester) async {
+          final controller = _MasterReplayController(root, child);
+          final container = ProviderContainer(
+            overrides: [appControllerProvider.overrideWith(() => controller)],
+          );
+          addTearDown(container.dispose);
+          await tester.binding.setSurfaceSize(const Size(360, 760));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          await tester.pumpWidget(_view(container, language: 'ru', scale: 1.5));
+          final rootField = find.byKey(const Key('identity-setup-password'));
+          final childField = find.byKey(
+            const Key('master-setup-child-password'),
+          );
+          expect(
+            rootField,
+            root == StorageProtection.unencrypted
+                ? findsNothing
+                : findsOneWidget,
+          );
+          final needsChild =
+              child != null && child != StorageProtection.unencrypted;
+          expect(childField, needsChild ? findsOneWidget : findsNothing);
+          expect(find.byKey(const Key('identity-setup-resume')), findsNothing);
+          if (root != StorageProtection.unencrypted) {
+            await tester.enterText(rootField, 'synthetic master');
+          }
+          if (needsChild) await tester.enterText(childField, 'synthetic child');
+          final action = find.byKey(const Key('identity-setup-replay'));
+          await tester.ensureVisible(action);
+          await tester.tap(action);
+          await tester.pump();
+          expect(controller.requests, [
+            (
+              root == StorageProtection.unencrypted ? '' : 'synthetic master',
+              needsChild ? 'synthetic child' : '',
+            ),
+          ]);
+          expect(tester.widget<FilledButton>(action).onPressed, isNull);
+          controller.result.complete(false);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          if (root != StorageProtection.unencrypted) {
+            expect(
+              tester.widget<TextField>(rootField).controller!.text,
+              isEmpty,
+            );
+          }
+          if (needsChild) {
+            expect(
+              tester.widget<TextField>(childField).controller!.text,
+              isEmpty,
+            );
+          }
+        },
+      );
+    }
+  }
   for (final blank in [true, false]) {
     for (final language in ['ru', 'en', 'es']) {
       testWidgets('setup recovery blank=$blank is readable in $language', (

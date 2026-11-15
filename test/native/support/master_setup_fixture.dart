@@ -16,21 +16,27 @@ import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_protection.dart';
 
 class MasterSetupFixture {
-  MasterSetupFixture(this.directory, this.mode);
+  MasterSetupFixture(
+    this.directory,
+    this.mode, {
+    this.childMode = StorageProtection.encrypted,
+  });
   final Directory directory;
   final StorageProtection mode;
+  final StorageProtection childMode;
   String get profile => '${directory.path}/visible-storage';
   String get legacy => '${directory.path}/legacy.hv';
   ManagedIdentityId id(String n) => ManagedIdentityId(n * 32);
   IdentityStorageLocator get root => mode == StorageProtection.hidden
       ? const LegacyStorageLocator()
       : ManagedStorageLocator(id: id('a'), protection: mode);
-  ManagedStorageLocator get child => ManagedStorageLocator(
-    id: id('b'),
-    protection: StorageProtection.encrypted,
-  );
+  IdentityStorageLocator get child => childMode == StorageProtection.hidden
+      ? const LegacyStorageLocator()
+      : ManagedStorageLocator(id: id('b'), protection: childMode);
   Uint8List get password =>
       Uint8List.fromList(utf8.encode('synthetic master password'));
+  Uint8List get childPassword =>
+      Uint8List.fromList(utf8.encode('synthetic child password'));
 
   KvLogStore openRoot(ManagedDirectoryCatalog owner) => switch (mode) {
     StorageProtection.hidden => HvKvLogStore(

@@ -26,6 +26,28 @@ final class MasterSetupChildProof {
 /// The caller owns exclusive storage/lifecycle admission. The private plan
 /// authorizes only exact creation values, never network activation or deletion.
 abstract final class MasterSetupJournal {
+  /// Authenticate the original opened parent and its exact accepted pending
+  /// plan without changing its roster, child or completion state.
+  static Future<void> validate({
+    required Storage storage,
+    required MasterSetupIntent intent,
+    required IdentityStorageLocator root,
+    required Uint8List keys,
+    required void Function() check,
+  }) => _request<void>(intent, keys, (owned, ownedKeys, _) async {
+    await _authenticate(storage, owned, root, ownedKeys, check);
+    final current = await read(storage, check);
+    try {
+      final marker = await storage.getSetting(kPendingMasterSetupSetting);
+      check();
+      if (current == null || !current.same(owned) || marker != '1') {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      await _inspect(storage, owned, check);
+    } finally {
+      current?.destroy();
+    }
+  });
   static Uint8List _digest(MasterSetupIntent intent) {
     final bytes = intent.encode();
     try {
