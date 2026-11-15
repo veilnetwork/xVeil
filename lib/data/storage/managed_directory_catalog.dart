@@ -17,6 +17,9 @@ import '../../domain/profile_model_layout.dart';
 import '../../domain/profile_preferences_layout.dart';
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
+import 'hidden_volume_storage.dart';
+import '../../domain/roster.dart';
+import '../../domain/storage_locator.dart';
 import 'kv_log_store.dart';
 import 'managed_encrypted_kv_log_store.dart';
 import 'managed_anchor_state.dart';
@@ -44,6 +47,7 @@ part 'profile_erasure_completion.dart';
 part 'application_erasure_journal.dart';
 part 'managed_erasure_reconciliation.dart';
 part 'profile_erasure_auxiliary.dart';
+part 'managed_legacy_reference_repair.dart';
 
 /// Admits the filesystem root and owns its catalog connection. The companion
 /// managed file factory owns identity sessions. No migration, hidden-space
@@ -74,6 +78,7 @@ final class ManagedDirectoryCatalog {
   final Map<String, ManagedPathWitness> _leaseWitnesses;
   final ManagedFsPlatform _fs;
   bool _closed = false;
+  bool _legacyReferenceRepairBusy = false;
   late final _catalogRelease = NativeHandleClose(_catalog.close);
   final _identityOwners = <ManagedIdentityId, _ManagedIdentityResources>{};
   final _eraseReviews = <String, _ManagedEraseConsent>{};
@@ -383,6 +388,9 @@ final class ManagedDirectoryCatalog {
 
   void close() {
     if (_closed) return;
+    if (_legacyReferenceRepairBusy) {
+      throw const ManagedIdentityFailure(ManagedIdentityFailureKind.busy);
+    }
     // Failed opens/closes remain owned until cleanup succeeds. An ordinary
     // active session must be drained before the catalog itself can close.
     for (final resource in _identityOwners.values.toList()) {
