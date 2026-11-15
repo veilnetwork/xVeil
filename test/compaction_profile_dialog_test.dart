@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/features/settings/storage_settings_screen.dart';
+import 'package:xveil/state/providers.dart';
+import 'support/fake_hv_container.dart';
 import 'package:xveil/domain/compaction_profile_authorization.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
@@ -19,8 +24,20 @@ ManagedStorageLocator _root(int n, StorageProtection protection) =>
     );
 
 class _Controller extends AppController {
-  _Controller({this.uncertain = false});
-  final bool uncertain;
+  _Controller({
+    this.uncertain = false,
+    this.admissionFailure = false,
+    this.access = 'legacy',
+    this.recoveryGate,
+  });
+  final String access;
+  final Completer<void>? recoveryGate;
+  final recoveryStarted = Completer<void>();
+  String? reopenPassword;
+  final hiddenProbeRequests = <String>[];
+  final bool uncertain, admissionFailure;
+  int recoveryCalls = 0;
+  AppPhase get observedPhase => state.phase;
   final encrypted = _root(1, StorageProtection.encrypted);
   final plain = _root(2, StorageProtection.unencrypted);
   final requests =
@@ -30,6 +47,12 @@ class _Controller extends AppController {
   @override
   AppState build() => const AppState(AppPhase.ready);
   @override
+  IdentityStorageLocator get compactionAccessLocator => switch (access) {
+    'encrypted' => encrypted,
+    'plain' => plain,
+    _ => const LegacyStorageLocator(),
+  };
+  @override
   List<ManagedStorageLocator> get compactionVisibleIdentities => [
     encrypted,
     plain,
@@ -37,9 +60,19 @@ class _Controller extends AppController {
   @override
   Future<void> noteCompactionOffered({DateTime? at}) async {}
   @override
-  Future<bool> beginCompactionCollection() async => true;
+  Future<bool> beginCompactionCollection() async {
+    state = const AppState(AppPhase.preparingNode);
+    return true;
+  }
+
   @override
-  Future<void> cancelCompactionCollection(String password) async {}
+  Future<void> cancelCompactionCollection(String password) async {
+    recoveryCalls++;
+    if (!recoveryStarted.isCompleted) recoveryStarted.complete();
+    await recoveryGate?.future;
+    state = const AppState(AppPhase.ready);
+  }
+
   @override
   Future<
     ({
@@ -52,17 +85,21 @@ class _Controller extends AppController {
       List<({String label, List<int> keys})> children,
     })
   >
-  probeCompactionIdentity(String password) async => (
-    opened: ['master-fixture', 'child-fixture'].contains(password),
-    isMaster: false,
-    displayName: password,
-    username: null,
-    subordinates: <String>[],
-    spaceKeys: Uint8List.fromList(
-      List.filled(64, password == 'master-fixture' ? 1 : 2),
-    ),
-    children: <({String label, List<int> keys})>[],
-  );
+  probeCompactionIdentity(String password) async {
+    hiddenProbeRequests.add(password);
+    return (
+      opened: ['master-fixture', 'child-fixture'].contains(password),
+      isMaster: false,
+      displayName: password,
+      username: null,
+      subordinates: <String>[],
+      spaceKeys: Uint8List.fromList(
+        List.filled(64, password == 'master-fixture' ? 1 : 2),
+      ),
+      children: <({String label, List<int> keys})>[],
+    );
+  }
+
   @override
   Future<
     ({
@@ -94,8 +131,10 @@ class _Controller extends AppController {
     required String reopenWith,
     required CompactionProfileAuthorization profileAuthorization,
   }) async {
+    reopenPassword = reopenWith;
     published = profileAuthorization.snapshot();
     hidden = roster.passwords().map(String.fromCharCodes).toList();
+    if (admissionFailure) throw StateError('fixture admission refused');
     if (uncertain) {
       throw const ManagedLegacyCompactionFailure(
         ManagedWorkerFailureKind.backend,
@@ -103,6 +142,7 @@ class _Controller extends AppController {
         recovery: null,
       );
     }
+    state = const AppState(AppPhase.ready);
     return (before: 100, after: 10);
   }
 
@@ -113,18 +153,136 @@ class _Controller extends AppController {
   }) async => throw StateError('mixed UI used the legacy publisher');
 }
 
+class _ScreenController extends _Controller {
+  final finish = Completer<void>();
+  final started = Completer<void>();
+  @override
+  List<ManagedStorageLocator> get compactionVisibleIdentities => [];
+  @override
+  Future<({CompactionOfferVerdict verdict, CompactionEstimate estimate})?>
+  compactionOffer({DateTime? now}) async => (
+    verdict: CompactionOfferVerdict.offer,
+    estimate: const CompactionEstimate(
+      fileBytes: 100,
+      liveBytes: 10,
+      identitiesCounted: 1,
+      identitiesKnown: 1,
+    ),
+  );
+  @override
+  Future<({int before, int after})> compactStorageKeeping({
+    required CompactionRoster roster,
+    required String reopenWith,
+  }) async {
+    started.complete();
+    await finish.future;
+    return (before: 100, after: 10);
+  }
+}
+
 void main() {
-  for (final uncertain in [false, true]) {
+  testWidgets(
+    'compaction completion does not reload a replaced settings screen',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      final ctrl = _ScreenController();
+      final visible = ValueNotifier(true);
+      final container = ProviderContainer(
+        overrides: [
+          appControllerProvider.overrideWith(() => ctrl),
+          singleSpaceStorageProvider.overrideWithValue(storage),
+        ],
+      );
+      try {
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              locale: const Locale('en'),
+              home: ValueListenableBuilder<bool>(
+                valueListenable: visible,
+                builder: (_, show, _) => show
+                    ? const StorageSettingsScreen()
+                    : const Scaffold(body: SizedBox()),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final l = AppL10nEn();
+        final offer = find.widgetWithText(ListTile, l.compactOfferTitle);
+        await tester.scrollUntilVisible(
+          offer,
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(offer);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'master-fixture');
+        await tester.tap(find.text(l.actionContinue));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.widgetWithText(FilledButton, l.compactOfferRun),
+        );
+        await tester.tap(find.widgetWithText(FilledButton, l.compactOfferRun));
+        await tester.pump();
+        expect(ctrl.started.isCompleted, isTrue);
+        visible.value =
+            false; // /preparing replaces the original settings route.
+        await tester.pump();
+        expect(find.byType(StorageSettingsScreen), findsNothing);
+        ctrl.finish.complete();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!ctrl.finish.isCompleted) ctrl.finish.complete();
+        await tester.pumpWidget(const SizedBox());
+        container.dispose();
+        visible.dispose();
+        await storage.close();
+      }
+    },
+  );
+
+  for (final mode in [
+    'success',
+    'uncertain',
+    'admission',
+    'encrypted-access',
+    'plain-access',
+    'gated-admission',
+  ]) {
+    final uncertain = mode == 'uncertain';
+    final admission = mode.endsWith('admission');
+    final access = mode == 'encrypted-access'
+        ? 'encrypted'
+        : mode == 'plain-access'
+        ? 'plain'
+        : 'legacy';
+    final currentPassword = access == 'encrypted'
+        ? 'visible-fixture'
+        : access == 'plain'
+        ? ''
+        : 'master-fixture';
     testWidgets(
-      'mixed dialog requires complete authority and handles uncertain outcome ($uncertain)',
+      'mixed dialog requires complete authority and handles outcome ($mode)',
       (tester) async {
         tester.view.physicalSize = const Size(380, 900);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        final controller = _Controller(uncertain: uncertain);
+        final controller = _Controller(
+          uncertain: uncertain,
+          admissionFailure: admission,
+          access: access,
+          recoveryGate: mode == 'gated-admission' ? Completer<void>() : null,
+        );
         final l = AppL10nEn();
-        Object? result;
+        Object? result = 'pending';
         await tester.pumpWidget(
           ProviderScope(
             overrides: [appControllerProvider.overrideWith(() => controller)],
@@ -145,7 +303,7 @@ void main() {
                         identitiesCounted: 1,
                         identitiesKnown: 1,
                       ),
-                      currentPassword: 'master-fixture',
+                      currentPassword: currentPassword,
                     ),
                   ),
                 ),
@@ -159,36 +317,71 @@ void main() {
           find.widgetWithText(FilledButton, l.compactOfferRun),
         );
         expect(run().onPressed, isNull);
+        // An encrypted access password authorizes that owner, never a hidden
+        // keep-set entry. Plaintext requires an explicit action in every mode.
         expect(
-          controller.requests,
+          controller.requests.where(
+            (request) => request.identity == controller.plain,
+          ),
           isEmpty,
-        ); // Plaintext is never auto-authorized.
+        );
+        if (access == 'encrypted') {
+          expect(controller.requests.single, (
+            identity: controller.encrypted,
+            password: currentPassword,
+            approved: false,
+          ));
+        } else {
+          expect(controller.requests, isEmpty);
+        }
+        if (access != 'legacy') {
+          expect(controller.hiddenProbeRequests, isEmpty);
+          await tester.ensureVisible(find.byType(TextField));
+          await tester.enterText(find.byType(TextField), 'master-fixture');
+          await tester.tap(
+            find.widgetWithText(TextButton, l.compactOfferAdd).first,
+          );
+          await tester.pumpAndSettle();
+        }
         final plain = find.byKey(
           ValueKey('compaction-owner-${controller.plain.id.value}'),
         );
         await tester.ensureVisible(plain);
         await tester.tap(plain);
         await tester.pumpAndSettle();
-        expect(controller.requests.single, (
-          identity: controller.plain,
-          password: '',
-          approved: true,
-        ));
-        expect(run().onPressed, isNull);
-        final encrypted = find.byKey(
-          ValueKey('compaction-owner-${controller.encrypted.id.value}'),
+        expect(
+          controller.requests
+              .where((request) => request.identity == controller.plain)
+              .single,
+          (identity: controller.plain, password: '', approved: true),
         );
-        await tester.ensureVisible(encrypted);
-        await tester.tap(encrypted);
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'visible-fixture');
-        await tester.tap(find.widgetWithText(FilledButton, l.compactOfferAdd));
-        await tester.pumpAndSettle();
-        expect(controller.requests.last, (
-          identity: controller.encrypted,
-          password: 'visible-fixture',
-          approved: false,
-        ));
+        expect(run().onPressed, isNull);
+        if (access != 'encrypted') {
+          final encrypted = find.byKey(
+            ValueKey('compaction-owner-${controller.encrypted.id.value}'),
+          );
+          await tester.ensureVisible(encrypted);
+          await tester.tap(encrypted);
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byType(TextField).last,
+            'visible-fixture',
+          );
+          await tester.tap(
+            find.widgetWithText(FilledButton, l.compactOfferAdd),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            controller.requests
+                .where((request) => request.identity == controller.encrypted)
+                .single,
+            (
+              identity: controller.encrypted,
+              password: 'visible-fixture',
+              approved: false,
+            ),
+          );
+        }
         expect(
           run().onPressed,
           isNull,
@@ -204,8 +397,36 @@ void main() {
         );
         await tester.tap(find.widgetWithText(FilledButton, l.compactOfferRun));
         await tester.pumpAndSettle();
-        if (uncertain) {
-          expect(find.text(l.compactOfferOutcomeUncertain), findsOneWidget);
+        if (mode == 'gated-admission') {
+          try {
+            expect(controller.recoveryStarted.isCompleted, isTrue);
+            Navigator.of(
+              tester.element(find.byType(AlertDialog)),
+              rootNavigator: true,
+            ).pop();
+            await tester.pumpAndSettle();
+            expect(result, 'pending');
+          } finally {
+            controller.recoveryGate!.complete();
+          }
+          await tester.pumpAndSettle();
+          expect(result, isNull);
+          expect(controller.recoveryCalls, 1);
+          expect(controller.observedPhase, AppPhase.ready);
+        } else if (uncertain || admission) {
+          expect(
+            find.text(
+              uncertain
+                  ? l.compactOfferOutcomeUncertain
+                  : l.settingsStorageCompactFailed,
+            ),
+            findsOneWidget,
+          );
+          expect(controller.recoveryCalls, admission ? 1 : 0);
+          expect(
+            controller.observedPhase,
+            admission ? AppPhase.ready : AppPhase.preparingNode,
+          );
           expect(run().onPressed, isNull);
           await tester.tap(find.widgetWithText(TextButton, l.actionCancel));
           await tester.pumpAndSettle();
@@ -219,6 +440,12 @@ void main() {
           controller.encrypted.id,
         });
         expect(controller.hidden, ['master-fixture', 'child-fixture']);
+        expect(controller.reopenPassword, currentPassword);
+        expect(
+          controller.hiddenProbeRequests,
+          isNot(contains('visible-fixture')),
+        );
+        expect(controller.hiddenProbeRequests, isNot(contains('')));
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       },

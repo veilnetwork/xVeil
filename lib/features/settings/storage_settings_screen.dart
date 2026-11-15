@@ -7,6 +7,8 @@ import '../common/translation_models_tile.dart';
 import '../common/whisper_model_tile.dart';
 import 'compaction_offer_dialog.dart';
 import '../../domain/storage_compaction_policy.dart';
+import '../../domain/storage_locator.dart';
+import '../../domain/storage_protection.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
@@ -215,16 +217,23 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   }
 
   Future<void> _compactAll(AppL10n l) async {
-    final pw = await showDialog<String>(
-      context: context,
-      builder: (d) => CompactPasswordDialog(
-        title: l.compactOfferTitle,
-        hint: l.settingsStoragePasswordHint,
-        confirmLabel: l.actionContinue,
-        cancelLabel: l.actionCancel,
-      ),
-    );
-    if (pw == null || pw.isEmpty || !mounted) return;
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final access = ctrl.compactionAccessLocator;
+    final passwordless =
+        access is ManagedStorageLocator &&
+        access.protection == StorageProtection.unencrypted;
+    final pw = passwordless
+        ? ''
+        : await showDialog<String>(
+            context: context,
+            builder: (d) => CompactPasswordDialog(
+              title: l.compactOfferTitle,
+              hint: l.settingsStoragePasswordHint,
+              confirmLabel: l.actionContinue,
+              cancelLabel: l.actionCancel,
+            ),
+          );
+    if (pw == null || (!passwordless && pw.isEmpty) || !mounted) return;
     final offer = await ref
         .read(appControllerProvider.notifier)
         .compactionOffer();
@@ -236,7 +245,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
       estimate: offer.estimate,
       currentPassword: pw,
     );
-    if (sizes == null) return;
+    // Preparing/reopening can replace this route. The replacement loads its
+    // own statistics; the old widget must not read ref or update its context.
+    if (sizes == null || !mounted) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(

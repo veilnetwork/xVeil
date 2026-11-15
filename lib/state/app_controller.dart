@@ -479,7 +479,11 @@ class AppController extends Notifier<AppState> {
     if (!ref.mounted || _supersededSince(generation)) return;
     final onboarded =
         (prefs.getBool(_onboardedKey()) ?? false) ||
-        (ref.read(profileStorageRouterProvider)?.catalog.identities.isNotEmpty ??
+        (ref
+                .read(profileStorageRouterProvider)
+                ?.catalog
+                .identities
+                .isNotEmpty ??
             false);
     diagnosticJournal.record(
       DiagnosticEvent.startup,
@@ -1549,7 +1553,8 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
-    if (_setupRecovery != null || state.phase == AppPhase.identityEraseRecovery) {
+    if (_setupRecovery != null ||
+        state.phase == AppPhase.identityEraseRecovery) {
       return;
     }
     if (_endingSessions != 0 ||
@@ -1933,6 +1938,12 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// The credential used to reopen the session belongs to its access root,
+  /// which can differ from the active hidden child being compacted.
+  IdentityStorageLocator get compactionAccessLocator =>
+      ref.read(profileStorageRouterProvider)?.access ??
+      const LegacyStorageLocator();
+
   /// Enumerable owners only; this is not an inventory of hidden spaces.
   List<ManagedStorageLocator> get compactionVisibleIdentities => [
     for (final entry
@@ -2104,7 +2115,9 @@ class AppController extends Notifier<AppState> {
         'compaction requires a verified key map for every password',
       );
     }
-    if (!passwords.any((bytes) => listEquals(bytes, utf8.encode(reopenWith)))) {
+    if ((profileAuthorization == null ||
+            compactionAccessLocator is LegacyStorageLocator) &&
+        !passwords.any((bytes) => listEquals(bytes, utf8.encode(reopenWith)))) {
       throw StateError('compaction must retain the reopen password');
     }
     return _compactKeeping(
@@ -2115,6 +2128,20 @@ class AppController extends Notifier<AppState> {
       credentials: credentials,
       profileAuthorization: profileAuthorization,
     );
+  }
+
+  Future<void> _selectLegacyCompactionView(void Function() check) async {
+    check();
+    final router = ref.read(profileStorageRouterProvider);
+    if (router != null && router.location is! LegacyStorageLocator) {
+      // Hosted child views bypass the router. Once their session is confirmed
+      // closed, select the shared source explicitly while keeping its master
+      // access root for credential recovery and the later unlock.
+      await _updateStorageRoute(
+        () => router.select(const LegacyStorageLocator(), access: false),
+      );
+    }
+    check();
   }
 
   /// Put the app into the state where passwords can be checked: session down,
@@ -2161,10 +2188,25 @@ class AppController extends Notifier<AppState> {
         phase: AppPhase.preparingNode,
         preparingReason: PreparingReason.unlocking,
       );
-      await _boundedTeardown('session teardown', _teardownSession);
+      final sessionsReleased = await _boundedTeardown(
+        'session teardown',
+        _teardownSession,
+      );
       if (!current()) return false;
-      await _boundedTeardown('node teardown', _teardownRealStack);
+      final nodesReleased = await _boundedTeardown(
+        'node teardown',
+        _teardownRealStack,
+      );
       if (!current()) return false;
+      if (!sessionsReleased ||
+          !nodesReleased ||
+          _retiringSessions.isNotEmpty ||
+          _retiringStacks.isNotEmpty) {
+        return false;
+      }
+      await _selectLegacyCompactionView(() {
+        if (!current()) throw StateError('compaction collection ended');
+      });
       final released = await _boundedTeardown(
         'store close',
         () => ref.read(storageProvider).close(),
@@ -2193,7 +2235,28 @@ class AppController extends Notifier<AppState> {
         state.phase != AppPhase.preparingNode) {
       return;
     }
-    await unlock(reopenWith);
+    final owner = ref.read(profileStorageRouterOwnerProvider);
+    if (owner != null && !owner.isAvailable) return;
+    await _reopenAfterCompaction(reopenWith, lease);
+  }
+
+  // Only this maintenance recovery may restore a hosted selection. Nothing is
+  // persisted, and a lock invalidates the lifecycle before a new boot can use it.
+  IdentityLease? _compactionReopenSelection;
+
+  Future<void> _reopenAfterCompaction(
+    String password,
+    IdentityLease lease,
+  ) async {
+    if (!ref.mounted || !holdsIdentity(lease)) return;
+    _compactionReopenSelection = lease;
+    try {
+      await unlock(password);
+    } finally {
+      if (identical(_compactionReopenSelection, lease)) {
+        _compactionReopenSelection = null;
+      }
+    }
   }
 
   /// Restore an abandoned collection only while its original authorization is
@@ -2608,6 +2671,7 @@ class AppController extends Notifier<AppState> {
     if (visible != null && mixedOwner == null) {
       throw StateError('mixed compaction requires a profile owner');
     }
+    final access = mixedOwner == null ? null : compactionAccessLocator;
     final lease = leaseIdentity();
     void requireCurrentSession() {
       if (!ref.mounted || !holdsIdentity(lease)) {
@@ -2642,10 +2706,22 @@ class AppController extends Notifier<AppState> {
       phase: AppPhase.preparingNode,
       preparingReason: PreparingReason.unlocking,
     );
-    await _boundedTeardown('session teardown', _teardownSession);
+    final sessionsReleased = await _boundedTeardown(
+      'session teardown',
+      _teardownSession,
+    );
     requireCurrentSession();
-    await _boundedTeardown('node teardown', _teardownRealStack);
+    final nodesReleased = await _boundedTeardown(
+      'node teardown',
+      _teardownRealStack,
+    );
     requireCurrentSession();
+    final sourceQuiet =
+        sessionsReleased &&
+        nodesReleased &&
+        _retiringSessions.isEmpty &&
+        _retiringStacks.isEmpty;
+    if (sourceQuiet) await _selectLegacyCompactionView(requireCurrentSession);
     // release the LOCK_EX
     final released = await _boundedTeardown(
       'store close',
@@ -2655,6 +2731,9 @@ class AppController extends Notifier<AppState> {
     ManagedLegacyCompactionResult? mixedResult;
     try {
       requireCurrentSession();
+      if (!sourceQuiet) {
+        throw StateError('identity sessions have not confirmed source release');
+      }
       // `compact_known` opens the container under LOCK_EX and BLOCKS for it.
       // Starting it while our own handle is still open means waiting on a lock
       // only we could release — no progress, no CPU, no temp file, and a screen
@@ -2665,6 +2744,37 @@ class AppController extends Notifier<AppState> {
           'the container did not close in ${_teardownBudget.inSeconds}s, so '
           'compaction would wait forever on a lock we still hold',
         );
+      }
+      // The master password authorizes reopening the session, not keeping a
+      // hidden space. Verify it against exactly that existing encrypted root
+      // before preparing/rekeying the hidden source. Plaintext needs no secret;
+      // its separate explicit consent is already in the visible authority.
+      if (mixedOwner != null &&
+          access is ManagedStorageLocator &&
+          access.protection == StorageProtection.encrypted) {
+        final root = ref.read(compactionVisibleStorageProvider)(
+          mixedOwner.router.profileDirectory,
+          ManagedIdentityEntry.fromLocator(access),
+        );
+        Uint8List? actual;
+        try {
+          if (!await root.open(password: reopenWith)) {
+            throw StateError('compaction access credential refused');
+          }
+          requireCurrentSession();
+          actual = await root.exportSpaceKeys();
+          requireCurrentSession();
+          if (!listEquals(actual, visible!.authorizations[access.id])) {
+            throw StateError('compaction access credential refused');
+          }
+        } finally {
+          try {
+            await root.close();
+          } finally {
+            if (actual != null) wipeSecretBytes(actual);
+          }
+        }
+        requireCurrentSession();
       }
       if (mixedOwner != null) {
         mixedResult = await mixedOwner.compactLegacy(
@@ -2736,9 +2846,17 @@ class AppController extends Notifier<AppState> {
           holdsIdentity(lease) &&
           (mixedOwner == null || mixedOwner.isAvailable)) {
         try {
-          await unlock(reopenWith);
+          await _reopenAfterCompaction(reopenWith, lease);
         } catch (error, stack) {
           if (mixedOwner == null) rethrow;
+          // Retain a bounded local trace even when this is the only failure;
+          // an existing native publication qualifier must remain primary.
+          errorJournal.record(
+            kind: 'storage-compaction-reopen',
+            error: StateError('could not reopen after compaction'),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
           if (publicationFailure == null) {
             throw ManagedLegacyCompactionFailure(
               ManagedWorkerFailureKind.backend,
@@ -2746,14 +2864,6 @@ class AppController extends Notifier<AppState> {
               recovery: mixedResult?.recovery,
             );
           }
-          // Preserve the native publication/recovery qualifier as the primary
-          // outcome. Failure to reopen must never turn applied into retryable.
-          errorJournal.record(
-            kind: 'storage-compaction-reopen',
-            error: StateError('could not reopen after compaction'),
-            stack: stack,
-            atMs: DateTime.now().millisecondsSinceEpoch,
-          );
         }
       }
     }
@@ -3073,7 +3183,6 @@ class AppController extends Notifier<AppState> {
   static const String _offerThresholdKey = 'storage.compact.offer.bytes.v1';
   static const String _offerLastShownKey = 'storage.compact.offer.shown.v1';
 
-
   /// The person's two knobs, with the defaults they asked for: every 3 days,
   /// and only when a gigabyte or more would come back.
   Future<CompactionOfferSettings> compactionOfferSettings() async {
@@ -3378,8 +3487,14 @@ class AppController extends Notifier<AppState> {
     // through the provider, so lock/teardown can find it.
     ref.read(sessionProvider.notifier).state = session;
     _retiringSessions.remove(session); // The published provider now owns it.
-    final first = roster.first.label;
-    await _activateOnline(first, [for (final e in roster) e.label]);
+    final restore = _compactionReopenSelection;
+    final selected =
+        restore != null &&
+            restore.lifecycle == gen &&
+            roster.any((entry) => entry.label == restore.label)
+        ? restore.label!
+        : roster.first.label;
+    await _activateOnline(selected, [for (final e in roster) e.label]);
   }
 
   /// Point the providers (active storage/messaging via [activeIdentityProvider],
@@ -4044,10 +4159,7 @@ class AppController extends Notifier<AppState> {
       }
       final updated = [
         for (final e in onDisk)
-          if (e.label == label)
-            e.copyWith(anonymous: anonymous)
-          else
-            e,
+          if (e.label == label) e.copyWith(anonymous: anonymous) else e,
       ];
       await edit.step(() => storage.saveRoster(updated));
       await edit.step(() => storage.close());
@@ -5713,7 +5825,10 @@ class AppController extends Notifier<AppState> {
               'instead of publishing it',
         );
         try {
-          _retiringStacks.putIfAbsent(stack, () => _disposeStackConfirmed(stack));
+          _retiringStacks.putIfAbsent(
+            stack,
+            () => _disposeStackConfirmed(stack),
+          );
           await _drainRetiringStacks();
         } catch (e) {
           // The original disposal remains owned even though this superseded
@@ -6211,7 +6326,8 @@ class AppController extends Notifier<AppState> {
       await stack.dispose();
     } finally {
       final controller = stack.controller;
-      confirmed = controller is! EmbeddedNodeController ||
+      confirmed =
+          controller is! EmbeddedNodeController ||
           !controller.lastStopWasAbandoned;
       if (!confirmed) {
         errorJournal.record(
@@ -6545,7 +6661,9 @@ class AppController extends Notifier<AppState> {
           source: source,
           secretStore: ref.read(quickUnlockSecretStoreProvider),
           authentication: ref.read(localScreenAuthenticationProvider),
-          retireBackground: ref.read(backgroundServiceProvider).retireForErasure,
+          retireBackground: ref
+              .read(backgroundServiceProvider)
+              .retireForErasure,
           verifyOtherDataAbsent: verifyRuntime,
           quiesce: () async {
             _incomplete.clear();
