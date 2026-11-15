@@ -150,6 +150,13 @@ cannot hide or authorize another's saved entry. It preserves accepted historical
 enrollments and serializes fallback migration with explicit choices. Background
 settings/start-over and native preference-file reopen checks qualify this layer;
 physical authentication and the remaining activation gates stay open.
+The [unfinished-setup admission follow-up](validation/pending-master-admission-2026-11-15/README.md)
+now checks pending master state before roster classification, including when a
+profile already exists. Both setup markers guard each legacy/managed member
+before network planning; unfinished targets cannot be bound into a master.
+Native preservation checks pass across all three modes. Authenticated recovery
+of a pre-roster master or unbound child still needs its original durable intent;
+this admission fix does not invent it or enable the new default.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

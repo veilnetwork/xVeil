@@ -26,6 +26,7 @@ import '../domain/peer_authorization.dart';
 import '../domain/roster.dart';
 import '../domain/storage_locator.dart';
 import '../domain/storage_setup.dart';
+import '../domain/storage_initialization.dart';
 import 'messaging.dart';
 import '../domain/verified_device_contact.dart' show policyContactFor;
 import 'ratchet_persistence.dart' show ratchetPersistenceFor;
@@ -236,6 +237,18 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
           ? await openEntry(entry)
           : await backing.openSpace(entry.spaceKeys);
       final storage = storageFor(spaceId);
+      // Common to legacy and enumerable members, including direct planners.
+      // Do this before seed/P2P planning, which may persist migrated settings.
+      if (masterSetupIsPending(
+            await storage.getSetting(kPendingMasterSetupSetting),
+          ) ||
+          identitySetupIsPending(
+            await storage.getSetting(kPendingIdentitySetupSetting),
+          )) {
+        throw StateError(
+          'unfinished storage setup cannot enter network planning',
+        );
+      }
       final seeds = await planIdentitySeeds(
         storage: storage,
         peersFor: peersFor,
@@ -522,10 +535,6 @@ class MultiIdentitySession {
       if (locator is LegacyStorageLocator) {
         final id = await _backing.openSpace(entry.spaceKeys);
         if (id < 0) throw StateError('invalid legacy space handle');
-        if (_stopping) throw StateError('identity session is stopping');
-        if (await viewOf(id).getSetting(kPendingMasterSetupSetting) == '1') {
-          throw StateError('pending master cannot boot as an identity');
-        }
         if (_stopping) throw StateError('identity session is stopping');
         return id;
       }

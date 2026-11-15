@@ -28,6 +28,8 @@ import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_usage.dart';
 import 'package:xveil/domain/pending_identity_erase.dart';
 import 'package:xveil/data/storage/managed_identity_catalog.dart';
+import 'package:xveil/data/storage/managed_identity_storage.dart';
+import 'package:xveil/domain/storage_setup.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
@@ -347,6 +349,35 @@ void main() {
               isNotNull,
               reason: 'a rejected bind must restore every hosted identity',
             );
+          }
+          for (final stage in ['1', 'future-stage']) {
+            final pending = ManagedIdentityStorage.existing(
+              profileDirectory: profile,
+              entry: ManagedIdentityEntry.fromLocator(
+                rows[1].storageLocator as ManagedStorageLocator,
+              ),
+            ).storage;
+            expect(await pending.openWithKeys(rows[1].spaceKeys), isTrue);
+            await pending.putSetting(kPendingMasterSetupSetting, stage);
+            await pending.close();
+            final before = container
+                .read(appControllerProvider)
+                .identities
+                .toList();
+            expect(
+              await controller.bindExistingIdentity(
+                identityPassword: 'synthetic child password',
+                label: 'unfinished-must-not-bind',
+                identityStorageLocator: rows[1].storageLocator,
+              ),
+              isFalse,
+            );
+            expect(container.read(appControllerProvider).identities, before);
+            expect(await pending.openWithKeys(rows[1].spaceKeys), isTrue);
+            expect(await pending.getSetting(kPendingMasterSetupSetting), stage);
+            expect(await pending.getSetting('owner'), 'encrypted');
+            await pending.putSetting(kPendingMasterSetupSetting, '0');
+            await pending.close();
           }
           expect(
             await controller.bindExistingIdentity(
