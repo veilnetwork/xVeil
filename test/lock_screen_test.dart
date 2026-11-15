@@ -194,6 +194,21 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
     await tester.pumpAndSettle();
+    // Settled animations do not mean filesystem/model cleanup has finished.
+    // Let real I/O run and observe the wipe's terminal result, rather than
+    // asserting onboarding while its unawaited button callback is in flight.
+    for (
+      var turn = 0;
+      turn < 100 &&
+          container.read(appControllerProvider).phase == AppPhase.locked &&
+          container.read(wipeReportProvider)?.stopped != true;
+      turn++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pumpAndSettle();
+    }
     expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
   });
 
