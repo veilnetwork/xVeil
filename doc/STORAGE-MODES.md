@@ -46,6 +46,13 @@ unchanged, then whole-profile deletion and cold onboarding. It also repairs
 stale lock-screen wipe admission for owned and unowned managed routers. These
 small-fixture runs make no space-savings claim and do not close platform crash,
 credential/model-inventory, mixed-roster maintenance or physical OEM gates.
+The [persisted-padding follow-up](validation/managed-storage-persisted-padding-2026-11-15/README.md)
+isolates a configuration defect: managed files disabled padding only for their
+open session while native compaction inherited the header's hidden-storage
+default. New managed files now persist no-padding at creation through the
+updated hidden-volume constructor. Host A/B/A and recovery checks pass; native
+libraries must be rebuilt/qualified for every target before packaging this
+binding change. Hidden defaults and existing stores are not converted.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

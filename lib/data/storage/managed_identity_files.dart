@@ -453,6 +453,9 @@ final class _ManagedIdentityResources {
         path: target,
         password: password,
         argon: outer ? hv.ArgonPreset.heavy : hv.ArgonPreset.defaults,
+        // Persist this enumerable store's posture: a session-only override
+        // would let native repacking restore the header's hidden padding.
+        padding: hv.PaddingPreset.none,
       );
     } else {
       space = keys == null
