@@ -14,7 +14,11 @@ internal class QuickUnlockRecordFileFailure : Exception("Saved-entry backing sto
  * Inspect the fixed private backing file without repairing/replacing it before
  * using that map as an absence witness or a source for a destructive commit.
  */
-internal class QuickUnlockPreferenceFile(private val path: Path, private val recordPrefix: String) {
+internal class QuickUnlockPreferenceFile(
+    private val path: Path,
+    private val recordPrefix: String?,
+    private val extraNames: Set<String> = emptySet(),
+) {
     private val backup = path.resolveSibling(path.fileName.toString() + ".bak")
 
     private fun attributes(file: Path): BasicFileAttributes? = try {
@@ -76,7 +80,7 @@ internal class QuickUnlockPreferenceFile(private val path: Path, private val rec
                                 // FSS creates Tink bookkeeping even on its
                                 // default raw-key path. Opaque credential names
                                 // from an active encrypted-key layout refuse.
-                                check(name.startsWith(recordPrefix) || name in setOf(
+                                check((recordPrefix != null && name.startsWith(recordPrefix)) || name in extraNames || name in setOf(
                                     "__androidx_security_crypto_encrypted_prefs_key_keyset__",
                                     "__androidx_security_crypto_encrypted_prefs_value_keyset__",
                                     "FlutterSecureSAlgorithmKey", "FlutterSecureSAlgorithmStorage",

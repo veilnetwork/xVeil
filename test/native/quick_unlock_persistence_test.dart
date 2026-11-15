@@ -70,6 +70,7 @@ class _AppliedSecrets {
       if (unreadableRecords && call.method != 'flush') {
         throw PlatformException(code: 'record_store_unreadable');
       }
+      if (call.method == 'readPublic') return memory[address];
       if (call.method == 'contains') return memory.containsKey(address);
       expect(call.method, isIn(['flush', 'remove']));
       if (call.method == 'remove') memory.remove(address);

@@ -63,8 +63,17 @@ class QuickUnlockSecretStore {
       synchronizable: false,
     ),
   );
-  Future<String?> read(String key, {bool biometric = false}) =>
-      _store(biometric, key).read(key: key);
+  Future<String?> read(String key, {bool biometric = false}) {
+    if (defaultTargetPlatform == TargetPlatform.android && !biometric) {
+      // Public metadata reads never initialize, reset or migrate Android keys.
+      // An absent record is null; unavailable/corrupt storage is an error.
+      return const MethodChannel(
+        'xveil/quick_unlock',
+      ).invokeMethod<String>('readPublic', {'key': key, 'biometric': false});
+    }
+    return _store(biometric, key).read(key: key);
+  }
+
   Future<String?> readAuthenticated(
     String key,
     String reason,

@@ -51,6 +51,7 @@ void main() {
       values.remove('$namespace:$key');
       return true;
     }
+    if (call.method == 'readPublic') return values['$namespace:$key'];
     expect(call.method, 'read');
     authenticatedReads++;
     if (denyAuthentication) return null;

@@ -2062,6 +2062,12 @@ now connects those records to isolated startup recovery and fresh preference/UI
 handoff. Packaged platform qualification and remaining activation work still
 precede enabling the new default.
 
+The ordinary Android metadata reader now also avoids plugin initialization.
+The [read-only saved-entry qualification](validation/android-public-saved-entry-read-2026-11-15/README.md)
+covers fixed-file parsing, existing-key decryption, pinned-plugin format
+interoperability and the unchanged absence/error boundary. Enrollment remains
+an explicit plugin write; device and packaged platform smoke remain outstanding.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.
