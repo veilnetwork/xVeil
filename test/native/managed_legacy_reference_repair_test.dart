@@ -15,6 +15,8 @@ import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
+import 'package:xveil/data/storage/managed_identity_lease.dart';
+import 'package:xveil/data/storage/managed_sqlite_connection.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_protection.dart';
@@ -276,7 +278,12 @@ void main() {
     );
     return;
   }
-  for (final phase in ['prepared', 'published']) {
+  for (final phase in [
+    'prepared',
+    'published',
+    'worker-prepared',
+    'worker-published',
+  ]) {
     test('process death with private external journals: $phase', () async {
       final f = _Fixture();
       addTearDown(f.close);
@@ -334,6 +341,47 @@ void main() {
         final marker =
             jsonDecode(ready.readAsStringSync()) as Map<String, dynamic>;
         expect(marker, {'pid': process.pid, 'phase': phase});
+        // The writer still owns the full profile, even at the boundary after
+        // native source publication. No independent catalog reader may enter.
+        ManagedDirectoryCatalog? competing;
+        try {
+          expect(
+            () => competing = ManagedDirectoryCatalog.openExisting(f.profile),
+            throwsA(
+              anyOf(
+                isA<ManagedLeaseFailure>().having(
+                  (e) => e.kind,
+                  'kind',
+                  ManagedLeaseFailureKind.busy,
+                ),
+                isA<ManagedSqliteFailure>().having(
+                  (e) => e.sqliteCode,
+                  'sqliteCode',
+                  5,
+                ),
+              ),
+            ),
+          );
+        } finally {
+          competing?.close();
+        }
+        if (phase.endsWith('prepared')) {
+          hv.HvSpace? competingSource;
+          try {
+            expect(
+              () => competingSource = hv.HvSpace.open(
+                path: f.source,
+                password: _bytes(f.old.keys.first),
+              ),
+              throwsA(
+                isA<hv.HvException>().having((e) => e.kind, 'kind', 'Busy'),
+              ),
+            );
+          } finally {
+            competingSource?.close();
+          }
+        }
+
         expect(process.kill(ProcessSignal.sigkill), isTrue);
         expect(await terminal, isNot(0));
       } finally {
@@ -365,7 +413,7 @@ void main() {
           actual.close();
         }
       }
-      if (phase == 'prepared') {
+      if (phase.endsWith('prepared')) {
         expect(File(f.source).readAsBytesSync(), sourceBefore);
       }
       expect(await f.journal(1), isNotNull);
@@ -375,11 +423,11 @@ void main() {
           owner: f.root,
           authorizations: f.keys,
         ),
-        phase == 'published'
+        phase.endsWith('published')
             ? LegacyReferenceRepairOutcome.publishedReplacement
             : LegacyReferenceRepairOutcome.retainedSource,
       );
-      await f.expectUsable(published: phase == 'published');
+      await f.expectUsable(published: phase.endsWith('published'));
     });
   }
 
