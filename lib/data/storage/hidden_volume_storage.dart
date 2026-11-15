@@ -21,6 +21,8 @@ import '../../domain/roster.dart';
 import '../../domain/storage_locator.dart';
 import '../../domain/storage_usage.dart';
 import '../../domain/storage_initialization.dart';
+import '../../domain/master_setup_intent.dart' show kMasterSetupJournalFile;
+import '../../domain/storage_setup.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
@@ -150,6 +152,7 @@ class HiddenVolumeStorage
         OwnedStorageReclamation,
         StorageInitializationSource,
         StorageSetupInspectionSource,
+        MasterSetupInspectionSource,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
@@ -7395,6 +7398,19 @@ class HiddenVolumeStorage
   Future<bool> setupHasOnlyBootstrapData({
     required Set<String> files,
     required Set<String> settings,
+  }) => _setupHasOnlyBootstrapData(files: files, settings: settings);
+
+  @override
+  Future<bool> masterSetupHasOnlyBootstrapData() => _setupHasOnlyBootstrapData(
+    files: {kMasterSetupJournalFile, _rosterFile},
+    settings: {kPendingMasterSetupSetting},
+    roster: true,
+  );
+
+  Future<bool> _setupHasOnlyBootstrapData({
+    required Set<String> files,
+    required Set<String> settings,
+    bool roster = false,
   }) {
     final allowed = Set<String>.of(files);
     final settingNames = Set<String>.of(settings);
@@ -7443,6 +7459,7 @@ class HiddenVolumeStorage
         'file_next_log',
         'file_chunk_gc',
         'set:$kPendingIdentitySetupSetting',
+        if (roster) 'master:roster',
         for (final name in settingNames) 'set:$name',
         for (final file in allowed) 'file:$file',
       };

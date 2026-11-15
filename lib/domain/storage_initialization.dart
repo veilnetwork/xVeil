@@ -15,6 +15,12 @@ abstract interface class StorageSetupInspectionSource {
   });
 }
 
+/// Read-only inspection for a new master's private intent and optional roster.
+/// Does not authorize overwriting profiles, payloads, credentials or other data.
+abstract interface class MasterSetupInspectionSource {
+  Future<bool> masterSetupHasOnlyBootstrapData();
+}
+
 /// Unknown nonempty stages also refuse ordinary boot/edit paths. Only the
 /// explicitly supported journal stages may authorize recovery itself.
 bool identitySetupIsPending(String? stage) =>
