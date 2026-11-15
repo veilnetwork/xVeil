@@ -201,6 +201,69 @@ bool createPrivateDirectory(String path) {
   }
 }
 
+/// Reserve an empty regular file with a protected DACL from its first instant.
+/// Existing entries are refused. The caller owns the parent and must keep its
+/// grant through publication; this is not a path admission capability.
+bool createPrivateFile(String path) {
+  final sid = _currentSid();
+  final sddl = 'O:${sid}D:P(A;;FA;;;$sid)(A;;FA;;;SY)(A;;FA;;;BA)'
+      .toNativeUtf16();
+  final descriptor = calloc<Pointer<Void>>();
+  final attributes = calloc<win.SECURITY_ATTRIBUTES>();
+  final name = path.toNativeUtf16();
+  var handle = win.INVALID_HANDLE_VALUE;
+  try {
+    final convert = DynamicLibrary.open('advapi32.dll')
+        .lookupFunction<
+          Int32 Function(
+            Pointer<Utf16>,
+            Uint32,
+            Pointer<Pointer<Void>>,
+            Pointer<Uint32>,
+          ),
+          int Function(
+            Pointer<Utf16>,
+            int,
+            Pointer<Pointer<Void>>,
+            Pointer<Uint32>,
+          )
+        >('ConvertStringSecurityDescriptorToSecurityDescriptorW');
+    if (convert(sddl, 1, descriptor, nullptr) == 0 ||
+        descriptor.value == nullptr) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    attributes.ref
+      ..nLength = sizeOf<win.SECURITY_ATTRIBUTES>()
+      ..lpSecurityDescriptor = descriptor.value
+      ..bInheritHandle = 0;
+    handle = win.CreateFile(
+      name,
+      win.GENERIC_WRITE,
+      win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
+      attributes,
+      win.CREATE_NEW,
+      win.FILE_ATTRIBUTE_NORMAL | win.FILE_FLAG_OPEN_REPARSE_POINT,
+      0,
+    );
+    if (handle != win.INVALID_HANDLE_VALUE) return true;
+    final error = win.GetLastError();
+    if (error == win.ERROR_ALREADY_EXISTS ||
+        error == win.ERROR_FILE_EXISTS ||
+        FileSystemEntity.typeSync(path, followLinks: false) !=
+            FileSystemEntityType.notFound) {
+      return false;
+    }
+    throw const ManagedFsFailure(ManagedFsFailureKind.io);
+  } finally {
+    if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);
+    if (descriptor.value != nullptr) win.LocalFree(descriptor.value);
+    calloc.free(descriptor);
+    calloc.free(attributes);
+    calloc.free(sddl);
+    calloc.free(name);
+  }
+}
+
 bool publishNoReplace(String source, String destination) {
   final from = source.toNativeUtf16();
   final to = destination.toNativeUtf16();
