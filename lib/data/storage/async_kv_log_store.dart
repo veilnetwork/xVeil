@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -18,6 +19,9 @@ import 'managed_fs_platform.dart' show ManagedFsPlatform;
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';
+import 'hidden_volume_storage.dart';
+import 'compaction_roster_remap.dart';
+import '../../domain/storage_locator.dart' show LegacyStorageLocator;
 import 'managed_sqlite_connection.dart';
 import '../../domain/identity_erase_review.dart';
 import '../../core/storage_unlock_scope.dart';
@@ -36,6 +40,7 @@ part 'worker_managed_identity.dart';
 part 'worker_managed_catalog.dart';
 part 'worker_managed_erasure.dart';
 part 'worker_profile_preferences.dart';
+part 'worker_managed_legacy_compaction.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -531,6 +536,10 @@ class _Err extends _Reply {
 }
 
 void _workerEntry(_OpenConfig cfg) {
+  if (cfg is _OpenManagedLegacyCompaction) {
+    _managedLegacyCompactionEntry(cfg);
+    return;
+  }
   if (cfg is _OpenManagedErasure) {
     unawaited(_managedErasureEntry(cfg));
     return;
@@ -565,6 +574,7 @@ void _workerEntry(_OpenConfig cfg) {
         paddingPreset: preset,
       )(keys),
       _OpenManagedIdentity() => _openManagedWorker(cfg),
+      _OpenManagedLegacyCompaction() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
       _OpenManagedErasure() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
       _OpenProfilePreferences() => throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode),
       _OpenManagedCatalog() => throw StateError(
@@ -668,6 +678,7 @@ SendPort _serveWorker(
         keys?.fillRange(0, keys.length, 0);
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CatalogSnapshotReq() ||
+          _RunManagedLegacyCompactionReq() ||
           _CatalogSelectReq() ||
           _CatalogEraseReq() ||
           _CatalogReviewEraseReq() ||
@@ -1040,6 +1051,14 @@ class WorkerKvLogStore
       final r = await _watch.race(reply.first);
       if (r is _Err) throw hv.HvException(r.kind, r.message);
       if (r is _ManagedWorkerErr) throw ManagedWorkerFailure(r.kind);
+      if (r is _LegacyCompactionErr) {
+        throw ManagedLegacyCompactionFailure(
+          r.kind,
+          mayHaveApplied: r.mayHaveApplied,
+          recovery: r.recovery,
+          warning: r.warning,
+        );
+      }
       return (r as _Ok).value as T;
     } finally {
       reply.close();

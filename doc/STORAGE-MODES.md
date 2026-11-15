@@ -95,6 +95,15 @@ selected-root recovery's exclusive admission. Recovery now quiesces matching
 local preference actors and restores existing grants before later file I/O.
 Normal bound-preference bootstrap/read/write remains usable after repair;
 new actors refuse during maintenance and need explicit retry.
+The [full-profile compaction-worker follow-up](validation/managed-legacy-compaction-worker-2026-11-15/README.md)
+now owns prepared publication and private-reference repair in the same worker
+that holds exclusive profile roles. The profile owner coordinates preferences,
+serializes close and restores metadata selection. Native checks cover actual
+process death before publication and after commit but before its reply, plus
+bounded uncertain outcomes. The all-owner dialog/controller entry, custom-source
+journal binding, Windows source durability and complete app/platform recovery
+qualification remain open; defaults and the ordinary mixed-profile guard are
+unchanged.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
