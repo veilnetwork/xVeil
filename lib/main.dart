@@ -29,6 +29,10 @@ import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_preferences.dart';
 import 'data/storage/profile_preferences_bootstrap.dart';
+import 'data/storage/cold_profile_erasure_recovery.dart';
+import 'core/background_service_lifetime.dart';
+import 'core/local_authentication.dart';
+import 'core/quick_unlock_vault.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'state/storage_router_providers.dart';
@@ -180,10 +184,55 @@ Future<void> _bootAndRunApp() async {
     },
   );
   if (preferences.erasurePending) {
-    runApp(const ProfileErasurePendingApp());
+    final source = preferences.legacyPreferences;
+    if (source == null) {
+      runApp(const ProfileErasurePendingApp());
+      return;
+    }
+    final actions = BackgroundServiceActions.platform();
+    final recovery = ColdProfileErasureRecovery(
+      source: source,
+      secretStore: const QuickUnlockSecretStore(),
+      authentication: LocalScreenAuthentication(),
+      retireBackground: actions.retireForErasure,
+    );
+    runApp(
+      ProfileErasurePendingApp(
+        recover: () async {
+          try {
+            await recovery.resume();
+          } catch (error, stack) {
+            errorJournal.record(
+              kind: 'profile-erasure-recovery',
+              error: error,
+              stack: stack,
+              atMs: DateTime.now().millisecondsSinceEpoch,
+            );
+            rethrow;
+          }
+        },
+        onRecovered: () => runStartup(
+          boot: () => _runBootstrappedApplication(
+            profile: source.profile,
+            supportDirectory: source.supportDirectory,
+          ),
+        ),
+        close: recovery.close,
+      ),
+    );
     return;
   }
-  activeProfile = preferences.profile!;
+  await _runBootstrappedApplication(
+    profile: preferences.profile!,
+    supportDirectory: preferences.supportDirectory,
+  );
+}
+
+Future<void> _runBootstrappedApplication({
+  required String profile,
+  required String? supportDirectory,
+}) async {
+  activeProfile = profile;
 
   // Whether the translation engine is reachable, answered once at startup.
   //
@@ -267,7 +316,7 @@ Future<void> _bootAndRunApp() async {
     ErrorWidget.builder = (details) => const SizedBox.shrink();
   }
 
-  final boot = await _bootstrapOverrides(supportDirectory: preferences.supportDirectory);
+  final boot = await _bootstrapOverrides(supportDirectory: supportDirectory);
   runApp(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
 }
 

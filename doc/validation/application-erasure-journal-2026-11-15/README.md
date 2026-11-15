@@ -76,6 +76,10 @@ container, OS credential store or device installation is opened.
 
 ## Remaining work
 
+The following [cold-start implementation](../cold-profile-recovery-2026-11-15/README.md)
+connects this journal to an isolated application owner and startup UI. The limits
+below describe the journal-only round.
+
 Cold application startup still shows the refusal shell. The next standalone cold
 owner must connect these journal/reconciliation primitives to platform resource
 checks and fresh preferences/router/UI handoff outside ordinary providers.

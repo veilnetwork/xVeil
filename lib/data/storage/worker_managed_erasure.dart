@@ -161,6 +161,17 @@ final class ManagedErasureWorker {
     String profileDirectory,
   ) => _open(profileDirectory, _ErasureOpen.reconcileApplicationJournal);
 
+  @visibleForTesting
+  static Future<ManagedErasureWorker>
+  reconcileApplicationJournalWithReleaseGateForTesting(
+    String profileDirectory,
+    SendPort afterNativeRelease,
+  ) => _open(
+    profileDirectory,
+    _ErasureOpen.reconcileApplicationJournal,
+    checkpoint: afterNativeRelease,
+  );
+
   /// Continue a retained live operation after observed worker death. Pending
   /// recovery must match its exact binding; an absent intent permits only
   /// read-only reconciliation under a new exclusive grant, never a new plan.
@@ -525,6 +536,7 @@ final class _ErasureFinalSyncFault extends ManagedFsPlatform {
     }
     return published;
   }
+
   @override
   void syncDirectory(String path) {
     if (_published &&

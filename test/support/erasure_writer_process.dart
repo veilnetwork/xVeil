@@ -7,6 +7,7 @@ Future<void> killErasureWriter(
   String phase,
   void Function() beforeKill, {
   String script = 'test/native/managed_root_erasure_writer.dart',
+  List<String> writerArguments = const [],
 }) async {
   final child = await Process.start(
     'python3',
@@ -18,6 +19,7 @@ Future<void> killErasureWriter(
       script,
       fixture,
       phase,
+      ...writerArguments,
     ],
     environment: {'TMPDIR': '/private/tmp/'},
   );
