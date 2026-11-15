@@ -59,6 +59,9 @@ import '../domain/storage_initialization.dart';
 import '../domain/identity_setup_intent.dart';
 import '../data/storage/owned_storage_reclamation.dart';
 import '../data/storage/identity_setup_journal.dart';
+import '../data/storage/master_setup_journal.dart';
+import '../data/storage/profile_storage_router.dart';
+import '../domain/master_setup_intent.dart';
 import '../domain/pending_identity_erase.dart';
 import '../domain/identity_erase_review.dart';
 import 'background_node_controller.dart';
@@ -4988,6 +4991,7 @@ class AppController extends Notifier<AppState> {
       return false;
     }
 
+    MasterSetupIntent? creationIntent;
     try {
       final master = converting
           ? await create(masterMode)
@@ -5030,9 +5034,6 @@ class AppController extends Notifier<AppState> {
           await edit.step(master.close);
           return await refuse();
         }
-        await edit.step(
-          () => master.putSetting(kPendingMasterSetupSetting, '1'),
-        );
       }
       final masterKeys = await edit.step(master.exportSpaceKeys);
       if (!converting && !listEquals(masterKeys, expectedMasterKeys)) {
@@ -5055,8 +5056,35 @@ class AppController extends Notifier<AppState> {
         await edit.step(master.close);
         return await refuse();
       }
+      // Persist the exact planned slot before child creation. The public
+      // catalog alone cannot reconstruct the original hidden source or label.
+      final plannedChild = ProfileStorageRouter.newLocation(protection);
+      if (converting) {
+        creationIntent = MasterSetupIntent.create(
+          root: masterLocator,
+          keys: masterKeys,
+          base: base,
+          childLocator: plannedChild,
+          childLabel: label,
+          childAnonymous: anonymous,
+        );
+        await edit.step(
+          () => MasterSetupJournal.prepare(
+            storage: master,
+            intent: creationIntent!,
+            root: masterLocator,
+            keys: masterKeys,
+            check: edit.check,
+          ),
+        );
+      }
       await edit.step(master.close);
-      final child = await create(protection);
+      await _updateStorageRoute(
+        () => router.select(plannedChild, create: true, access: false),
+      );
+      edit.storages.add(router.storage);
+      edit.check();
+      var child = router.storage;
       final childLocator = router.location;
       if (!await edit.step(
         () => child.open(
@@ -5093,7 +5121,47 @@ class AppController extends Notifier<AppState> {
         await edit.step(child.close);
         return await refuse();
       }
-      await edit.step(() => child.saveProfile(UserProfile(displayName: label)));
+      MasterSetupChildProof? childProof;
+      if (converting) {
+        // The child has no personalized payload until its actual keys have
+        // been recorded in the parent. Hidden spaces share one file owner, so
+        // close and reopen the exact stores rather than holding both at once.
+        await edit.step(child.close);
+        await edit.step(router.refresh);
+        final journalOwner = await _storageForIdentityEdit(masterLocator, edit);
+        if (!await edit.step(() => journalOwner.openWithKeys(masterKeys))) {
+          return await refuse();
+        }
+        final recorded = await MasterSetupJournal.attachChild(
+          storage: journalOwner,
+          intent: creationIntent!,
+          childKeys: childKeys,
+          root: masterLocator,
+          keys: masterKeys,
+          check: edit.check,
+        );
+        creationIntent.destroy();
+        creationIntent = recorded;
+        edit.check();
+        await edit.step(journalOwner.close);
+        child = await _storageForIdentityEdit(childLocator, edit);
+        if (!await edit.step(() => child.openWithKeys(childKeys))) {
+          return await refuse();
+        }
+        childProof = await edit.step(
+          () => MasterSetupJournal.initializeChild(
+            storage: child,
+            intent: creationIntent!,
+            child: childLocator,
+            childKeys: childKeys,
+            check: edit.check,
+          ),
+        );
+      } else {
+        await edit.step(
+          () => child.saveProfile(UserProfile(displayName: label)),
+        );
+      }
       await edit.step(child.close);
       await edit.step(router.refresh);
       final owner = await _storageForIdentityEdit(masterLocator, edit);
@@ -5123,8 +5191,20 @@ class AppController extends Notifier<AppState> {
           storageLocator: childLocator,
         ),
       ];
-      await edit.step(() => owner.saveRoster(updated));
-      await edit.step(() => owner.putSetting(kPendingMasterSetupSetting, '0'));
+      if (converting) {
+        await edit.step(
+          () => MasterSetupJournal.publishAndFinish(
+            storage: owner,
+            intent: creationIntent!,
+            childProof: childProof!,
+            root: masterLocator,
+            keys: masterKeys,
+            check: edit.check,
+          ),
+        );
+      } else {
+        await edit.step(() => owner.saveRoster(updated));
+      }
       if (converting) {
         if (masterLocator is LegacyStorageLocator &&
             previousAccess == masterLocator) {
@@ -5154,6 +5234,7 @@ class AppController extends Notifier<AppState> {
       devLog(() => 'xVeil[identity]: routed add failed (${error.runtimeType})');
       return await refuse();
     } finally {
+      creationIntent?.destroy();
       try {
         await router.refresh();
       } catch (_) {

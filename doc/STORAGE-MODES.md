@@ -164,6 +164,13 @@ regression checks pass. This is a preparation backend, not yet the ordinary
 application creation/recovery path. Planned-child reconciliation, completed
 roster publication, a final receipt and application recovery remain open;
 managed production defaults stay OFF.
+The [ordinary master-creation completion follow-up](validation/master-setup-creation-completion-2026-11-15/README.md)
+now uses that intent in routed conversion: persist the planned child, record
+its actual keys before payloads, verify child completion, then publish the
+roster and atomic non-replayable receipt/cleared marker. Native interruption
+and process-death controls cover preparation and completion. Application
+recovery UI/replay, planned-child reconciliation, transactional existing-master
+appends and remaining activation gates are still open; defaults remain OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

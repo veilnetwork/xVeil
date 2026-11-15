@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/master_setup_journal.dart';
 import 'package:xveil/domain/master_setup_intent.dart';
 import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/domain/storage_setup.dart';
+import 'package:xveil/domain/storage_initialization.dart';
 import 'support/master_setup_fixture.dart';
 
 Never mark(String directory, String phase) {
@@ -36,9 +37,31 @@ class _BeforePublication extends SyncWrappedAsyncKvLogStore {
   }
 }
 
+class _BeforeCompletedMarker extends SyncWrappedAsyncKvLogStore {
+  _BeforeCompletedMarker(super.inner, this.fixture, this.phase, this.setting);
+  final String fixture, phase, setting;
+  @override
+  Future<int> commit(List<KvLogOp> ops) async {
+    if (ops.whereType<PutOp>().any(
+      (op) =>
+          utf8.decode(op.key) == 'set:$setting' && utf8.decode(op.value) == '0',
+    )) {
+      mark(fixture, phase);
+    }
+    return super.commit(ops);
+  }
+}
+
 Future<void> main(List<String> args) async {
   if (args.length != 3 ||
-      !['before-publication', 'prepared', 'child-known'].contains(args[1])) {
+      ![
+        'before-publication',
+        'prepared',
+        'child-known',
+        'child-profile-staged',
+        'roster-published',
+        'completed',
+      ].contains(args[1])) {
     exit(2);
   }
   final path = Directory(args[0]).resolveSymbolicLinksSync();
@@ -89,5 +112,50 @@ Future<void> main(List<String> args) async {
     check: () {},
   );
   if (!ready.childKnown) exit(5);
+  if (args[1] == 'child-known') mark(path, args[1]);
+  await storage.close();
+  final childRaw = ManagedIdentityFiles.openWithKeys(
+    owner,
+    id: fixture.id('b'),
+    keys: childKeys,
+  );
+  final childStorage = args[1] == 'child-profile-staged'
+      ? HiddenVolumeStorage.fromAsyncStore(
+          _BeforeCompletedMarker(
+            childRaw,
+            path,
+            args[1],
+            kPendingIdentitySetupSetting,
+          ),
+        )
+      : HiddenVolumeStorage.fromStore(childRaw);
+  final proof = await MasterSetupJournal.initializeChild(
+    storage: childStorage,
+    intent: ready,
+    child: ready.childLocator,
+    childKeys: childKeys,
+    check: () {},
+  );
+  await childStorage.close();
+  final rootRaw = fixture.openRoot(owner);
+  storage = args[1] == 'roster-published'
+      ? HiddenVolumeStorage.fromAsyncStore(
+          _BeforeCompletedMarker(
+            rootRaw,
+            path,
+            args[1],
+            kPendingMasterSetupSetting,
+          ),
+        )
+      : HiddenVolumeStorage.fromStore(rootRaw);
+  await MasterSetupJournal.publishAndFinish(
+    storage: storage,
+    intent: ready,
+    childProof: proof,
+    root: fixture.root,
+    keys: keys,
+    check: () {},
+  );
+  if (args[1] != 'completed') exit(6);
   mark(path, args[1]);
 }

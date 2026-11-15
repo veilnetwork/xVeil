@@ -291,17 +291,18 @@ final class ProfileStorageRouter {
     });
   }
 
+  /// Allocate before creating anything so a protected parent can journal the
+  /// exact intended child. Allocation alone neither creates nor registers it.
+  static IdentityStorageLocator newLocation(StorageProtection protection) =>
+      protection == StorageProtection.hidden
+      ? const LegacyStorageLocator()
+      : ManagedStorageLocator(
+          id: ManagedIdentityFiles.newId(),
+          protection: protection,
+        );
+
   Future<void> create(StorageProtection protection, {bool access = true}) =>
-      select(
-        protection == StorageProtection.hidden
-            ? const LegacyStorageLocator()
-            : ManagedStorageLocator(
-                id: ManagedIdentityFiles.newId(),
-                protection: protection,
-              ),
-        create: true,
-        access: access,
-      );
+      select(newLocation(protection), create: true, access: access);
 
   void requireAccessSelection() {
     if (_selectionRequired) {
