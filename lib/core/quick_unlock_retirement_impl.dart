@@ -65,8 +65,43 @@ final class QuickUnlockRetirement {
   bool _verified = false, _released = false;
   final List<QuickUnlockVault> _vaults;
   Future<void>? _pending;
+  Future<QuickUnlockAbsenceWitness>? _capturing;
 
-  Future<void> retire() {
+  /// Seal every scope synchronously, join accepted enrollment, then capture
+  /// only the addresses needed for later read-only absence verification.
+  /// No record is deleted. The enclosing actor must durably bind the result
+  /// to its original intent before allowing retirement to remove metadata.
+  Future<QuickUnlockAbsenceWitness> prepareAbsenceWitness() {
+    if (_released) return Future.error(const QuickUnlockRetirementFailure());
+    final capturing = _capturing;
+    if (capturing != null) return capturing;
+    try {
+      _requireOwner?.call();
+    } catch (_) {
+      return Future.error(const QuickUnlockRetirementFailure());
+    }
+    final tasks = [
+      for (final vault in _vaults) vault._captureForErasure(_requireOwner),
+    ];
+    return _capturing = () async {
+      try {
+        final keys = await Future.wait(tasks);
+        _requireOwner?.call();
+        return QuickUnlockAbsenceWitness(
+          scopes: StorageUnlockScopes(_vaults.map((vault) => vault.scope)),
+          protectedKeys: keys.expand((keys) => keys),
+        );
+      } catch (_) {
+        throw const QuickUnlockRetirementFailure();
+      } finally {
+        _capturing = null;
+      }
+    }();
+  }
+
+  Future<void> retire({
+    Future<void> Function(QuickUnlockAbsenceWitness witness)? persistWitness,
+  }) {
     if (_released) return Future.error(const QuickUnlockRetirementFailure());
     final pending = _pending;
     if (pending != null) return pending;
@@ -78,17 +113,22 @@ final class QuickUnlockRetirement {
     // Invoke every scope synchronously before awaiting: a slow/refusing first
     // scope cannot leave later scopes accepting stale enrollment in the gap.
     _verified = false;
-    final tasks = [
-      for (final vault in _vaults)
-        _requireOwner == null
-            ? vault.retireForErasure()
-            : vault._retireBoundForErasure(_requireOwner),
-    ];
+    final captured = prepareAbsenceWitness();
     return _pending = () async {
       try {
+        final witness = await captured;
+        await persistWitness?.call(witness);
+        _requireOwner?.call();
+        final protectedKeys = witness.protectedKeys.toSet();
+        final tasks = [
+          for (final vault in _vaults)
+            vault._retireCapturedForErasure(protectedKeys, _requireOwner),
+        ];
         // Wait for ALL tasks even if one fails. Every forget verifies absence;
         // soft UI opt-in flags are intentionally never consulted.
         await Future.wait(tasks);
+        _requireOwner?.call();
+        await witness.verifyAbsent(_vaults.first.store);
         _requireOwner?.call();
         _verified = true;
       } catch (_) {
@@ -106,6 +146,7 @@ final class QuickUnlockRetirement {
       if (!_verified ||
           _released ||
           _pending != null ||
+          _capturing != null ||
           _vaults.any(
             (vault) =>
                 !vault._scopeState.retired ||
@@ -143,6 +184,7 @@ final class QuickUnlockRetirement {
     if (_released ||
         !_verified ||
         _pending != null ||
+        _capturing != null ||
         binding == null ||
         !receipt.authorizes(binding)) {
       throw const QuickUnlockRetirementFailure();
