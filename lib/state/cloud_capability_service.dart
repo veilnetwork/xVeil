@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/async_tasks.dart';
 import '../core/log.dart';
 import '../core/serve_admission.dart';
 import '../data/storage/storage.dart';
@@ -18,6 +19,8 @@ import '../domain/device_sync.dart';
 import 'cloud_folder_share.dart';
 import 'group_service_providers.dart';
 import 'providers.dart';
+import 'app_controller.dart' show sessionWorkIdentityProvider;
+import 'messaging_providers.dart';
 
 /// Bridges the app [Storage] into the folder-share host's minimal read surface.
 class _FolderShareStorageAdapter implements CloudFolderShareStorage {
@@ -295,7 +298,8 @@ class CloudCapabilityService implements ArchiveCloud {
   final Map<int, Future<void>> _retiringEndpoints = {};
   StreamSubscription<void>? _syncSubscription;
   Timer? _syncTimer;
-  Future<void>? _started;
+  Future<void>? _started, _closing;
+  final _metadataTasks = AsyncTasks();
   Future<void> _mutation = Future.value();
   bool _closed = false;
 
@@ -313,7 +317,12 @@ class CloudCapabilityService implements ArchiveCloud {
   final _inFlightFolderCalls = <Future<void>>[];
   int _lastTimestamp = 0;
 
-  Future<void> start() => _started ??= _start();
+  Future<void> start() {
+    if (_closed) {
+      return Future.error(StateError('cloud capability service is closed'));
+    }
+    return _started ??= _start();
+  }
 
   Future<void> _start() async {
     // The event log is read FIRST, because it is the authority on what was
@@ -322,7 +331,9 @@ class CloudCapabilityService implements ArchiveCloud {
     // served again from the moment the app opened until the first reconcile —
     // and if its row had survived a crash, served for its whole lifetime.
     await _loadEvents();
+    if (_closed) return;
     final raw = await _loadMetadata(_registryFile, _registrySetting);
+    if (_closed) return;
     final keep = <_RegistryRow>[];
     if (raw != null) {
       try {
@@ -358,8 +369,11 @@ class CloudCapabilityService implements ArchiveCloud {
         }
       } catch (_) {}
     }
+    if (_closed) return;
     await _saveRows(keep);
+    if (_closed) return;
     for (final entry in _rows.entries) {
+      if (_closed) return;
       if (!_events.containsKey(entry.key)) {
         await _recordCapabilityEvent(
           entry.key,
@@ -368,7 +382,9 @@ class CloudCapabilityService implements ArchiveCloud {
         );
       }
     }
+    if (_closed) return;
     await _reconcileSync();
+    if (_closed) return;
     final sync = _sync;
     if (sync != null) {
       _syncSubscription = sync.changes.listen((_) {
@@ -389,7 +405,7 @@ class CloudCapabilityService implements ArchiveCloud {
       _folderRegistryFile,
       _folderRegistrySetting,
     );
-    if (raw == null) return;
+    if (_closed || raw == null) return;
     final keep = <_FolderRegistryRow>[];
     try {
       final decoded = jsonDecode(raw);
@@ -426,6 +442,7 @@ class CloudCapabilityService implements ArchiveCloud {
         keep.add(row);
       }
     } catch (_) {}
+    if (_closed) return;
     _folderRows.removeWhere(
       (key, row) => !keep.any((kept) => identical(kept, row)),
     );
@@ -1483,23 +1500,27 @@ class CloudCapabilityService implements ArchiveCloud {
     jsonEncode([for (final row in rows) row.toJson()]),
   );
 
-  Future<String?> _loadMetadata(String fileId, String legacySetting) async {
-    final bytes = await _storage.loadFile(fileId);
-    if (bytes != null) {
-      try {
-        return utf8.decode(bytes);
-      } catch (_) {
-        return null;
-      }
-    }
-    return _storage.getSetting(legacySetting);
-  }
+  Future<String?> _loadMetadata(String fileId, String legacySetting) =>
+      _metadataTasks.runRequired(() async {
+        final bytes = await _storage.loadFile(fileId);
+        if (bytes != null) {
+          try {
+            return utf8.decode(bytes);
+          } catch (_) {
+            return null;
+          }
+        }
+        return _storage.getSetting(legacySetting);
+      });
 
-  Future<void> _saveMetadata(String fileId, String value) => _storage.storeFile(
-    fileId,
-    Uint8List.fromList(utf8.encode(value)),
-    name: 'cloud-capability-metadata',
-  );
+  Future<void> _saveMetadata(String fileId, String value) =>
+      _metadataTasks.runRequired(
+        () => _storage.storeFile(
+          fileId,
+          Uint8List.fromList(utf8.encode(value)),
+          name: 'cloud-capability-metadata',
+        ),
+      );
 
   Future<int> _providerSlot() => cloudProviderSlot(_sync);
 
@@ -1538,9 +1559,18 @@ class CloudCapabilityService implements ArchiveCloud {
     return true;
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() {
     _closed = true;
+    return _closing ??= _close();
+  }
+
+  Future<void> _close() async {
+    // Join only accepted storage work, not pending network registrations.
+    // Late registrations keep their existing install-or-close policy. Metadata
+    // failure must not skip endpoint cleanup; its caller retains that failure.
+    await _metadataTasks.close().then<void>(
+      (_) {}, onError: (Object _, StackTrace _) {},
+    );
     _syncTimer?.cancel();
     await _syncSubscription?.cancel();
     final shares = _shares.values.toList();
@@ -2001,6 +2031,7 @@ bool _equal(List<int> left, List<int> right) {
 }
 
 final cloudCapabilityServiceProvider = Provider<CloudCapabilityService?>((ref) {
+  if (ref.watch(sessionWorkIdentityProvider) == null) return null;
   final transport = ref.watch(veilTransportProvider);
   if (transport is! VeilFlutterTransport) return null;
   final group = ref.watch(groupServiceProvider);
@@ -2009,7 +2040,10 @@ final cloudCapabilityServiceProvider = Provider<CloudCapabilityService?>((ref) {
     VeilCloudCapabilityNetwork(transport),
     sync: group == null ? null : GroupCloudCapabilitySyncPort(group),
   );
+  final close = ref
+      .read(messagingServiceProvider)
+      .registerShutdownTask(service.close);
   unawaited(service.start());
-  ref.onDispose(() => unawaited(service.close()));
+  ref.onDispose(() => unawaited(close()));
   return service;
 });

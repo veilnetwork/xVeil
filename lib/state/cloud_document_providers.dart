@@ -65,11 +65,16 @@ class _StorageMemberFolderAdapter implements CloudMemberFolderStoragePort {
 final cloudDocumentSignerProvider = FutureProvider<CloudDocumentSigner?>((
   ref,
 ) async {
-  final self = ref.watch(
-    appControllerProvider.select((state) => state.identity?.nodeId),
-  );
+  final self = ref.watch(sessionWorkIdentityProvider);
   if (self == null) return null;
-  final toml = await ref.read(storageProvider).loadNodeConfig();
+  final storage = ref.watch(storageProvider);
+  if (!storage.isOpen) return null;
+  final toml = await storage.loadNodeConfig();
+  if (!ref.mounted ||
+      ref.read(sessionWorkIdentityProvider) != self ||
+      !identical(ref.read(storageProvider), storage)) {
+    return null;
+  }
   if (toml == null) return null;
   return NativeCloudDocumentSigner(identityToml: toml, selfId: self);
 });
@@ -78,13 +83,15 @@ final cloudDocumentSignerProvider = FutureProvider<CloudDocumentSigner?>((
 /// on identity switch so keys and pending invites never cross deniable spaces.
 final cloudDocumentReplicationServiceProvider =
     Provider<CloudDocumentReplicationService?>((ref) {
-      final self = ref.watch(
-        appControllerProvider.select((state) => state.identity?.nodeId),
-      );
+      final self = ref.watch(sessionWorkIdentityProvider);
       if (self == null) return null;
       final session = ref.watch(sessionProvider);
       final active = ref.watch(activeIdentityProvider);
-      final signer = ref.watch(cloudDocumentSignerProvider).value;
+      final signerState = ref.watch(cloudDocumentSignerProvider);
+      final candidate = signerState.isLoading || signerState.hasError
+          ? null
+          : signerState.value;
+      final signer = candidate?.selfId == self ? candidate : null;
       final attached =
           <
             ({

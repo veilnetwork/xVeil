@@ -211,16 +211,21 @@ class CloudService implements ArchiveCloud {
   StreamSubscription<String>? _contentSub;
   Timer? _reconcileTimer;
   Timer? _integrityTimer;
-  Future<void>? _started;
+  Future<void>? _started, _loadingLocal, _closing;
   Future<void> _mutationChain = Future.value();
   bool _closed = false;
 
   CloudReplicationProfile get profile => _profile;
 
-  Future<void> start() => _started ??= _start();
+  Future<void> start() {
+    if (_closed) return Future.error(CloudServiceClosed());
+    return _started ??= _start();
+  }
 
   Future<void> _start() async {
-    await _loadLocal();
+    final loading = _loadLocal();
+    _loadingLocal = loading;
+    await loading;
     // `close` sweeps once and sets the flag; everything below it is installed
     // AFTER awaits. A close that lands in one of those windows cancelled
     // subscriptions that did not exist yet, and this then went on to install
@@ -545,6 +550,7 @@ class CloudService implements ArchiveCloud {
     final beforeRows = _indexRows().toList();
     final beforeFolders = _folders.values.toList();
     final remote = await _sync.records();
+    if (_closed) return;
     final mergedEvents = [
       for (final item in beforeRows) item.toEvent(),
       for (final folder in beforeFolders) folder.toEvent(),
@@ -2108,9 +2114,17 @@ class CloudService implements ArchiveCloud {
     return result;
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() {
     _closed = true;
+    return _closing ??= _close();
+  }
+
+  Future<void> _close() async {
+    // Provider disposal cannot await, but the messaging owner can. Keep its
+    // storage alive through local initialization, without waiting for network
+    // reconciliation. Failures remain the start caller's result; cleanup still
+    // runs, and concurrent close callers join this same barrier.
+    await _loadingLocal?.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     _reconcileTimer?.cancel();
     _integrityTimer?.cancel();
     await _syncSub?.cancel();
@@ -2134,8 +2148,9 @@ final cloudServiceProvider = Provider<CloudService?>((ref) {
     contentReceived: messaging.contentReceived.map((event) => event.contentId),
     shareStoredContent: messaging.shareStoredContent,
   );
+  final close = messaging.registerShutdownTask(service.close);
   unawaited(service.start());
-  ref.onDispose(() => unawaited(service.close()));
+  ref.onDispose(() => unawaited(close()));
   return service;
 });
 
