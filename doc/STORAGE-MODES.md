@@ -53,6 +53,11 @@ default. New managed files now persist no-padding at creation through the
 updated hidden-volume constructor. Host A/B/A and recovery checks pass; native
 libraries must be rebuilt/qualified for every target before packaging this
 binding change. Hidden defaults and existing stores are not converted.
+The [Android persisted-padding qualification](validation/managed-storage-android-persisted-padding-2026-11-15/README.md)
+now verifies the rebuilt native library in an isolated ordinary-entry Android
+debug app: actual three-role headers, normal owned reclamation, password-based
+cold readback and hidden default/isolation checks pass. This emulator run does
+not close physical OEM, release AOT, other native targets or mixed-roster gates.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
