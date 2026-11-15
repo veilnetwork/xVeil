@@ -1,5 +1,7 @@
 import '../../state/providers.dart' show prefsProvider;
 import '../../state/startup_unlock.dart';
+import '../../state/storage_router_providers.dart';
+import '../../domain/storage_locator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -65,6 +67,12 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     final nodes = List<int>.unmodifiable(_first);
     final system = _system;
     final startupEnabled = _startup;
+    final locator = ref.read(storageAccessLocatorProvider);
+    final managedSiblings = [
+      for (final entry
+          in ref.read(profileStorageRouterProvider)?.catalog.identities ?? [])
+        entry.locator,
+    ].whereType<ManagedStorageLocator>().toList(growable: false);
     // A screen-lock verifier cannot wrap the container password for startup.
     // Enabling biometrics must not depend on re-entering that existing pattern.
     // Keep it for the screen cover, and enroll only biometrics for startup
@@ -97,7 +105,11 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     } catch (_) {
       /* retain the form; no credentials in diagnostics */
     }
-    if (!mounted || !ref.holdsIdentity(lease)) return;
+    if (!mounted ||
+        !ref.holdsIdentity(lease) ||
+        ref.read(storageAccessLocatorProvider) != locator) {
+      return;
+    }
     if (saved) {
       try {
         final vault = ref.read(quickUnlockVaultProvider);
@@ -106,7 +118,11 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           final prefs = await ref.read(prefsProvider.future);
           // Mark consent before touching the OS store, so crash/wipe can also
           // find a partially configured credential. No marker exists by default.
-          if (!await prefs.setBool(kStartupUnlockOptIn, true)) {
+          if (!await setStartupUnlockConsent(
+            prefs,
+            locator,
+            managedSiblings: managedSiblings,
+          )) {
             throw StateError('Consent not saved');
           }
           await ref
@@ -117,14 +133,21 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
                   grid: startupGrid,
                   nodes: nodes,
                   system: system,
-                  stillCurrent: () => mounted && ref.holdsIdentity(lease),
+                  stillCurrent: () =>
+                      mounted &&
+                      ref.holdsIdentity(lease) &&
+                      ref.read(storageAccessLocatorProvider) == locator,
                 ),
               );
         } else {
           final prefs = await ref.read(prefsProvider.future);
-          if (prefs.getBool(kStartupUnlockOptIn) == true) {
+          if (startupUnlockConsented(prefs, locator)) {
             await vault.forget();
-            if (!await prefs.remove(kStartupUnlockOptIn)) {
+            if (!await clearStartupUnlockConsent(
+              prefs,
+              locator,
+              managedSiblings: managedSiblings,
+            )) {
               throw StateError('Consent not removed');
             }
           }

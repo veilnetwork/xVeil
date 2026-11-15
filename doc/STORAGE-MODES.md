@@ -144,6 +144,12 @@ requires the retained preference source and router to name the same container,
 not merely the same parent directory. Native controls cover default/custom
 source refusal before side effects and successful exact-file deletion with a
 same-key neighbor preserved. This is a boundary fix, not default activation.
+The [startup-consent follow-up](validation/managed-startup-consent-2026-11-15/README.md)
+separates enumerable identities' quick-entry consent, so changing one identity
+cannot hide or authorize another's saved entry. It preserves accepted historical
+enrollments and serializes fallback migration with explicit choices. Background
+settings/start-over and native preference-file reopen checks qualify this layer;
+physical authentication and the remaining activation gates stay open.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
