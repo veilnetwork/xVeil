@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import '../../core/storage_unlock_scope.dart';
+import '../../core/saved_entry_addresses.dart';
 import '../../domain/profile_preferences_layout.dart';
 import '../../domain/storage_locator.dart';
 import 'app_profile.dart';
@@ -54,6 +55,22 @@ final class LegacyProfilePreferences {
   String get preferencePath => '$_base/${ProfilePreferencesLayout.file}';
   String get scope =>
       storageUnlockScope(profile, legacyPath, const LegacyStorageLocator());
+
+  /// The cold recovery entrypoint runs before installing any profile backend.
+  /// Reading this does not create a preference lifetime or migrate settings.
+  void requireColdBootstrapSource() {
+    requireOriginalBackendSelected();
+    if (_state.retired || _state.pending != null || _state.operation != null) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
+
+  void requireOriginalBackendSelected() {
+    _requireCurrent();
+    if (!identical(SharedPreferencesStorePlatform.instance, _backend)) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
 
   void _requireCurrent() {
     if (_state.detached || !identical(_sources[_backend]?[scope], _state)) {
@@ -114,6 +131,102 @@ final class LegacyProfilePreferences {
       throw const LegacyProfilePreferencesFailure();
     } finally {
       _state.readers--;
+    }
+  }
+}
+
+/// Read-only terminal recovery. A serialized address set never grants removal
+/// of OS preferences; this owner can only inspect absence and consume the exact
+/// native release for a fresh installer using the ORIGINAL platform backend.
+final class LegacyProfilePreferencesColdRecovery {
+  LegacyProfilePreferencesColdRecovery({
+    required ManagedErasureSnapshot snapshot,
+    required String profileDirectory,
+    required LegacyProfilePreferences source,
+  }) : _source = source,
+       _binding = snapshot.binding,
+       _bootstrapBackend = SharedPreferencesStorePlatform.instance {
+    try {
+      final encoded = snapshot.savedEntryWitness;
+      if (!snapshot.isApplicationProfile ||
+          !snapshot.erasesProfilePreferences ||
+          encoded == null ||
+          SavedEntryAddresses.decode(encoded).scopes.ids.first !=
+              source.scope ||
+          Directory(profileDirectory).parent.resolveSymbolicLinksSync() !=
+              Directory(source._base).resolveSymbolicLinksSync()) {
+        throw const LegacyProfilePreferencesFailure();
+      }
+      source.requireColdBootstrapSource();
+    } catch (_) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+  }
+  final LegacyProfilePreferences _source;
+  final ManagedErasureBinding _binding;
+  final SharedPreferencesStorePlatform _bootstrapBackend;
+  bool _verified = false, _released = false;
+  bool _installing = false, _installed = false;
+  Future<void>? _checking;
+
+  Future<void> verifyAbsent() {
+    if (_released) return Future.error(const LegacyProfilePreferencesFailure());
+    final checking = _checking;
+    if (checking != null) return checking;
+    _verified = false;
+    final done = Completer<void>();
+    _checking = done.future;
+    unawaited(() async {
+      try {
+        _source.requireColdBootstrapSource();
+        await _source.verifyAbsent();
+        _source.requireColdBootstrapSource();
+        _verified = true;
+        done.complete();
+      } catch (_) {
+        done.completeError(const LegacyProfilePreferencesFailure());
+      } finally {
+        _checking = null;
+      }
+    }());
+    return done.future;
+  }
+
+  void admitFreshLifetime(ManagedErasureRelease release) {
+    _source.requireColdBootstrapSource();
+    if (!_verified ||
+        _released ||
+        _checking != null ||
+        _source._state.readers != 0 ||
+        !release.authorizes(_binding)) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+    _source._state.detached = true;
+    LegacyProfilePreferences._sources[_source._backend]!.remove(_source.scope);
+    _released = true;
+  }
+
+  Future<T> bootstrapFresh<T>(
+    ManagedErasureRelease release,
+    Future<T> Function(SharedPreferencesStorePlatform backend) install,
+  ) async {
+    if (!_released ||
+        !release.authorizes(_binding) ||
+        _installing ||
+        _installed ||
+        !identical(
+          SharedPreferencesStorePlatform.instance,
+          _bootstrapBackend,
+        )) {
+      throw const LegacyProfilePreferencesFailure();
+    }
+    _installing = true;
+    try {
+      final result = await install(_source._backend);
+      _installed = true;
+      return result;
+    } finally {
+      _installing = false;
     }
   }
 }

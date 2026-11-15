@@ -42,24 +42,43 @@ final class QuickUnlockRetirement {
   QuickUnlockRetirement.forWorker(
     ManagedErasureScopeLease lease,
     QuickUnlockSecretStore store,
-    LocalScreenAuthentication authentication,
-  ) : this._bound(
-        lease.snapshot,
-        store,
-        authentication,
-        requireOwner: () => lease.snapshot,
-      );
+    LocalScreenAuthentication authentication, {
+    QuickUnlockAbsenceWitness? recoveryWitness,
+  }) : this._bound(
+         lease.snapshot,
+         store,
+         authentication,
+         requireOwner: () => lease.snapshot,
+         recoveryWitness: recoveryWitness,
+       );
 
   QuickUnlockRetirement._bound(
     ManagedErasureSnapshot snapshot,
     QuickUnlockSecretStore store,
     LocalScreenAuthentication authentication, {
     required this._requireOwner,
+    QuickUnlockAbsenceWitness? recoveryWitness,
   }) : _binding = snapshot.binding,
        _vaults = List.unmodifiable([
          for (final scope in snapshot.unlockScopes.ids)
            QuickUnlockVault(store, scope, authentication),
-       ]);
+       ]) {
+    if (recoveryWitness != null) {
+      if (jsonEncode(recoveryWitness.scopes.ids) !=
+          jsonEncode(snapshot.unlockScopes.ids)) {
+        throw const QuickUnlockRetirementFailure();
+      }
+      for (final vault in _vaults) {
+        // Recovered addresses expand verification only. Deletion still needs
+        // the current public record and the original live native scope lease.
+        vault._scopeState.erasureBiometricKeys.addAll(
+          recoveryWitness.protectedKeys.where(
+            (key) => key.startsWith('${vault._key}.bio.'),
+          ),
+        );
+      }
+    }
+  }
   final ManagedErasureBinding? _binding;
   final void Function()? _requireOwner;
   bool _verified = false, _released = false;

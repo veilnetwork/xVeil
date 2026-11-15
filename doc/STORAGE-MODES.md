@@ -2056,8 +2056,11 @@ preservation and native-profile composition. The enclosing
 [application recovery journal](validation/application-erasure-journal-2026-11-15/README.md)
 now publishes those addresses before OS-record deletion, blocks ordinary startup
 through native terminal removal and supports read-only journal-only recovery.
-The native terminal remains roster-free. Cold application UI/platform handoff
-still needs implementation; managed storage is not enabled by this change.
+The native terminal remains roster-free. The
+[cold application owner](validation/cold-profile-recovery-2026-11-15/README.md)
+now connects those records to isolated startup recovery and fresh preference/UI
+handoff. Packaged platform qualification and remaining activation work still
+precede enabling the new default.
 
 ## Implementation boundaries
 
