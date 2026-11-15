@@ -7,12 +7,16 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/profile_storage_router.dart';
+import 'package:xveil/data/storage/profile_preferences_bootstrap.dart';
+import 'package:xveil/data/storage/profile_preferences.dart';
+import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/storage_locator.dart';
@@ -26,7 +30,7 @@ class _Fixture {
   final directory = Directory.systemTemp.createTempSync(
     'xveil-worker-references-',
   );
-  String get profile => '${directory.path}/profile';
+  String get profile => '${directory.path}/visible-storage';
   String get source => '${directory.path}/xveil.store';
   final oldKeys = <Uint8List>[];
   final newKeys = <Uint8List>[];
@@ -34,6 +38,7 @@ class _Fixture {
   ManagedIdentityId id(int n) => ManagedIdentityId('$n' * 32);
   late ManagedDirectoryCatalog root;
   final routers = <ProfileStorageRouter>[];
+  ManagedProfilePreferencesFile? preferences;
 
   Future<void> create({required bool publish}) async {
     expect(ensureHiddenVolumeLoaded(), isTrue);
@@ -184,6 +189,7 @@ class _Fixture {
     for (final router in routers) {
       await router.close();
     }
+    await preferences?.close();
     root.close();
     for (final bytes in [...oldKeys, ...newKeys, ...keys.values]) {
       bytes.fillRange(0, bytes.length, 0);
@@ -194,6 +200,78 @@ class _Fixture {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('ordinary recovery quiesces the live preference-file owner', () async {
+    final f = _Fixture();
+    await f.create(publish: true);
+    addTearDown(f.dispose);
+    final preferences = f.preferences =
+        await ManagedProfilePreferencesFile.open(
+          '${f.directory.path}/xveil.prefs.json',
+        );
+    expect(await preferences.write('{"fixture":"before"}'), isTrue);
+    f.releaseRoot();
+    final storage = await f.open(1) as HiddenVolumeStorage;
+    expect(
+      (await storage.loadRosterForMaintenance())!.single.spaceKeys,
+      f.newKeys.single,
+    );
+    expect(await preferences.read(), '{"fixture":"before"}');
+    expect(await preferences.write('{"fixture":"after"}'), isTrue);
+    expect(await preferences.read(), '{"fixture":"after"}');
+    await storage.close();
+  });
+
+  test(
+    'normal bound preference bootstrap survives selected-root recovery',
+    () async {
+      final f = _Fixture();
+      await f.create(publish: true);
+      addTearDown(f.dispose);
+      final previous = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({});
+      ProfilePreferencesLifetime? lifetime;
+      try {
+        final bootstrap = await bootstrapProfilePreferences(
+          supportDir: () async => f.directory.path,
+          args: const [],
+          environment: const {},
+          managedStorage: true,
+        );
+        expect(bootstrap.erasurePending, isFalse);
+        expect(bootstrap.supportDirectory, f.directory.path);
+        lifetime = ProfilePreferencesLifetime.current();
+        final preferences = await profilePreferences();
+        expect(
+          await preferences.setString('fixture', 'before-recovery'),
+          isTrue,
+        );
+        f.releaseRoot();
+        final storage = await f.open(1) as HiddenVolumeStorage;
+        expect(
+          (await storage.loadRosterForMaintenance())!.single.spaceKeys,
+          f.newKeys.single,
+        );
+        expect(preferences.getString('fixture'), 'before-recovery');
+        expect(
+          await preferences.setString('fixture', 'after-recovery'),
+          isTrue,
+        );
+        await preferences.reload();
+        expect(preferences.getString('fixture'), 'after-recovery');
+        await storage.close();
+      } finally {
+        final installed = SharedPreferencesStorePlatform.instance;
+        if (lifetime != null) {
+          await lifetime.releaseFile();
+        } else if (installed is ProfilePreferencesStore) {
+          await installed.releaseFile();
+        }
+        SharedPreferencesStorePlatform.instance = previous;
+      }
+    },
+  );
+
   for (final publish in [false, true]) {
     for (final n in [1, 2]) {
       test(
@@ -406,7 +484,7 @@ void main() {
     addTearDown(f.dispose);
     await f.master(
       1,
-        (s) => s.deleteStoredFile(ManagedLegacyReferenceRepair.journalFile),
+      (s) => s.deleteStoredFile(ManagedLegacyReferenceRepair.journalFile),
     );
     final otherIntent = await f.master(
       2,

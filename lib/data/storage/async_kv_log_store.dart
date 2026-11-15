@@ -678,6 +678,7 @@ SendPort _serveWorker(
           _ErasureAuxiliaryReq() ||
           _ErasureFinishReq() ||
           _PreferencesReadReq() ||
+          _PreferencesReleaseGrantReq() ||
           _PreferencesWriteReq():
         msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CommitReq(:final ops):

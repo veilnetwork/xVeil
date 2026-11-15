@@ -65,10 +65,13 @@ final class ProfileStorageRouter {
                           profileDirectory: profileDirectory,
                           entry: ManagedIdentityEntry.fromLocator(location),
                           recoverReferences: ({password, keys}) async {
-                            await catalog.recoverLegacyReferences(
-                              ManagedIdentityEntry.fromLocator(location),
-                              password: password,
-                              keys: keys,
+                            await ManagedProfilePreferencesFile.withProfileReleased(
+                              profileDirectory,
+                              () => catalog.recoverLegacyReferences(
+                                ManagedIdentityEntry.fromLocator(location),
+                                password: password,
+                                keys: keys,
+                              ),
                             );
                           },
                         )
@@ -76,10 +79,13 @@ final class ProfileStorageRouter {
                           profileDirectory: profileDirectory,
                           entry: ManagedIdentityEntry.fromLocator(location),
                           recoverReferences: ({password, keys}) async {
-                            await catalog.recoverLegacyReferences(
-                              ManagedIdentityEntry.fromLocator(location),
-                              password: password,
-                              keys: keys,
+                            await ManagedProfilePreferencesFile.withProfileReleased(
+                              profileDirectory,
+                              () => catalog.recoverLegacyReferences(
+                                ManagedIdentityEntry.fromLocator(location),
+                                password: password,
+                                keys: keys,
+                              ),
                             );
                           },
                         ))

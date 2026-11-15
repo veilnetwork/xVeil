@@ -18,14 +18,93 @@ final class _PreferencesWriteReq extends _Req {
   final String contents;
 }
 
+final class _PreferencesReleaseGrantReq extends _Req {
+  const _PreferencesReleaseGrantReq(this.admission, super.reply);
+  final SendPort admission;
+}
+
 /// Fixed-file I/O and its native shared profile grant live together. The UI
 /// never receives a grant to do local filesystem work outside this actor.
 final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
-  ManagedProfilePreferencesFile._(this.path, this._worker);
+  ManagedProfilePreferencesFile._(this.path, this._profile, this._worker);
   @override
   final String path;
+  final String _profile;
   final WorkerKvLogStore _worker;
   static final _retiring = <ManagedProfilePreferencesFile>{};
+  static final _active = <String, Set<ManagedProfilePreferencesFile>>{};
+  static final _opening =
+      <String, Set<Future<ManagedProfilePreferencesFile>>>{};
+  static final _maintenance = <String>{};
+
+  /// Quiesce this isolate's preference actors for the exact profile. Foreign
+  /// owners are still refused by native exclusive admission. File I/O and
+  /// close stay behind each actor's accepted scope; callers must not perform
+  /// preference I/O from [work] itself. New actors refuse during the scope:
+  /// no delayed opener may recreate data after later erasure. This helper
+  /// grants no filesystem authority; [work] still needs native admission.
+  static Future<T> withProfileReleased<T>(
+    String profileDirectory,
+    Future<T> Function() work,
+  ) async {
+    if (profileDirectory.isEmpty ||
+        profileDirectory.contains('\x00') ||
+        !Directory(profileDirectory).isAbsolute) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+    }
+    final profile = ManagedWorkerIdentity._profileKey(profileDirectory);
+    if (!_maintenance.add(profile)) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.busy);
+    }
+    try {
+      await Future.wait(
+        _opening[profile]?.toList() ??
+            const <Future<ManagedProfilePreferencesFile>>[],
+      );
+      final owners =
+          _active[profile]?.toList() ?? const <ManagedProfilePreferencesFile>[];
+      Future<T> release(int index) => index == owners.length
+          ? work()
+          : owners[index]._withReleasedGrant(() => release(index + 1));
+      return await release(0);
+    } finally {
+      _maintenance.remove(profile);
+    }
+  }
+
+  Future<T> _withReleasedGrant<T>(Future<T> Function() work) async {
+    late T result;
+    var completed = false;
+    Object? actionError;
+    StackTrace? actionStack;
+    final admission = _ManagedEraseAdmission(() async {
+      try {
+        result = await work();
+        completed = true;
+      } catch (error, stack) {
+        actionError = error;
+        actionStack = stack;
+        rethrow;
+      }
+    });
+    try {
+      await _worker._call<void>(
+        (reply) => _PreferencesReleaseGrantReq(admission.port, reply),
+      );
+      if (!completed) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
+      }
+      return result;
+    } catch (_) {
+      if (actionError != null) {
+        Error.throwWithStackTrace(actionError!, actionStack!);
+      }
+      rethrow;
+    } finally {
+      // Transport death does not cancel an already accepted catalog operation.
+      await admission.settleAndClose();
+    }
+  }
 
   static Future<ManagedProfilePreferencesFile> open(String path) => _open(path);
 
@@ -38,19 +117,47 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
   static Future<ManagedProfilePreferencesFile> _open(
     String path, {
     SendPort? writeGate,
-  }) async {
-    if (path.isEmpty ||
-        path.contains('\x00') ||
-        !File(path).isAbsolute ||
-        File(path).uri.pathSegments.last != ProfilePreferencesLayout.file) {
-      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+  }) {
+    try {
+      if (path.isEmpty ||
+          path.contains('\x00') ||
+          !File(path).isAbsolute ||
+          File(path).uri.pathSegments.last != ProfilePreferencesLayout.file) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+      }
+      final profile = ManagedWorkerIdentity._profileKey(
+        '${File(path).parent.path}/visible-storage',
+      );
+      if (_maintenance.contains(profile)) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.busy);
+      }
+      final opening = _openOwned(path, profile, writeGate: writeGate);
+      (_opening[profile] ??= {}).add(opening);
+      void settled() {
+        _opening[profile]?.remove(opening);
+        if (_opening[profile]?.isEmpty == true) _opening.remove(profile);
+      }
+
+      unawaited(
+        opening.then<void>(
+          (_) => settled(),
+          onError: (Object _, StackTrace _) => settled(),
+        ),
+      );
+      return opening;
+    } catch (error, stack) {
+      return Future.error(error, stack);
     }
+  }
+
+  static Future<ManagedProfilePreferencesFile> _openOwned(
+    String path,
+    String profile, {
+    SendPort? writeGate,
+  }) async {
     for (final old in _retiring.toList()) {
       if (old.path == path) await old.close();
     }
-    final profile = ManagedWorkerIdentity._profileKey(
-      '${File(path).parent.path}/visible-storage',
-    );
     try {
       final worker = await ManagedWorkerIdentity._spawnOwned(
         profile,
@@ -66,7 +173,9 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
       if (worker == null) {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
       }
-      return ManagedProfilePreferencesFile._(path, worker);
+      final file = ManagedProfilePreferencesFile._(path, profile, worker);
+      (_active[profile] ??= {}).add(file);
+      return file;
     } catch (_) {
       // Classification only: the failed native opener is the actual admission
       // gate, and this hint can never authorize an ordinary write or recovery.
@@ -90,6 +199,8 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
     _retiring.add(this);
     await _worker.close();
     _retiring.remove(this);
+    _active[_profile]?.remove(this);
+    if (_active[_profile]?.isEmpty == true) _active.remove(_profile);
   }
 }
 
@@ -117,11 +228,17 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
   const fs = ManagedFsPlatform();
   late final String base;
   late final ManagedPathWitness baseWitness;
+  late final String profile, roleDirectory;
+  late final ManagedPathWitness profileWitness, roleWitness;
   late final File file;
   try {
     final suppliedBase = File(config.path).parent;
     suppliedBase.createSync(recursive: true);
     gate = StorageProfileCoordinator.forPreferences(suppliedBase.path);
+    profile = gate.profileDirectory;
+    profileWitness = fs.inspect(profile);
+    roleDirectory = gate.directory;
+    roleWitness = fs.inspect(roleDirectory);
     base = Directory(gate.profileDirectory).parent.path;
     baseWitness = fs.inspect(base);
     file = File.fromUri(
@@ -142,12 +259,21 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
     config.reply.send(_workerErrorReply(error, managed: true));
     return;
   }
-  final owner = gate;
-  void requireHeld() {
-    owner.requireHeld();
-    if (!baseWitness.sameObject(fs.inspect(base))) {
+  void requireStablePath() {
+    if (!baseWitness.sameObject(fs.inspect(base)) ||
+        !profileWitness.sameObject(fs.inspect(profile)) ||
+        !roleWitness.sameObject(fs.inspect(roleDirectory))) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
+  }
+
+  void requireHeld() {
+    final owner = gate;
+    if (owner == null) {
+      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.closed);
+    }
+    owner.requireHeld();
+    requireStablePath();
   }
 
   void requireFile() {
@@ -179,6 +305,18 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
     unawaited(() async {
       try {
         switch (message) {
+          case _PreferencesReleaseGrantReq(:final admission):
+            requireHeld();
+            gate!.close();
+            gate = null;
+            try {
+              await _awaitManagedEraseAdmission(admission);
+            } finally {
+              requireStablePath();
+              gate = StorageProfileCoordinator.openExisting(profile, fs: fs);
+              requireHeld();
+            }
+            message.reply.send(const _Ok(null));
           case _PreferencesReadReq():
             requireFile();
             final value = file.existsSync() ? file.readAsStringSync() : null;
@@ -194,7 +332,7 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
             message.reply.send(_Ok(written));
           case _CloseReq():
             closing = true;
-            owner.close();
+            gate?.close();
             message.reply.send(const _Ok(null));
             rx.close();
             Isolate.current.kill(priority: Isolate.immediate);

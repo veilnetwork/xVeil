@@ -89,6 +89,12 @@ leases, without dispatching publication to another isolate. Plugin checks and
 actual process-death checkpoints qualify its publication/abort behavior. The
 application's all-owner dialog and worker operation still need to be connected;
 this prerequisite does not change defaults or bypass the mixed-profile guard.
+The [preference-owner follow-up](validation/preference-grant-quiescence-2026-11-15/README.md)
+fixes a confirmed composition gap: ordinary preference-file ownership blocked
+selected-root recovery's exclusive admission. Recovery now quiesces matching
+local preference actors and restores existing grants before later file I/O.
+Normal bound-preference bootstrap/read/write remains usable after repair;
+new actors refuse during maintenance and need explicit retry.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
