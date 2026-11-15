@@ -7,6 +7,9 @@ import 'hidden_volume_storage.dart';
 import 'managed_identity_catalog.dart';
 import 'managed_reclaim_budget.dart';
 
+typedef ManagedReferenceRecovery =
+    Future<void> Function({Uint8List? password, Uint8List? keys});
+
 /// Binds the application's domain mapping and large-file tier to ONE visible
 /// identity. Neither password nor key failures probe another locator or mode.
 /// The location carries no hidden-space information and is immutable for the
@@ -15,6 +18,7 @@ final class ManagedIdentityStorage {
   ManagedIdentityStorage.existing({
     required String profileDirectory,
     required this.entry,
+    this.recoverReferences,
   }) : _profile = _profilePath(profileDirectory),
        _creationPending = false {
     _bind();
@@ -26,6 +30,7 @@ final class ManagedIdentityStorage {
   ManagedIdentityStorage.forCreation({
     required String profileDirectory,
     required this.entry,
+    this.recoverReferences,
   }) : _profile = _profilePath(profileDirectory),
        _creationPending = true {
     _bind();
@@ -36,6 +41,7 @@ final class ManagedIdentityStorage {
 
   final String _profile;
   final ManagedIdentityEntry entry;
+  final ManagedReferenceRecovery? recoverReferences;
   bool _creationPending;
   bool _opening = false;
   WorkerKvLogStore? _worker;
@@ -77,6 +83,26 @@ final class ManagedIdentityStorage {
     }
   }
 
+  Future<WorkerKvLogStore> _withReferenceRecovery(
+    Future<WorkerKvLogStore> Function() open, {
+    Uint8List? password,
+    Uint8List? keys,
+  }) async {
+    try {
+      return await open();
+    } on ManagedWorkerFailure catch (error) {
+      final recover = recoverReferences;
+      if (error.kind != ManagedWorkerFailureKind.recoveryRequired ||
+          recover == null) {
+        rethrow;
+      }
+      await recover(password: password, keys: keys);
+      // Retry exactly once. A second intent or changed ownership is a refusal,
+      // never permission to serve a stale root or loop through other identities.
+      return open();
+    }
+  }
+
   Future<WorkerKvLogStore?> _open({
     required Uint8List password,
     required bool create,
@@ -101,16 +127,21 @@ final class ManagedIdentityStorage {
                   id: entry.id,
                 );
         }
-        return entry.protection == StorageProtection.encrypted
-            ? ManagedWorkerIdentity.openEncrypted(
-                profileDirectory: _profile,
-                id: entry.id,
-                password: password,
-              )
-            : ManagedWorkerIdentity.openUnencrypted(
-                profileDirectory: _profile,
-                id: entry.id,
-              );
+        return _withReferenceRecovery(
+          () => entry.protection == StorageProtection.encrypted
+              ? ManagedWorkerIdentity.openEncrypted(
+                  profileDirectory: _profile,
+                  id: entry.id,
+                  password: password,
+                )
+              : ManagedWorkerIdentity.openUnencrypted(
+                  profileDirectory: _profile,
+                  id: entry.id,
+                ),
+          password: entry.protection == StorageProtection.encrypted
+              ? password
+              : null,
+        );
       });
       if (worker != null && created) _creationPending = false;
       return worker;
@@ -119,20 +150,28 @@ final class ManagedIdentityStorage {
     }
   }
 
-  Future<WorkerKvLogStore?> _openKeys(Uint8List keys) {
+  Future<WorkerKvLogStore?> _openKeys(Uint8List keys) async {
     if (_creationPending) {
       throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
     }
-    // Keys are borrowed from a roster/vault. The worker snapshots them; never
-    // wipe or retain the caller's buffer here.
-    return _openingWorker(
-      () => ManagedWorkerIdentity.openWithKeys(
-        profileDirectory: _profile,
-        id: entry.id,
-        protection: entry.protection,
-        keys: keys,
-      ),
-    );
+    // Retain our own copy across a possible recovery RPC and retry. The caller
+    // may discard its roster/vault buffer after the first worker was spawned.
+    final copy = Uint8List.fromList(keys);
+    try {
+      return await _openingWorker(
+        () => _withReferenceRecovery(
+          () => ManagedWorkerIdentity.openWithKeys(
+            profileDirectory: _profile,
+            id: entry.id,
+            protection: entry.protection,
+            keys: copy,
+          ),
+          keys: copy,
+        ),
+      );
+    } finally {
+      copy.fillRange(0, copy.length, 0);
+    }
   }
 
   Future<ManagedReclaimReport> reclaim({bool force = false}) {

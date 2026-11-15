@@ -14,6 +14,17 @@ final class _CatalogSelectReq extends _Req {
   final ManagedIdentityEntry? entry;
 }
 
+final class _CatalogRecoverReferencesReq extends _Req {
+  const _CatalogRecoverReferencesReq(
+    this.entry,
+    this.password,
+    this.keys,
+    super.reply,
+  );
+  final ManagedIdentityEntry entry;
+  final Uint8List? password, keys;
+}
+
 final class _CatalogEraseReq extends _Req {
   const _CatalogEraseReq(
     this.entry,
@@ -119,6 +130,26 @@ final class ManagedCatalogWorker {
       _worker._call((reply) => _CatalogSnapshotReq(reply));
   Future<ManagedCatalogSnapshot> select(ManagedIdentityEntry? entry) =>
       _worker._call((reply) => _CatalogSelectReq(entry, reply));
+
+  /// Only a selected, authenticated root is recovered. Other private journals
+  /// and credentials remain untouched; no hidden-space inventory is returned.
+  Future<LegacyReferenceRepairOutcome> recoverLegacyReferences(
+    ManagedIdentityEntry entry, {
+    Uint8List? password,
+    Uint8List? keys,
+  }) {
+    final pass = password == null ? null : Uint8List.fromList(password);
+    final key = keys == null ? null : Uint8List.fromList(keys);
+    return _worker
+        ._call<LegacyReferenceRepairOutcome>(
+          (reply) => _CatalogRecoverReferencesReq(entry, pass, key, reply),
+        )
+        .whenComplete(() {
+          pass?.fillRange(0, pass.length, 0);
+          key?.fillRange(0, key.length, 0);
+        });
+  }
+
   Future<ManagedCatalogSnapshot> erase(
     ManagedIdentityEntry entry, {
     Uint8List? password,
@@ -201,6 +232,85 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
       root ??= ManagedDirectoryCatalog.openExisting(config.path);
   ManagedCatalogSnapshot absent() =>
       ManagedCatalogSnapshot(ManagedIdentityCatalog([]), 0);
+  Future<LegacyReferenceRepairOutcome> recoverReferences(
+    _CatalogRecoverReferencesReq request,
+  ) async {
+    ManagedIdentityStore? store;
+    Uint8List? keys;
+    var released = false;
+    try {
+      final owner = current();
+      if (owner == null) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
+      }
+      final entry = request.entry;
+      if (!owner.snapshot().catalog.identities.any(
+            (value) =>
+                value.id == entry.id && value.protection == entry.protection,
+          ) ||
+          (request.password != null && request.keys != null)) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid);
+      }
+      store = request.keys != null
+          ? ManagedIdentityFiles.openWithKeys(
+              owner,
+              id: entry.id,
+              keys: request.keys!,
+            )
+          : entry.protection == StorageProtection.encrypted
+          ? ManagedIdentityFiles.openWithPassword(
+              owner,
+              id: entry.id,
+              password:
+                  request.password ??
+                  (throw const ManagedWorkerFailure(
+                    ManagedWorkerFailureKind.authentication,
+                  )),
+            )
+          : ManagedIdentityFiles.openUnencrypted(owner, id: entry.id);
+      if (!ManagedLegacyReferenceRepair.hasPendingJournal(store)) {
+        return LegacyReferenceRepairOutcome.none;
+      }
+      keys = store.exportKeys();
+      store.close();
+      store = null;
+      owner.close();
+      root = null;
+      coordinator?.close();
+      coordinator = null;
+      released = true;
+      root = ManagedDirectoryCatalog.openExclusiveMaintenance(config.path);
+      if (root == null) {
+        throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
+      }
+      return await ManagedLegacyReferenceRepair.resumeForIdentity(
+        owner: root!,
+        identity: entry.id,
+        keys: keys,
+      );
+    } finally {
+      try {
+        store?.close();
+      } finally {
+        keys?.fillRange(0, keys.length, 0);
+        if (released) {
+          // Keep failed-close owners reachable for the normal close protocol.
+          // Reopening uses existing roles only: a raced wipe is not creation.
+          root?.close();
+          root = null;
+          coordinator = StorageProfileCoordinator.openExisting(config.path);
+          if (coordinator == null) {
+            throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
+          }
+          root = ManagedDirectoryCatalog.openExisting(config.path);
+          if (root == null) {
+            throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
+          }
+        }
+      }
+    }
+  }
+
   late final StreamSubscription<dynamic> subscription;
   subscription = rx.listen((dynamic message) {
     if (message is! _Req) return;
@@ -211,6 +321,10 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
       }
       if (message is _CatalogReviewEraseReq) {
         message.keys.fillRange(0, message.keys.length, 0);
+      }
+      if (message is _CatalogRecoverReferencesReq) {
+        message.password?.fillRange(0, message.password!.length, 0);
+        message.keys?.fillRange(0, message.keys!.length, 0);
       }
       message.reply.send(
         const _ManagedWorkerErr(ManagedWorkerFailureKind.closed),
@@ -233,6 +347,19 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.missing);
           }
           message.reply.send(_Ok(owner?.select(entry) ?? absent()));
+        case _CatalogRecoverReferencesReq():
+          subscription.pause();
+          unawaited(() async {
+            try {
+              message.reply.send(_Ok(await recoverReferences(message)));
+            } catch (error) {
+              message.reply.send(_workerErrorReply(error, managed: true));
+            } finally {
+              message.password?.fillRange(0, message.password!.length, 0);
+              message.keys?.fillRange(0, message.keys!.length, 0);
+              subscription.resume();
+            }
+          }());
         case _CatalogEraseReq(
           :final entry,
           :final password,

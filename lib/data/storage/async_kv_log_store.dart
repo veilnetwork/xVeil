@@ -663,6 +663,10 @@ SendPort _serveWorker(
     }
 
     switch (msg) {
+      case _CatalogRecoverReferencesReq(:final password, :final keys):
+        password?.fillRange(0, password.length, 0);
+        keys?.fillRange(0, keys.length, 0);
+        msg.reply.send(const _ManagedWorkerErr(ManagedWorkerFailureKind.mode));
       case _CatalogSnapshotReq() ||
           _CatalogSelectReq() ||
           _CatalogEraseReq() ||

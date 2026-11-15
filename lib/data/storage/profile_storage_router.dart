@@ -64,10 +64,24 @@ final class ProfileStorageRouter {
                       ? ManagedIdentityStorage.forCreation(
                           profileDirectory: profileDirectory,
                           entry: ManagedIdentityEntry.fromLocator(location),
+                          recoverReferences: ({password, keys}) async {
+                            await catalog.recoverLegacyReferences(
+                              ManagedIdentityEntry.fromLocator(location),
+                              password: password,
+                              keys: keys,
+                            );
+                          },
                         )
                       : ManagedIdentityStorage.existing(
                           profileDirectory: profileDirectory,
                           entry: ManagedIdentityEntry.fromLocator(location),
+                          recoverReferences: ({password, keys}) async {
+                            await catalog.recoverLegacyReferences(
+                              ManagedIdentityEntry.fromLocator(location),
+                              password: password,
+                              keys: keys,
+                            );
+                          },
                         ))
                   .storage,
           },

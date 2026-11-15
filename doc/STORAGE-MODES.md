@@ -76,6 +76,13 @@ compaction, refuses incomplete collected key maps, and owns repair credentials
 through publication. Native controls verify refusal preserves both identities
 and their files while healthy solo maintenance remains available. This does
 not activate managed defaults or remove the mixed-profile guard.
+The [worker recovery integration](validation/managed-reference-worker-recovery-2026-11-15/README.md)
+now connects selected-root recovery to ordinary profile opens. Pending roots
+are not served before repair; the catalog worker quiesces its shared grants,
+authenticates the selected identity and acquires exclusive recovery ownership.
+All-owner compaction-dialog preparation, Windows source durability, full worker
+crash-boundary qualification and activation remain open. Unjournaled opens do
+not probe the hidden source or acquire exclusive maintenance ownership.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
