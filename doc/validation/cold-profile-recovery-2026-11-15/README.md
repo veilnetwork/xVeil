@@ -85,6 +85,8 @@ This is host/controller/widget qualification, not packaged application or OEM
 proof. Platform smoke and the remaining storage activation work still precede
 the new default. Ordinary Android metadata reads still have a separate plugin
 initialization path; this change does not claim it became entirely read-only.
+The subsequent [Android metadata-read change](../android-public-saved-entry-read-2026-11-15/README.md)
+replaces that ordinary path; its device qualification is still outstanding.
 Old experimental terminal records without an address witness are preserved and
 refused rather than treated as empty. The three storage modes remain disabled
 in production defaults. No user container/device installation, push or release

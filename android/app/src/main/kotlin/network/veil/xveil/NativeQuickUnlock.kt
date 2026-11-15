@@ -16,6 +16,11 @@ import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherFactory
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.spec.MGF1ParameterSpec
+import javax.crypto.Cipher
+import javax.crypto.spec.OAEPParameterSpec
+import javax.crypto.spec.PSource
 import java.io.File
 import java.util.concurrent.Executors
 import javax.crypto.SecretKey
@@ -54,11 +59,25 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
             }
         }
     }
+    private val publicReader = QuickUnlockPublicReader(
+        File(context.dataDir, "shared_prefs").toPath(),
+        FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix,
+    ) { wrapped ->
+        // Only retrieve an existing private key. No plugin/factory constructor:
+        // those constructors can generate keys between a preflight and use.
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.xveil_quick_pattern_v1"
+        val key = ks.getKey(alias, null) as? PrivateKey ?: error("Saved-entry key unavailable")
+        val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
+        cipher.init(Cipher.UNWRAP_MODE, key,
+            OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
+        cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+    }
     private var closed = false
 
     init {
         channel.setMethodCallHandler { call, result ->
-            if (call.method == "flush" || call.method == "contains" || call.method == "remove") {
+            if (call.method == "flush" || call.method == "contains" || call.method == "remove" || call.method == "readPublic") {
                 val args = call.arguments as? Map<*, *>
                 val key = args?.get("key") as? String
                 val biometric = args?.get("biometric") as? Boolean
@@ -67,11 +86,13 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                 } else {
                     try {
                         QuickUnlockPersistence.namespace(key, biometric)
+                        if (call.method == "readPublic") require(!biometric)
                         // Do not block the UI thread. Accepted commits survive
                         // dispose's executor shutdown and settle their own reply.
                         worker.execute {
                             try {
                                 val answer = when (call.method) {
+                                    "readPublic" -> publicReader.read(key)
                                     "contains" -> records.contains(key, biometric)
                                     "remove" -> { records.remove(key, biometric); true }
                                     else -> { persistence.flush(key, biometric); true }
