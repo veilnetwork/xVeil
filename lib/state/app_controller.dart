@@ -2045,6 +2045,20 @@ class AppController extends Notifier<AppState> {
       throw CompactionWouldDropIdentities(missing);
     }
     final passwords = roster.passwords();
+    final credentials = roster.credentials();
+    if (credentials.length != passwords.length ||
+        credentials.any(
+          (entry) =>
+              entry.oldSpaceKeys.length != 64 ||
+              entry.oldSpaceKeys.any((value) => value < 0 || value > 255),
+        ) ||
+        passwords.any(
+          (bytes) => bytes.any((value) => value < 0 || value > 255),
+        )) {
+      throw StateError(
+        'compaction requires a verified key map for every password',
+      );
+    }
     if (!passwords.any((bytes) => listEquals(bytes, utf8.encode(reopenWith)))) {
       throw StateError('compaction must retain the reopen password');
     }
@@ -2053,7 +2067,7 @@ class AppController extends Notifier<AppState> {
       reopenWith: reopenWith,
       // What each password opened before the repack — the only way back from
       // a roster that names its children by keys the repack has just changed.
-      credentials: roster.credentials(),
+      credentials: credentials,
     );
   }
 
@@ -2428,14 +2442,36 @@ class AppController extends Notifier<AppState> {
     required List<Uint8List> passwords,
     required String reopenWith,
     List<({List<int> password, List<int> oldSpaceKeys})> credentials = const [],
-  }) => _withCompaction(
-    () => _compactKeepingOwned(
-      passwords: passwords,
-      reopenWith: reopenWith,
-      credentials: credentials,
-    ),
-    blocksUnlock: true,
-  );
+  }) async {
+    // The collection/dialog owns its buffers and may discard them while native
+    // preparation awaits. Retain one immutable-by-ownership snapshot through
+    // staged repair, publication and recovery, including rejected admission.
+    final copied = <({Uint8List password, Uint8List oldSpaceKeys})>[];
+    try {
+      for (final entry in credentials) {
+        copied.add((
+          password: Uint8List.fromList(entry.password),
+          oldSpaceKeys: Uint8List.fromList(entry.oldSpaceKeys),
+        ));
+      }
+      return await _withCompaction(
+        () => _compactKeepingOwned(
+          passwords: passwords,
+          reopenWith: reopenWith,
+          credentials: copied,
+        ),
+        blocksUnlock: true,
+      );
+    } finally {
+      for (final bytes in passwords) {
+        wipeSecretBytes(bytes);
+      }
+      for (final entry in copied) {
+        wipeSecretBytes(entry.password);
+        wipeSecretBytes(entry.oldSpaceKeys);
+      }
+    }
+  }
 
   Future<void>? _compactionInFlight;
   Future<void>? _compactionCollectionInFlight;
@@ -2522,6 +2558,26 @@ class AppController extends Notifier<AppState> {
     void requireCurrentSession() {
       if (!ref.mounted || !holdsIdentity(lease)) {
         throw StateError('compaction session ended');
+      }
+    }
+
+    // This is the single-password path, not the already-probed collection.
+    // Cached classification is insufficient when a roster was unreadable.
+    if (credentials.isEmpty) {
+      final storage = ref.read(storageProvider);
+      if (!storage.isOpen) {
+        throw StateError('compaction requires an open identity');
+      }
+      final roster = await _readRosterForCompaction(storage);
+      try {
+        requireCurrentSession();
+        if (roster?.isNotEmpty == true) {
+          throw StateError('compaction requires every known identity password');
+        }
+      } finally {
+        _releaseKeys(
+          (roster ?? const <RosterEntry>[]).map((entry) => entry.spaceKeys),
+        );
       }
     }
 
@@ -3077,6 +3133,14 @@ class AppController extends Notifier<AppState> {
       await _withCompaction(() async {
         _autoCompactRunning = true;
         try {
+          final roster = await _readRosterForCompaction(storage);
+          try {
+            if (!current() || roster?.isNotEmpty == true) return;
+          } finally {
+            _releaseKeys(
+              (roster ?? const <RosterEntry>[]).map((entry) => entry.spaceKeys),
+            );
+          }
           devLog(
             () =>
                 'xVeil[storage]: pre-session auto-compact triggered '

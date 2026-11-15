@@ -112,10 +112,18 @@ void main() {
   test(
     'collection cannot drop the identity used to reopen the container',
     () async {
+      final fixture = FakeHvContainer().storage();
+      await fixture.open(password: 'other-fixture', createIfMissing: true);
+      final keys = await fixture.exportSpaceKeys();
+      await fixture.close();
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final roster = CompactionRoster()
-        ..addUnlocked('other', passwordBytes: [1, 2]);
+        ..addUnlocked(
+          'other',
+          passwordBytes: utf8.encode('other-fixture'),
+          spaceKeys: keys,
+        );
       await expectLater(
         container
             .read(appControllerProvider.notifier)

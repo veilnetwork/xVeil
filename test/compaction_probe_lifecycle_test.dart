@@ -158,7 +158,10 @@ class _Vpn implements VpnBackend {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
+Future<
+  ({ProviderContainer container, _Storage storage, File file, Uint8List keys})
+>
+_fixture(
   _Controller controller,
   _Stage stage, {
   Future<void> Function()? rewrite,
@@ -171,6 +174,7 @@ Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
   final seed = fake.storage();
   await seed.open(password: 'fixture', createIfMissing: true);
   await seed.saveProfile(const UserProfile(displayName: 'Synthetic identity'));
+  final keys = await seed.exportSpaceKeys();
   await seed.close();
   final storage = _Storage(fake.passwordOpener, stage);
   final container = ProviderContainer(
@@ -204,7 +208,7 @@ Future<({ProviderContainer container, _Storage storage, File file})> _fixture(
   addTearDown(container.dispose);
   addTearDown(storage.close);
   container.read(appControllerProvider);
-  return (container: container, storage: storage, file: file);
+  return (container: container, storage: storage, file: file, keys: keys);
 }
 
 Future<
@@ -213,6 +217,7 @@ Future<
     _Storage storage,
     File file,
     _Node node,
+    Uint8List keys,
     Future<bool> collecting,
   })
 >
@@ -233,6 +238,7 @@ _parkCollection(_Controller controller) async {
     storage: f.storage,
     file: f.file,
     node: node,
+    keys: f.keys,
     collecting: collecting,
   );
 }
@@ -312,7 +318,11 @@ void main() {
       await expectLater(
         controller.compactStorageKeeping(
           roster: CompactionRoster()
-            ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits),
+            ..addUnlocked(
+              'fixture',
+              passwordBytes: 'fixture'.codeUnits,
+              spaceKeys: f.keys,
+            ),
           reopenWith: 'fixture',
         ),
         throwsStateError,
@@ -476,7 +486,11 @@ void main() {
     f.storage.release.complete();
     final compacting = controller.compactStorageKeeping(
       roster: CompactionRoster()
-        ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits),
+        ..addUnlocked(
+          'fixture',
+          passwordBytes: 'fixture'.codeUnits,
+          spaceKeys: f.keys,
+        ),
       reopenWith: 'fixture',
     );
     final refused = expectLater(compacting, throwsStateError);

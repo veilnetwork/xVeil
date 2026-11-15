@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -13,11 +12,13 @@ import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 class _Notifications extends NotificationService {
   @override
@@ -47,35 +48,33 @@ class _Controller extends AppController {
   }
 }
 
-ProviderContainer _idleWipeContainer(Directory directory, String path) =>
-    ProviderContainer(
-      overrides: [
-        appControllerProvider.overrideWith(_Controller.new),
-        singleSpaceStorageProvider.overrideWithValue(
-          FakeHvContainer().storage(),
-        ),
-        notificationServiceProvider.overrideWithValue(_Notifications()),
-        vpnBackendProvider.overrideWithValue(_Vpn()),
-        whisperModelStoreProvider.overrideWithValue(
-          WhisperModelStore(supportDirectory: () async => directory),
-        ),
-        translationModelsRootProvider.overrideWithValue(() async => null),
-        deniableBootProvider.overrideWithValue(
-          DeniableBootConfig(
-            runtimeDir: '${directory.path}/runtime',
-            storePath: path,
-          ),
-        ),
-      ],
-    );
+ProviderContainer _idleWipeContainer(
+  Directory directory,
+  String path,
+) => ProviderContainer(
+  overrides: [
+    appControllerProvider.overrideWith(_Controller.new),
+    quickUnlockSecretStoreProvider.overrideWithValue(RetirementSecretStore()),
+    singleSpaceStorageProvider.overrideWithValue(FakeHvContainer().storage()),
+    notificationServiceProvider.overrideWithValue(_Notifications()),
+    vpnBackendProvider.overrideWithValue(_Vpn()),
+    whisperModelStoreProvider.overrideWithValue(
+      WhisperModelStore(supportDirectory: () async => directory),
+    ),
+    translationModelsRootProvider.overrideWithValue(() async => null),
+    deniableBootProvider.overrideWithValue(
+      DeniableBootConfig(
+        runtimeDir: '${directory.path}/runtime',
+        storePath: path,
+      ),
+    ),
+  ],
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    // These file-rewrite fixtures have no OS credentials. Provide an empty OS
-    // store so verified absence does not depend on an unavailable host plugin.
-    FlutterSecureStorage.setMockInitialValues({});
   });
 
   for (final failRewrite in [false, true]) {
@@ -109,9 +108,13 @@ void main() {
         return fake.passwordOpener(password: password, create: create);
       });
       await storage.open(password: 'fixture', createIfMissing: true);
+      final fixtureKeys = await storage.exportSpaceKeys();
       final controller = _Controller();
       final container = ProviderContainer(
         overrides: [
+          quickUnlockSecretStoreProvider.overrideWithValue(
+            RetirementSecretStore(),
+          ),
           appControllerProvider.overrideWith(() => controller),
           singleSpaceStorageProvider.overrideWithValue(storage),
           notificationServiceProvider.overrideWithValue(_Notifications()),
@@ -155,7 +158,11 @@ void main() {
       container.read(appControllerProvider);
       final compacting = controller.compactStorageKeeping(
         roster: CompactionRoster()
-          ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits),
+          ..addUnlocked(
+            'fixture',
+            passwordBytes: 'fixture'.codeUnits,
+            spaceKeys: fixtureKeys,
+          ),
         reopenWith: 'fixture',
       );
       final refused = expectLater(compacting, throwsStateError);
@@ -175,7 +182,11 @@ void main() {
         await expectLater(
           controller.compactStorageKeeping(
             roster: CompactionRoster()
-              ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits),
+              ..addUnlocked(
+                'fixture',
+                passwordBytes: 'fixture'.codeUnits,
+                spaceKeys: fixtureKeys,
+              ),
             reopenWith: 'fixture',
           ),
           throwsStateError,
