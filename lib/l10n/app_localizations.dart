@@ -14321,6 +14321,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Password for the new identity'**
   String get masterSetupReplayChildPassword;
+
+  /// No description provided for @masterAppendReplayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue adding the new identity. Your existing data will be kept.'**
+  String get masterAppendReplayBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

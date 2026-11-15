@@ -178,6 +178,14 @@ failed open, then completes and re-enters the ordinary roster. Host-native
 controller and headless screen checks pass; lock/disposal and lost final replies
 preserve the accepted state. Existing-master appends, packaged/physical recovery
 and the remaining activation audit stay open. Defaults remain OFF.
+The [transactional append follow-up](validation/master-append-recovery-2026-11-16/README.md)
+now journals ordinary routed additions to an existing master. A compact roster
+commitment preserves the existing large-roster limit, accepted child keys are
+recorded before payloads, and exact refusal can retire an unadvanced plan.
+Transient failures offer authenticated continuation; a lost completion reply
+requires ordinary reread instead of restoring stale cached membership. Extra
+master settings/files remain intact. The legacy non-router path and remaining
+packaged/platform/default-activation gates stay open; defaults remain OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

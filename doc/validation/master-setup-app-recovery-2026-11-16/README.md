@@ -5,6 +5,11 @@ headless widgets and host-native stores. Managed production defaults remain
 OFF. Packaged application, physical OEM and remaining activation gates are not
 closed by these checks. No release was made.
 
+The subsequent [transactional append follow-up](../master-append-recovery-2026-11-16/README.md)
+extends this path to ordinary routed additions to an existing master. Remaining
+work described below records this earlier checkpoint; activation gates remain
+open.
+
 ## Resume the accepted operation
 
 Ordinary unlock of a pending master now validates its exact private intent and

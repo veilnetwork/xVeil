@@ -128,7 +128,12 @@ void main() {
       expect(rows.map((r) => r.label), ['original', 'planned child']);
       final bytes = (await parent.loadFile(kMasterSetupJournalFile))!;
       final receipt = jsonDecode(utf8.decode(bytes));
-      expect(receipt, {'v': 1, 'complete': true, 'digest': isA<String>()});
+      expect(receipt, {
+        'v': 1,
+        'complete': true,
+        'digest': isA<String>(),
+        'attempt': isA<String>(),
+      });
       expect(base64.decode(receipt['digest'] as String), hasLength(32));
       bytes.fillRange(0, bytes.length, 0);
       await parent.saveRoster([rows.first]);

@@ -63,7 +63,7 @@ void main() {
           final owner = ManagedDirectoryCatalog.openExisting(fixture.profile)!;
           try {
             final catalog = owner.snapshot().catalog.encode();
-          final rawChild = ManagedIdentityFiles.openWithPassword(
+            final rawChild = ManagedIdentityFiles.openWithPassword(
               owner,
               id: fixture.id('b'),
               password: fixture.childPassword,
@@ -150,6 +150,7 @@ void main() {
                     'v': 1,
                     'complete': true,
                     'digest': isA<String>(),
+                    'attempt': isA<String>(),
                   });
                 } finally {
                   bytes.fillRange(0, bytes.length, 0);

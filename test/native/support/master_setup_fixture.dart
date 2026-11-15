@@ -20,10 +20,12 @@ class MasterSetupFixture {
     this.directory,
     this.mode, {
     this.childMode = StorageProtection.encrypted,
+    this.append = false,
   });
   final Directory directory;
   final StorageProtection mode;
   final StorageProtection childMode;
+  final bool append;
   String get profile => '${directory.path}/visible-storage';
   String get legacy => '${directory.path}/legacy.hv';
   ManagedIdentityId id(String n) => ManagedIdentityId(n * 32);
@@ -111,7 +113,20 @@ class MasterSetupFixture {
         childLocator: child,
         childLabel: 'new child',
         childAnonymous: true,
+        append: append,
       );
+      if (append) {
+        final storage = HiddenVolumeStorage.fromStore(openRoot(owner));
+        final base = intent.copyBase();
+        try {
+          await storage.saveRoster(base);
+        } finally {
+          for (final row in base) {
+            row.spaceKeys.fillRange(0, row.spaceKeys.length, 0);
+          }
+          await storage.close();
+        }
+      }
       bytes = intent.encode();
       final file = File('${directory.path}/request-private.json')
         ..createSync(exclusive: true);

@@ -8366,4 +8366,8 @@ class AppL10nEs extends AppL10n {
   @override
   String get masterSetupReplayChildPassword =>
       'Contraseña de la nueva identidad';
+
+  @override
+  String get masterAppendReplayBody =>
+      'Continúa añadiendo la nueva identidad. Se conservarán los datos existentes.';
 }

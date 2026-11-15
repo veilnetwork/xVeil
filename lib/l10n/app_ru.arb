@@ -3290,5 +3290,6 @@
   "compactOfferOutcomeUncertain": "Контейнер мог уже измениться. Не повторяйте сжатие. Перезапустите приложение и проверьте личности.",
   "masterSetupReplayBody": "Завершите создание мастера и новой личности по сохранённому плану. Существующие личности сохранятся.",
   "masterSetupReplayPassword": "Пароль мастера",
-  "masterSetupReplayChildPassword": "Пароль новой личности"
+  "masterSetupReplayChildPassword": "Пароль новой личности",
+  "masterAppendReplayBody": "Продолжите добавление личности. Существующие данные сохранятся."
 }

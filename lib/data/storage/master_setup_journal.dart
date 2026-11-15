@@ -23,6 +23,14 @@ final class MasterSetupChildProof {
   final List<int> _digest;
 }
 
+enum _MasterRosterState { absent, base, full }
+
+final class _RetiredReceipt {
+  const _RetiredReceipt(this.kind, this.attempt);
+  final String kind;
+  final String? attempt;
+}
+
 /// The caller owns exclusive storage/lifecycle admission. The private plan
 /// authorizes only exact creation values, never network activation or deletion.
 abstract final class MasterSetupJournal {
@@ -57,15 +65,16 @@ abstract final class MasterSetupJournal {
     }
   }
 
-  static Uint8List _receipt(MasterSetupIntent intent) {
+  static Uint8List _receipt(MasterSetupIntent intent, {bool aborted = false}) {
     final digest = _digest(intent);
     try {
       return Uint8List.fromList(
         utf8.encode(
           jsonEncode({
             'v': 1,
-            'complete': true,
+            aborted ? 'aborted' : 'complete': true,
             'digest': base64.encode(digest),
+            if (intent.attemptId != null) 'attempt': intent.attemptId,
           }),
         ),
       );
@@ -80,9 +89,10 @@ abstract final class MasterSetupJournal {
   static Future<bool> _completed(
     Storage storage,
     MasterSetupIntent intent,
-    void Function() check,
-  ) async {
-    final receipt = _receipt(intent);
+    void Function() check, {
+    bool aborted = false,
+  }) async {
+    final receipt = _receipt(intent, aborted: aborted);
     Uint8List? bytes;
     try {
       bytes = await storage.loadFile(
@@ -117,6 +127,7 @@ abstract final class MasterSetupJournal {
     void Function() check,
   ) async {
     Uint8List? bytes;
+    List<RosterEntry>? roster;
     try {
       bytes = await storage.loadFile(
         kMasterSetupJournalFile,
@@ -131,9 +142,80 @@ abstract final class MasterSetupJournal {
         }
         return null;
       }
-      return MasterSetupIntent.decode(bytes);
+      if (MasterSetupIntent.requiresRoster(bytes)) {
+        final copy = Uint8List.fromList(bytes);
+        wipeSecretBytes(bytes);
+        bytes = copy;
+        if (storage is! RosterMaintenanceReader) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+        }
+        roster = await (storage as RosterMaintenanceReader)
+            .loadRosterForMaintenance();
+        check();
+      }
+      return MasterSetupIntent.decode(bytes, roster: roster);
     } finally {
       if (bytes != null) wipeSecretBytes(bytes);
+      for (final row in roster ?? const <RosterEntry>[]) {
+        wipeSecretBytes(row.spaceKeys);
+      }
+    }
+  }
+
+  static Future<_RetiredReceipt?> _retiredStatus(
+    Storage storage,
+    void Function() check,
+  ) async {
+    Uint8List? bytes, digest, attempt;
+    try {
+      bytes = await storage.loadFile(
+        kMasterSetupJournalFile,
+        maxBytes: MasterSetupIntent.maxBytes,
+      );
+      check();
+      if (bytes == null) {
+        if (await storage.hasFile(kMasterSetupJournalFile)) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+        }
+        check();
+        return null;
+      }
+      final m = jsonDecode(utf8.decode(bytes));
+      final key = m is Map && m['complete'] == true ? 'complete' : 'aborted';
+      final hasAttempt = m is Map && m.containsKey('attempt');
+      if (m is! Map ||
+          m.length != (hasAttempt ? 4 : 3) ||
+          m['v'] is! int ||
+          m['v'] != 1 ||
+          m[key] != true ||
+          m['digest'] is! String ||
+          !m.keys.every(
+            (k) => {'v', key, 'digest', if (hasAttempt) 'attempt'}.contains(k),
+          )) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+      }
+      digest = base64.decode(m['digest'] as String);
+      if (digest.length != 32 || base64.encode(digest) != m['digest']) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+      }
+      if (hasAttempt) {
+        if (m['attempt'] is! String) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+        }
+        attempt = base64.decode(m['attempt'] as String);
+        if (attempt.length != 16 || base64.encode(attempt) != m['attempt']) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+        }
+      }
+      return _RetiredReceipt(key, hasAttempt ? m['attempt'] as String : null);
+    } on MasterSetupFailure {
+      rethrow;
+    } catch (_) {
+      throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+    } finally {
+      if (bytes != null) wipeSecretBytes(bytes);
+      if (digest != null) wipeSecretBytes(digest);
+      if (attempt != null) wipeSecretBytes(attempt);
     }
   }
 
@@ -148,7 +230,7 @@ abstract final class MasterSetupJournal {
     try {
       bytes = intent.encode();
       ownedKeys = Uint8List.fromList(keys);
-      owned = MasterSetupIntent.decode(bytes);
+      owned = intent.copy();
       return await action(owned, ownedKeys, bytes);
     } on MasterSetupFailure {
       rethrow;
@@ -181,7 +263,18 @@ abstract final class MasterSetupJournal {
     }
   }
 
-  static Future<void> _inspect(
+  static bool _sameRoster(List<RosterEntry> a, List<RosterEntry> b) =>
+      a.length == b.length &&
+      List.generate(
+        a.length,
+        (i) =>
+            a[i].label == b[i].label &&
+            a[i].anonymous == b[i].anonymous &&
+            a[i].storageLocator == b[i].storageLocator &&
+            _same(a[i].spaceKeys, b[i].spaceKeys),
+      ).every((v) => v);
+
+  static Future<_MasterRosterState> _inspect(
     Storage storage,
     MasterSetupIntent intent,
     void Function() check,
@@ -212,38 +305,33 @@ abstract final class MasterSetupJournal {
         throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
       }
     }
-    if (storage is! MasterSetupInspectionSource ||
-        !await (storage as MasterSetupInspectionSource)
-            .masterSetupHasOnlyBootstrapData()) {
+    if (!intent.append &&
+        (storage is! MasterSetupInspectionSource ||
+            !await (storage as MasterSetupInspectionSource)
+                .masterSetupHasOnlyBootstrapData())) {
       throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
     }
     check();
     if (storage is! RosterMaintenanceReader) {
       throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
     }
-    List<RosterEntry>? rows, expected;
+    List<RosterEntry>? rows, expected, base;
     try {
       rows = await (storage as RosterMaintenanceReader)
           .loadRosterForMaintenance();
       check();
-      if (rows == null) return;
-      if (!intent.childKnown) {
-        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      if (rows == null && !intent.append) return _MasterRosterState.absent;
+      if (rows != null && intent.append) {
+        base = intent.copyBase();
+        if (_sameRoster(rows, base)) return _MasterRosterState.base;
       }
-      expected = intent.copyRoster();
-      if (rows.length != expected.length ||
-          !List.generate(
-            rows.length,
-            (i) =>
-                rows![i].label == expected![i].label &&
-                rows[i].anonymous == expected[i].anonymous &&
-                rows[i].storageLocator == expected[i].storageLocator &&
-                _same(rows[i].spaceKeys, expected[i].spaceKeys),
-          ).every((v) => v)) {
-        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      if (rows != null && intent.childKnown) {
+        expected = intent.copyRoster();
+        if (_sameRoster(rows, expected)) return _MasterRosterState.full;
       }
+      throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
     } finally {
-      for (final row in [...?rows, ...?expected]) {
+      for (final row in [...?rows, ...?expected, ...?base]) {
         wipeSecretBytes(row.spaceKeys);
       }
     }
@@ -284,18 +372,29 @@ abstract final class MasterSetupJournal {
     if (owned.childKnown) {
       throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
     }
-    final current = await read(storage, check);
+    MasterSetupIntent? current;
     try {
       final stage = await storage.getSetting(kPendingMasterSetupSetting);
       check();
-      if (current != null) {
-        if (!current.same(owned) || stage != '1') {
+      if (stage == '1') {
+        current = await read(storage, check);
+        if (current == null || !current.same(owned)) {
           throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
         }
         await _inspect(storage, owned, check);
         return;
       }
       if (masterSetupIsPending(stage)) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      if (owned.attemptId == null) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.invalid);
+      }
+      final retired = await _retiredStatus(storage, check);
+      if (retired != null &&
+          (stage != '0' ||
+              !owned.append && retired.kind != 'aborted' ||
+              retired.attempt == owned.attemptId)) {
         throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
       }
       await _inspect(storage, owned, check);
@@ -311,6 +410,56 @@ abstract final class MasterSetupJournal {
       check();
       final verified = await _readBack(storage, owned, check);
       verified.destroy();
+    } finally {
+      current?.destroy();
+    }
+  });
+
+  /// A definitive rejected candidate has received no personalized writes or
+  /// attached key. Retire only that exact prepared obligation, preserving the
+  /// existing roster and every child. Never abort an advanced transaction.
+  static Future<void> abortPrepared({
+    required Storage storage,
+    required MasterSetupIntent intent,
+    required IdentityStorageLocator root,
+    required Uint8List keys,
+    required void Function() check,
+  }) => _request<void>(intent, keys, (owned, ownedKeys, _) async {
+    await _authenticate(storage, owned, root, ownedKeys, check);
+    if (owned.childKnown) {
+      throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+    }
+    if (await _completed(storage, owned, check, aborted: true)) return;
+    final current = await read(storage, check);
+    try {
+      final stage = await storage.getSetting(kPendingMasterSetupSetting);
+      check();
+      if (stage != '1' || current == null || !current.same(owned)) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      final state = await _inspect(storage, owned, check);
+      if (state !=
+              (owned.append
+                  ? _MasterRosterState.base
+                  : _MasterRosterState.absent) ||
+          storage is! StoredFileSettingWriter) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      final receipt = _receipt(owned, aborted: true);
+      try {
+        check();
+        await (storage as StoredFileSettingWriter).storeFileWithSetting(
+          StoredFileWrite(kMasterSetupJournalFile, receipt),
+          settingKey: kPendingMasterSetupSetting,
+          settingValue: '0',
+        );
+        check();
+        if (!await _completed(storage, owned, check, aborted: true)) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+        }
+      } finally {
+        wipeSecretBytes(receipt);
+      }
     } finally {
       current?.destroy();
     }
@@ -514,38 +663,23 @@ abstract final class MasterSetupJournal {
       if (current == null || !current.same(owned) || stage != '1') {
         throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
       }
-      await _inspect(storage, owned, check);
+      final state = await _inspect(storage, owned, check);
       if (storage is! StoredFileSettingWriter) {
         throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
       }
-      final rows = owned.copyRoster();
-      List<RosterEntry>? present;
-      try {
-        present = await (storage as RosterMaintenanceReader)
-            .loadRosterForMaintenance();
-        check();
-        if (present == null) {
+      if (state != _MasterRosterState.full) {
+        final rows = owned.copyRoster();
+        try {
           await storage.saveRoster(rows);
           check();
-        }
-      } finally {
-        for (final row in [...rows, ...?present]) {
-          wipeSecretBytes(row.spaceKeys);
+        } finally {
+          for (final row in rows) {
+            wipeSecretBytes(row.spaceKeys);
+          }
         }
       }
-      // Strict reread checks every row before crossing the completion barrier.
-      await _inspect(storage, owned, check);
-      final verified = await (storage as RosterMaintenanceReader)
-          .loadRosterForMaintenance();
-      try {
-        check();
-        if (verified == null) {
-          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
-        }
-      } finally {
-        for (final row in verified ?? const <RosterEntry>[]) {
-          wipeSecretBytes(row.spaceKeys);
-        }
+      if (await _inspect(storage, owned, check) != _MasterRosterState.full) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
       }
       final receipt = _receipt(owned);
       try {

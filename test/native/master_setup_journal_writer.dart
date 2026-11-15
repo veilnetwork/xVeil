@@ -79,14 +79,19 @@ Future<void> main(List<String> args) async {
   final request =
       jsonDecode(File('$path/request-private.json').readAsStringSync()) as Map;
   final keys = base64.decode(request['keys'] as String);
-  final intent = MasterSetupIntent.decode(
-    base64.decode(request['intent'] as String),
-  );
   final owner = ManagedDirectoryCatalog.openExisting(fixture.profile)!;
   final raw = fixture.openRoot(owner);
   var storage = args[1] == 'before-publication'
       ? HiddenVolumeStorage.fromAsyncStore(_BeforePublication(raw, path))
       : HiddenVolumeStorage.fromStore(raw);
+  final base = await storage.loadRosterForMaintenance();
+  final intent = MasterSetupIntent.decode(
+    base64.decode(request['intent'] as String),
+    roster: base,
+  );
+  for (final row in base ?? []) {
+    row.spaceKeys.fillRange(0, row.spaceKeys.length, 0);
+  }
   await MasterSetupJournal.prepare(
     storage: storage,
     intent: intent,
