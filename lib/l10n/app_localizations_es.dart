@@ -8355,4 +8355,15 @@ class AppL10nEs extends AppL10n {
   @override
   String get compactOfferOutcomeUncertain =>
       'El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades.';
+
+  @override
+  String get masterSetupReplayBody =>
+      'Completa la creación del maestro y su nueva identidad con el plan guardado. Se conservarán las identidades existentes.';
+
+  @override
+  String get masterSetupReplayPassword => 'Contraseña del maestro';
+
+  @override
+  String get masterSetupReplayChildPassword =>
+      'Contraseña de la nueva identidad';
 }

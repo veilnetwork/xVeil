@@ -21,7 +21,7 @@ final class ManagedWorkerFailure implements Exception {
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
 
-enum _ManagedWorkerAction { create, password, keys, plain, resume }
+enum _ManagedWorkerAction { create, password, keys, plain, resume, planned }
 
 final class _OpenManagedIdentity extends _OpenConfig {
   const _OpenManagedIdentity({
@@ -196,6 +196,28 @@ abstract final class ManagedWorkerIdentity {
     id,
     StorageProtection.unencrypted,
     _ManagedWorkerAction.resume,
+  );
+
+  static Future<WorkerKvLogStore> openPlannedEncrypted({
+    required String profileDirectory,
+    required ManagedIdentityId id,
+    required Uint8List password,
+  }) => _start(
+    profileDirectory,
+    id,
+    StorageProtection.encrypted,
+    _ManagedWorkerAction.planned,
+    credential: password,
+  );
+
+  static Future<WorkerKvLogStore> openPlannedUnencrypted({
+    required String profileDirectory,
+    required ManagedIdentityId id,
+  }) => _start(
+    profileDirectory,
+    id,
+    StorageProtection.unencrypted,
+    _ManagedWorkerAction.planned,
   );
 
   static Future<WorkerKvLogStore> _start(
@@ -374,6 +396,14 @@ _ManagedWorkerOwner _openManagedWorker(_OpenManagedIdentity config) {
                 password: credential!,
               )
             : ManagedIdentityFiles.resumeUnencrypted(root, id: id),
+      _ManagedWorkerAction.planned =>
+        encrypted
+            ? ManagedIdentityFiles.openPlannedEncrypted(
+                root,
+                id: id,
+                password: credential!,
+              )
+            : ManagedIdentityFiles.openPlannedUnencrypted(root, id: id),
     };
     if (ManagedLegacyReferenceRepair.hasPendingJournal(store)) {
       // The app's catalog owner must quiesce its shared grants and recover

@@ -8250,4 +8250,14 @@ class AppL10nEn extends AppL10n {
   @override
   String get compactOfferOutcomeUncertain =>
       'The container may already have changed. Do not repeat compaction. Reopen the app to check your identities.';
+
+  @override
+  String get masterSetupReplayBody =>
+      'Finish creating the master and its new identity from the saved plan. Existing identities will be kept.';
+
+  @override
+  String get masterSetupReplayPassword => 'Master password';
+
+  @override
+  String get masterSetupReplayChildPassword => 'Password for the new identity';
 }

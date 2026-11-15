@@ -60,6 +60,7 @@ import '../domain/identity_setup_intent.dart';
 import '../data/storage/owned_storage_reclamation.dart';
 import '../data/storage/identity_setup_journal.dart';
 import '../data/storage/master_setup_journal.dart';
+import '../data/storage/managed_identity_storage.dart';
 import '../data/storage/profile_storage_router.dart';
 import '../domain/master_setup_intent.dart';
 import '../domain/pending_identity_erase.dart';
@@ -348,11 +349,15 @@ class _SetupRecovery {
     this.keys, {
     required this.canInitialize,
     this.canReplay = false,
+    this.canReplayMaster = false,
+    this.childProtection,
   });
   final IdentityStorageLocator root;
   final Uint8List keys;
   bool canInitialize;
   final bool canReplay;
+  final bool canReplayMaster;
+  StorageProtection? childProtection;
   void destroy() => wipeSecretBytes(keys);
 }
 
@@ -375,6 +380,9 @@ class AppController extends Notifier<AppState> {
         };
   bool get canResumeIdentitySetup => _setupRecovery?.canInitialize ?? false;
   bool get canReplayIdentitySetup => _setupRecovery?.canReplay ?? false;
+  bool get canReplayMasterSetup => _setupRecovery?.canReplayMaster ?? false;
+  StorageProtection? get setupRecoveryChildProtection =>
+      _setupRecovery?.childProtection;
   @visibleForTesting
   Uint8List? get debugSetupRecoveryKeys => _setupRecovery?.keys;
   void _forgetSetupRecovery() {
@@ -1219,6 +1227,260 @@ class AppController extends Notifier<AppState> {
         }
       } finally {
         _onboardingInFlight = null;
+        finished.complete();
+      }
+    }
+  }
+
+  /// Resume only the authenticated parent's accepted plan. Unknown child keys
+  /// require its own explicit credential; no password or reverse parent link
+  /// is persisted. The same edit lifetime owns every reopened facade.
+  Future<bool> replayMasterSetup(
+    String masterPassword, {
+    String childPassword = '',
+  }) async {
+    final context = _setupRecovery;
+    final router = ref.read(profileStorageRouterProvider);
+    if (context == null ||
+        !context.canReplayMaster ||
+        router == null ||
+        state.phase != AppPhase.identitySetupRecovery ||
+        _endingSessions != 0 ||
+        _unlockInFlight ||
+        _identitySelections != 0 ||
+        _onboardingInFlight != null ||
+        _identityEditInFlight != null ||
+        _identityViewInFlight != null ||
+        _reopenInFlight != null ||
+        _wipeInFlight != null ||
+        _compactionInFlight != null ||
+        _compactionCollectionInFlight != null ||
+        _compactionProbeInFlight != null) {
+      return false;
+    }
+    final gen = _lifecycle;
+    final edit = _IdentityEdit(() => ref.mounted && !_supersededSince(gen));
+    final keys = edit.copyKeys(context.keys)!;
+    final finished = Completer<void>();
+    _identityEditInFlight = finished.future;
+    _identityEditOwner = edit;
+    edit.interrupted = true;
+    final release = _suspendIdentityServiceAdmission();
+    MasterSetupIntent? intent;
+    var success = false;
+    try {
+      edit.check();
+      if (router.location != context.root) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      var parent = edit.own(router.storage);
+      if (!await edit.step(() => parent.open(password: masterPassword))) {
+        return false;
+      }
+      final actual = await edit.step(parent.exportSpaceKeys);
+      if (!listEquals(actual, keys)) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+      }
+      intent = await MasterSetupJournal.read(parent, edit.check);
+      edit.check();
+      if (intent == null) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+      }
+      await edit.step(
+        () => MasterSetupJournal.validate(
+          storage: parent,
+          intent: intent!,
+          root: context.root,
+          keys: keys,
+          check: edit.check,
+        ),
+      );
+      Uint8List childKeys;
+      if (!intent.childKnown) {
+        final protection = switch (intent.childLocator) {
+          LegacyStorageLocator() => StorageProtection.hidden,
+          ManagedStorageLocator(:final protection) => protection,
+        };
+        if (protection != StorageProtection.unencrypted &&
+            childPassword.isEmpty) {
+          return false;
+        }
+        if (protection != StorageProtection.unencrypted &&
+            setupRecoveryProtection != StorageProtection.unencrypted &&
+            childPassword == masterPassword) {
+          return false;
+        }
+        await edit.step(parent.close);
+        final Storage child;
+        if (intent.childLocator case ManagedStorageLocator()) {
+          child = edit.own(
+            ManagedIdentityStorage.forPlannedRecovery(
+              profileDirectory: router.profileDirectory,
+              entry: ManagedIdentityEntry.fromLocator(
+                intent.childLocator as ManagedStorageLocator,
+              ),
+            ).storage,
+          );
+        } else {
+          child = await _storageForIdentityEdit(intent.childLocator, edit);
+        }
+        if (!await edit.step(
+          () => child.open(
+            password: protection == StorageProtection.unencrypted
+                ? ''
+                : childPassword,
+            createIfMissing: protection == StorageProtection.hidden,
+          ),
+        )) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+        }
+        if (child is! StorageInitializationSource ||
+            !await edit.step(
+              () => (child as StorageInitializationSource)
+                  .initializationIsBlank(),
+            )) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.conflict);
+        }
+        childKeys = await edit.step(child.exportSpaceKeys);
+        // Reject source/master aliases before attaching any candidate key.
+        final candidate = intent.withChildKeys(childKeys);
+        candidate.destroy();
+        await edit.step(child.close);
+        await edit.step(router.refresh);
+        parent = await _storageForIdentityEdit(context.root, edit);
+        if (!await edit.step(() => parent.openWithKeys(keys))) {
+          throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+        }
+        final recorded = await MasterSetupJournal.attachChild(
+          storage: parent,
+          intent: intent,
+          childKeys: childKeys,
+          root: context.root,
+          keys: keys,
+          check: edit.check,
+        );
+        intent.destroy();
+        intent = recorded;
+        edit.check();
+        context.childProtection = null;
+      } else {
+        final rows = intent.copyRoster();
+        edit.keys.addAll(rows.map((row) => row.spaceKeys));
+        childKeys = rows.last.spaceKeys;
+      }
+      await edit.step(parent.close);
+      await edit.step(router.refresh);
+      final child = await _storageForIdentityEdit(intent.childLocator, edit);
+      if (!await edit.step(() => child.openWithKeys(childKeys))) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+      }
+      final proof = await edit.step(
+        () => MasterSetupJournal.initializeChild(
+          storage: child,
+          intent: intent!,
+          child: intent.childLocator,
+          childKeys: childKeys,
+          check: edit.check,
+        ),
+      );
+      await edit.step(child.close);
+      parent = await _storageForIdentityEdit(context.root, edit);
+      if (!await edit.step(() => parent.openWithKeys(keys))) {
+        throw const MasterSetupFailure(MasterSetupFailureKind.unavailable);
+      }
+      await edit.step(
+        () => MasterSetupJournal.publishAndFinish(
+          storage: parent,
+          intent: intent!,
+          childProof: proof,
+          root: context.root,
+          keys: keys,
+          check: edit.check,
+        ),
+      );
+      if (context.root is LegacyStorageLocator &&
+          router.access == context.root) {
+        await edit.step(_forgetStartupUnlock);
+      }
+      await _updateStorageRoute(router.rememberCurrentAccess);
+      edit.check();
+      _rememberAccessPassword(masterPassword);
+      final rows = intent.copyRoster();
+      edit.keys.addAll(rows.map((row) => row.spaceKeys));
+      _setMasterKeys(keys);
+      _setPendingRoster(rows);
+      await edit.step(parent.close);
+      await edit.step(() => revokeAutoCompactAcross(rows));
+      _forgetSetupRecovery();
+      await _reEnterAfterRosterEdit(rows, intent.childLabel, false, edit: edit);
+      edit.check();
+      success =
+          state.phase == AppPhase.ready && _activeLabel == intent.childLabel;
+      return success;
+    } on _IdentityEditEnded {
+      return false;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'master-setup-replay',
+        error: error is MasterSetupFailure
+            ? error
+            : const MasterSetupFailure(MasterSetupFailureKind.unavailable),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (edit.current()) {
+        // Restore the original root for another explicit retry. A lost final
+        // reply may have already completed it: ordinary unlock then classifies
+        // its authoritative roster, without replaying the old secret intent.
+        try {
+          // Re-entry may already have published a stack before failing. Retire
+          // it while its storage is still open, before returning to locked or
+          // presenting another recovery attempt.
+          await edit.step(_teardownSession);
+          await edit.step(_teardownRealStack);
+          for (final store in edit.storages) {
+            await store.close();
+          }
+          await edit.step(router.refresh);
+          final parent = await _storageForIdentityEdit(context.root, edit);
+          if (await edit.step(() => parent.openWithKeys(keys))) {
+            final marker = await edit.step(
+              () => parent.getSetting(kPendingMasterSetupSetting),
+            );
+            await edit.step(parent.close);
+            if (marker == '0') {
+              _clearMasterSession();
+              state = const AppState(AppPhase.locked);
+            } else {
+              state = const AppState(AppPhase.identitySetupRecovery);
+            }
+          } else {
+            _clearMasterSession();
+            state = const AppState(AppPhase.locked, unlockError: true);
+          }
+        } catch (_) {
+          if (edit.current()) {
+            _clearMasterSession();
+            state = const AppState(AppPhase.locked, unlockError: true);
+          }
+        }
+      }
+      return false;
+    } finally {
+      intent?.destroy();
+      try {
+        if (!success) {
+          for (final store in edit.storages) {
+            try {
+              await store.close();
+            } catch (_) {}
+          }
+        }
+        await _settleIdentityWork(edit);
+      } finally {
+        _identityEditOwner = null;
+        _identityEditInFlight = null;
+        release();
         finished.complete();
       }
     }
@@ -7156,7 +7418,51 @@ class AppController extends Notifier<AppState> {
       await _teardownRealStack();
       if (!ref.mounted || _supersededSince(gen)) return;
       var replayable = false;
+      var replayableMaster = false;
+      StorageProtection? childProtection;
       final marker = await storage.getSetting(kPendingIdentitySetupSetting);
+      final masterMarker = await storage.getSetting(kPendingMasterSetupSetting);
+      if (!canInitialize && !hosted && masterMarker == '1' &&
+          ref.read(profileStorageRouterProvider) != null) {
+        MasterSetupIntent? masterIntent;
+        void check() {
+          if (!ref.mounted || _supersededSince(gen)) {
+            throw StateError('master setup inspection ended');
+          }
+        }
+
+        try {
+          check();
+          masterIntent = await MasterSetupJournal.read(storage, check);
+          if (masterIntent != null) {
+            await MasterSetupJournal.validate(
+              storage: storage,
+              intent: masterIntent,
+              root: root,
+              keys: keys,
+              check: check,
+            );
+            replayableMaster = true;
+            if (!masterIntent.childKnown) {
+              childProtection = switch (masterIntent.childLocator) {
+                LegacyStorageLocator() => StorageProtection.hidden,
+                ManagedStorageLocator(:final protection) => protection,
+              };
+            }
+          }
+        } catch (error, stack) {
+          errorJournal.record(
+            kind: 'master-setup-journal',
+            error: error is MasterSetupFailure
+                ? error
+                : const MasterSetupFailure(MasterSetupFailureKind.unavailable),
+            stack: stack,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        } finally {
+          masterIntent?.destroy();
+        }
+      }
       if (!canInitialize && !hosted && (marker == '1' || marker == '2')) {
         IdentitySetupIntent? intent;
         void check() {
@@ -7206,6 +7512,8 @@ class AppController extends Notifier<AppState> {
         keys,
         canInitialize: canInitialize && !hosted,
         canReplay: replayable,
+        canReplayMaster: replayableMaster,
+        childProtection: childProtection,
       );
       adopted = true;
       state = const AppState(AppPhase.identitySetupRecovery);

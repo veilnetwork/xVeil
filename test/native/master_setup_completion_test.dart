@@ -66,7 +66,7 @@ void main() {
           final rawChild = ManagedIdentityFiles.openWithPassword(
               owner,
               id: fixture.id('b'),
-              password: fixture.password,
+              password: fixture.childPassword,
             );
             childKeys = rawChild.exportKeys();
             ready = base.withChildKeys(childKeys);

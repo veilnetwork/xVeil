@@ -146,6 +146,49 @@ abstract final class ManagedIdentityFiles {
     ManagedIdentityEntry(id: id, protection: StorageProtection.unencrypted),
   );
 
+  /// Only for an authenticated parent's durable planned slot. Enumerate the
+  /// admitted parent to prove absence; never reinterpret an open/authentication
+  /// failure as permission to create. Publication remains strictly no-replace.
+  static ManagedIdentityStore openPlannedEncrypted(
+    ManagedDirectoryCatalog owner, {
+    required ManagedIdentityId id,
+    required Uint8List password,
+  }) => _planned(
+    owner,
+    ManagedIdentityEntry(id: id, protection: StorageProtection.encrypted),
+    password: password,
+  );
+
+  static ManagedIdentityStore openPlannedUnencrypted(
+    ManagedDirectoryCatalog owner, {
+    required ManagedIdentityId id,
+  }) => _planned(
+    owner,
+    ManagedIdentityEntry(id: id, protection: StorageProtection.unencrypted),
+  );
+
+  static ManagedIdentityStore _planned(
+    ManagedDirectoryCatalog owner,
+    ManagedIdentityEntry entry, {
+    Uint8List? password,
+  }) => _safe(() {
+    owner._validate();
+    final target = owner.layout.directory(entry.id);
+    final staged = _staging(owner, entry.id);
+    // listSync throws on inaccessible enumeration. typeSync(notFound) alone
+    // would not distinguish a missing entry from an unsuccessful path lookup.
+    final paths = Directory(
+      owner.directory,
+    ).listSync(followLinks: false).map((entity) => entity.path).toSet();
+    owner._validate();
+    if (_listed(owner, entry.id) != null ||
+        paths.contains(target) ||
+        paths.contains(staged)) {
+      return _resume(owner, entry, password: password);
+    }
+    return _create(owner, entry, password: password, initial: const []);
+  });
+
   static String _staging(ManagedDirectoryCatalog owner, ManagedIdentityId id) =>
       ManagedDirectoryCatalog._child(
         owner.directory,

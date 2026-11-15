@@ -4,6 +4,11 @@ Status: ordinary routed single-identity conversion now uses the protected
 creation intent. Authenticated application recovery is still incomplete;
 managed production defaults remain OFF. No release was made.
 
+The subsequent [application-recovery follow-up](../master-setup-app-recovery-2026-11-16/README.md)
+connects the controller and recovery screen. Statements below about incomplete
+application wiring describe this earlier checkpoint; packaged and physical
+activation gates remain open.
+
 ## Ordinary creation
 
 The application previously kept its source row and new child's reference only

@@ -3305,5 +3305,8 @@
   "profileErasurePendingBody": "Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente.",
   "compactOfferVisibleHint": "Estos almacenes separados conservan sus datos. Desbloquee cada uno para actualizar los enlaces a identidades ocultas.",
   "compactOfferApprovePlaintext": "Permitir actualizar enlaces",
-  "compactOfferOutcomeUncertain": "El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades."
+  "compactOfferOutcomeUncertain": "El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades.",
+  "masterSetupReplayBody": "Completa la creación del maestro y su nueva identidad con el plan guardado. Se conservarán las identidades existentes.",
+  "masterSetupReplayPassword": "Contraseña del maestro",
+  "masterSetupReplayChildPassword": "Contraseña de la nueva identidad"
 }
