@@ -1709,6 +1709,19 @@ class AppController extends Notifier<AppState> {
       }
       // Only a recogniser is kept, never the password or anything on disk.
       _rememberAccessPassword(password);
+      final pendingMaster = await storage.getSetting(
+        kPendingMasterSetupSetting,
+      );
+      if (!ref.mounted || _supersededSince(gen)) {
+        await storage.close();
+        return;
+      }
+      if (masterSetupIsPending(pendingMaster)) {
+        // Roster publication can precede clearing this marker. Classifying
+        // first would expose its children before master setup has completed.
+        await _parkSetupRecovery(storage, false, gen);
+        return;
+      }
       var roster = await storage.loadRoster();
       if (roster != null) {
         unlockRosterKeys.addAll(roster.map((e) => e.spaceKeys));
@@ -4786,6 +4799,11 @@ class AppController extends Notifier<AppState> {
             await edit.step(
               () => storage.getSetting(kPendingIdentitySetupSetting),
             ),
+          ) &&
+          !masterSetupIsPending(
+            await edit.step(
+              () => storage.getSetting(kPendingMasterSetupSetting),
+            ),
           );
       final keys = isPlainIdentity
           ? await edit.step(() => storage.exportSpaceKeys())
@@ -4985,6 +5003,19 @@ class AppController extends Notifier<AppState> {
       )) {
         return await refuse();
       }
+      if (masterSetupIsPending(
+            await edit.step(
+              () => master.getSetting(kPendingMasterSetupSetting),
+            ),
+          ) ||
+          identitySetupIsPending(
+            await edit.step(
+              () => master.getSetting(kPendingIdentitySetupSetting),
+            ),
+          )) {
+        await edit.step(master.close);
+        return await refuse();
+      }
       final existing = await edit.step(master.loadRoster);
       final hasProfile = await edit.step(master.loadProfile) != null;
       if ((converting && (existing != null || hasProfile)) ||
@@ -4993,14 +5024,6 @@ class AppController extends Notifier<AppState> {
         return await refuse();
       }
       if (converting) {
-        if (identitySetupIsPending(
-          await edit.step(
-            () => master.getSetting(kPendingIdentitySetupSetting),
-          ),
-        )) {
-          await edit.step(master.close);
-          return await refuse();
-        }
         final config = await edit.step(master.loadNodeConfig);
         final credentialPresent = await edit.step(() => hasCredential(master));
         if (config != null || credentialPresent) {
@@ -5059,8 +5082,9 @@ class AppController extends Notifier<AppState> {
           hasChildRoster ||
           childConfig != null ||
           childCredentialPresent ||
-          await edit.step(() => child.getSetting(kPendingMasterSetupSetting)) ==
-              '1' ||
+          masterSetupIsPending(
+            await edit.step(() => child.getSetting(kPendingMasterSetupSetting)),
+          ) ||
           identitySetupIsPending(
             await edit.step(
               () => child.getSetting(kPendingIdentitySetupSetting),
@@ -5181,10 +5205,11 @@ class AppController extends Notifier<AppState> {
               () => storage.getSetting(kPendingIdentitySetupSetting),
             ),
           ) ||
-          await edit.step(
-                () => storage.getSetting(kPendingMasterSetupSetting),
-              ) ==
-              '1') {
+          masterSetupIsPending(
+            await edit.step(
+              () => storage.getSetting(kPendingMasterSetupSetting),
+            ),
+          )) {
         throw StateError('master setup is incomplete');
       }
       // "Does this space already hold an identity?" — the guard that stops a
@@ -5286,7 +5311,7 @@ class AppController extends Notifier<AppState> {
           candidateProfile != null ||
           candidateRoster != null ||
           identitySetupIsPending(pendingIdentity) ||
-          pendingMaster == '1') {
+          masterSetupIsPending(pendingMaster)) {
         await edit.step(() => storage.close());
         await edit.step(() => _recoverToActive(edit: edit));
         return false;
@@ -7120,15 +7145,16 @@ class AppController extends Notifier<AppState> {
         kPendingIdentitySetupSetting,
       );
       if (!ref.mounted || _supersededSince(gen)) return null;
-      final pendingMaster = profile == null
-          ? await storage.getSetting(kPendingMasterSetupSetting)
-          : null;
+      final pendingMaster = await storage.getSetting(
+        kPendingMasterSetupSetting,
+      );
       if (!ref.mounted || _supersededSince(gen)) return null;
-      if (identitySetupIsPending(pendingIdentity) || pendingMaster == '1') {
+      if (identitySetupIsPending(pendingIdentity) ||
+          masterSetupIsPending(pendingMaster)) {
         final blank =
             pendingIdentity == '1' &&
             profile == null &&
-            pendingMaster != '1' &&
+            !masterSetupIsPending(pendingMaster) &&
             storage is StorageInitializationSource &&
             await (storage as StorageInitializationSource)
                 .initializationIsBlank();
