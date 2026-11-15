@@ -157,6 +157,13 @@ before network planning; unfinished targets cannot be bound into a master.
 Native preservation checks pass across all three modes. Authenticated recovery
 of a pre-roster master or unbound child still needs its original durable intent;
 this admission fix does not invent it or enable the new default.
+The [master-intent preparation follow-up](validation/master-setup-intent-preparation-2026-11-15/README.md)
+adds a private, atomic base-intent/pending-marker publication and one-way child
+key attachment. Host-native process-death checks cover all three modes; 120
+regression checks pass. This is a preparation backend, not yet the ordinary
+application creation/recovery path. Planned-child reconciliation, completed
+roster publication, a final receipt and application recovery remain open;
+managed production defaults stay OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
