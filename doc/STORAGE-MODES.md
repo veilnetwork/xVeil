@@ -139,6 +139,11 @@ native crash/recovery checks pass; packaged macOS publication is qualified,
 while its post-publication cold readback remains incomplete. Windows source
 durability, physical OEM/platform recovery, complete credential/model inventory,
 release AOT and all-target native packaging remain open. Defaults stay OFF.
+The [whole-profile wipe source-binding follow-up](validation/managed-wipe-source-binding-2026-11-15/README.md)
+requires the retained preference source and router to name the same container,
+not merely the same parent directory. Native controls cover default/custom
+source refusal before side effects and successful exact-file deletion with a
+same-key neighbor preserved. This is a boundary fix, not default activation.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

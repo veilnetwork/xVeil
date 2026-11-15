@@ -11,6 +11,7 @@ import '../../core/background_service_lifetime.dart';
 import '../../core/capture_resource_lifetime.dart';
 import '../../core/quick_unlock_vault.dart';
 import 'async_kv_log_store.dart';
+import 'legacy_compaction_source.dart';
 import 'legacy_profile_preferences.dart';
 import 'managed_directory_catalog.dart';
 import 'profile_preferences.dart';
@@ -48,11 +49,17 @@ final class ManagedProfileWipe {
        _quiesce = quiesce,
        _verifyOtherDataAbsent = verifyOtherDataAbsent {
     try {
-      _profileDirectory = router.router.profileDirectory;
+      final bound = router.router;
+      _profileDirectory = bound.profileDirectory;
       final base = Directory(
         _profileDirectory,
       ).parent.resolveSymbolicLinksSync();
-      if (router.router.storage is! StorageRetirementOwner ||
+      if (LegacyCompactionSource.nameForPath(
+                _profileDirectory,
+                source.legacyPath,
+              ) !=
+              bound.legacySourceName ||
+          bound.storage is! StorageRetirementOwner ||
           !identical(preferences.legacyPreferences, source) ||
           File(source.preferencePath).parent.resolveSymbolicLinksSync() !=
               base ||
