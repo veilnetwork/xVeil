@@ -124,7 +124,11 @@ void main() {
             ? controller.beginCompactionCollection()
             : controller.compactStorageKeeping(
                 roster: CompactionRoster()
-                  ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits),
+                  ..addUnlocked(
+                    'fixture',
+                    passwordBytes: 'fixture'.codeUnits,
+                    spaceKeys: await storage.exportSpaceKeys(),
+                  ),
                 reopenWith: 'fixture',
               );
         await expectLater(attempt, throwsStateError);

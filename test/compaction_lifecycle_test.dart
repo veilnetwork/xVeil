@@ -113,7 +113,11 @@ void main() {
         container.read(appControllerProvider);
         final lease = controller.leaseIdentity();
         final roster = CompactionRoster()
-          ..addUnlocked('fixture', passwordBytes: 'fixture'.codeUnits);
+          ..addUnlocked(
+            'fixture',
+            passwordBytes: 'fixture'.codeUnits,
+            spaceKeys: await storage.exportSpaceKeys(),
+          );
         final compacting = controller.compactStorageKeeping(
           roster: roster,
           reopenWith: 'fixture',

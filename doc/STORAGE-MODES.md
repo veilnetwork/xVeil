@@ -70,6 +70,12 @@ selected-root recovery and source-name durability admission. It also fixes
 legacy compaction treating unreadable rosters as absent by requiring strict
 maintenance reads. Worker/UI/cold-start integration and Windows source durability
 remain incomplete; managed defaults and the mixed-profile guard are unchanged.
+The [entry-admission follow-up](validation/compaction-entry-admission-2026-11-15/README.md)
+extends strict live reads to manual single-password and automatic pre-session
+compaction, refuses incomplete collected key maps, and owns repair credentials
+through publication. Native controls verify refusal preserves both identities
+and their files while healthy solo maintenance remains available. This does
+not activate managed defaults or remove the mixed-profile guard.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
