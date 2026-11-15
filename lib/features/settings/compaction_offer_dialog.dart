@@ -5,6 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/error_journal.dart';
 import '../../domain/storage_compaction_policy.dart';
+import '../../domain/compaction_profile_authorization.dart';
+import '../../domain/storage_locator.dart';
+import '../../domain/storage_protection.dart';
+import '../../data/storage/async_kv_log_store.dart'
+    show ManagedLegacyCompactionFailure;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import 'storage_settings_screen.dart' show fmtBytes;
@@ -157,6 +162,8 @@ class _CompactionOfferDialog extends ConsumerStatefulWidget {
 class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   final _password = TextEditingController();
   final _roster = CompactionRoster();
+  late final CompactionProfileAuthorization _visible;
+  final _visibleNames = <ManagedIdentityId, String>{};
 
   /// What each accepted password unlocked, in the order it was typed — the list
   /// the person is building, shown back to them so "every identity" is
@@ -172,6 +179,9 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   @override
   void initState() {
     super.initState();
+    _visible = CompactionProfileAuthorization(
+      ref.read(appControllerProvider.notifier).compactionVisibleIdentities,
+    );
     // The password already in hand belongs to the identity being used, and
     // losing THAT one would be the worst outcome of all.
     //
@@ -186,6 +196,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
 
   @override
   void dispose() {
+    _visible.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -261,13 +272,93 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     }
   }
 
+  Future<void> _acceptVisible(ManagedStorageLocator identity) async {
+    if (_busy || _failedRun || !_current || _visible.contains(identity)) return;
+    final l = AppL10n.of(context);
+    final plaintext = identity.protection == StorageProtection.unencrypted;
+    String password = '';
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (!plaintext) {
+        var input = '';
+        final value = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(
+              '${l.storageEncryptedTitle} · ${identity.id.value.substring(0, 8)}',
+            ),
+            content: TextField(
+              autofocus: true,
+              obscureText: true,
+              decoration: InputDecoration(labelText: l.compactOfferPassword),
+              onChanged: (text) => input = text,
+              onSubmitted: (text) => Navigator.of(ctx).pop(text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(l.actionCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(input),
+                child: Text(l.compactOfferAdd),
+              ),
+            ],
+          ),
+        );
+        if (value == null || value.isEmpty || !_current) return;
+        password = value;
+      }
+      if (!_current) return;
+      final probe = await ref
+          .read(appControllerProvider.notifier)
+          .probeCompactionVisibleIdentity(
+            identity,
+            password: password,
+            plaintextApproved: plaintext,
+          );
+      if (probe == null) {
+        if (_current) setState(() => _error = l.compactOfferUnknown);
+        return;
+      }
+      try {
+        if (!_current) return;
+        _visible.authorize(identity, probe.keys, plaintextApproved: plaintext);
+        _roster.expectSpaces(probe.children);
+        if (probe.name != null) _visibleNames[identity.id] = probe.name!;
+      } finally {
+        probe.keys.fillRange(0, probe.keys.length, 0);
+        for (final child in probe.children) {
+          child.keys.fillRange(0, child.keys.length, 0);
+        }
+      }
+    } catch (_, stack) {
+      errorJournal.record(
+        kind: 'storage-compaction-owner-probe',
+        error: StateError('could not authorize a compaction owner'),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (_current) setState(() => _error = l.settingsStorageCompactFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _run() async {
     if (_busy || _failedRun || !_current) return;
     // A typed password is an instruction to keep that space, even if the
     // separate Add button was obscured by the mobile keyboard. Never silently
     // discard it and compact only the already collected spaces.
     if (_password.text.isNotEmpty && !await _accept(_password.text)) return;
-    if (!mounted || !_current || _roster.length == 0 || !_roster.isComplete) {
+    if (!mounted ||
+        !_current ||
+        _roster.length == 0 ||
+        !_roster.isComplete ||
+        !_visible.isComplete) {
       return;
     }
     final route = ModalRoute.of(context);
@@ -275,18 +366,27 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     final l = AppL10n.of(context);
     setState(() => _busy = true);
     try {
-      final operation = ref
-          .read(appControllerProvider.notifier)
-          .compactStorageKeeping(
-            roster: _roster,
-            reopenWith: widget.currentPassword,
-          );
+      final ctrl = ref.read(appControllerProvider.notifier);
+      final operation = _visible.identities.isEmpty
+          ? ctrl.compactStorageKeeping(
+              roster: _roster,
+              reopenWith: widget.currentPassword,
+            )
+          : ctrl.compactStorageKeepingWithProfile(
+              roster: _roster,
+              reopenWith: widget.currentPassword,
+              profileAuthorization: _visible,
+            );
       widget.onOperationStarted(operation);
       final sizes = await operation;
       _closeCompactionRoute(route, sizes);
     } catch (error, stack) {
       final incomplete = error is CompactionRosterRepairIncomplete;
-      final failure = incomplete
+      final uncertain =
+          error is ManagedLegacyCompactionFailure && error.mayHaveApplied;
+      final failure = uncertain
+          ? l.compactOfferOutcomeUncertain
+          : incomplete
           ? l.settingsStorageCompactRepairIncomplete
           : l.settingsStorageCompactFailed;
       // The controller has already attempted to reopen the session in finally.
@@ -387,6 +487,49 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
                 child: Text(l.compactOfferAdd),
               ),
             ),
+            if (_visible.identities.isNotEmpty) ...[
+              const Divider(),
+              Text(l.compactOfferVisibleHint),
+              for (final identity in _visible.identities)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        _visibleNames[identity.id] ??
+                            identity.id.value.substring(0, 8),
+                      ),
+                      subtitle: Text(
+                        identity.protection == StorageProtection.encrypted
+                            ? l.storageEncryptedTitle
+                            : l.storageUnencryptedTitle,
+                      ),
+                      trailing: _visible.contains(identity)
+                          ? const Icon(Icons.check_circle_outline)
+                          : null,
+                    ),
+                    if (!_visible.contains(identity))
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: ValueKey(
+                            'compaction-owner-${identity.id.value}',
+                          ),
+                          onPressed: _busy || _failedRun || !_current
+                              ? null
+                              : () => _acceptVisible(identity),
+                          child: Text(
+                            identity.protection == StorageProtection.unencrypted
+                                ? l.compactOfferApprovePlaintext
+                                : l.compactOfferAdd,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+            ],
             if (_found.isNotEmpty) ...[
               const Divider(),
               Text(
@@ -448,6 +591,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
                   _failedRun ||
                   !_current ||
                   _roster.length == 0 ||
+                  !_visible.isComplete ||
                   missing.isNotEmpty
               ? null
               : _run,

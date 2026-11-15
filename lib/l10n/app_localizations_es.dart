@@ -8344,4 +8344,15 @@ class AppL10nEs extends AppL10n {
   @override
   String get profileErasurePendingBody =>
       'Es posible que algunos datos ya se hayan eliminado. El inicio de sesión normal está bloqueado temporalmente para evitar reemplazar datos mientras el borrado está pendiente.';
+
+  @override
+  String get compactOfferVisibleHint =>
+      'Estos almacenes separados conservan sus datos. Desbloquee cada uno para actualizar los enlaces a identidades ocultas.';
+
+  @override
+  String get compactOfferApprovePlaintext => 'Permitir actualizar enlaces';
+
+  @override
+  String get compactOfferOutcomeUncertain =>
+      'El contenedor podría haber cambiado. No repita la compactación. Reinicie la aplicación y compruebe sus identidades.';
 }

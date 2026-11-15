@@ -196,6 +196,19 @@ final class ProfileStorageRouter {
     }).whenComplete(() => copied.fillRange(0, copied.length, 0));
   }
 
+  /// Existing, explicitly selected owner for maintenance credential collection.
+  /// Keep its opening/close under this router's lifetime without changing the
+  /// active view. The normal factory retains selected-root journal recovery.
+  Storage createMaintenanceProbe(ManagedStorageLocator identity) {
+    if (_closing ||
+        !_snapshot.identities.any((entry) => entry.locator == identity)) {
+      throw StateError('maintenance owner is not available');
+    }
+    final storage = _factory(identity, false);
+    _retiredStores.add(storage);
+    return storage;
+  }
+
   /// Temporary legacy space for an authenticated roster operation. The parent
   /// sharing this container must be closed first. Retain before any opener
   /// await; close errors remain in the router's retirement set for retry.

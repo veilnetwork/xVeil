@@ -8309,4 +8309,15 @@ class AppL10nRu extends AppL10n {
   @override
   String get profileErasurePendingBody =>
       'Часть данных уже могла быть удалена. Обычный вход временно заблокирован, чтобы не перезаписать данные до завершения сброса.';
+
+  @override
+  String get compactOfferVisibleHint =>
+      'Данные этих отдельных хранилищ сохранятся. Разрешите обновить ссылки на скрытые личности в каждом из них.';
+
+  @override
+  String get compactOfferApprovePlaintext => 'Разрешить обновление ссылок';
+
+  @override
+  String get compactOfferOutcomeUncertain =>
+      'Контейнер мог уже измениться. Не повторяйте сжатие. Перезапустите приложение и проверьте личности.';
 }

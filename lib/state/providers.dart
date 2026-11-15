@@ -23,6 +23,7 @@ import '../data/node/proxy_routing.dart';
 import '../data/storage/fake_kv_log_store.dart';
 import '../data/storage/async_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
+import '../data/storage/managed_identity_catalog.dart';
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/profile_preferences.dart';
 import '../data/storage/kv_log_store.dart';
@@ -83,6 +84,18 @@ final compactionStagedStorageProvider = Provider<Storage Function(String)>(
         keysOpener: workerKeysSpaceOpener(path),
       ),
 );
+
+/// Independent existing owner, never a selection or a creation fallback.
+final compactionVisibleStorageProvider =
+    Provider<Storage Function(String profile, ManagedIdentityEntry entry)>(
+      (ref) => (profile, entry) {
+        final router = ref.read(profileStorageRouterProvider);
+        if (router == null || router.profileDirectory != profile) {
+          throw StateError('maintenance profile is not available');
+        }
+        return router.createMaintenanceProbe(entry.locator);
+      },
+    );
 
 /// The SINGLE-identity storage (one space open at a time) — the default path.
 /// main() overrides this with the real container-backed one; here it is the

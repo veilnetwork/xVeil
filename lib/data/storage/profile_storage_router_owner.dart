@@ -29,6 +29,8 @@ final class ProfileStorageRouterOwner {
   bool _available = true, _disposed = false;
   int _epoch = 0;
 
+  bool get isAvailable => _available && !_disposed;
+
   ProfileStorageRouter get router {
     if (!_available || _disposed) {
       throw StateError('storage router lifetime is unavailable');

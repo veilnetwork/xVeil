@@ -104,6 +104,18 @@ bounded uncertain outcomes. The all-owner dialog/controller entry, custom-source
 journal binding, Windows source durability and complete app/platform recovery
 qualification remain open; defaults and the ordinary mixed-profile guard are
 unchanged.
+The [all-owner collection follow-up](validation/managed-compaction-collection-2026-11-15/README.md)
+now connects the dialog and controller to that full-profile publisher. Hidden
+keep-set credentials and visible-owner permissions stay separate; plaintext
+owners require explicit consent. Selected-owner probes retain ordinary private
+journal recovery and are owned by the router through close. Real native cases
+qualify source/ref preservation, interrupted-intent recovery and post-publication
+reopen errors; narrow widget controls qualify collection and uncertain outcomes.
+The ordinary mixed-profile fallback remains guarded; only a complete explicit
+collection admits the coordinated route. Ordinary packaged lifecycle, physical
+OEM/platform recovery, custom-source binding, Windows durability, complete
+credential/model inventory, release AOT and all-target native packaging remain
+open. Managed defaults stay OFF.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 
