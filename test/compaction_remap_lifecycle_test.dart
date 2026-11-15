@@ -60,8 +60,8 @@ class _Storage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<List<RosterEntry>?> loadRoster() async {
-    final result = await super.loadRoster();
+  Future<List<RosterEntry>?> loadRosterForMaintenance() async {
+    final result = await super.loadRosterForMaintenance();
     if (opened.length == 1) await park(_Stage.firstRosterRead);
     if (currentPassword == 'master-fixture' && masterVisits == 2) {
       await park(_Stage.masterRosterRead);

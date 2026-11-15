@@ -145,6 +145,7 @@ class HiddenVolumeStorage
         Storage,
         StorageOpeningOwner,
         StorageRetirementOwner,
+        RosterMaintenanceReader,
         StorageUsageSource,
         OwnedStorageReclamation,
         StorageInitializationSource,
@@ -827,51 +828,103 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<List<RosterEntry>?> loadRoster() => _readFileSession((session) async {
-    while (true) {
-      _checkFileReadSession(session);
-      final publication = _rosterPublication;
-      if (publication != null) {
-        await publication;
-        continue;
-      }
-      final revision = _rosterRevision;
-      Uint8List? raw;
-      try {
-        raw = (await _rosterSnapshot(session.store, readOnly: true)).active;
-      } catch (_) {
-        _checkFileReadSession(session);
-        if (revision != _rosterRevision) continue;
-        // An IO failure of the primary setting is not an absent identity.
-        rethrow;
-      }
-      _checkFileReadSession(session);
-      if (revision != _rosterRevision) continue;
-      return raw == null ? null : _decodeRoster(raw);
-    }
-  });
+  Future<List<RosterEntry>?> loadRoster() => _loadRoster(strict: false);
+
+  /// Maintenance must distinguish an absent roster from unreadable metadata.
+  /// Unknown row fields or malformed keys may not disappear during a rewrite.
+  /// The historical read API retains its existing parse-failure semantics.
+  @override
+  Future<List<RosterEntry>?> loadRosterForMaintenance() =>
+      _loadRoster(strict: true);
+
+  Future<List<RosterEntry>?> _loadRoster({required bool strict}) =>
+      _readFileSession((session) async {
+        while (true) {
+          _checkFileReadSession(session);
+          final publication = _rosterPublication;
+          if (publication != null) {
+            await publication;
+            continue;
+          }
+          final revision = _rosterRevision;
+          Uint8List? raw;
+          try {
+            raw = (await _rosterSnapshot(
+              session.store,
+              readOnly: !strict,
+            )).active;
+          } catch (_) {
+            _checkFileReadSession(session);
+            if (revision != _rosterRevision) continue;
+            if (strict) throw StateError('cannot read roster for maintenance');
+            // An IO failure of the primary setting is not an absent identity.
+            rethrow;
+          }
+          _checkFileReadSession(session);
+          if (revision != _rosterRevision) continue;
+          if (raw == null) return null;
+          final decoded = _decodeRoster(raw, strict: strict);
+          if (strict && decoded == null) {
+            throw StateError('cannot decode roster for maintenance');
+          }
+          return decoded;
+        }
+      });
 
   /// The roster in [raw], or null for historical parse failures. An invalid
   /// explicit storage locator throws rather than becoming legacy/absent.
-  static List<RosterEntry>? _decodeRoster(Uint8List raw) {
+  static List<RosterEntry>? _decodeRoster(
+    Uint8List raw, {
+    bool strict = false,
+  }) {
+    final decoded = <RosterEntry>[];
     try {
       final list = jsonDecode(utf8.decode(raw)) as List;
-      return [
-        for (final e in list.cast<Map<String, dynamic>>())
-          RosterEntry(
-            label: e['l'] as String,
-            spaceKeys: base64.decode(e['k'] as String),
-            anonymous: e['a'] == 1,
-            storageLocator: e.containsKey('s')
-                ? IdentityStorageLocator.decode(e['s'])
-                : const LegacyStorageLocator(),
-          ),
-      ];
+      for (final e in list.cast<Map<String, dynamic>>()) {
+        if (strict &&
+            (e.keys.any((key) => !const {'l', 'k', 'a', 's'}.contains(key)) ||
+                e['l'] is! String ||
+                (e['l'] as String).isEmpty ||
+                e['k'] is! String ||
+                (e.containsKey('a') && e['a'] != 1))) {
+          throw const FormatException();
+        }
+        final keys = base64.decode(e['k'] as String);
+        try {
+          if (strict && (keys.length != 64 || base64.encode(keys) != e['k'])) {
+            throw const FormatException();
+          }
+          decoded.add(
+            RosterEntry(
+              label: e['l'] as String,
+              spaceKeys: keys,
+              anonymous: e['a'] == 1,
+              storageLocator: e.containsKey('s')
+                  ? IdentityStorageLocator.decode(e['s'])
+                  : const LegacyStorageLocator(),
+            ),
+          );
+        } catch (_) {
+          if (strict) keys.fillRange(0, keys.length, 0);
+          rethrow;
+        }
+      }
+      return decoded;
     } on InvalidStorageLocator {
       // Never reinterpret a malformed explicit location as a missing roster
       // or as permission to open these keys in the legacy container.
+      if (strict) {
+        for (final row in decoded) {
+          row.spaceKeys.fillRange(0, row.spaceKeys.length, 0);
+        }
+      }
       rethrow;
     } catch (_) {
+      if (strict) {
+        for (final row in decoded) {
+          row.spaceKeys.fillRange(0, row.spaceKeys.length, 0);
+        }
+      }
       return null;
     }
   }

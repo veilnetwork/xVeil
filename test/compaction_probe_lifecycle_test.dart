@@ -73,9 +73,9 @@ class _Storage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<List<RosterEntry>?> loadRoster() async {
+  Future<List<RosterEntry>?> loadRosterForMaintenance() async {
     calls.add('roster');
-    final result = await super.loadRoster();
+    final result = await super.loadRosterForMaintenance();
     await park(_Stage.roster);
     return result;
   }

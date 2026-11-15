@@ -2149,6 +2149,13 @@ class AppController extends Notifier<AppState> {
     await cancelCompactionCollection(reopenWith);
   }
 
+  Future<List<RosterEntry>?> _readRosterForCompaction(Storage storage) {
+    if (storage is! RosterMaintenanceReader) {
+      throw StateError('strict roster inspection unavailable');
+    }
+    return (storage as RosterMaintenanceReader).loadRosterForMaintenance();
+  }
+
   /// What a password opens in this container — for the screen that collects
   /// them before a compaction.
   ///
@@ -2214,7 +2221,7 @@ class AppController extends Notifier<AppState> {
           // A roster-bearing space is a master: unlocking it brings everything it
           // lists, which is the whole reason one password can cover several
           // identities.
-          final roster = await storage.loadRoster();
+          final roster = await _readRosterForCompaction(storage);
           if (!current()) return closed;
           final profile = await storage.loadProfile();
           if (!current()) return closed;
@@ -2330,7 +2337,7 @@ class AppController extends Notifier<AppState> {
         final keys = await storage.exportSpaceKeys();
         requireCurrentSession();
         moved[hex(credential.oldSpaceKeys)] = keys;
-        final roster = await storage.loadRoster();
+        final roster = await _readRosterForCompaction(storage);
         requireCurrentSession();
         if (roster != null) {
           rosterHolders.add(credential.password);
@@ -2361,7 +2368,7 @@ class AppController extends Notifier<AppState> {
           failed.add('roster');
           continue;
         }
-        final roster = await storage.loadRoster();
+        final roster = await _readRosterForCompaction(storage);
         requireCurrentSession();
         if (roster == null) {
           failed.add('roster');

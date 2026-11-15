@@ -64,6 +64,12 @@ and refuses credential operations against an active managed root. The 75-check
 run includes prepared native publication/refusal and unchanged sibling files.
 Cross-owner references held by managed masters still require recovery wiring;
 the mixed-profile compaction guard remains enabled.
+The [external-reference recovery follow-up](validation/external-compaction-reference-recovery-2026-11-15/README.md)
+adds a private cross-owner backend with actual process-death recovery checks,
+selected-root recovery and source-name durability admission. It also fixes
+legacy compaction treating unreadable rosters as absent by requiring strict
+maintenance reads. Worker/UI/cold-start integration and Windows source durability
+remain incomplete; managed defaults and the mixed-profile guard are unchanged.
 Earlier section-local “remaining” notes are historical; this
 opening status and the newest qualification reports describe current evidence.
 

@@ -80,6 +80,11 @@ abstract interface class StorageRetirementOwner {
   void retireOpening();
 }
 
+/// Destructive maintenance may not interpret an unreadable roster as absent.
+abstract interface class RosterMaintenanceReader {
+  Future<List<RosterEntry>?> loadRosterForMaintenance();
+}
+
 abstract interface class Storage {
   /// Unlock (or create on first run) the user's space with [password].
   /// Returns false if the password does not unlock any space.
