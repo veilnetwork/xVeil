@@ -58,6 +58,7 @@ dependencies:
   # transitively so `flutter analyze` stays clean, which the release tag runs
   # before anything else.
   meta: ^1.16.0
+  path: ^1.9.1
   # Unicode grapheme boundaries for the shared-note sequence CRDT. Flutter
   # selections use UTF-16 offsets, but CRDT atoms must never split emoji or a
   # combining sequence into independently deletable halves.

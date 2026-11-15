@@ -186,6 +186,10 @@ bool createPrivateDirectory(String path) {
       ..nLength = sizeOf<win.SECURITY_ATTRIBUTES>()
       ..lpSecurityDescriptor = descriptor.value
       ..bInheritHandle = 0;
+    // win32 resolves its GetLastError symbol lazily. Do that before the call
+    // whose error matters: the first lookup can overwrite ERROR_ALREADY_EXISTS
+    // and turn an occupied name into a spurious I/O failure in a fresh isolate.
+    win.GetLastError();
     if (win.CreateDirectory(name, attributes) != 0) return true;
     final error = win.GetLastError();
     if (error == win.ERROR_ALREADY_EXISTS || error == win.ERROR_FILE_EXISTS) {
