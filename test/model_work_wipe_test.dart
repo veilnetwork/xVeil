@@ -12,13 +12,16 @@ import 'package:xveil/data/veil_bundle.dart';
 import 'package:xveil/data/translation_model_store.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
+import 'package:xveil/state/model_import.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/profile_model_work.dart';
+import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 import 'support/fake_hv_container.dart';
+import 'support/retirement_secret_store.dart';
 
 class _Work extends ProfileModelWork {
   final retiring = Completer<void>();
@@ -27,6 +30,31 @@ class _Work extends ProfileModelWork {
     if (!retiring.isCompleted) retiring.complete();
     return super.retire();
   }
+}
+
+class _HeldBundle implements File {
+  _HeldBundle(this.inner);
+  final File inner;
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  String get path => inner.path;
+  @override
+  Future<int> length() async {
+    if (!entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    return inner.length();
+  }
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      inner.open(mode: mode);
+  @override
+  Stream<List<int>> openRead([int? start, int? end]) =>
+      inner.openRead(start, end);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// The backend may have passed its last cancellation check before committing.
@@ -91,6 +119,85 @@ class _Vpn implements VpnBackend {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'wipe cannot give a delayed bundle import a fresh model owner',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final directory = Directory.systemTemp.createTempSync(
+        'xveil-import-wipe-',
+      );
+      final root = Directory('${directory.path}/translate');
+      final source = Directory('${directory.path}/source')..createSync();
+      for (final name in kPairFiles) {
+        File('${source.path}/$name').writeAsStringSync('synthetic $name bytes');
+      }
+      final bundle = File('${directory.path}/model.veiltranslate');
+      await writeBundle(
+        sourceDir: source,
+        pair: const TranslationPair('ru', 'en'),
+        out: bundle,
+      );
+      final work = _Work(), store = _Store(directory, false);
+      var workOwners = 0;
+      final app = ProviderContainer(
+        overrides: [
+          quickUnlockSecretStoreProvider.overrideWithValue(
+            RetirementSecretStore(),
+          ),
+          appControllerProvider.overrideWith(_Idle.new),
+          profileModelWorkProvider.overrideWith(
+            (ref) => workOwners++ == 0 ? work : ProfileModelWork(),
+          ),
+          singleSpaceStorageProvider.overrideWithValue(
+            FakeHvContainer().storage(),
+          ),
+          notificationServiceProvider.overrideWithValue(_Notifications()),
+          vpnBackendProvider.overrideWithValue(_Vpn()),
+          whisperModelStoreProvider.overrideWithValue(store),
+          translationModelsRootProvider.overrideWithValue(() async => root),
+        ],
+      );
+      final held = _HeldBundle(bundle);
+      final importing = installReceivedModel(
+        held,
+        into: targetsFromContainer(app),
+        acceptUnverified: true,
+      );
+      try {
+        await held.entered.future;
+        expect(
+          await app.read(appControllerProvider.notifier).wipeContainers(),
+          isEmpty,
+        );
+        expect(root.existsSync(), isFalse);
+        held.release.complete();
+        expect((await importing).succeeded, isFalse);
+        expect(
+          root.existsSync(),
+          isFalse,
+          reason: 'a pre-wipe inspection cannot recreate installed models',
+        );
+        final fresh = await installReceivedModel(
+          bundle,
+          into: targetsFromContainer(app),
+          acceptUnverified: true,
+        );
+        expect(fresh.succeeded, isTrue, reason: fresh.error);
+        for (final name in kPairFiles) {
+          expect(
+            File('${root.path}/ru-en/$name').readAsStringSync(),
+            'synthetic $name bytes',
+          );
+        }
+      } finally {
+        if (!held.release.isCompleted) held.release.complete();
+        await importing;
+        app.dispose();
+        directory.deleteSync(recursive: true);
+      }
+    },
+  );
   for (final cooperative in [false, true]) {
     test(
       'wipe joins speech publication and seals admission; cooperative=$cooperative',
@@ -106,6 +213,9 @@ void main() {
         var workOwners = 0;
         final app = ProviderContainer(
           overrides: [
+            quickUnlockSecretStoreProvider.overrideWithValue(
+              RetirementSecretStore(),
+            ),
             appControllerProvider.overrideWith(_Idle.new),
             profileModelWorkProvider.overrideWith(
               (ref) => workOwners++ == 0 ? work : ProfileModelWork(),
@@ -190,6 +300,9 @@ void main() {
       var holdNext = false;
       final app = ProviderContainer(
         overrides: [
+          quickUnlockSecretStoreProvider.overrideWithValue(
+            RetirementSecretStore(),
+          ),
           appControllerProvider.overrideWith(_Idle.new),
           profileModelWorkProvider.overrideWithValue(work),
           singleSpaceStorageProvider.overrideWithValue(
@@ -252,6 +365,9 @@ void main() {
       store.release.complete();
       final app = ProviderContainer(
         overrides: [
+          quickUnlockSecretStoreProvider.overrideWithValue(
+            RetirementSecretStore(),
+          ),
           appControllerProvider.overrideWith(_Idle.new),
           profileModelWorkProvider.overrideWithValue(work),
           singleSpaceStorageProvider.overrideWithValue(

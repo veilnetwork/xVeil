@@ -54,6 +54,9 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
   String? _error;
 
   Future<void> _install() async {
+    // Keep the initial profile owner through staging, provenance and picker
+    // awaits. Re-reading it later could admit this old action after a wipe.
+    final targets = targetsFromWidgetRef(ref);
     setState(() {
       _installing = true;
       _error = null;
@@ -90,10 +93,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
         case null:
           break;
       }
-      var result = await installReceivedModel(
-        staged!.file,
-        into: targetsFromWidgetRef(ref),
-      );
+      var result = await installReceivedModel(staged!.file, into: targets);
       if (!mounted) return;
       if (result.needsDecision) {
         // Nothing has been installed at this point. The bundle's own hashes
@@ -105,7 +105,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
           case ProvenanceChoice.installAnyway:
             result = await installReceivedModel(
               staged.file,
-              into: targetsFromWidgetRef(ref),
+              into: targets,
               acceptUnverified: true,
             );
             if (!mounted) return;
@@ -116,10 +116,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
             // A file the person chose themselves, from wherever they trust.
             // Held to the same standard: choosing it says where it came from,
             // not that it is the published artifact.
-            result = await installReceivedModel(
-              File(path),
-              into: targetsFromWidgetRef(ref),
-            );
+            result = await installReceivedModel(File(path), into: targets);
             if (!mounted) return;
             if (result.needsDecision) {
               final again = await askAboutProvenance(context, result.verdict!);
@@ -127,7 +124,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
               if (again != ProvenanceChoice.installAnyway) return;
               result = await installReceivedModel(
                 File(path),
-                into: targetsFromWidgetRef(ref),
+                into: targets,
                 acceptUnverified: true,
               );
               if (!mounted) return;
