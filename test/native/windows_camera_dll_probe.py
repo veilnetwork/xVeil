@@ -18,7 +18,7 @@ import threading
 import time
 
 
-def probe(media_path: Path, shim_path: Path) -> list[dict]:
+def probe(media_path: Path, shim_path: Path, capture_diagnostics=False) -> list[dict]:
     # This process must fail on a loader error without an OS error dialog.
     kernel = c.WinDLL('kernel32', use_last_error=True)
     kernel.SetErrorMode.argtypes = [c.c_uint]
@@ -43,6 +43,8 @@ def probe(media_path: Path, shim_path: Path) -> list[dict]:
     video = bind('start_video', [ptr, c.c_int, c.c_int, c.c_int, c.c_int], c.c_int)
     stop_video = bind('stop_video', [ptr], c.c_int)
     camera = bind('start_camera', [ptr, c.c_int, c.c_int, c.c_int], c.c_int)
+    camera_device = bind('start_camera_device',
+                         [ptr, c.c_char_p, c.c_int, c.c_int, c.c_int], c.c_int)
     stop_camera = bind('stop_camera', [ptr], c.c_int)
     mute = bind('set_mic_muted', [ptr, c.c_int], c.c_int)
     frame_args = [ptr, u8ptr, c.c_int, c.POINTER(c.c_int), c.POINTER(c.c_int)]
@@ -101,11 +103,32 @@ def probe(media_path: Path, shim_path: Path) -> list[dict]:
             require(video(sender, 1, 0, kbps, fps) == 0)
             require(camera(sender, w, h, fps) == 0)
             previous, first = advance(sender, receiver, (0, 0))
+            if capture_diagnostics:
+                state = read_stats(sender)
+                require(state.get('camera_capture_status') == 2)
+                require(state['camera_capture_reads'] >= state['camera_capture_samples'] >=
+                        state['camera_capture_frames'] > 0)
             require(stop_camera(sender) == 0)
+            if capture_diagnostics:
+                state = read_stats(sender)
+                require(state.get('camera_capture_status') == 3 and
+                        state['camera_capture_frames'] > 0)
+                # Explicitly select a nonexistent source, never disable or
+                # reconfigure a real device. Releasing the failed object must
+                # retain its reason and reset the previous attempt's counters.
+                require(camera_device(sender, b'xveil-qa-nonexistent-camera', w, h, fps) != 0)
+                state = read_stats(sender)
+                require(state.get('camera_capture_status') == 4 and
+                        state.get('camera_capture_hresult') == -1)
+                require(all(state.get('camera_capture_' + key) == 0
+                            for key in ['reads', 'samples', 'frames', 'dropped']))
             require(camera(sender, w, h, fps) == 0)
             _, second = advance(sender, receiver, previous)
             state = read_stats(sender)
             require(state.get('camera_capturing') == 1 and state.get('mic_muted') == 1)
+            if capture_diagnostics:
+                require(state.get('camera_capture_status') == 2 and
+                        state.get('camera_capture_frames', 0) > 0)
             packets = counter() - packets_before
             require(packets > 0)
             require(stop_camera(sender) == 0)
@@ -118,7 +141,9 @@ def probe(media_path: Path, shim_path: Path) -> list[dict]:
                                 decodedUpdatesAfterRestart=second[1],
                                 nativeDatagramAttempts=packets,
                                 cameraRunningBeforeStop=True,
-                                microphoneMuted=True))
+                                microphoneMuted=True,
+                                **({'captureDiagnosticsChecked': True}
+                                   if capture_diagnostics else {})))
         finally:
             if sender:
                 destroy(sender)
@@ -133,6 +158,8 @@ def main() -> int:
     parser.add_argument('--media-dll', type=Path, required=True)
     parser.add_argument('--transport-shim', type=Path, required=True)
     parser.add_argument('--use-physical-camera', action='store_true')
+    parser.add_argument('--expect-capture-diagnostics', action='store_true',
+                        help='Verify numeric capture evidence, failed-source retention and restart')
     args = parser.parse_args()
     if sys.platform != 'win32' or not args.use_physical_camera:
         parser.error('Requires Windows and explicit --use-physical-camera')
@@ -142,7 +169,8 @@ def main() -> int:
     watchdog.daemon = True
     watchdog.start()
     try:
-        result = probe(args.media_dll, args.transport_shim)
+        result = probe(args.media_dll, args.transport_shim,
+                       args.expect_capture_diagnostics)
         print(json.dumps(dict(success=True, cases=result)))
         return 0
     except Exception as error:

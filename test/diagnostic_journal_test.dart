@@ -194,6 +194,88 @@ void main() {
     );
   });
 
+  test(
+    'native camera evidence is bounded and retained after ring eviction',
+    () {
+      final stats = <String, dynamic>{
+        'camera_capture_status': 7,
+        'camera_capture_hresult': 0xc00d3ea2,
+        'camera_capture_reads': 11,
+        'camera_capture_samples': 10,
+        'camera_capture_frames': 8,
+        'camera_capture_dropped': 2,
+        'camera_device_id': _PrivateValue(),
+        'camera_driver_path': _PrivateValue(),
+        'camera_hresult_text': _PrivateValue(),
+      };
+      final journal = DiagnosticJournal(enabled: true, capacity: 1);
+      journal.recordCameraStart(
+        success: false,
+        origin: CameraStartOrigin.callStart,
+        stats: stats,
+      );
+      journal.recordCameraStopped(stats);
+      journal.recordMediaStats(stats);
+      journal.record(DiagnosticEvent.transportSent);
+      final evidence = journal.toJson()['last_evidence'] as Map;
+      final expected = {
+        'cameraCaptureStatus': 7,
+        'cameraCaptureHresult': 0xc00d3ea2,
+        'cameraCaptureReads': 11,
+        'cameraCaptureSamples': 10,
+        'cameraCaptureFrames': 8,
+        'cameraCaptureDropped': 2,
+      };
+      expect((evidence['cameraStart'] as Map)['values'], {
+        'success': 0,
+        'origin': CameraStartOrigin.callStart.index,
+        ...expected,
+      });
+      expect((evidence['cameraStopped'] as Map)['values'], {
+        'cameraCapturing': 0,
+        ...expected,
+      });
+      expect((evidence['mediaSample'] as Map)['values'], expected);
+      final limits = {
+        'camera_capture_status': (-1, 10),
+        'camera_capture_hresult': (-1, 0xffffffff),
+        for (final field in ['reads', 'samples', 'frames', 'dropped'])
+          'camera_capture_$field': (0, 1000000000),
+      };
+      for (final entry in limits.entries) {
+        for (final value in <Object?>[
+          entry.value.$1 - 1,
+          entry.value.$2 + 1,
+          0.0,
+          '0',
+          _PrivateValue(),
+        ]) {
+          final invalid = DiagnosticJournal(enabled: true);
+          invalid.recordCameraStart(
+            success: false,
+            origin: CameraStartOrigin.callStart,
+            stats: {entry.key: value},
+          );
+          expect(
+            ((invalid.toJson()['last_evidence'] as Map)['cameraStart']
+                as Map)['values'],
+            {'success': 0, 'origin': CameraStartOrigin.callStart.index},
+          );
+        }
+      }
+      final disabled = DiagnosticJournal(enabled: false);
+      disabled.recordCameraStart(
+        success: false,
+        origin: CameraStartOrigin.callStart,
+        stats: stats,
+      );
+      disabled.recordCameraStopped(stats);
+      disabled.recordMediaStats(stats);
+      expect(disabled.toJson()['last_evidence'], isEmpty);
+      expect(disabled.toJson()['events'], isEmpty);
+    },
+  );
+
   test('camera start evidence retains only source stage and outcome', () {
     for (final origin in CameraStartOrigin.values) {
       final journal = DiagnosticJournal(enabled: true, capacity: 1);

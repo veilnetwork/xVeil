@@ -21,8 +21,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
                 '  diagnosticJournal.recordSpaceDiscoveryFailure(stage: SpaceDiscoveryFailureStage.routeResolve, failure: SpaceDiscoveryFailureKind.nodeUnavailable);\n'
-                '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
-                '  diagnosticJournal.record(DiagnosticEvent.cameraStopped, values: {DiagnosticMetric.cameraCapturing: 0});\n'
+                "  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection, stats: {'camera_capture_status': 6, 'camera_capture_hresult': -1, 'camera_driver_path': 'PRIVATE_CANARY'});\n"
+                "  diagnosticJournal.recordCameraStopped({'camera_capture_status': 7, 'camera_capture_hresult': 0xc00d3ea2, 'camera_capture_reads': 11, 'camera_capture_samples': 10, 'camera_capture_frames': 8, 'camera_capture_dropped': 2, 'camera_driver_path': 'PRIVATE_CANARY'});\n"
                 '  diagnosticJournal.record(DiagnosticEvent.callAlertWindowQuery, values: {DiagnosticMetric.code: 1, DiagnosticMetric.background: 1, DiagnosticMetric.success: 0});\n'
                 '  diagnosticJournal.recordFolderSavedFailure(action: FolderSavedDiagnosticAction.discarding, failure: FolderSavedDiagnosticFailure.cleanup);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
@@ -35,7 +35,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
                 "'audio_jb_target_ms': 260, "
-                "'camera_capturing': 0, 'camera_device_id': 'PRIVATE_CANARY', "
+                "'camera_capturing': 0, 'camera_capture_status': 7, "
+                "'camera_capture_hresult': 0xc00d3ea2, 'camera_capture_reads': 11, "
+                "'camera_capture_samples': 10, 'camera_capture_frames': 8, "
+                "'camera_capture_dropped': 2, 'camera_device_id': 'PRIVATE_CANARY', "
                 "'camera_driver_path': 'PRIVATE_CANARY', "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
@@ -121,8 +124,14 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         })
                         self.assertEqual(evidence['cameraStart']['values'], {
                             'success': 0, 'origin': 2,
+                            'cameraCaptureStatus': 6, 'cameraCaptureHresult': -1,
                         })
-                        self.assertEqual(evidence['cameraStopped']['values'], {'cameraCapturing': 0})
+                        self.assertEqual(evidence['cameraStopped']['values'], {
+                            'cameraCapturing': 0, 'cameraCaptureStatus': 7,
+                            'cameraCaptureHresult': 0xc00d3ea2, 'cameraCaptureReads': 11,
+                            'cameraCaptureSamples': 10, 'cameraCaptureFrames': 8,
+                            'cameraCaptureDropped': 2,
+                        })
                         self.assertEqual(evidence['spaceDiscoveryFailed']['values'], {
                             'state': 1, 'code': 1, 'success': 0,
                         })
@@ -146,6 +155,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
                             'audioTargetDelayMs': 260,
                             'cameraCapturing': 0,
+                            'cameraCaptureStatus': 7, 'cameraCaptureHresult': 0xc00d3ea2,
+                            'cameraCaptureReads': 11, 'cameraCaptureSamples': 10,
+                            'cameraCaptureFrames': 8, 'cameraCaptureDropped': 2,
                         })
                         self.assertEqual(evidence['backgroundSnapshot']['values'], {
                             'supported': 1, 'success': 1,
