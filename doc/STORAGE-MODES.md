@@ -17,8 +17,15 @@ preserve existing notes. Both diagnostic profile/AOT and hook-free release/AOT
 checks pass on the retained encrypted profile, including ordinary input and cold
 reopen. A separate selected-mode accessibility fix is included in those packages
 and covered by 17 host checks.
-Android all-mode/persistence and activation work is not declared complete.
-
+The [Android all-mode release/AOT follow-up](validation/managed-storage-android-allmodes-aot-2026-11-16/README.md)
+now qualifies fresh explicit plaintext/hidden onboarding beside the retained
+encrypted identity, cold opening and isolated histories in all three modes.
+Wrong credentials preserve all five data payloads. Owned cleanup completes
+without other passwords and preserves the sibling data/role files; all relevant
+identities cold-open afterward. The public catalog contains only the two
+enumerable entries, and independent SQLite reads plaintext without a key.
+OS-vault, full-profile recovery/deletion, other target/platform and activation
+work remain open; these small fixtures make no space-savings claim.
 
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
@@ -120,8 +127,9 @@ build admission. The
 [Android mode qualification](validation/managed-storage-android-modes-2026-11-15/README.md)
 covers normal creation/cold reopen for all three modes on an Android 15 AOSP
 emulator, exact identity/note readback, a no-key plaintext read and return to both
-enumerable modes. Physical Android/OEM, complete platform destructive/recovery
-qualification, application release AOT and activation are not yet complete.
+enumerable modes. The later release/AOT follow-up above adds packaged
+three-mode and owned-maintenance checks. Physical Android/OEM, complete platform
+destructive/recovery qualification and activation remain open.
 The [Android maintenance follow-up](validation/managed-storage-android-reclaim-wipe-2026-11-15/README.md)
 qualifies actual owned reclamation of both visible modes with sibling payloads
 unchanged, then whole-profile deletion and cold onboarding. It also repairs
