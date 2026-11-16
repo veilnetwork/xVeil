@@ -182,6 +182,48 @@ void main() {
     );
 
     test(
+      '${entry.protection.name} crossed outgoing intent survives cold-open',
+      () async {
+        final created = binding(entry, create: true);
+        expect(
+          await created.storage.open(
+            password: 'fixture',
+            createIfMissing: true,
+          ),
+          isTrue,
+        );
+        final peer = NodeId.fromHex('c' * 64);
+        expect(
+          await created.storage.prepareContactRequest(peer),
+          ContactStatus.pendingOutgoing,
+        );
+        expect(
+          await created.storage.prepareContactRequest(peer, incoming: true),
+          ContactStatus.pendingIncoming,
+        );
+        expect((await created.storage.getContact(peer))?.canMessage, isFalse);
+        await created.storage.close();
+        final reopened = binding(entry);
+        expect(await reopened.storage.open(password: 'fixture'), isTrue);
+        expect(
+          (await reopened.storage.getContact(peer))?.hasOutgoingRequest,
+          isTrue,
+        );
+        expect(
+          await reopened.storage.acceptOutgoingContactRequest(peer),
+          isTrue,
+        );
+        final accepted = await reopened.storage.getContact(peer);
+        expect(accepted?.status, ContactStatus.accepted);
+        expect(accepted?.hasOutgoingRequest, isFalse);
+        expect(
+          (await reopened.storage.contactDecisionFloor(peer))?.status,
+          ContactStatus.accepted,
+        );
+      },
+    );
+
+    test(
       '${entry.protection.name} domain creation, key and password reopen',
       () async {
         final created = binding(entry, create: true);

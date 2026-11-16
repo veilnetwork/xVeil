@@ -181,8 +181,9 @@ abstract interface class Storage {
   });
   Future<bool> acknowledgeContactPreferences(PendingContactPreferences record);
 
-  /// Apply a peer's accept only to a still-pending outgoing request, checking
-  /// and writing under the same contact lock as local block/accept decisions.
+  /// Apply a peer's accept only to a still-pending local outgoing request,
+  /// including a crossed incoming request. Check and write under the same
+  /// contact lock as local block/accept decisions.
   /// False leaves the current decision and its durable floor unchanged.
   Future<bool> acceptOutgoingContactRequest(NodeId peer);
 

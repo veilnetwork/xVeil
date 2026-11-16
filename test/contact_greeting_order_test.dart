@@ -298,6 +298,185 @@ void main() {
           },
         );
 
+        for (final reopen in [false, true]) {
+          test(
+            'crossed requests need only one explicit acceptance reopen=$reopen',
+            () async {
+              await Future.wait([
+                mA.sendRequest(b, 'hello from a'),
+                mB.sendRequest(a, 'hello from b'),
+              ]);
+              final requestA = tA.sent.singleWhere(
+                (e) => e.kind == WireKind.request,
+              );
+              final requestB = tB.sent.singleWhere(
+                (e) => e.kind == WireKind.request,
+              );
+              await Future.wait([
+                _deliver(mA, b, requestB),
+                _deliver(mB, a, requestA),
+              ]);
+              expect(
+                (await sA.getContact(b))?.status,
+                ContactStatus.pendingIncoming,
+              );
+              expect(
+                (await sB.getContact(a))?.status,
+                ContactStatus.pendingIncoming,
+              );
+              if (reopen) {
+                await mA.dispose();
+                await sA.close();
+                expect(await sA.open(password: 'fixture'), isTrue);
+                mA = MessagingService(tA, sA);
+              }
+              await mB.acceptContact(a);
+              await _deliver(
+                mA,
+                b,
+                tB.sent.lastWhere((e) => e.kind == WireKind.accept),
+              );
+              expect(
+                (await sA.getContact(b))?.status,
+                ContactStatus.accepted,
+                reason:
+                    'receiving a request must not erase our own prior request consent',
+              );
+              await mA.sendText(b, 'after crossed requests');
+              await _deliver(
+                mB,
+                a,
+                tA.sent.lastWhere((e) => e.kind == WireKind.message),
+              );
+              await mB.sendText(a, 'reverse after crossed requests');
+              await _deliver(
+                mA,
+                b,
+                tB.sent.lastWhere((e) => e.kind == WireKind.message),
+              );
+              expect(
+                (await sB.loadMessages(
+                  a.hex,
+                )).where((m) => m.body == 'after crossed requests'),
+                hasLength(1),
+              );
+              expect(
+                (await sA.loadMessages(
+                  b.hex,
+                )).where((m) => m.body == 'reverse after crossed requests'),
+                hasLength(1),
+              );
+            },
+          );
+        }
+
+        for (final reopen in [false, true]) {
+          test(
+            'incoming-only request never authorizes an accept reopen=$reopen',
+            () async {
+              await mB.sendRequest(a, 'only incoming');
+              await _deliver(
+                mA,
+                b,
+                tB.sent.singleWhere((e) => e.kind == WireKind.request),
+              );
+              if (reopen) {
+                await mA.dispose();
+                await sA.close();
+                expect(await sA.open(password: 'fixture'), isTrue);
+                mA = MessagingService(tA, sA);
+              }
+              await _deliver(
+                mA,
+                b,
+                const WireEnvelope.accept().withFrameId('unsolicited-accept'),
+              );
+              final contact = await sA.getContact(b);
+              expect(contact?.status, ContactStatus.pendingIncoming);
+              expect(contact?.hasOutgoingRequest, isFalse);
+              expect(contact?.canMessage, isFalse);
+            },
+          );
+        }
+
+        test(
+          'a presentation upsert preserves crossed outgoing consent',
+          () async {
+            await Future.wait([
+              mA.sendRequest(b, 'from a'),
+              mB.sendRequest(a, 'from b'),
+            ]);
+            await _deliver(
+              mA,
+              b,
+              tB.sent.singleWhere((e) => e.kind == WireKind.request),
+            );
+            await _deliver(
+              mB,
+              a,
+              tA.sent.singleWhere((e) => e.kind == WireKind.request),
+            );
+            await sA.upsertContact(
+              Contact(
+                nodeId: b,
+                name: 'Local label',
+                status: ContactStatus.pendingIncoming,
+              ),
+            );
+            await mB.acceptContact(a);
+            await _deliver(
+              mA,
+              b,
+              tB.sent.lastWhere((e) => e.kind == WireKind.accept),
+            );
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+            expect((await sA.getContact(b))?.name, 'Local label');
+            expect((await sA.getContact(b))?.hasOutgoingRequest, isFalse);
+          },
+        );
+
+        test('forgetting crossed requests clears outgoing consent', () async {
+          await Future.wait([
+            mA.sendRequest(b, 'from a'),
+            mB.sendRequest(a, 'from b'),
+          ]);
+          await _deliver(
+            mA,
+            b,
+            tB.sent.singleWhere((e) => e.kind == WireKind.request),
+          );
+          await _deliver(
+            mB,
+            a,
+            tA.sent.singleWhere((e) => e.kind == WireKind.request),
+          );
+          await mB.acceptContact(a);
+          final oldAccept = tB.sent.lastWhere((e) => e.kind == WireKind.accept);
+          await mA.cancelRequest(b);
+          expect(await sA.getContact(b), isNull);
+          await _deliver(
+            mA,
+            b,
+            const WireEnvelope.request('new incoming', id: 'fresh-intro'),
+          );
+          await _deliver(mA, b, oldAccept);
+          final contact = await sA.getContact(b);
+          expect(contact?.status, ContactStatus.pendingIncoming);
+          expect(contact?.hasOutgoingRequest, isFalse);
+          await mB.sendText(a, 'still needs consent');
+          await _deliver(
+            mA,
+            b,
+            tB.sent.lastWhere((e) => e.kind == WireKind.message),
+          );
+          expect(
+            (await sA.loadMessages(
+              b.hex,
+            )).where((m) => m.body == 'still needs consent'),
+            isEmpty,
+          );
+        });
+
         test('an empty request creates no phantom message position', () async {
           await mA.sendRequest(b, '');
           final request = tA.sent.singleWhere(

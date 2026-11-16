@@ -43,6 +43,7 @@ class Contact {
     required this.nodeId,
     this.name,
     this.status = ContactStatus.accepted,
+    bool hasOutgoingRequest = false,
     this.mutedUntil,
     this.notificationMuteMode = NotificationMuteMode.none,
     this.pinned = false,
@@ -55,11 +56,18 @@ class Contact {
     this.allowPeerDelete = true,
     this.clearPolicy = kDefaultClearRequestPolicy,
     this.p2pOverride = kDefaultContactP2POverride,
-  });
+  }) : hasOutgoingRequest =
+           status == ContactStatus.pendingOutgoing ||
+           (status == ContactStatus.pendingIncoming && hasOutgoingRequest);
 
   final NodeId nodeId;
   final String? name;
   final ContactStatus status;
+
+  /// Local outgoing consent survives a crossed incoming request. Neither this
+  /// pending intent nor an incoming request grants ordinary messaging access.
+  /// Completed/blocked decisions discard it; unknown incoming-only peers lack it.
+  final bool hasOutgoingRequest;
 
   /// Local notification-mute deadline for this conversation: null = not muted,
   /// [kMuteForever] = muted until manually unmuted, anything else = timed mute
@@ -161,6 +169,7 @@ class Contact {
     // whatever was added to Contact afterwards.
     Object? name = _unset,
     ContactStatus? status,
+    bool? hasOutgoingRequest,
     // Nullable-field update: distinguish "leave as is" (omitted) from
     // "clear the mute" (explicit null) via a sentinel default.
     Object? mutedUntil = _unset,
@@ -181,6 +190,7 @@ class Contact {
     nodeId: nodeId,
     name: identical(name, _unset) ? this.name : name as String?,
     status: status ?? this.status,
+    hasOutgoingRequest: hasOutgoingRequest ?? this.hasOutgoingRequest,
     mutedUntil: identical(mutedUntil, _unset)
         ? this.mutedUntil
         : mutedUntil as DateTime?,

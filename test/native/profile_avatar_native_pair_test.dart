@@ -249,11 +249,18 @@ Future<void> _exchangeText(_Peer sender, _Peer recipient, String body) async {
 }
 
 void main() {
+  _registerPairTest(crossed: false);
+  _registerPairTest(crossed: true);
+}
+
+void _registerPairTest({required bool crossed}) {
   final enabled = Platform.environment['XVEIL_AVATAR_PAIR_NATIVE'] == '1';
   final configuredAddress =
       Platform.environment['XVEIL_AVATAR_PAIR_LOCAL_IPV4'];
   test(
-    'sovereign peers exchange avatars and resume after a native restart',
+    crossed
+        ? 'crossed sovereign requests converge after one acceptance'
+        : 'sovereign peers exchange avatars and resume after a native restart',
     () async {
       String? localAddress;
       if (configuredAddress != null) {
@@ -317,6 +324,23 @@ void main() {
         final bRaw = await b.messaging!.setSelfAvatar(_picture(210));
         profileLabels[aRaw] = 1;
         profileLabels[bRaw] = 2;
+        if (crossed) {
+          // Commit both users' outgoing requests before a carrier exists. No
+          // inbound injection: real Outbox retries deliver after native join.
+          await Future.wait([
+            a.messaging!.sendRequest(b.id, 'native-crossed-request-a'),
+            b.messaging!.sendRequest(a.id, 'native-crossed-request-b'),
+          ]);
+          expect(
+            (await a.storage!.getContact(b.id))?.status,
+            ContactStatus.pendingOutgoing,
+          );
+          expect(
+            (await b.storage!.getContact(a.id))?.status,
+            ContactStatus.pendingOutgoing,
+          );
+          stage('crossed-outgoing-persisted');
+        }
         stage('connecting');
         await b.transport.joinInvite(await a.invite());
         await _until(
@@ -325,20 +349,58 @@ void main() {
               (await b.transport.peers()).any((p) => p.isActive),
           'carrier',
         );
-        await a.messaging!.sendRequest(b.id, 'native-avatar-contact');
-        await _until(
-          () async =>
+        if (crossed) {
+          await _until(
+            () async =>
+                (await a.storage!.loadMessages(b.id.hex)).any(
+                  (m) =>
+                      m.direction == MessageDirection.incoming &&
+                      m.body == 'native-crossed-request-b',
+                ) &&
+                (await b.storage!.loadMessages(a.id.hex)).any(
+                  (m) =>
+                      m.direction == MessageDirection.incoming &&
+                      m.body == 'native-crossed-request-a',
+                ),
+            'both crossed request greetings',
+          );
+          stage('crossed-greetings-received');
+          final acceptor =
               (await b.storage!.getContact(a.id))?.status ==
-              ContactStatus.pendingIncoming,
-          'contact request',
-        );
-        await b.messaging!.acceptContact(a.id);
-        await _until(
-          () async =>
-              (await a.storage!.getContact(b.id))?.status ==
-              ContactStatus.accepted,
-          'contact acceptance',
-        );
+                  ContactStatus.pendingIncoming
+              ? b
+              : a;
+          final requester = identical(acceptor, a) ? b : a;
+          expect(
+            (await acceptor.storage!.getContact(requester.id))?.status,
+            ContactStatus.pendingIncoming,
+          );
+          await acceptor.messaging!.acceptContact(requester.id);
+          await _until(
+            () async =>
+                (await a.storage!.getContact(b.id))?.status ==
+                    ContactStatus.accepted &&
+                (await b.storage!.getContact(a.id))?.status ==
+                    ContactStatus.accepted,
+            'crossed requests after one acceptance',
+          );
+          stage('crossed-one-acceptance-converged');
+        } else {
+          await a.messaging!.sendRequest(b.id, 'native-avatar-contact');
+          await _until(
+            () async =>
+                (await b.storage!.getContact(a.id))?.status ==
+                ContactStatus.pendingIncoming,
+            'contact request',
+          );
+          await b.messaging!.acceptContact(a.id);
+          await _until(
+            () async =>
+                (await a.storage!.getContact(b.id))?.status ==
+                ContactStatus.accepted,
+            'contact acceptance',
+          );
+        }
         await Future.wait([
           _exchangeText(a, b, 'native-fresh-contact-a-to-b'),
           _exchangeText(b, a, 'native-fresh-contact-b-to-a'),
@@ -491,6 +553,7 @@ void main() {
         stderr.writeln(
           jsonEncode({
             'avatar_native_result': completed,
+            'crossed_requests': crossed,
             'text_controls': textControls,
             'profile_frames': [for (final p in peers) p.profileFrames],
             'authenticated_profile_frames': [
