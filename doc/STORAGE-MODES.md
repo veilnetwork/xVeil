@@ -7,6 +7,13 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [model-import owner follow-up](validation/model-import-profile-owner-2026-11-16/README.md)
+fixes a delayed chat bundle import acquiring fresh installation authority after
+profile wipe. Old targets now remain bound to their original work owner through
+inspection/dialog waits; explicit fresh imports still work. The 115-check host
+qualification includes native wipe/storage regressions. Packaged/platform and
+remaining activation inventory gates stay open.
+
 The [native ratchet first-root follow-up](validation/native-ratchet-first-root-2026-11-16/README.md)
 fixes publication of a first conversation with a durable sending reservation
 but no recoverable root snapshot. The real two-node host probe now survives

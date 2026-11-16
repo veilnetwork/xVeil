@@ -12,11 +12,13 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/profile_model_work.dart';
 import '../data/model_provenance.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_bundle.dart';
 import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
+import 'profile_model_work.dart';
 
 class ModelImportResult {
   const ModelImportResult.ok(this.kind) : error = null, verdict = null;
@@ -190,41 +192,99 @@ abstract interface class ModelInstallTargets {
 }
 
 class _RefTargets implements ModelInstallTargets {
-  _RefTargets(this._read);
+  _RefTargets(this._read, this._work, this._isCurrent);
   final Object Function(Object provider) _read;
+  final ProfileModelWork _work;
+  final bool Function() _isCurrent;
+  String? _translationError, _speechError;
+  static const _retired = 'this model import is no longer active; try again';
+
+  Future<bool> _install(
+    Future<bool> Function() install,
+    String? Function() error,
+    void Function(String?) rememberError,
+  ) {
+    // Capture this owner when the action starts, not after manifest I/O or a
+    // provenance dialog. A fresh post-wipe controller cannot authorize an old
+    // action. Actual installation remains joined by the old profile's owner.
+    final task = _work.begin(stillCurrent: _isCurrent);
+    if (task == null) {
+      rememberError(_retired);
+      return Future.value(false);
+    }
+    return task.run(() async {
+      if (!task.current) {
+        rememberError(_retired);
+        return false;
+      }
+      final ok = await install();
+      if (!task.current) {
+        rememberError(_retired);
+        return false;
+      }
+      rememberError(error());
+      return ok;
+    });
+  }
 
   @override
-  Future<bool> installTranslation(String path) =>
-      (_read(translationModelsControllerProvider.notifier)
-              as TranslationModelsController)
-          .importBundle(path);
+  Future<bool> installTranslation(String path) => _install(
+    () =>
+        (_read(translationModelsControllerProvider.notifier)
+                as TranslationModelsController)
+            .importBundle(path),
+    () => (_read(translationModelsControllerProvider) as TranslationModelsState)
+        .error,
+    (error) => _translationError = error,
+  );
 
   @override
-  String? get translationError =>
-      (_read(translationModelsControllerProvider) as TranslationModelsState)
-          .error;
+  String? get translationError => _translationError;
 
   @override
-  Future<bool> installSpeech(String path) =>
-      (_read(whisperModelControllerProvider.notifier) as WhisperModelController)
-          .importBundle(path);
+  Future<bool> installSpeech(String path) => _install(
+    () =>
+        (_read(whisperModelControllerProvider.notifier)
+                as WhisperModelController)
+            .importBundle(path),
+    () => (_read(whisperModelControllerProvider) as WhisperModelState).error,
+    (error) => _speechError = error,
+  );
 
   @override
-  String? get speechError =>
-      (_read(whisperModelControllerProvider) as WhisperModelState).error;
+  String? get speechError => _speechError;
 }
 
 /// From a provider's own Ref.
-ModelInstallTargets targetsFromRef(Ref ref) =>
-    _RefTargets((p) => ref.read(p as dynamic) as Object);
+ModelInstallTargets targetsFromRef(Ref ref) {
+  // A provider can rebuild while reusing its mounted Ref. Its old targets
+  // belong to the disposed build, not to that replacement generation.
+  var current = true;
+  ref.onDispose(() => current = false);
+  return _RefTargets(
+    (p) => ref.read(p as dynamic) as Object,
+    ref.read(profileModelWorkProvider),
+    () => current && ref.mounted,
+  );
+}
 
 /// From a widget's WidgetRef.
-ModelInstallTargets targetsFromWidgetRef(WidgetRef ref) =>
-    _RefTargets((p) => ref.read(p as dynamic) as Object);
+ModelInstallTargets targetsFromWidgetRef(WidgetRef ref) {
+  final context = ref.context;
+  return _RefTargets(
+    (p) => ref.read(p as dynamic) as Object,
+    ref.read(profileModelWorkProvider),
+    () => context.mounted,
+  );
+}
 
 /// From a container, which is what a test has.
 ModelInstallTargets targetsFromContainer(ProviderContainer container) =>
-    _RefTargets((p) => container.read(p as dynamic) as Object);
+    _RefTargets(
+      (p) => container.read(p as dynamic) as Object,
+      container.read(profileModelWorkProvider),
+      () => true,
+    );
 
 /// Install a model that arrived from a contact.
 ///
