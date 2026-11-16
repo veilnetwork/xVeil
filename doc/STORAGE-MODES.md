@@ -47,8 +47,13 @@ DLL is refused before data creation; three explicit no-padding roles survive
 separate-process read/write with 20-KiB growth; ordinary hidden creation/reopen
 retains its 1-MiB slot-grid padding. The selected DLL's bytes, tracked source
 closure, ABI checksum and privacy checks match. This closes that native
-component gap; full current Windows application packaging/lifecycle and
-production-default activation remain open.
+component gap. The subsequent
+[Windows Release/AOT package qualification](validation/windows-release-aot-storage-package-2026-11-16/README.md)
+builds the ordinary entrypoint, checks all packaged files, architecture, required
+DLL loading, native provenance and artifact privacy. Its current update has
+4,256 frozen inputs and 45 package members. This is packaging/native-load
+evidence; ordinary AOT graphical lifecycle and production-default activation
+remain open.
 
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
@@ -102,6 +107,10 @@ owned AOT writer. Windows passes 18 native cases without administrative rights
 or skips; macOS passes the same 18-case suite. Keybox bytes, sibling payloads and
 both hidden-space payloads survive. Packaged UI/OEM and other activation gates
 remain; this closes the standalone Windows process-death gap only.
+The later repeat uses the exact core/storage DLLs from the newly qualified
+Release package: all 18 cases pass with no skips, the AOT writer's native assets
+are bundled, and package/source hashes remain unchanged. This requalifies those
+bytes rather than claiming that the four cases were previously untested.
 
 The [hosted compaction follow-up](validation/managed-compaction-access-root-2026-11-15/README.md)
 separates access-root credentials from hidden keep-set authority, restores
