@@ -84,7 +84,11 @@ this one-line fix, so its packaged requalification remains separate.
 
 The [Saved Messages follow-up](../saved-messages-device-address-2026-11-16/README.md)
 now qualifies normal Android release/AOT note submission and cold reopen in the
-retained encrypted profile. This does not complete platform-wide qualification. All-mode cold readback,
+retained encrypted profile. The later
+[all-mode release/AOT follow-up](../managed-storage-android-allmodes-aot-2026-11-16/README.md)
+also qualifies plaintext/hidden creation, three-mode cold readback and both
+owned cleanup actions. OS-vault, full-profile destructive/recovery, physical OEM
+and other platform qualification remain separate. All-mode cold readback,
 maintenance/recovery and real OS-vault/OEM checks remain separate; this run does
 not replace the earlier debug-mode qualifications. Owned virtual app/emulator
 processes are stopped and their synthetic data retained privately. No push,
