@@ -80,3 +80,43 @@ GUI startup recovery or physical Android/OEM qualification. Packaged application
 cold recovery, native ratchet/ACK crash coverage, destructive/model/credential
 inventory, release AOT and all-target native packaging remain separate gates.
 The three production storage modes are not enabled by this qualification.
+
+
+## Follow-up with the qualified Release package
+
+The complete 18-case suite is repeated with the actual Release core and
+hidden-volume DLLs from the
+[current Windows package](../windows-release-aot-storage-package-2026-11-16/README.md).
+This is regression qualification of those newly packaged bytes, not the first
+qualification of the four boundaries above and not another product fix.
+
+The writer is rebuilt as a complete native-asset CLI bundle from the frozen
+application sources. The ordinary test suite runs through a stand-only wrapper
+that explicitly loads the qualified core DLL. No production fixture assertions
+or ACL policy are relaxed. The restricted primary token has administrative
+membership and privileges disabled, an explicit current-user owner and a
+private default DACL. It runs on a separate noninteractive window station; no
+user-facing application or input automation is launched.
+
+**18 passed, zero skips**, including all four writer terminations. The ready
+marker names the actual child PID before termination; private journals, hidden
+payloads, encrypted keybox and sibling data retain the checks described above.
+The seven CLI bundle files are hashed, including the executable, SQLite asset
+and qualified native dependencies. All 4,256 frozen source/test inputs and all
+45 application-package files still match after the test. The source closure
+includes the original suite/writer; the small stand wrapper is separate.
+
+An initial elevated SSH launch is excluded: its default file owner was the
+administrators group, so the current-user ownership checks correctly refused
+fixture creation before the crash tests. A subsequent executable-only writer
+did not reach the four checkpoints and is also excluded; the successful run
+uses the documented full `dart build cli` bundle. This preparation issue does
+not establish a storage or recovery defect.
+
+The actual launcher, writer and test processes have exited; synthetic fixtures
+are absent. The successful CLI bundle is retained. Failed standalone builds,
+two obsolete wrappers, duplicated native inputs and the regenerated test cache
+are removed after ownership/hash checks, approximately 154.5 MiB. The real
+application/profile and published packages are unchanged. This adds no GUI
+cold-recovery or hardware power-loss claim and does not enable production
+managed storage, publish native pins, push or release.
