@@ -99,7 +99,9 @@ void main() {
     (StorageProtection.hidden, false),
     (StorageProtection.encrypted, false),
     (StorageProtection.unencrypted, false),
+    (StorageProtection.hidden, true),
     (StorageProtection.encrypted, true),
+    (StorageProtection.unencrypted, true),
   ]) {
     test(
       'mixed roster, edits and cold access; master=${masterMode.name}, allOnline=$allOnline',

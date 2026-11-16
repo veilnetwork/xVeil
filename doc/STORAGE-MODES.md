@@ -7,6 +7,14 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [mixed native-session follow-up](validation/mixed-native-session-2026-11-16/README.md)
+completes all six master-protection/hosting combinations and separately qualifies
+the ordinary three-node all-online boot with actual native crypto and traffic.
+Active-view switches and owned reclamation preserve hosted nodes; lock releases
+them and cold reopening restores exact histories and native ratchets. Ten host
+checks pass, without changing production defaults or claiming platform-wide
+qualification.
+
 The [model-import owner follow-up](validation/model-import-profile-owner-2026-11-16/README.md)
 fixes a delayed chat bundle import acquiring fresh installation authority after
 profile wipe. Old targets now remain bound to their original work owner through
