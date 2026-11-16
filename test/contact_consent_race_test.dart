@@ -25,6 +25,9 @@ NodeId id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 class _Held extends HiddenVolumeStorage {
   _Held(super.open) : super.async();
   bool holdOutbox = false, holdRead = false;
+  bool holdInsideBlock = false, _holdBlockRead = false;
+  bool holdRemoteAccept = false;
+  final remoteAcceptEntered = Completer<void>();
   String? writeFault;
   int reads = 0;
   final entered = Completer<void>(), release = Completer<void>();
@@ -40,7 +43,28 @@ class _Held extends HiddenVolumeStorage {
   }
 
   @override
+  Future<bool> acceptOutgoingContactRequest(NodeId peer) async {
+    if (holdRemoteAccept) {
+      holdRemoteAccept = false;
+      entered.complete();
+      await release.future;
+    }
+    if (holdInsideBlock && !remoteAcceptEntered.isCompleted) {
+      remoteAcceptEntered.complete();
+    }
+    return super.acceptOutgoingContactRequest(peer);
+  }
+
+  @override
   Future<void> setContactStatus(NodeId peer, ContactStatus status) async {
+    if (status == ContactStatus.accepted &&
+        holdInsideBlock &&
+        !remoteAcceptEntered.isCompleted) {
+      remoteAcceptEntered.complete();
+    }
+    if (status == ContactStatus.blocked && holdInsideBlock) {
+      _holdBlockRead = true;
+    }
     final mode = writeFault;
     if (mode != null && status == ContactStatus.blocked) {
       writeFault = null;
@@ -57,6 +81,11 @@ class _Held extends HiddenVolumeStorage {
   Future<Contact?> getContact(NodeId peer) async {
     reads++;
     final contact = await super.getContact(peer);
+    if (_holdBlockRead && peer == id(2)) {
+      _holdBlockRead = false;
+      entered.complete();
+      await release.future;
+    }
     if (holdRead && peer == id(2)) {
       holdRead = false;
       entered.complete();
@@ -340,6 +369,142 @@ void main() {
       },
       skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
     );
+    test(
+      'incoming accept cannot undo a completed block native=$native',
+      () async {
+        final f = await _fixture(native);
+        final s = f.storage, peer = id(2);
+        await s.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+        );
+        final statuses = <ContactStatus>[];
+        f.service.onContactStatusChanged = (who, status) {
+          if (who == peer) statuses.add(status);
+        };
+        s.holdRead = true;
+        final accepting = f.service.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: const WireEnvelope.accept()
+                .withFrameId('late-accept')
+                .encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await s.entered.future;
+        await f.service.blockContact(peer);
+        expect((await s.getContact(peer))?.status, ContactStatus.blocked);
+        statuses.clear();
+        s.release.complete();
+        await accepting;
+        expect(
+          (await s.getContact(peer))?.status,
+          ContactStatus.blocked,
+          reason: 'an old peer acceptance must not reverse the local block',
+        );
+        expect(statuses, isNot(contains(ContactStatus.accepted)));
+        await _verifyOffer(f, allowed: false);
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
+
+    test(
+      'incoming accept queued behind block cannot reverse it native=$native',
+      () async {
+        final f = await _fixture(native);
+        final s = f.storage, peer = id(2);
+        await s.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+        );
+        s.holdInsideBlock = true;
+        final blocking = f.service.blockContact(peer);
+        await s
+            .entered
+            .future; // real contact write lock held before block commit
+        var declined = 0;
+        final accepting = f.service.deliverInbound(
+          InboundMessage(
+            onDeclined: (_) => declined++,
+            src: peer,
+            payload: const WireEnvelope.accept()
+                .withFrameId('queued-accept')
+                .encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await s
+            .remoteAcceptEntered
+            .future; // read completed during blocked write
+        s.release.complete();
+        await Future.wait([blocking, accepting]);
+        expect(
+          (await s.getContact(peer))?.status,
+          ContactStatus.blocked,
+          reason:
+              'a peer response must recheck pendingOutgoing inside its write turn',
+        );
+        expect(
+          (await s.contactDecisionFloor(peer))?.status,
+          ContactStatus.blocked,
+        );
+        expect(
+          f.wire.sent.where(
+            (e) => e.kind == WireKind.ack && e.id == 'queued-accept',
+          ),
+          isEmpty,
+        );
+        expect(
+          declined,
+          1,
+          reason: 'an unused carrier copy must remain available',
+        );
+        await _verifyOffer(f, allowed: false);
+        await s.close();
+        expect(await s.open(password: 'fixture'), isTrue);
+        expect((await s.getContact(peer))?.status, ContactStatus.blocked);
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
+
+    test(
+      'incoming accept still ACKs a concurrently accepted request native=$native',
+      () async {
+        final f = await _fixture(native);
+        final s = f.storage, peer = id(2);
+        await s.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+        );
+        s.holdRemoteAccept = true;
+        var declined = 0;
+        final accepting = f.service.deliverInbound(
+          InboundMessage(
+            onDeclined: (_) => declined++,
+            src: peer,
+            payload: const WireEnvelope.accept()
+                .withFrameId('mutual-accept')
+                .encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await s.entered.future;
+        await f.service.acceptContact(peer);
+        final floor = await s.contactDecisionFloor(peer);
+        s.release.complete();
+        await accepting;
+        expect((await s.getContact(peer))?.status, ContactStatus.accepted);
+        expect((await s.contactDecisionFloor(peer))?.token, floor?.token);
+        expect(declined, 0);
+        expect(
+          f.wire.sent.where(
+            (e) => e.kind == WireKind.ack && e.id == 'mutual-accept',
+          ),
+          hasLength(1),
+        );
+        await _verifyOffer(f, allowed: true);
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
+
     for (final mode in ['primary', 'mirror', 'unblock', 'other-peer']) {
       test(
         'late acceptance cannot undo a completed block native=$native mode=$mode',

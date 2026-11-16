@@ -52,6 +52,16 @@ class _MessagingContacts {
     await _afterStatusSaved(peer, status);
   }
 
+  Future<bool> acceptOutgoingRequest(NodeId peer) async {
+    final accepted = await _withConsentWrite(
+      peer,
+      () => _owner._storage.acceptOutgoingContactRequest(peer),
+    );
+    if (!accepted) return false;
+    await _afterStatusSaved(peer, ContactStatus.accepted);
+    return true;
+  }
+
   Future<T> _withConsentWrite<T>(
     NodeId peer,
     Future<T> Function() write,
