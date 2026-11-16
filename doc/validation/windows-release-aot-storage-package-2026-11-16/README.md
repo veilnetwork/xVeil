@@ -78,3 +78,22 @@ The following [notification startup correction](../windows-incoming-call-toast-2
 was found after this baseline package froze. It is tested separately and is not
 retroactively claimed to be inside the `748401b7` AOT snapshot. No release,
 production-default activation, push or tag is performed by this qualification.
+
+## Updated package with the startup correction
+
+A second source-frozen build at `eaf17f77` includes the guarded-notification
+startup fix and its new fixture: **4,256 inputs** verified before/after. It
+passes the same architecture/runtime, 21-DLL loader and home-path checks. The
+new archive has the same 45 members; comparison with the baseline finds only
+`data/app.so` changed. Its actual ELF64 AOT digest differs, while every native
+component retains its independently qualified bytes.
+
+All member digests match after download. The primary CI privacy scanner checks
+both retained archives, **90 members**, and reports no forbidden data. The
+unchanged core retains the separately attributed compiler-fragment substring
+false positive described above. Both archives remain private QA artifacts.
+
+The packaged Release core/storage DLLs also pass the separate
+[headless sovereign-pair checks](../windows-native-sovereign-pair-2026-11-16/README.md).
+That functional check uses JIT services and synthetic stores; it does not turn
+this package qualification into an ordinary AOT UI/biometric/camera test.

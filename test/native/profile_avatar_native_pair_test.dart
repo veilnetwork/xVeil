@@ -1,4 +1,6 @@
-// Opt-in real SDK, two fresh sovereign identities, private loopback QUIC.
+// Opt-in real SDK, two fresh sovereign identities, direct QUIC.
+// Unix defaults to private loopback. Windows requires an explicit owned IPv4
+// interface: its production outbound pin intentionally cannot reach loopback.
 // No fake transport/inbound injection or production relay configuration.
 import 'dart:async';
 import 'dart:convert';
@@ -17,6 +19,7 @@ import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/data/transport/veil_native.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -27,10 +30,10 @@ import 'package:xveil/domain/profile_avatar.dart';
 import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
 
-Future<int> _port({bool udp = false}) async {
+Future<int> _port({bool udp = false, bool lan = false}) async {
   if (udp) {
     final socket = await RawDatagramSocket.bind(
-      InternetAddress.loopbackIPv4,
+      lan ? InternetAddress.anyIPv4 : InternetAddress.loopbackIPv4,
       0,
     );
     final port = socket.port;
@@ -50,7 +53,14 @@ Uint8List _picture(int color) {
 }
 
 class _Peer {
-  _Peer(this.root, this.lib, this.profileLabels, this.clock);
+  _Peer(
+    this.root,
+    this.lib,
+    this.profileLabels,
+    this.clock, {
+    this.localAddress,
+  });
+  final String? localAddress;
   final Map<String, int> profileLabels;
   final Stopwatch clock;
   final frameEvidence = <Map<String, Object>>[];
@@ -89,7 +99,8 @@ class _Peer {
       storage: storage!,
       runtimeDirBase: '${root.path}/runtime',
       lib: lib,
-      listenPort: await _port(udp: true),
+      listenPort: await _port(udp: true, lan: localAddress != null),
+      lanListen: localAddress != null,
       debugMetricsPort: metrics,
       identityPhrase: phrase,
       useBundledSeeds: false,
@@ -141,6 +152,19 @@ class _Peer {
     messaging!.start();
   }
 
+  Future<String> invite() async {
+    final raw = await transport.createInvite();
+    final address = localAddress;
+    if (address == null) return raw;
+    final shared = BootstrapInvite.parse(raw);
+    return BootstrapInvite(
+      publicKey: shared.publicKey,
+      nonce: shared.nonce,
+      algo: shared.algo,
+      transport: 'quic://$address:${stack!.listenPort}',
+    ).toUri();
+  }
+
   Future<void> close() async {
     final errors = <String>[];
     Future<void> leg(String label, Future<void> Function() action) async {
@@ -182,11 +206,72 @@ Future<void> _until(Future<bool> Function() ready, String stage) async {
   throw TimeoutException(stage);
 }
 
+Future<void> _exchangeText(_Peer sender, _Peer recipient, String body) async {
+  final notices = <IncomingNotice>[];
+  final subscription = recipient.messaging!.incoming.listen(notices.add);
+  try {
+    await sender.messaging!.sendText(recipient.id, body);
+    final sent = (await sender.storage!.loadMessages(recipient.id.hex))
+        .where(
+          (m) => m.body == body && m.direction == MessageDirection.outgoing,
+        )
+        .toList();
+    expect(sent, hasLength(1));
+    final id = sent.single.id;
+    await _until(() async {
+      final received = await recipient.storage!.loadMessageById(
+        sender.id.hex,
+        id,
+      );
+      final delivered = await sender.storage!.loadMessageById(
+        recipient.id.hex,
+        id,
+      );
+      return received?.body == body &&
+          received?.direction == MessageDirection.incoming &&
+          received?.author == sender.id.hex &&
+          delivered?.status == MessageStatus.delivered &&
+          notices.any((n) => n.from == sender.id && n.messageId == id);
+    }, 'accepted contact text and receipt');
+    expect(
+      notices.where((n) => n.from == sender.id && n.messageId == id),
+      hasLength(1),
+    );
+    expect(
+      (await recipient.storage!.loadMessages(
+        sender.id.hex,
+      )).where((m) => m.id == id),
+      hasLength(1),
+    );
+  } finally {
+    await subscription.cancel();
+  }
+}
+
 void main() {
   final enabled = Platform.environment['XVEIL_AVATAR_PAIR_NATIVE'] == '1';
+  final configuredAddress =
+      Platform.environment['XVEIL_AVATAR_PAIR_LOCAL_IPV4'];
   test(
     'sovereign peers exchange avatars and resume after a native restart',
     () async {
+      String? localAddress;
+      if (configuredAddress != null) {
+        final parsed = InternetAddress.tryParse(configuredAddress);
+        expect(parsed?.type, InternetAddressType.IPv4);
+        expect(parsed?.isLoopback, isFalse);
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+        );
+        expect(
+          interfaces
+              .expand((i) => i.addresses)
+              .any((a) => a.address == parsed!.address),
+          isTrue,
+          reason: 'explicit fixture address must belong to this host',
+        );
+        localAddress = parsed!.address;
+      }
       final root = await Directory.systemTemp.createTemp('xv-avatar-pair-');
       await File('${root.path}/owner.pid').writeAsString('$pid');
       final oldLog = devLogDirectoryOverride;
@@ -199,15 +284,28 @@ void main() {
       final profileLabels = <String, int>{};
       final peers = [
         for (var i = 0; i < 2; i++)
-          _Peer(Directory('${root.path}/$i'), lib, profileLabels, clock),
+          _Peer(
+            Directory('${root.path}/$i'),
+            lib,
+            profileLabels,
+            clock,
+            localAddress: localAddress,
+          ),
       ];
       void stage(String label) => stderr.writeln(
         jsonEncode({
           'avatar_native_stage': label,
           'elapsed_ms': clock.elapsedMilliseconds,
+          'endpoint_mode': localAddress == null
+              ? 'loopback'
+              : 'explicit-owned-interface',
+          // Owned loopback endpoints let a headless stand capture metrics
+          // while a stalled operation is still alive, before teardown.
+          'metrics_ports': [for (final peer in peers) peer.metricPorts],
         }),
       );
       var completed = false;
+      var textControls = 0;
       try {
         for (var i = 0; i < peers.length; i++) {
           stage('opening-$i');
@@ -220,7 +318,7 @@ void main() {
         profileLabels[aRaw] = 1;
         profileLabels[bRaw] = 2;
         stage('connecting');
-        await b.transport.joinInvite(await a.transport.createInvite());
+        await b.transport.joinInvite(await a.invite());
         await _until(
           () async =>
               (await a.transport.peers()).any((p) => p.isActive) &&
@@ -241,6 +339,12 @@ void main() {
               ContactStatus.accepted,
           'contact acceptance',
         );
+        await Future.wait([
+          _exchangeText(a, b, 'native-fresh-contact-a-to-b'),
+          _exchangeText(b, a, 'native-fresh-contact-b-to-a'),
+        ]);
+        textControls += 2;
+        stage('fresh-two-way-text');
         stage('requesting');
         await Future.wait([
           a.messaging!.requestPeerAvatar(b.id),
@@ -281,7 +385,7 @@ void main() {
           (await b.storage!.getContact(a.id))?.status,
           ContactStatus.accepted,
         );
-        await b.transport.joinInvite(await a.transport.createInvite());
+        await b.transport.joinInvite(await a.invite());
         await _until(
           () async => (await b.transport.peers()).any((p) => p.isActive),
           'reconnected carrier',
@@ -323,7 +427,11 @@ void main() {
               await b.messaging!.loadAvatar(peer: a.id) == afterRestart,
           'authenticated requested avatar after restart',
         );
-        await a.messaging!.sendText(b.id, 'native-avatar-restart-control');
+        await Future.wait([
+          _exchangeText(a, b, 'native-avatar-restart-control'),
+          _exchangeText(b, a, 'native-avatar-reverse-control'),
+        ]);
+        textControls += 2;
         final controls = (await a.storage!.loadMessages(
           b.id.hex,
         )).where((m) => m.body == 'native-avatar-restart-control').toList();
@@ -383,6 +491,7 @@ void main() {
         stderr.writeln(
           jsonEncode({
             'avatar_native_result': completed,
+            'text_controls': textControls,
             'profile_frames': [for (final p in peers) p.profileFrames],
             'authenticated_profile_frames': [
               for (final p in peers) p.authenticatedProfileFrames,
@@ -392,14 +501,22 @@ void main() {
             'cleanup_errors': cleanupErrors,
           }),
         );
-        if (cleanupErrors.isEmpty) await root.delete(recursive: true);
+        // Close the explicit diagnostic file before deleting its directory:
+        // unlike Unix, Windows refuses deletion while that handle is open.
         devLogDirectoryOverride = oldLog;
+        // Preserve failed-run evidence for the owning stand to collect. A
+        // teardown error must not hide the original network/SDK failure.
+        if (completed && cleanupErrors.isEmpty) {
+          await root.delete(recursive: true);
+        }
         expect(cleanupErrors, isEmpty);
       }
     },
-    skip: enabled
-        ? false
-        : 'set XVEIL_AVATAR_PAIR_NATIVE=1 and both native libraries',
+    skip: !enabled
+        ? 'set XVEIL_AVATAR_PAIR_NATIVE=1 and both native libraries'
+        : Platform.isWindows && configuredAddress == null
+        ? 'Windows needs XVEIL_AVATAR_PAIR_LOCAL_IPV4 for its pinned QUIC sockets'
+        : false,
     timeout: const Timeout(Duration(minutes: 8)),
   );
 }
