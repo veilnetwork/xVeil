@@ -6808,6 +6808,73 @@ class HiddenVolumeStorage
   }
 
   @override
+  Future<bool> admitContactRequestRetry(
+    OutboxFrame request, {
+    OutboxFrame? expected,
+    required bool Function() isCurrent,
+  }) {
+    final peer = NodeId.fromHex(request.peerHex);
+    if (!request.frameId.startsWith('request:') ||
+        (expected != null && expected.peerHex != request.peerHex)) {
+      throw ArgumentError('invalid contact retry destination or frame');
+    }
+    final record = _ownedOutboxRecord(
+      request.frameId,
+      request.peerHex,
+      request.wire,
+    );
+    final prior = expected == null
+        ? null
+        : OutboxFrame(
+            frameId: expected.frameId,
+            peerHex: expected.peerHex,
+            wire: Uint8List.fromList(expected.wire),
+          );
+    return _trackLogWrite(
+      (store) => _outboxSerialized(
+        () => _contactSerialized(() async {
+          if (!isCurrent()) return false;
+          if (!identical(store, _store)) {
+            throw StateError('contact retry storage session changed');
+          }
+          if ((await getContact(peer))?.status !=
+                  ContactStatus.pendingOutgoing ||
+              !isCurrent()) {
+            return false;
+          }
+          if (!await _ensureOutboxLoadedCritical()) {
+            throw StateError('durable outbox could not be loaded');
+          }
+          if (!isCurrent()) return false;
+          if (prior != null) {
+            final held = _outboxById[prior.frameId]?.frame;
+            if (held == null ||
+                held.peerHex != prior.peerHex ||
+                !_bytesEqual(held.wire, prior.wire)) {
+              return false;
+            }
+          }
+          final held = _outboxById[record.frame.frameId]?.frame;
+          if (held != null) {
+            // A legacy request may add sequence/time to its live retry. Like
+            // enqueueOutboxFrame, keep the already durable original unchanged.
+            return held.peerHex == peer.hex &&
+                ((prior?.frameId == held.frameId) ||
+                    _bytesEqual(held.wire, record.frame.wire));
+          }
+          final persisted = await _persistOutboxPayloadsCritical(store, [
+            record,
+          ]);
+          for (final item in persisted) {
+            _outboxById[item.frame.frameId] = item;
+          }
+          return true;
+        }),
+      ),
+    );
+  }
+
+  @override
   Future<void> enqueueOutboxFrame(
     String frameId,
     String peerHex,

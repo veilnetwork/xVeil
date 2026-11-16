@@ -439,6 +439,19 @@ abstract interface class Storage {
     Uint8List wire,
   );
 
+  /// Admit a manual request retry only while the contact is pendingOutgoing.
+  /// Check contact, caller lease and optional exact prior frame under the
+  /// contact/outbox write lanes. A retired/replaced prior frame is refused.
+  /// Null [expected] supports old requests without a durable Outbox copy.
+  /// [isCurrent] is a synchronous, side-effect-free cancellation/owner check;
+  /// it must not call storage. False makes no new queue entry. Storage faults
+  /// still throw. Identical held rows keep their original enqueue age.
+  Future<bool> admitContactRequestRetry(
+    OutboxFrame request, {
+    OutboxFrame? expected,
+    required bool Function() isCurrent,
+  });
+
   /// Admit one complete immutable transfer with ONE atomic index publication, before any
   /// part is sent. Failure leaves either no new rows or the complete image
   /// (a reply can be lost after commit), never an admitted prefix. Existing
