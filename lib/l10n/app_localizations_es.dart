@@ -181,7 +181,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get lockStartOverBody =>
-      'Configura una identidad nueva en este dispositivo. Tus datos actuales no se borran, pero necesitarás su contraseña para volver a ellos. ¿Continuar?';
+      '¿Configurar una identidad nueva? Los datos actuales se conservan. Guarda las contraseñas de las identidades cifradas u ocultas.';
 
   @override
   String get lockWipe => 'Borrar todos los datos';
