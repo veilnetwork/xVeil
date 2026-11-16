@@ -2778,7 +2778,9 @@ class MessagingService {
 
   Future<bool> resendRequest(NodeId dst) => _contacts.resendRequest(dst);
 
-  Future<void> cancelRequest(NodeId peer) => _contacts.cancelRequest(peer);
+  /// Retract a still-pending outgoing request. A stale confirmation returns
+  /// false and preserves the relationship, history and ratchet.
+  Future<bool> cancelRequest(NodeId peer) => _contacts.cancelRequest(peer);
 
   Future<void> acceptContact(NodeId peer) => _contacts.acceptContact(peer);
 

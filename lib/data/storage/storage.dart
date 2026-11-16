@@ -590,10 +590,18 @@ abstract interface class Storage {
   });
 
   /// Remove a whole conversation with [peer]: forensically delete its messages,
-  /// drop the contact record + its chat-list index entry, and scrub. Used to
-  /// CANCEL a pending request (retract it locally) — afterwards the peer is
-  /// unknown again, so a fresh request can be sent. Irreversible.
+  /// drop the contact record + its chat-list index entry, and scrub. This is
+  /// unconditional, irreversible conversation deletion. Pending-request UI
+  /// actions must use [cancelPendingContactRequest] instead.
   Future<void> removeConversation(NodeId peer);
+
+  /// Retract only a still-pending local outgoing request. Check consent and erase
+  /// under the same contact write serialization: a delayed cancel action must
+  /// not delete an accepted conversation, an incoming-only request or a block.
+  /// Returns false without modifying storage when the request is no longer
+  /// locally requested (including crossed requests). Explicit conversation
+  /// deletion remains unconditional.
+  Future<bool> cancelPendingContactRequest(NodeId peer);
 
   /// Forensically delete every message of [peer]'s conversation whose ORIGINAL
   /// post time is older than [retentionDays] days (edits do NOT refresh the

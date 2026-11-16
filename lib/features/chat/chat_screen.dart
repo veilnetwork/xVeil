@@ -759,8 +759,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (ok != true) return;
-    await _messaging.cancelRequest(_peer);
-    if (mounted) Navigator.of(context).maybePop();
+    final cancelled = await _messaging.cancelRequest(_peer);
+    if (mounted && cancelled) Navigator.of(context).maybePop();
   }
 
   /// Pick a file and send it to the peer (consent-gated in the service). Bytes

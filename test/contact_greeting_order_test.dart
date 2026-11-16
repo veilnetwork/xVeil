@@ -38,8 +38,18 @@ class _DecisionGateStorage extends HiddenVolumeStorage {
   _DecisionGateStorage(super.opener);
   _DecisionGateStorage.async(super.opener) : super.async();
   bool holdDecision = false;
+  bool holdCancellationDecision = false;
   final decisionEntered = Completer<void>();
   final decisionRelease = Completer<void>();
+
+  @override
+  Future<bool> cancelPendingContactRequest(NodeId peer) {
+    if (holdCancellationDecision) {
+      holdCancellationDecision = false;
+      holdDecision = true;
+    }
+    return super.cancelPendingContactRequest(peer);
+  }
 
   @override
   Future<Contact?> getContact(NodeId peer) async {
@@ -163,6 +173,79 @@ void main() {
           },
         );
 
+        test(
+          'a late cancellation cannot erase an accepted conversation',
+          () async {
+            await mA.sendRequest(b, 'hello');
+            await _deliver(
+              mB,
+              a,
+              tA.sent.singleWhere((e) => e.kind == WireKind.request),
+            );
+            await mB.acceptContact(a);
+            await _deliver(
+              mA,
+              b,
+              tB.sent.singleWhere((e) => e.kind == WireKind.accept),
+            );
+            await mB.sendText(a, 'arrived while cancellation dialog was open');
+            await _deliver(
+              mA,
+              b,
+              tB.sent.lastWhere((e) => e.kind == WireKind.message),
+            );
+            final before = await sA.loadMessages(b.hex);
+            final decisions = await sA.pendingContactDecisions();
+            expect(await mA.cancelRequest(b), isFalse);
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+            expect(
+              (await sA.loadMessages(b.hex)).map((m) => (m.id, m.body)),
+              before.map((m) => (m.id, m.body)),
+            );
+            expect(
+              (await sA.pendingContactDecisions()).map((d) => d.token),
+              decisions.map((d) => d.token),
+            );
+            tA.sent.clear();
+            expect(await mA.sendText(b, 'still accepted'), isTrue);
+            await _deliver(
+              mB,
+              a,
+              tA.sent.lastWhere((e) => e.kind == WireKind.message),
+            );
+            expect(
+              (await sB.loadMessages(
+                a.hex,
+              )).where((m) => m.body == 'still accepted'),
+              hasLength(1),
+            );
+            await sA.close();
+            expect(await sA.open(password: 'fixture'), isTrue);
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+          },
+        );
+
+        test('a late cancellation cannot erase a local block', () async {
+          await mA.sendRequest(b, 'hello');
+          await mA.blockContact(b);
+          final decisions = await sA.pendingContactDecisions();
+          final frames = await sA.pendingOutboxFrames();
+          expect(await mA.cancelRequest(b), isFalse);
+          expect((await sA.getContact(b))?.status, ContactStatus.blocked);
+          expect(
+            (await sA.pendingContactDecisions()).map((d) => d.token),
+            decisions.map((d) => d.token),
+          );
+          expect(
+            (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+            frames.map((f) => f.frameId),
+          );
+          expect(await mA.sendText(b, 'must stay blocked'), isFalse);
+          await sA.close();
+          expect(await sA.open(password: 'fixture'), isTrue);
+          expect((await sA.getContact(b))?.status, ContactStatus.blocked);
+        });
+
         for (final decision in [
           ContactStatus.accepted,
           ContactStatus.blocked,
@@ -221,6 +304,60 @@ void main() {
             expect(await sA.pendingOutboxFrames(), isEmpty);
           },
         );
+
+        for (final decision in [
+          ContactStatus.accepted,
+          ContactStatus.blocked,
+        ]) {
+          test(
+            'cancel queued behind $decision cannot erase its commit',
+            () async {
+              await mA.sendRequest(b, 'pending');
+              final gated = sA as _DecisionGateStorage;
+              gated.holdDecision = true;
+              final deciding = sA.setContactStatus(b, decision);
+              await gated.decisionEntered.future;
+              final cancelling = mA.cancelRequest(b);
+              gated.decisionRelease.complete();
+              await deciding;
+              expect(await cancelling, isFalse);
+              expect((await sA.getContact(b))?.status, decision);
+              expect((await sA.loadMessages(b.hex)).single.body, 'pending');
+            },
+          );
+        }
+
+        test(
+          'remote acceptance queued behind cancellation cannot restore consent',
+          () async {
+            await mA.sendRequest(b, 'pending');
+            final gated = sA as _DecisionGateStorage;
+            gated.holdCancellationDecision = true;
+            final cancelling = mA.cancelRequest(b);
+            await gated.decisionEntered.future;
+            final accepting = sA.acceptOutgoingContactRequest(b);
+            gated.decisionRelease.complete();
+            expect(await cancelling, isTrue);
+            expect(await accepting, isFalse);
+            expect(await sA.getContact(b), isNull);
+            expect(await sA.loadMessages(b.hex), isEmpty);
+            expect(await sA.pendingOutboxFrames(), isEmpty);
+          },
+        );
+
+        test('cancel does not remove an incoming-only request', () async {
+          await _deliver(
+            mA,
+            b,
+            const WireEnvelope.request('incoming only', id: 'incoming-only'),
+          );
+          expect(await mA.cancelRequest(b), isFalse);
+          expect(
+            (await sA.getContact(b))?.status,
+            ContactStatus.pendingIncoming,
+          );
+          expect((await sA.loadMessages(b.hex)).single.body, 'incoming only');
+        });
 
         test(
           'initial request carries the committed greeting position',
