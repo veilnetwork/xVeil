@@ -7,6 +7,13 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
+now compiles the ordinary entrypoint with managed storage enabled for isolated
+ARM64 QA. The packaged app passes native-load, signature and artifact-path
+checks; its exact release native libraries pass 15 host checks including mixed
+all-online traffic and post-ACK process-death recovery in all modes. No graphical
+AOT app was launched. Other target/platform and activation work remains open.
+
 The [mixed native-session follow-up](validation/mixed-native-session-2026-11-16/README.md)
 completes all six master-protection/hosting combinations and separately qualifies
 the ordinary three-node all-online boot with actual native crypto and traffic.
@@ -2321,11 +2328,13 @@ an explicit plugin write; device and packaged platform smoke remain outstanding.
    and deletion, rather than only comparing an empty database's size.
 6. Wire mode choice before opening any store; visible identity selection,
    per-identity accounting, cleanup, all-online sessions, biometric reopen,
-   password rotation, erase and recovery must follow the selected locator.
+   compaction rekeys, erase and recovery must follow the selected locator.
+   Any future standalone password-change or cross-mode migration action must
+   follow it too; adding either new UI is not an activation prerequisite.
 7. Existing `hiddenSpace` and historical `plain` preferences both name legacy
    container-backed data. Never interpret the historical flag as permission
    to read/write plaintext or to convert the existing container automatically.
-8. A migration needs an explicit source/target choice, authenticated copy,
+8. If cross-mode migration is offered, it needs an explicit source/target choice, authenticated copy,
    readback and retained source until successful publication. A crash must
    leave at least one readable copy. Migration to plaintext needs separate
    informed confirmation; a failed unlock must not trigger migration.
@@ -2340,7 +2349,9 @@ an explicit plugin write; device and packaged platform smoke remain outstanding.
   per-identity size attribution and reclamation while other identities remain
   untouched and readable.
 - Catalog corruption, path and symlink substitution, interrupted creation,
-  cleanup/reopen races and interrupted password rotation/migration.
+  cleanup/reopen races and interrupted supported rekey operations. Standalone
+  password-change/cross-mode migration qualification applies when those actions
+  are exposed; their absence is not a new feature requirement for this work.
 - Mixed hidden/encrypted/plain identities, identity switch during I/O,
   all-online ownership, erase, content serving and one-prompt biometric reopen.
 - Actual packaged native libraries, provenance/privacy checks and Android,
