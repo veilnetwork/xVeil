@@ -71,10 +71,13 @@ class _CountingMessaging implements MessagingService {
   final greeted = <NodeId>[];
 
   @override
-  Future<bool> sendRequest(NodeId peer, [String? greeting]) async {
+  Future<ContactRequestSubmission> submitContactRequest(
+    NodeId peer,
+    String greeting,
+  ) async {
     greeted.add(peer);
     // Deposited, so the caller does not report a failure this fake never had.
-    return true;
+    return ContactRequestSubmission.deposited;
   }
 
   @override

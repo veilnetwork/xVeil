@@ -850,14 +850,11 @@ class HeadlessRuntime {
     try {
       final invite = BootstrapInvite.parse(target);
       await stack.addContact(invite);
-      final deposited = await messaging.sendRequest(invite.nodeId, greeting);
-      // Same reasoning as the app twin: the live leg is best-effort by
-      // contract and leans on the deposit standing. When it does not, nothing
-      // durable was sent and nothing retries it.
-      if (!deposited) {
-        return 'the request could not be deposited at the recipient relay — '
-            'nothing was sent; try again';
-      }
+      final submitted = await messaging.submitContactRequest(
+        invite.nodeId,
+        greeting,
+      );
+      if (!submitted.admitted) return 'the contact request was not admitted';
       return null;
     } catch (e) {
       return '$e';

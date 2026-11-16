@@ -2773,8 +2773,20 @@ class MessagingService {
   /// durable request retries independently of this result. An already accepted
   /// contact receives an ordinary message instead; then the result describes
   /// local message submission. Neither result proves remote delivery.
-  Future<bool> sendRequest(NodeId dst, String greeting) =>
-      _contacts.sendRequest(dst, greeting);
+  Future<bool> sendRequest(NodeId dst, String greeting) async =>
+      switch (await submitContactRequest(dst, greeting)) {
+        ContactRequestSubmission.refused ||
+        ContactRequestSubmission.queued => false,
+        _ => true,
+      };
+
+  /// Report local admission separately from relay acceptance. A queued result
+  /// follows durable Outbox publication; failure to publish still throws.
+  /// Existing sendRequest callers retain their relay-deposit boolean contract.
+  Future<ContactRequestSubmission> submitContactRequest(
+    NodeId dst,
+    String greeting,
+  ) => _contacts.submitRequest(dst, greeting);
 
   Future<bool> resendRequest(NodeId dst) => _contacts.resendRequest(dst);
 

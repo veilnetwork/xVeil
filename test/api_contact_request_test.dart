@@ -10,9 +10,11 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
@@ -41,10 +43,8 @@ NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
 /// A relay that stores whatever it is handed.
 ///
-/// The control below asks the endpoint to make a real request, and a request
-/// with nowhere to deposit it is now REFUSED rather than silently reported as
-/// sent — which is the defect this fixture would otherwise re-encode. Give it
-/// a relay so the control exercises a complete success.
+/// The deposit control exercises relay admission as well as local admission.
+/// A separate refusing relay checks that local durability stands on its own.
 class _RecordingRelay implements MailboxSink {
   @override
   bool get isRegistered => true;
@@ -63,6 +63,35 @@ class _RecordingRelay implements MailboxSink {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _UnavailableRelay extends _RecordingRelay {
+  int attempts = 0;
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) async {
+    attempts++;
+    throw StateError('fixture mailbox deposit refused');
+  }
+}
+
+class _RefusingOutboxStorage extends HiddenVolumeStorage {
+  _RefusingOutboxStorage(super.opener);
+
+  int attempts = 0;
+
+  @override
+  Future<void> enqueueOutboxFrame(
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  ) async {
+    attempts++;
+    throw StateError('fixture durable admission refused');
+  }
 }
 
 class _Blackhole implements VeilTransport {
@@ -143,7 +172,8 @@ void main() {
       expect(
         refusal,
         contains(BootstrapInvite.scheme),
-        reason: 'a refusal that does not say what to supply instead leaves the '
+        reason:
+            'a refusal that does not say what to supply instead leaves the '
             'caller exactly as stuck as the silent failure did',
       );
     });
@@ -158,7 +188,8 @@ void main() {
       expect(
         source,
         contains('contactRequestRefusal(target)'),
-        reason: 'the headless contact request no longer refuses an '
+        reason:
+            'the headless contact request no longer refuses an '
             'undeliverable target',
       );
     });
@@ -171,11 +202,13 @@ void main() {
     late HiddenVolumeStorage storage;
     final peer = _id(2);
 
-    Future<void> boot() async {
+    Future<void> boot({MailboxSink? mailbox, bool refuseOutbox = false}) async {
       final log = FakeKvLogStore();
-      storage = HiddenVolumeStorage(
-        ({required Uint8List password, required bool create}) => log,
-      );
+      KvLogStore opener({required Uint8List password, required bool create}) =>
+          log;
+      storage = refuseOutbox
+          ? _RefusingOutboxStorage(opener)
+          : HiddenVolumeStorage(opener);
       expect(await storage.open(password: 'pw', createIfMissing: true), isTrue);
       await storage.putSetting(
         'api.tokens',
@@ -187,7 +220,7 @@ void main() {
       _activeStorage = storage;
 
       messaging = MessagingService(_Blackhole(_id(1)), storage)..start();
-      messaging.attachMailbox(_RecordingRelay());
+      messaging.attachMailbox(mailbox ?? _RecordingRelay());
       addTearDown(messaging.dispose);
       container = ProviderContainer(
         overrides: [
@@ -219,7 +252,10 @@ void main() {
       expect(controller.boundPort, isNotNull, reason: 'the API never came up');
     }
 
-    Future<(int, Map<String, dynamic>)> post(String target) async {
+    Future<(int, Map<String, dynamic>)> post(
+      String target, {
+      String greeting = 'hello',
+    }) async {
       final client = HttpClient();
       try {
         final req = await client.postUrl(
@@ -227,7 +263,7 @@ void main() {
         );
         req.headers.set('Authorization', 'Bearer tok-a');
         req.headers.contentType = ContentType.json;
-        req.write(jsonEncode({'target': target, 'greeting': 'hello'}));
+        req.write(jsonEncode({'target': target, 'greeting': greeting}));
         final res = await req.close();
         final body = await utf8.decodeStream(res);
         return (res.statusCode, jsonDecode(body) as Map<String, dynamic>);
@@ -239,7 +275,8 @@ void main() {
     test('an invite is accepted and really does become a request', () async {
       // THE CONTROL, first: the endpoint must still work, or every assertion
       // about the refusal is satisfied by an endpoint that does nothing at all.
-      await boot();
+      final relay = _RecordingRelay();
+      await boot(mailbox: relay);
       final invite = BootstrapInvite(
         publicKey: Uint8List(32)..fillRange(0, 32, 9),
         nonce: Uint8List(8),
@@ -255,6 +292,7 @@ void main() {
       expect(contact?.status, ContactStatus.pendingOutgoing);
       final messages = await storage.loadMessages(invite.nodeId.hex);
       expect(messages.single.body, 'hello');
+      expect(WireEnvelope.decode(relay.stashed.single).kind, WireKind.request);
     });
 
     test('a bare node id is refused, and leaves nothing behind', () async {
@@ -264,7 +302,8 @@ void main() {
       expect(
         status,
         400,
-        reason: 'a request the node cannot seal was answered with success: '
+        reason:
+            'a request the node cannot seal was answered with success: '
             'body was $body',
       );
       expect(
@@ -281,5 +320,94 @@ void main() {
       expect(await storage.getContact(peer), isNull);
       expect(await storage.loadMessages(peer.hex), isEmpty);
     });
+
+    test(
+      'unavailable mailbox still admits a durable contact request',
+      () async {
+        final relay = _UnavailableRelay();
+        await boot(mailbox: relay);
+        final invite = BootstrapInvite(
+          publicKey: Uint8List(32)..fillRange(0, 32, 9),
+          nonce: Uint8List(8),
+        );
+        final (status, body) = await post(invite.toUri());
+        expect(relay.attempts, greaterThan(0));
+        expect(relay.stashed, isEmpty);
+        final queued = (await storage.pendingOutboxFrames()).single;
+        final envelope = WireEnvelope.decode(queued.wire);
+        expect(queued.peerHex, invite.nodeId.hex);
+        expect(envelope.kind, WireKind.request);
+        expect(envelope.body, 'hello');
+        expect(
+          (await storage.loadMessages(invite.nodeId.hex)).single.id,
+          envelope.id,
+        );
+        expect(
+          status,
+          200,
+          reason: 'durable admission must not be reported as no send: $body',
+        );
+        expect(body['ok'], isTrue);
+      },
+    );
+
+    test('blocked peer stays refused without any submission', () async {
+      final relay = _RecordingRelay();
+      await boot(mailbox: relay);
+      final invite = BootstrapInvite(
+        publicKey: Uint8List(32)..fillRange(0, 32, 9),
+        nonce: Uint8List(8),
+      );
+      await storage.setContactStatus(invite.nodeId, ContactStatus.blocked);
+      final (status, body) = await post(invite.toUri());
+      expect(status, 400);
+      expect(body['error'], contains('not admitted'));
+      expect(
+        (await storage.getContact(invite.nodeId))?.status,
+        ContactStatus.blocked,
+      );
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(await storage.loadMessages(invite.nodeId.hex), isEmpty);
+      expect(relay.stashed, isEmpty);
+    });
+
+    test('failed durable admission is not reported as success', () async {
+      final relay = _RecordingRelay();
+      await boot(mailbox: relay, refuseOutbox: true);
+      final invite = BootstrapInvite(
+        publicKey: Uint8List(32)..fillRange(0, 32, 9),
+        nonce: Uint8List(8),
+      );
+      final (status, body) = await post(invite.toUri());
+      expect(status, 400);
+      expect(body['error'], contains('fixture durable admission refused'));
+      expect((storage as _RefusingOutboxStorage).attempts, 1);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(relay.stashed, isEmpty);
+    });
+
+    for (final greeting in ['hello', '']) {
+      test('accepted peer uses ordinary submission: "$greeting"', () async {
+        await boot();
+        final invite = BootstrapInvite(
+          publicKey: Uint8List(32)..fillRange(0, 32, 9),
+          nonce: Uint8List(8),
+        );
+        await storage.setContactStatus(invite.nodeId, ContactStatus.accepted);
+        final (status, body) = await post(invite.toUri(), greeting: greeting);
+        expect(status, 200, reason: '$body');
+        expect(body['ok'], isTrue);
+        expect(
+          (await storage.getContact(invite.nodeId))?.status,
+          ContactStatus.accepted,
+        );
+        expect(await storage.pendingOutboxFrames(), isEmpty);
+        final messages = await storage.loadMessages(invite.nodeId.hex);
+        expect(
+          messages.map((m) => m.body),
+          greeting.isEmpty ? isEmpty : ['hello'],
+        );
+      });
+    }
   });
 }
