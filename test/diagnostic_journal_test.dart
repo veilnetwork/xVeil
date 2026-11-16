@@ -15,6 +15,14 @@ void main() {
   test('call alert outcome survives dismissal and busy transport', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
     journal.record(
+      DiagnosticEvent.callAlertWindowQuery,
+      values: {
+        DiagnosticMetric.code: 1,
+        DiagnosticMetric.background: 1,
+        DiagnosticMetric.success: 0,
+      },
+    );
+    journal.record(
       DiagnosticEvent.callAlert,
       values: {DiagnosticMetric.state: 1, DiagnosticMetric.success: 1},
     );
@@ -24,6 +32,11 @@ void main() {
     );
     journal.record(DiagnosticEvent.transportSent);
     final report = journal.toJson();
+    expect(
+      ((report['last_evidence'] as Map)['callAlertWindowQuery']
+          as Map)['values'],
+      {'code': 1, 'background': 1, 'success': 0},
+    );
     expect(((report['last_evidence'] as Map)['callAlert'] as Map)['values'], {
       'state': 1,
       'success': 1,
@@ -36,6 +49,7 @@ void main() {
     expect(journal.toJson()['last_evidence'], isEmpty);
     final disabled = DiagnosticJournal(enabled: false);
     disabled.record(DiagnosticEvent.callAlert);
+    disabled.record(DiagnosticEvent.callAlertWindowQuery);
     expect(disabled.toJson()['last_evidence'], isEmpty);
   });
 

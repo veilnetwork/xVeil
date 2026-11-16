@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/domain/call.dart';
@@ -196,6 +198,139 @@ void main() {
       },
       variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
+  }
+  for (final queryMethod in ['isVisible', 'isFocused']) {
+    for (final background in [false, true]) {
+      for (final ended in [false, true]) {
+        for (final lateBackground in [false, if (!background && !ended) true]) {
+          testWidgets(
+            'pending Windows $queryMethod uses lifecycle background=$background ended=$ended lateBackground=$lateBackground',
+            (tester) async {
+              diagnosticJournal.clear();
+              addTearDown(diagnosticJournal.clear);
+              final wire = _Wire();
+              final service = CallService(wire, media: _Media())..start();
+              final alerts = _Alerts();
+              final container = ProviderContainer(
+                overrides: [
+                  callServiceProvider.overrideWithValue(service),
+                  groupCallServiceProvider.overrideWithValue(null),
+                  notificationServiceProvider.overrideWithValue(alerts),
+                  notificationSettingsProvider.overrideWith(_Settings.new),
+                ],
+              );
+              addTearDown(container.dispose);
+              addTearDown(service.dispose);
+              final query = Completer<bool>();
+              var entered = false;
+              var focusQueries = 0;
+              const window = MethodChannel('window_manager');
+              tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+                window,
+                (call) async {
+                  if (call.method == 'isFocused') focusQueries++;
+                  if (call.method == queryMethod) {
+                    entered = true;
+                    return query.future;
+                  }
+                  if (call.method == 'isVisible' ||
+                      call.method == 'isFocused') {
+                    return true;
+                  }
+                  if (call.method == 'show' || call.method == 'focus') {
+                    fail('incoming call handling must not take window focus');
+                  }
+                  return null;
+                },
+              );
+              addTearDown(() {
+                tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+                  window,
+                  null,
+                );
+                if (!query.isCompleted) query.complete(true);
+                tester.binding.handleAppLifecycleStateChanged(
+                  AppLifecycleState.resumed,
+                );
+              });
+              await tester.pumpWidget(
+                UncontrolledProviderScope(
+                  container: container,
+                  child: const MaterialApp(home: CallLifecycleBridge()),
+                ),
+              );
+              tester.binding.handleAppLifecycleStateChanged(
+                background
+                    ? AppLifecycleState.paused
+                    : AppLifecycleState.resumed,
+              );
+              wire.onCallSignal!(
+                NodeId.fromHex('a' * 64),
+                CallSignal(
+                  callId: 'pending-chrome-observation',
+                  type: CallSignalType.offer,
+                  media: const CallMedia(audio: true),
+                  posture: CallPosture.direct,
+                  transport: const CallTransportProposal(
+                    CallTransportKind.relay,
+                  ),
+                  mediaKey: generateCallMediaKeyContribution(),
+                ),
+              );
+              await tester.idle();
+              expect(service.current?.status, CallStatus.ringing);
+              expect(entered, isTrue);
+              expect(alerts.posts, isEmpty);
+              if (ended) await service.hangup();
+              // Deterministic virtual-clock watchdog check. The platform future
+              // remains pending throughout; no measured network/OS latency.
+              await tester.pump(const Duration(seconds: 1));
+              expect(alerts.posts, hasLength(background && !ended ? 1 : 0));
+              if (!ended) expect(service.current?.status, CallStatus.ringing);
+              if (background && !ended) {
+                query.completeError(
+                  PlatformException(code: 'PRIVATE_WINDOW_ERROR_CANARY'),
+                );
+              } else {
+                query.complete(!lateBackground);
+              }
+              await tester.idle();
+              expect(
+                alerts.posts,
+                hasLength((background && !ended) || lateBackground ? 1 : 0),
+              );
+              if (queryMethod == 'isVisible' && ended) {
+                expect(
+                  focusQueries,
+                  0,
+                  reason: 'retired visibility must not issue a focus query',
+                );
+              }
+              if (kDiagnosticReportEnabled) {
+                final report = diagnosticJournal.toJson();
+                final evidence = report['last_evidence'] as Map;
+                expect(evidence.containsKey('callAlertWindowQuery'), !ended);
+                if (!ended) {
+                  expect((evidence['callAlertWindowQuery'] as Map)['values'], {
+                    'code': background ? 2 : 0,
+                    'background': background || lateBackground ? 1 : 0,
+                    'success': background ? 0 : 1,
+                  });
+                }
+                expect(
+                  jsonEncode(report),
+                  isNot(contains('PRIVATE_WINDOW_ERROR_CANARY')),
+                );
+              }
+              if (!ended) await service.hangup();
+              await tester.pumpWidget(const SizedBox.shrink());
+              await tester.idle();
+            },
+            variant: TargetPlatformVariant.only(TargetPlatform.windows),
+          );
+        }
+      }
+    }
   }
 }
 
