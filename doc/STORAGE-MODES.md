@@ -24,8 +24,16 @@ Wrong credentials preserve all five data payloads. Owned cleanup completes
 without other passwords and preserves the sibling data/role files; all relevant
 identities cold-open afterward. The public catalog contains only the two
 enumerable entries, and independent SQLite reads plaintext without a key.
-OS-vault, full-profile recovery/deletion, other target/platform and activation
-work remain open; these small fixtures make no space-savings claim.
+These small fixtures make no space-savings claim.
+
+The [Android scoped OS-vault follow-up](validation/managed-storage-android-vault-aot-2026-11-16/README.md)
+now qualifies actual Android Keystore entry with a virtual enrolled fingerprint.
+Six application scenarios each use one CryptoObject request, including cold
+managed/hidden entry, warm cancellation/retry, entry after owned reclamation and
+entry after an Android restart/system PIN. Both protected scopes remain
+independent; plaintext inherits neither entry. Full-profile erasure/recovery
+including OS-record retirement, physical OEM/hardware, other target/platform
+and remaining activation work stay open.
 
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
