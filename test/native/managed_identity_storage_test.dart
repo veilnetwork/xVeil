@@ -7,6 +7,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -71,6 +73,51 @@ void main() {
   });
 
   for (final entry in [encrypted, plain]) {
+    test(
+      '${entry.protection.name} contact admission preserves accepted and blocked decisions after cold-open',
+      () async {
+        final created = binding(entry, create: true);
+        expect(
+          await created.storage.open(
+            password: 'fixture',
+            createIfMissing: true,
+          ),
+          isTrue,
+        );
+        final peer = NodeId.fromHex('c' * 64);
+        for (final decision in [
+          ContactStatus.accepted,
+          ContactStatus.blocked,
+        ]) {
+          await created.storage.upsertContact(
+            Contact(nodeId: peer, status: decision),
+          );
+          for (final incoming in [false, true]) {
+            expect(
+              await created.storage.prepareContactRequest(
+                peer,
+                incoming: incoming,
+              ),
+              decision,
+            );
+            expect((await created.storage.getContact(peer))?.status, decision);
+          }
+        }
+        await created.storage.close();
+        final reopened = binding(entry);
+        expect(await reopened.storage.open(password: 'fixture'), isTrue);
+        expect(
+          (await reopened.storage.getContact(peer))?.status,
+          ContactStatus.blocked,
+        );
+        expect(
+          await reopened.storage.prepareContactRequest(peer, incoming: true),
+          ContactStatus.blocked,
+        );
+        expect(await reopened.storage.pendingOutboxFrames(), isEmpty);
+      },
+    );
+
     test(
       '${entry.protection.name} domain creation, key and password reopen',
       () async {

@@ -81,6 +81,13 @@ void main() {
   });
 
   group('routing still works for real payloads', () {
+    test('incoming call payload has no identity or answering capability', () {
+      expect(kNotificationPayloadIncomingCall, 'incoming-call');
+      expect(
+        notificationRouteForPayload(kNotificationPayloadIncomingCall),
+        '/home',
+      );
+    });
     test('a resolved conversation routes to its chat', () {
       // The indirection must not change where a tap lands.
       expect(notificationRouteForPayload('beefcafe'), '/chat/beefcafe');

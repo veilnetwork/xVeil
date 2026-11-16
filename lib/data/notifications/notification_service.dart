@@ -115,6 +115,21 @@ class NotificationService {
   /// The init in flight, so a caller that arrives during startup can wait for
   /// it instead of being answered "not ready" and going away.
   Future<void>? _initializing;
+  Future<void>? _nativeClear;
+
+  /// A call may arrive before the notification backend finishes startup.
+  /// Waiting here does not initialize a backend with missing response handlers.
+  Future<bool> waitUntilReady() async {
+    final running = _initializing;
+    if (running != null) await running;
+    if (isReady && _clearWanted) await cancelAll();
+    while (true) {
+      final clearing = _nativeClear;
+      if (clearing == null) break;
+      await clearing;
+    }
+    return isReady && !_clearWanted;
+  }
 
   /// A clear that arrived before there was anything to clear it with.
   ///
@@ -159,18 +174,14 @@ class NotificationService {
     _initializing = gate.future;
     try {
       await _init(onTap: onTap, onReply: onReply);
+      // The ready barrier includes the clear requested before startup. A
+      // failed initialization keeps the intent for the next attempt instead
+      // of waiting on its own initialization future.
+      if (_ready && _clearWanted) await cancelAll();
     } finally {
       _initializing = null;
       if (!gate.isCompleted) gate.complete();
     }
-    // Asked for while there was nothing to ask. Now there is — or this
-    // attempt failed, in which case `cancelAll` records the intent again and
-    // returns, and whichever retry succeeds performs it (report16 XV-12).
-    //
-    // No `_ready &&` in front: it guarded nothing, and breaking it changed no
-    // outcome. An untested branch that decides nothing is a place for a
-    // mistake to hide.
-    if (_clearWanted) await cancelAll();
   }
 
   Future<void> _init({
@@ -205,7 +216,7 @@ class NotificationService {
       final windows = windowsNotificationSettingsForNamespace(
         const String.fromEnvironment('XVEIL_WINDOWS_NOTIFICATION_NAMESPACE'),
       );
-      await _plugin.initialize(
+      final initialized = await _plugin.initialize(
         settings: InitializationSettings(
           android: android,
           iOS: darwin,
@@ -217,6 +228,7 @@ class NotificationService {
         onDidReceiveBackgroundNotificationResponse:
             _notificationBackgroundHandler,
       );
+      if (initialized == false) return;
       _ready = true;
     } catch (e) {
       devLog(() => 'xVeil[notify]: init failed: $e');
@@ -374,16 +386,23 @@ class NotificationService {
       // Still nothing to clear with. The intent stands.
       if (!_ready) return;
     }
-    try {
-      // Down BEFORE the call, not after it. The plugin call suspends, and a
-      // second caller waiting on startup resumes in that gap — with the flag
-      // still up it clears a second time.
+    final work = (_nativeClear ?? Future<void>.value()).then((_) async {
+      // Each intent runs in order. Readiness must include an OS clear even
+      // when it was requested after initialize() set the native ready bit.
       _clearWanted = false;
-      await _plugin.cancelAll();
-    } catch (_) {
-      // It did not happen, so it is still wanted.
-      _clearWanted = true;
-    }
+      try {
+        await _plugin.cancelAll();
+      } catch (_) {
+        _clearWanted = true;
+      }
+    });
+    _nativeClear = work;
+    unawaited(
+      work.then((_) {
+        if (identical(_nativeClear, work)) _nativeClear = null;
+      }),
+    );
+    await work;
   }
 
   /// Take ONE alert down, by the id it was posted with.

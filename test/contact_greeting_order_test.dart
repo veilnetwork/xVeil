@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -30,6 +31,25 @@ class _Capture extends LoopbackTransport {
     bool anonymous = false,
   }) async {
     sent.add(WireEnvelope.decode(payload));
+  }
+}
+
+class _DecisionGateStorage extends HiddenVolumeStorage {
+  _DecisionGateStorage(super.opener);
+  _DecisionGateStorage.async(super.opener) : super.async();
+  bool holdDecision = false;
+  final decisionEntered = Completer<void>();
+  final decisionRelease = Completer<void>();
+
+  @override
+  Future<Contact?> getContact(NodeId peer) async {
+    final contact = await super.getContact(peer);
+    if (holdDecision) {
+      holdDecision = false;
+      decisionEntered.complete();
+      await decisionRelease.future;
+    }
+    return contact;
   }
 }
 
@@ -67,10 +87,10 @@ void main() {
                   argon: hv.ArgonPreset.min,
                 ),
               ).close();
-              result = HiddenVolumeStorage.async(workerSpaceOpener(path));
+              result = _DecisionGateStorage.async(workerSpaceOpener(path));
             } else {
               final kv = FakeKvLogStore();
-              result = HiddenVolumeStorage(
+              result = _DecisionGateStorage(
                 ({required password, required bool create}) => kv,
               );
             }
@@ -95,6 +115,112 @@ void main() {
           await dir?.delete(recursive: true);
           dir = null;
         });
+
+        test(
+          'a stale request action cannot demote an accepted conversation',
+          () async {
+            await mA.sendRequest(b, 'hello');
+            await _deliver(
+              mB,
+              a,
+              tA.sent.singleWhere((e) => e.kind == WireKind.request),
+            );
+            await mB.acceptContact(a);
+            await _deliver(
+              mA,
+              b,
+              tB.sent.singleWhere((e) => e.kind == WireKind.accept),
+            );
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+            expect((await sB.getContact(a))?.status, ContactStatus.accepted);
+            tA.sent.clear();
+            tB.sent.clear();
+
+            // A mounted composer may still carry the pre-accept contact value.
+            // Do not deliver any repair accept before checking reverse delivery.
+            await mA.sendRequest(b, 'sent after acceptance');
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+            final post = tA.sent.singleWhere((e) => e.kind == WireKind.message);
+            await _deliver(mB, a, post);
+            await mB.sendText(a, 'reply after acceptance');
+            await _deliver(
+              mA,
+              b,
+              tB.sent.lastWhere((e) => e.kind == WireKind.message),
+            );
+            expect(
+              (await sA.loadMessages(
+                b.hex,
+              )).where((m) => m.body == 'reply after acceptance'),
+              hasLength(1),
+            );
+            expect(
+              (await sB.loadMessages(
+                a.hex,
+              )).where((m) => m.body == 'sent after acceptance'),
+              hasLength(1),
+            );
+          },
+        );
+
+        for (final decision in [
+          ContactStatus.accepted,
+          ContactStatus.blocked,
+        ]) {
+          test(
+            'request queued behind $decision preserves the committed decision',
+            () async {
+              await sA.upsertContact(
+                Contact(nodeId: b, status: ContactStatus.pendingIncoming),
+              );
+              final gated = sA as _DecisionGateStorage;
+              gated.holdDecision = true;
+              addTearDown(() {
+                if (!gated.decisionRelease.isCompleted) {
+                  gated.decisionRelease.complete();
+                }
+              });
+              final statuses = <ContactStatus>[];
+              mA.onContactStatusChanged = (_, status) => statuses.add(status);
+              final deciding = decision == ContactStatus.accepted
+                  ? mA.acceptContact(b)
+                  : mA.blockContact(b);
+              await gated.decisionEntered.future;
+              final sending = mA.sendRequest(
+                b,
+                'typed before decision completed',
+              );
+              gated.decisionRelease.complete();
+              await deciding;
+              final submitted = await sending;
+              expect((await sA.getContact(b))?.status, decision);
+              expect(statuses, isNot(contains(ContactStatus.pendingOutgoing)));
+              expect(tA.sent.where((e) => e.kind == WireKind.request), isEmpty);
+              expect(submitted, decision == ContactStatus.accepted);
+              expect(
+                tA.sent.where((e) => e.kind == WireKind.message),
+                hasLength(decision == ContactStatus.accepted ? 1 : 0),
+              );
+              await sA.close();
+              expect(await sA.open(password: 'fixture'), isTrue);
+              expect((await sA.getContact(b))?.status, decision);
+            },
+          );
+        }
+
+        test(
+          'empty stale request leaves an accepted contact and history intact',
+          () async {
+            await sA.upsertContact(
+              Contact(nodeId: b, status: ContactStatus.accepted),
+            );
+            expect(await mA.sendRequest(b, ''), isTrue);
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+            expect(tA.sent, isEmpty);
+            expect(await sA.loadMessages(b.hex), isEmpty);
+            expect(await sA.pendingOutboxFrames(), isEmpty);
+          },
+        );
 
         test(
           'initial request carries the committed greeting position',

@@ -156,6 +156,14 @@ abstract interface class Storage {
 
   Future<void> upsertContact(Contact contact);
 
+  /// Prepare an incoming/outgoing request against the latest relationship
+  /// under the contact write lock. Existing acceptance/block decisions are
+  /// preserved; return the effective status so stale work cannot undo consent.
+  Future<ContactStatus> prepareContactRequest(
+    NodeId peer, {
+    bool incoming = false,
+  });
+
   /// Apply a synchronous preference transform to the latest contact while
   /// holding its storage write turn. No creation and no relationship change.
   /// Null from the transform declines the update. The returned record is the
