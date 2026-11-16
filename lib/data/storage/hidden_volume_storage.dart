@@ -1036,7 +1036,7 @@ class HiddenVolumeStorage
   Future<bool> acceptOutgoingContactRequest(NodeId peer) => _trackLogWrite(
     (store) => _contactSerialized(() async {
       final existing = await getContact(peer);
-      if (existing?.status != ContactStatus.pendingOutgoing) return false;
+      if (existing?.hasOutgoingRequest != true) return false;
       final contact = existing!.copyWith(status: ContactStatus.accepted);
       final (index, shards) = await _contactIndexShards();
       final indexed = index.contains(peer.hex);
@@ -1358,6 +1358,9 @@ class HiddenVolumeStorage
       'n': contact.nodeId.hex,
       'name': contact.name,
       's': contact.status.index,
+      if (contact.status == ContactStatus.pendingIncoming &&
+          contact.hasOutgoingRequest)
+        'oq': true,
       // 'mu' (ms epoch deadline) supersedes the legacy boolean 'm'; a legacy
       // record's 'm':true reads back as muted-forever (see _contactFor).
       if (contact.mutedUntil != null)
@@ -1440,8 +1443,16 @@ class HiddenVolumeStorage
     Contact contact, {
     List<KvLogOp> extraOps = const [],
   }) async {
-    final contactBytes = _encodeContact(contact);
     final existingContact = await store.get(Ns.contacts, contact.nodeId.bytes);
+    // A presentation/status upsert is not withdrawal of a local request. Keep
+    // its intent while pending; block/accept or actual removal ends that intent.
+    if (contact.status == ContactStatus.pendingIncoming &&
+        !contact.hasOutgoingRequest &&
+        existingContact != null &&
+        _decodeContact(contact.nodeId, existingContact).hasOutgoingRequest) {
+      contact = contact.copyWith(hasOutgoingRequest: true);
+    }
+    final contactBytes = _encodeContact(contact);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
     final (index, hadShards) = await _contactIndexShards();
@@ -1615,6 +1626,7 @@ class HiddenVolumeStorage
       status: s != null && s >= 0 && s < ContactStatus.values.length
           ? ContactStatus.values[s]
           : ContactStatus.accepted,
+      hasOutgoingRequest: m['oq'] == true,
       mutedUntil: m['mu'] != null
           ? DateTime.fromMillisecondsSinceEpoch(m['mu'] as int)
           : (m['m'] == true ? kMuteForever : null),

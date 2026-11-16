@@ -22,6 +22,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Complete crossed contact requests after one side accepts. Preserve the local
+  outgoing request across an incoming request and restart, while keeping
+  incoming-only peers and blocked or forgotten contacts behind consent gates.
 - Recheck outgoing-request acceptance inside its storage write turn. A peer's
   delayed response can no longer undo a concurrent local block; already accepted
   requests still receive their acknowledgment without another decision write.
