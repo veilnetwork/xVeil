@@ -104,9 +104,10 @@ copied privately, matched against their saved hashes and removed from emulator
 Downloads. Existing encrypted data, all three QA identities and private evidence
 remain for later checks. The original Mac application stays untouched.
 
-Remaining activation work includes OS-vault/one-prompt entry on the managed
-owners, packaged full-profile recovery/deletion and other target/platform
-qualification. This run does not repeat native crash matrices, mixed-roster
+The later [scoped OS-vault follow-up](../managed-storage-android-vault-aot-2026-11-16/README.md)
+qualifies managed/hidden entry with actual Android Keystore and virtual sensor
+input. Packaged full-profile recovery/deletion including OS-record retirement,
+physical OEM/hardware and other target/platform qualification remain open. This run does not repeat native crash matrices, mixed-roster
 compaction, all-online hosting, physical OEM or Windows/macOS runtime tests.
 Those have their own evidence and open scope. No push, official signing,
 production-default change or release was performed.
