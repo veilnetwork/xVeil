@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/translation_model_store.dart';
 import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/model_import.dart';
+import '../../state/profile_model_work.dart';
 import '../../state/translation_model_controller.dart';
 import 'ask_contacts_for_models_sheet.dart';
 import 'translation_github_sheet.dart';
@@ -78,34 +80,49 @@ class TranslationModelsTile extends ConsumerWidget {
                       ? l.translationModelsShare
                       : l.translationModelsExport,
                   onPressed: () async {
+                    // A system dialog can outlive profile erasure. Keep the
+                    // original owner, but do not make erasure wait for a human
+                    // to close the picker. Join only accepted file work.
+                    final owner = ref.read(profileModelWorkProvider);
                     try {
                       final name = '${pair.id}$kTranslateBundleExt';
-                      if (Platform.isAndroid || Platform.isIOS) {
+                      final mobile = Platform.isAndroid || Platform.isIOS;
+                      final share = mobile
+                          ? ref.read(translationBundleSharerProvider)
+                          : null;
+                      final String destination;
+                      if (mobile) {
                         final dir = await ref.read(
                           translationBundleShareDirectoryProvider,
                         )();
-                        final path = '${dir.path}/$name';
-                        if (await notifier.exportPair(pair, path) == null) {
-                          throw StateError(l.translationModelsExportFailed);
-                        }
-                        await ref.read(translationBundleSharerProvider)(path);
+                        destination = '${dir.path}/$name';
                       } else {
-                        final destination = await ref.read(
+                        final picked = await ref.read(
                           translationBundleSaverProvider,
                         )(name);
-                        if (destination == null) return;
+                        if (picked == null) return;
+                        destination = picked;
+                      }
+                      final task = owner.begin(
+                        stillCurrent: () => context.mounted,
+                      );
+                      if (task == null) return;
+                      await task.run(() async {
                         if (await notifier.exportPair(pair, destination) ==
                             null) {
                           throw StateError(l.translationModelsExportFailed);
                         }
-                        if (context.mounted) {
+                        if (!task.current) return;
+                        if (share != null) {
+                          await share(destination);
+                        } else if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(l.translationModelsExported),
                             ),
                           );
                         }
-                      }
+                      });
                     } on Object {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -144,9 +161,10 @@ class TranslationModelsTile extends ConsumerWidget {
           title: Text(l.translationModelsImport),
           subtitle: Text(l.translationModelsHint),
           onTap: () async {
+            final targets = targetsFromWidgetRef(ref);
             final path = await ref.read(translationBundlePickerProvider)();
             if (path == null) return; // Dismissed the picker; not a failure.
-            await notifier.importBundle(path);
+            await targets.installTranslation(path);
           },
         ),
         if (state.phase == TranslationImportPhase.failed)

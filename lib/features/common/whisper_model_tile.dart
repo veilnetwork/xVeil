@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/model_import.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/translation_model_controller.dart';
 import '../../state/whisper_model_controller.dart';
@@ -95,10 +96,11 @@ class WhisperModelTile extends ConsumerWidget {
           title: Text(l.voiceModelImport),
           subtitle: Text(l.voiceModelImportHint),
           onTap: () async {
+            final targets = targetsFromWidgetRef(ref);
             final path = await ref.read(translationBundlePickerProvider)();
             if (path == null) return; // Dismissed; not a failure.
-            final ok = await notifier.importBundle(path);
-            if (ok) _tellTheRest(ref);
+            final ok = await targets.installSpeech(path);
+            if (ok && context.mounted) _tellTheRest(ref);
           },
         ),
       ],

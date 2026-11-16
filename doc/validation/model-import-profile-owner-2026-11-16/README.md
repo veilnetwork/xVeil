@@ -32,6 +32,42 @@ context's mounted witness; container targets retain their original work owner.
 Neither mechanism changes manifest validation, provenance approval, model hash
 checks or the storage-mode choice.
 
+## Settings picker follow-up
+
+The same lifetime boundary also existed before controller dispatch in Settings.
+Both model tiles captured a controller, then awaited the system file picker.
+Riverpod can reuse that controller object after a wipe rebuilds its providers;
+capturing the object did not preserve the original authority. A late translation
+selection recreated installed files after the actual application wipe completed.
+A late speech selection inspected the bundle and changed the fresh controller's
+state. The speech fixture uses a real translation bundle and verifies refusal of
+stale dispatch; it does not substitute a new pinned speech-model hash.
+
+The translation export picker had the opposite effect: after wiping and creating
+a replacement pair, the old pending export wrote the replacement's files to the
+old destination. Three unchanged-code checks failed on these exact outcomes.
+
+Both import tiles now capture their existing installation targets before opening
+the picker. Exports retain the original model-work owner and acquire a task only
+after the destination is chosen, so an unattended dialog cannot block erasure.
+Accepted export work remains joined through file writing and sharing, and a
+retired operation cannot report success or open a share sheet after its write.
+Selected source files and destinations are never treated as erasure scratch.
+
+Five widget regressions invoke the actual callbacks in the real I/O zone: both
+imports across completed wipe, both imports after widget removal, and export
+across wipe/replacement. The wipe path is the real `AppController` method with
+controlled storage/OS/network adapters; model controllers, owner retirement,
+bundle parsing and filesystem publication are real. Positive controls start new
+actions after wipe, install the exact original translation bytes, then export and
+independently reinstall the exact replacement bytes. **68 checks in seven serial
+suites pass, zero skips**, including existing tile/controller and model-work/wipe
+coverage. This is host qualification, not a physical Android picker/share test.
+Initial test attempts stalled on fake-async I/O, and one export finder selected
+the icon instead of its button; those fixture failures are not product evidence.
+Final fixture preparation, completers and file operations run in the real I/O
+zone. No system file dialog or application window was opened.
+
 ## Qualification
 
 - The gated bundle-read test failed on unchanged product code, then passed with
