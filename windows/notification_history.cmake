@@ -1,6 +1,7 @@
 # flutter_local_notifications_windows 3.1.1 omits individual cancellation for
 # portable (non-MSIX) apps. Keep tags in a nonempty group so Windows can remove
 # one toast by tag/group/AUMID, without clearing unrelated notifications.
+# Also contain WinRT failures in the bool show/schedule API before Dart FFI.
 # Patch only the build copy; never mutate the shared pub cache.
 function(xveil_fix_windows_notification_history target)
   if(NOT TARGET "${target}")
@@ -28,6 +29,26 @@ function(xveil_fix_windows_notification_history target)
   string(REPLACE
     "if (plugin->hasIdentity) plugin->history.value().Remove(tag);"
     "if (plugin->hasIdentity) {\n    plugin->history.value().Remove(tag, L\"xveil\");\n  } else {\n    plugin->history.value().Remove(tag, L\"xveil\", plugin->aumid);\n  }"
+    source "${source}")
+
+  # HRESULT exceptions must not unwind through Dart FFI. The bool API already
+  # represents rejection; include construction and Show/AddToSchedule, not only
+  # XML parsing, in that boundary. In particular Show can reject a large toast.
+  string(REPLACE
+    "bool showNotification(NativePlugin* plugin, int id, char* xml, NativeStringMap bindings) {"
+    "bool showNotification(NativePlugin* plugin, int id, char* xml, NativeStringMap bindings) try {"
+    source "${source}")
+  string(REPLACE
+    "\n}\n\nbool scheduleNotification"
+    "\n} catch (const winrt::hresult_error&) {\n  return false;\n}\n\nbool scheduleNotification"
+    source "${source}")
+  string(REPLACE
+    "bool scheduleNotification(NativePlugin* plugin, int id, char* xml, int time) {"
+    "bool scheduleNotification(NativePlugin* plugin, int id, char* xml, int time) try {"
+    source "${source}")
+  string(REPLACE
+    "\n}\n\nNativeUpdateResult updateNotification"
+    "\n} catch (const winrt::hresult_error&) {\n  return false;\n}\n\nNativeUpdateResult updateNotification"
     source "${source}")
 
   set(patched "${CMAKE_CURRENT_BINARY_DIR}/xveil_notifications/ffi_api.cpp")
