@@ -84,6 +84,23 @@ class NotificationService {
     return result;
   }
 
+  /// Order teardown against posts for the same OS id. Queue immediately when
+  /// an owner retires, so its late cancellation cannot erase a successor post.
+  Future<void> cancelAfterPosts(int id) {
+    final result = (_posts[id] ?? Future<void>.value()).then((_) => cancel(id));
+    late final Future<void> tail;
+    void release() {
+      if (identical(_posts[id], tail)) _posts.remove(id);
+    }
+
+    tail = result.then<void>(
+      (_) => release(),
+      onError: (Object error, StackTrace stack) => release(),
+    );
+    _posts[id] = tail;
+    return result;
+  }
+
   NotificationService({FlutterLocalNotificationsPlugin? plugin})
     : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 

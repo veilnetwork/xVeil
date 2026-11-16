@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import 'desktop_call_notification_bridge.dart';
+
 import '../../core/log.dart';
 import '../../core/background_service_lifetime.dart';
 import '../../core/ids.dart';
@@ -95,7 +97,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   }
 
   @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
+  Widget build(BuildContext context) => const DesktopCallNotificationBridge();
 
   void _syncCallState() {
     if (!mounted) return;
