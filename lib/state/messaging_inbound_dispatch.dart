@@ -528,8 +528,8 @@ extension _MessagingInboundDispatch on MessagingService {
     }
 
     Future<void> receiveContactRequest() async {
-      await _handleRequestOrReconnect(m, env, existing?.status);
-      if (deferredHandshakeAck && fid != null) {
+      final handled = await _handleRequestOrReconnect(m, env, existing?.status);
+      if (handled && deferredHandshakeAck && fid != null) {
         // Use the existing bounded receipt lane, after durable admission.
         // Explicit delivery callers join it; the serialized inbox does not.
         await settlePost(m, null, fid);

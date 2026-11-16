@@ -135,7 +135,8 @@ class _MessagingContacts {
   }
 
   /// Shared handling for a [WireKind.request] AND a [WireKind.reconnect] — both
-  /// (re-)establish consent. [status] is the sender's CURRENT contact status.
+  /// (re-)establish consent. [initialStatus] is only the ingress snapshot;
+  /// asynchronous checks must not turn it into a new relationship decision.
   ///
   /// * accepted — they re-sent because they never saw our accept (a lost accept,
   ///   or THEY wiped + re-intro'd and we still hold them): re-send + re-stash the
@@ -145,15 +146,32 @@ class _MessagingContacts {
   /// (blocked is dropped before dispatch — no "you're blocked" oracle. The sender
   /// emits reconnect unconditionally after a no-ack threshold, so this path can't
   /// tell whether the peer was merely offline or actually wiped — by design.)
-  Future<void> handleRequestOrReconnect(
+  /// False leaves an unprocessed carrier copy unacknowledged.
+  Future<bool> handleRequestOrReconnect(
     InboundMessage m,
     WireEnvelope env,
-    ContactStatus? status,
+    ContactStatus? initialStatus,
   ) async {
     // You can't send yourself a connection request. Drop a self-addressed
     // request/reconnect so it never creates a bogus pendingIncoming
     // self-contact (Saved Messages is a chat with yourself, always accepted).
-    if (m.src.hex == await _owner._selfHex()) return;
+    if (m.src.hex == await _owner._selfHex()) return false;
+    if (_owner._disposed) {
+      _owner._declinedLocally(m, 'messaging service is closed');
+      return false;
+    }
+    final status = await _withConsentWrite(
+      m.src,
+      () => _owner._storage.prepareContactRequest(m.src, incoming: true),
+    );
+    if (_owner._disposed) {
+      _owner._declinedLocally(m, 'messaging service is closed');
+      return false;
+    }
+    if (status == ContactStatus.blocked) {
+      _owner._declinedLocally(m, 'contact changed during request admission');
+      return false;
+    }
     if (status == ContactStatus.accepted) {
       // They re-requested/re-intro'd because they never saw our accept — re-send
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
@@ -161,14 +179,14 @@ class _MessagingContacts {
       // mailbox deposit too — the previous one may have aged out at the relay.
       _owner._mailboxDelivery.removeStashed('accept:${m.src.hex}');
       await _queueAcceptance(m.src);
-      return;
+      return true;
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
     // while the intro sits undecided (the durable gate only dedups ACCEPTED
     // senders) — only the FIRST arrival should write the contact record; the
     // rewrite is pure storage churn on every later copy.
-    if (status != ContactStatus.pendingIncoming) {
-      await setStatus(m.src, ContactStatus.pendingIncoming);
+    if (initialStatus != ContactStatus.pendingIncoming) {
+      await _afterStatusSaved(m.src, ContactStatus.pendingIncoming);
     }
     if (env.body.isNotEmpty &&
         !(env.id != null &&
@@ -200,6 +218,7 @@ class _MessagingContacts {
         seq: env.seq ?? intro?.seq,
       );
     }
+    return true;
   }
 
   /// Finish durable admission inside ingress; send on bounded recipient lanes.
@@ -245,6 +264,9 @@ class _MessagingContacts {
   /// message them until they accept.
   ///
   /// Returns whether the request was DEPOSITED at the recipient's relay.
+  /// If already accepted, submit the text as an ordinary message instead and
+  /// return that submission result (or true for an empty no-op). Neither is
+  /// proof of remote delivery. A blocked contact is left blocked and refused.
   ///
   /// It used to return nothing, and both legs below had their outcome thrown
   /// away — so a request that reached neither the relay nor the peer still
@@ -255,7 +277,18 @@ class _MessagingContacts {
   /// so an unsuccessful first attempt can retry after reconnect or restart.
   Future<bool> sendRequest(NodeId dst, String greeting) async {
     var text = greeting.trim();
-    await setStatus(dst, ContactStatus.pendingOutgoing);
+    final status = await _withConsentWrite(
+      dst,
+      () => _owner._storage.prepareContactRequest(dst),
+    );
+    if (_owner._disposed || status == ContactStatus.blocked) return false;
+    if (status == ContactStatus.accepted) {
+      // The composer may still hold its pre-accept snapshot. A new request
+      // must not demote an established conversation or discard this text as
+      // an ignored re-introduction at the other end.
+      return text.isEmpty || await _owner.sendText(dst, text);
+    }
+    await _afterStatusSaved(dst, status);
     // Tag the greeting with a stable id shared between our stored copy and the
     // request on the wire. The greeting is stored `sent`, so the outbox re-sends
     // it as a WireKind.message after the peer accepts; without a shared id the

@@ -2223,7 +2223,7 @@ class MessagingService {
     int? atMs,
   }) => _contacts.applyMirroredContactStatus(peer, status, atMs: atMs);
 
-  Future<void> _handleRequestOrReconnect(
+  Future<bool> _handleRequestOrReconnect(
     InboundMessage message,
     WireEnvelope envelope,
     ContactStatus? status,
@@ -2772,9 +2772,10 @@ class MessagingService {
       _attestation.onResponse(src, envelope);
 
   /// Ask [dst] to connect, with an optional [greeting].
-  /// Whether the request was DEPOSITED at the recipient's relay — see
-  /// [MessagingContacts.sendRequest]. The live leg is best-effort by contract,
-  /// so a false here means nothing durable went out and nothing retries it.
+  /// Whether the request was deposited at the recipient's relay. The local
+  /// durable request retries independently of this result. An already accepted
+  /// contact receives an ordinary message instead; then the result describes
+  /// local message submission. Neither result proves remote delivery.
   Future<bool> sendRequest(NodeId dst, String greeting) =>
       _contacts.sendRequest(dst, greeting);
 

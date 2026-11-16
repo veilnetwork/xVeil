@@ -1,7 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
-
-import 'package:window_manager/window_manager.dart';
 import 'app_controller.dart';
 import 'dart:convert';
 
@@ -10,6 +7,7 @@ import 'package:flutter_riverpod/legacy.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../desktop/desktop_window.dart';
 import '../data/notifications/notification_service.dart';
 import '../data/notifications/opaque_payload.dart';
 import '../domain/space_post.dart';
@@ -302,10 +300,13 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   // Fire-and-forget init; show() is a no-op until it completes.
   svc.init(
     onTap: (raw) {
+      // Even an expired opaque token should reveal the app; it must not
+      // guess a conversation or answer a call.
+      unawaited(showDesktopWindow());
       final payload = resolveNotificationPayload(ref, raw);
       if (payload == kNotificationPayloadIncomingCall) {
-        // Only a user's explicit toast tap may restore/focus the call UI.
-        unawaited(_restoreIncomingCallWindow());
+        // Showing is already requested above. Keep the current call route;
+        // the fixed payload carries no permission to answer or switch identity.
         return;
       }
       final route = notificationRouteForPayload(payload);
@@ -314,9 +315,8 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
         // button (user-reported on desktop). Root the stack at home first,
         // then push — back leads to the chat list, like a normal open.
         // A `group:<hex>` payload opens the group chat instead of a 1:1.
-        ref.read(routerProvider)
-          ..go('/home')
-          ..push(route);
+        final router = ref.read(routerProvider)..go('/home');
+        if (route != '/home') router.push(route);
       }
     },
     onReply: (raw, text) {
@@ -392,13 +392,3 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   ref.onDispose(svc.cancelAll);
   return svc;
 });
-
-Future<void> _restoreIncomingCallWindow() async {
-  if (!Platform.isWindows) return;
-  try {
-    await windowManager.show();
-    await windowManager.focus();
-  } catch (error) {
-    devLog(() => 'xVeil[call-notify]: open failed (${error.runtimeType})');
-  }
-}

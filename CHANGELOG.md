@@ -20,12 +20,26 @@ bumps may change behaviour a user notices.
 - Shorten the start-over explanation and distinguish passwords for encrypted
   or hidden identities from passwordless unencrypted storage.
 
+### Fixed
+
+- Show desktop incoming-call notifications through one owner. On Windows,
+  check window visibility and focus without opening or activating the window;
+  retire old alerts through the same ordered notification queue.
+- Retry a refused incoming-call desktop notification up to three times while
+  the same call still rings in the background. Stop retries when its call,
+  identity, visibility or notification policy changes.
+- Keep an accepted or blocked contact from reverting to a pending request
+  when an older send action completes. Text for an already accepted contact
+  follows ordinary message delivery instead of restarting the handshake.
+- Preserve acceptance and blocking when an incoming request or reconnect
+  finishes after a newer decision. Keep unprocessed requests available to
+  their carrier when the messaging service closes during admission.
+
 ### Release preparation
 
 - The three-mode default requires native hidden-volume assets rebuilt from the
   current API. Published 2.7.2 binaries must not be reused with these bindings;
   dependency and final application releases remain pending.
-
 ## [0.13.101] - 2026-11-13
 
 ### Fixed
