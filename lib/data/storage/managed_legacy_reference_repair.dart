@@ -17,8 +17,8 @@ final class LegacyReferenceRepairFailure implements Exception {
 /// identity; cold recovery may authenticate just its selected root. Catalog
 /// metadata must not disclose which identity holds hidden references.
 /// This backend does not acquire grants or enable application maintenance.
-/// POSIX source-name durability is rechecked before finalizing recovery; the
-/// Windows backend refuses until its recovery barrier is implemented.
+/// Source-name durability is rechecked before finalizing recovery. Unsupported
+/// Windows directory flushes refuse admission, retaining private journals.
 abstract final class ManagedLegacyReferenceRepair {
   /// Private in-volume file; its plaintext mode follows its owning identity.
   static const journalFile = 'storage:legacy-reference-repair.v1';
@@ -39,10 +39,6 @@ abstract final class ManagedLegacyReferenceRepair {
   }
 
   static void _requireOwner(ManagedDirectoryCatalog owner, int revision) {
-    // The existing Windows directory-sync port is a no-op. A recovered rename
-    // must not be finalized from visibility alone; keep this backend refused
-    // there until an explicit durable-source recovery barrier is implemented.
-    if (Platform.isWindows) throw const LegacyReferenceRepairFailure();
     owner._validate();
     owner._coordinator.requireHeld(exclusive: true);
     owner._profileLease.requireHeld(exclusive: true);
@@ -85,6 +81,13 @@ abstract final class ManagedLegacyReferenceRepair {
         keys[entry.id] = Uint8List.fromList(value);
       }
       owner._legacyReferenceRepairBusy = acquired = true;
+      // Probe the actual existing-parent barrier before preparing any private
+      // obligation. Windows publication's generic directory no-op is not a
+      // recovery capability. A denied/unsupported flush refuses without writes.
+      owner._fs.syncSourceDirectory(
+        Directory(owner.profileDirectory).parent.path,
+      );
+      _requireOwner(owner, snapshot.revision);
       return await work(
         entries,
         keys,
@@ -371,7 +374,7 @@ abstract final class ManagedLegacyReferenceRepair {
       // another file. Native prepared publication already syncs its file data.
       // An unsuccessful directory barrier leaves every private intent intact.
       stableSource();
-      owner._fs.syncDirectory(profile.path);
+      owner._fs.syncSourceDirectory(profile.path);
       stableSource();
       for (final entry in entries) {
         final intent = intents[entry.id];

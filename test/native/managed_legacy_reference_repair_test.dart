@@ -38,6 +38,16 @@ class _Abort implements Exception {}
 
 class _FaultFs extends ManagedFsPlatform {
   String? blockedDirectory;
+  int sourceFlushRefusals = 0;
+  @override
+  void syncSourceDirectory(String path) {
+    if (blockedDirectory == path) {
+      sourceFlushRefusals++;
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+    super.syncSourceDirectory(path);
+  }
+
   @override
   void syncDirectory(String path) {
     if (blockedDirectory == path) {
@@ -270,165 +280,163 @@ class _Fixture {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isWindows) {
-    test(
-      'cross-owner source durability requires Windows qualification',
-      () {},
-      skip: 'backend refuses pending recovery without a durable-source barrier',
-    );
-    return;
-  }
   for (final phase in [
     'prepared',
     'published',
     'worker-prepared',
     'worker-published',
   ]) {
-    test('process death with private external journals: $phase', () async {
-      final f = _Fixture();
-      addTearDown(f.close);
-      await f.create();
-      final sourceBefore = File(f.source).readAsBytesSync();
-      final capabilities = File(
-        '${f.directory.path}/capabilities-private.json',
-      );
-      capabilities.writeAsStringSync(
-        jsonEncode({
-          'masters': {
-            for (final entry in f.keys.entries)
-              entry.key.value: base64.encode(entry.value),
-          },
-          'legacy': {
-            for (final entry in f.old.entries)
-              entry.key: base64.encode(entry.value),
-          },
-        }),
-        flush: true,
-      );
-      const ManagedFsPlatform().restrictNewFile(capabilities.path);
-      f.root.close();
-      final process = await Process.start('dart', [
-        'run',
-        File('test/native/managed_legacy_reference_writer.dart').absolute.path,
-        f.directory.path,
-        phase,
-      ]);
-      final output = StringBuffer();
-      final stdout = process.stdout
-          .transform(utf8.decoder)
-          .listen(output.write);
-      final stderr = process.stderr
-          .transform(utf8.decoder)
-          .listen(output.write);
-      int? exitCode;
-      final terminal = process.exitCode.then((code) {
-        exitCode = code;
-        return code;
-      });
-      try {
-        final ready = File('${f.directory.path}/ready');
-        final watch = Stopwatch()..start();
-        while (!ready.existsSync() &&
-            exitCode == null &&
-            watch.elapsed < const Duration(seconds: 90)) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-        if (!ready.existsSync() || exitCode != null) {
-          throw StateError(
-            'Owned writer did not reach the crash boundary; exit=$exitCode',
-          );
-        }
-        final marker =
-            jsonDecode(ready.readAsStringSync()) as Map<String, dynamic>;
-        expect(marker, {'pid': process.pid, 'phase': phase});
-        // The writer still owns the full profile, even at the boundary after
-        // native source publication. No independent catalog reader may enter.
-        ManagedDirectoryCatalog? competing;
+    test(
+      'process death with private external journals: $phase',
+      () async {
+        final f = _Fixture();
+        addTearDown(f.close);
+        await f.create();
+        final sourceBefore = File(f.source).readAsBytesSync();
+        final capabilities = File(
+          '${f.directory.path}/capabilities-private.json',
+        );
+        capabilities.writeAsStringSync(
+          jsonEncode({
+            'masters': {
+              for (final entry in f.keys.entries)
+                entry.key.value: base64.encode(entry.value),
+            },
+            'legacy': {
+              for (final entry in f.old.entries)
+                entry.key: base64.encode(entry.value),
+            },
+          }),
+          flush: true,
+        );
+        const ManagedFsPlatform().restrictNewFile(capabilities.path);
+        f.root.close();
+        final process = await Process.start('dart', [
+          'run',
+          File(
+            'test/native/managed_legacy_reference_writer.dart',
+          ).absolute.path,
+          f.directory.path,
+          phase,
+        ]);
+        final output = StringBuffer();
+        final stdout = process.stdout
+            .transform(utf8.decoder)
+            .listen(output.write);
+        final stderr = process.stderr
+            .transform(utf8.decoder)
+            .listen(output.write);
+        int? exitCode;
+        final terminal = process.exitCode.then((code) {
+          exitCode = code;
+          return code;
+        });
         try {
-          expect(
-            () => competing = ManagedDirectoryCatalog.openExisting(f.profile),
-            throwsA(
-              anyOf(
-                isA<ManagedLeaseFailure>().having(
-                  (e) => e.kind,
-                  'kind',
-                  ManagedLeaseFailureKind.busy,
-                ),
-                isA<ManagedSqliteFailure>().having(
-                  (e) => e.sqliteCode,
-                  'sqliteCode',
-                  5,
-                ),
-              ),
-            ),
-          );
-        } finally {
-          competing?.close();
-        }
-        if (phase.endsWith('prepared')) {
-          hv.HvSpace? competingSource;
+          final ready = File('${f.directory.path}/ready');
+          final watch = Stopwatch()..start();
+          while (!ready.existsSync() &&
+              exitCode == null &&
+              watch.elapsed < const Duration(seconds: 90)) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          if (!ready.existsSync() || exitCode != null) {
+            throw StateError(
+              'Owned writer did not reach the crash boundary; exit=$exitCode',
+            );
+          }
+          final marker =
+              jsonDecode(ready.readAsStringSync()) as Map<String, dynamic>;
+          expect(marker, {'pid': process.pid, 'phase': phase});
+          // The writer still owns the full profile, even at the boundary after
+          // native source publication. No independent catalog reader may enter.
+          ManagedDirectoryCatalog? competing;
           try {
             expect(
-              () => competingSource = hv.HvSpace.open(
-                path: f.source,
-                password: _bytes(f.old.keys.first),
-              ),
+              () => competing = ManagedDirectoryCatalog.openExisting(f.profile),
               throwsA(
-                isA<hv.HvException>().having((e) => e.kind, 'kind', 'Busy'),
+                anyOf(
+                  isA<ManagedLeaseFailure>().having(
+                    (e) => e.kind,
+                    'kind',
+                    ManagedLeaseFailureKind.busy,
+                  ),
+                  isA<ManagedSqliteFailure>().having(
+                    (e) => e.sqliteCode,
+                    'sqliteCode',
+                    5,
+                  ),
+                ),
               ),
             );
           } finally {
-            competingSource?.close();
+            competing?.close();
+          }
+          if (phase.endsWith('prepared')) {
+            hv.HvSpace? competingSource;
+            try {
+              expect(
+                () => competingSource = hv.HvSpace.open(
+                  path: f.source,
+                  password: _bytes(f.old.keys.first),
+                ),
+                throwsA(
+                  isA<hv.HvException>().having((e) => e.kind, 'kind', 'Busy'),
+                ),
+              );
+            } finally {
+              competingSource?.close();
+            }
+          }
+
+          expect(process.kill(ProcessSignal.sigkill), isTrue);
+          expect(await terminal, isNot(0));
+        } finally {
+          if (exitCode == null) {
+            process.kill(ProcessSignal.sigkill);
+            await terminal;
+          }
+          await stdout.cancel();
+          await stderr.cancel();
+          if (exitCode == null || exitCode == 0) {
+            // Kept in the private fixture only; no keys/output in assertions.
+            File(
+              '${f.directory.path}/writer-output-private.log',
+            ).writeAsStringSync(output.toString());
           }
         }
-
-        expect(process.kill(ProcessSignal.sigkill), isTrue);
-        expect(await terminal, isNot(0));
-      } finally {
-        if (exitCode == null) {
-          process.kill(ProcessSignal.sigkill);
-          await terminal;
+        f.exclusive();
+        for (final password in f.old.keys) {
+          final actual = hv.HvSpace.open(
+            path: f.source,
+            password: _bytes(password),
+          );
+          try {
+            f.changes.add((
+              before: Uint8List.fromList(f.old[password]!),
+              after: actual.spaceKeys(),
+            ));
+          } finally {
+            actual.close();
+          }
         }
-        await stdout.cancel();
-        await stderr.cancel();
-        if (exitCode == null || exitCode == 0) {
-          // Kept in the private fixture only; no keys/output in assertions.
-          File(
-            '${f.directory.path}/writer-output-private.log',
-          ).writeAsStringSync(output.toString());
+        if (phase.endsWith('prepared')) {
+          expect(File(f.source).readAsBytesSync(), sourceBefore);
         }
-      }
-      f.exclusive();
-      for (final password in f.old.keys) {
-        final actual = hv.HvSpace.open(
-          path: f.source,
-          password: _bytes(password),
+        expect(await f.journal(1), isNotNull);
+        expect(await f.journal(2), isNotNull);
+        expect(
+          await ManagedLegacyReferenceRepair.resume(
+            owner: f.root,
+            authorizations: f.keys,
+          ),
+          phase.endsWith('published')
+              ? LegacyReferenceRepairOutcome.publishedReplacement
+              : LegacyReferenceRepairOutcome.retainedSource,
         );
-        try {
-          f.changes.add((
-            before: Uint8List.fromList(f.old[password]!),
-            after: actual.spaceKeys(),
-          ));
-        } finally {
-          actual.close();
-        }
-      }
-      if (phase.endsWith('prepared')) {
-        expect(File(f.source).readAsBytesSync(), sourceBefore);
-      }
-      expect(await f.journal(1), isNotNull);
-      expect(await f.journal(2), isNotNull);
-      expect(
-        await ManagedLegacyReferenceRepair.resume(
-          owner: f.root,
-          authorizations: f.keys,
-        ),
-        phase.endsWith('published')
-            ? LegacyReferenceRepairOutcome.publishedReplacement
-            : LegacyReferenceRepairOutcome.retainedSource,
-      );
-      await f.expectUsable(published: phase.endsWith('published'));
-    });
+        await f.expectUsable(published: phase.endsWith('published'));
+      },
+      skip: Platform.isWindows ? 'POSIX SIGKILL writer fixture' : false,
+    );
   }
 
   for (final refusal in ['shared', 'incomplete', 'wrong', 'unreadableRoster']) {
@@ -655,16 +663,10 @@ void main() {
       }
       if (boundary == _Boundary.syncRefusal) {
         final first = await f.journal(1), second = await f.journal(2);
-        f.fs.blockedDirectory = f.directory.absolute.uri
-            .normalizePath()
-            .toFilePath();
-        // Directory paths from the owner have no trailing slash.
-        if (f.fs.blockedDirectory!.endsWith('/')) {
-          f.fs.blockedDirectory = f.fs.blockedDirectory!.substring(
-            0,
-            f.fs.blockedDirectory!.length - 1,
-          );
-        }
+        final previousRefusals = f.fs.sourceFlushRefusals;
+        // Use the actual owner's canonical parent spelling on each platform;
+        // URI directory paths may carry either kind of trailing separator.
+        f.fs.blockedDirectory = Directory(f.root.profileDirectory).parent.path;
         await expectLater(
           ManagedLegacyReferenceRepair.resume(
             owner: f.root,
@@ -672,6 +674,7 @@ void main() {
           ),
           throwsA(isA<LegacyReferenceRepairFailure>()),
         );
+        expect(f.fs.sourceFlushRefusals, previousRefusals + 1);
         expect(await f.journal(1), first);
         expect(await f.journal(2), second);
         for (final n in [1, 2]) {

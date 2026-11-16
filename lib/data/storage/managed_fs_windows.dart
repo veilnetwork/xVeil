@@ -156,6 +156,51 @@ ManagedPathWitness inspect(String path) {
   }
 }
 
+/// Flush an existing, already-admitted source parent. Unlike ordinary managed
+/// publication, recovery has no live MOVEFILE_WRITE_THROUGH result to retain.
+/// Bind the directory handle to the caller's witness and refuse unsupported
+/// filesystems/access instead of treating a visible source name as durable.
+void syncSourceDirectory(String path, ManagedPathWitness expected) {
+  final name = path.toNativeUtf16();
+  final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
+  var handle = win.INVALID_HANDLE_VALUE;
+  try {
+    handle = win.CreateFile(
+      name,
+      win.GENERIC_WRITE,
+      win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
+      nullptr,
+      win.OPEN_EXISTING,
+      win.FILE_FLAG_BACKUP_SEMANTICS | win.FILE_FLAG_OPEN_REPARSE_POINT,
+      0,
+    );
+    if (handle == win.INVALID_HANDLE_VALUE ||
+        win.GetFileInformationByHandle(handle, info) == 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+    final f = info.ref;
+    final identity =
+        '${f.dwVolumeSerialNumber}:${f.nFileIndexHigh}:${f.nFileIndexLow}:';
+    if (!expected.directory ||
+        !expected.identity.startsWith(identity) ||
+        f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY == 0 ||
+        f.dwFileAttributes & win.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    }
+    if (win.FlushFileBuffers(handle) == 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+  } on ManagedFsFailure {
+    rethrow;
+  } catch (_) {
+    throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+  } finally {
+    if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);
+    calloc.free(info);
+    calloc.free(name);
+  }
+}
+
 bool createPrivateDirectory(String path) {
   final sid = _currentSid();
   final sddl = 'O:${sid}D:P(A;OICI;FA;;;$sid)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'

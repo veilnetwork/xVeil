@@ -196,6 +196,29 @@ class ManagedFsPlatform {
       throw const ManagedFsFailure(ManagedFsFailureKind.io);
     }
   }
+
+  /// A separate recovery barrier for an existing source NAME. The Windows
+  /// publication no-op above cannot authorize clearing another file's journal.
+  /// Keep both the directory object and its admission stable across the flush.
+  void syncSourceDirectory(String path) {
+    final before = inspect(path);
+    void admit(ManagedPathWitness value) {
+      if (!value.directory ||
+          !value.ownedByCurrentUser ||
+          !value.safeAncestor ||
+          value.identity != before.identity) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      }
+    }
+
+    admit(before);
+    if (Platform.isWindows) {
+      windows.syncSourceDirectory(path, before);
+    } else {
+      syncDirectory(path);
+    }
+    admit(inspect(path));
+  }
 }
 
 /// POSIX mode bits bound named ACL grants on Linux. Darwin extended ACLs are
