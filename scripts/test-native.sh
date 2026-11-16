@@ -40,7 +40,12 @@ find_lib() {
 }
 
 case "$(uname -s)" in
-  Darwin) EXT="dylib" ;;
+  Darwin)
+    EXT="dylib"
+    # Host storage fixtures must not inherit a removable/group-writable temp
+    # ancestor; keep this runner consistent with the repository working rules.
+    export TMPDIR=/private/tmp/
+    ;;
   *)      EXT="so" ;;
 esac
 
@@ -75,6 +80,16 @@ flutter test \
   test/native/identity_origin_live_test.dart \
   test/native/cloud_document_crypto_live_test.dart \
   test/group_service_test.dart \
+  "$@"
+
+# Actual all-online boot/ratchet/traffic across the three storage backends,
+# plus all master-protection/hosting combinations. Keep nodes serial and opt
+# in explicitly: plain flutter test must not imply this live gate ran.
+XVEIL_MIXED_NATIVE_LIVE=1 flutter test \
+  --no-pub \
+  --concurrency=1 \
+  test/native/mixed_identity_session_live_test.dart \
+  test/native/managed_master_routing_test.dart \
   "$@"
 
 # Separately, and last: this one spawns three real nodes on loopback and waits
