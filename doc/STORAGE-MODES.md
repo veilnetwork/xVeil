@@ -20,6 +20,13 @@ four Windows process-death cases remain explicitly skipped. Host regression,
 worker recovery and source-binding checks pass. This closes the missing barrier
 implementation, not packaged/platform crash qualification or default activation.
 
+The [Windows process-death follow-up](validation/windows-reference-process-death-2026-11-16/README.md)
+now qualifies all four previously skipped reference-repair boundaries with an
+owned AOT writer. Windows passes 18 native cases without administrative rights
+or skips; macOS passes the same 18-case suite. Keybox bytes, sibling payloads and
+both hidden-space payloads survive. Packaged UI/OEM and other activation gates
+remain; this closes the standalone Windows process-death gap only.
+
 The [hosted compaction follow-up](validation/managed-compaction-access-root-2026-11-15/README.md)
 separates access-root credentials from hidden keep-set authority, restores
 confirmed source ownership and the selected hosted view, and fixes completion
