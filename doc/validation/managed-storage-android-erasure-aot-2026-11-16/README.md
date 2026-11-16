@@ -147,3 +147,10 @@ This qualifies one packaged Android refusal/partial-removal/cold-recovery
 scenario and foreign-profile survival. It does not prove arbitrary power-loss
 behavior, every OEM, every erasure crash point or other platform storage/vault
 integration. Those checks retain their own scope.
+
+## Ordinary-erasure follow-up
+
+The [no-fault packaged follow-up](../managed-storage-android-clean-erasure-aot-2026-11-16/README.md)
+uses this same fixed APK with a complete saved entry. It verifies normal
+whole-profile deletion, cold no-resurrection and exact readback of the preserved
+default profile. It complements this partial-removal/recovery scenario.

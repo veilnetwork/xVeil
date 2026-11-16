@@ -31,9 +31,14 @@ now qualifies actual Android Keystore entry with a virtual enrolled fingerprint.
 Six application scenarios each use one CryptoObject request, including cold
 managed/hidden entry, warm cancellation/retry, entry after owned reclamation and
 entry after an Android restart/system PIN. Both protected scopes remain
-independent; plaintext inherits neither entry. Full-profile erasure/recovery
-including OS-record retirement, physical OEM/hardware, other target/platform
-and remaining activation work stay open.
+independent; plaintext inherits neither entry. The
+[interrupted-erasure qualification](validation/managed-storage-android-erasure-aot-2026-11-16/README.md)
+then reproduces and fixes Android XML-padding retirement refusal, completing the
+same pending operation while preserving an actual separate profile. The
+[ordinary-erasure follow-up](validation/managed-storage-android-clean-erasure-aot-2026-11-16/README.md)
+also passes from a complete saved entry without injected failure, including cold
+no-resurrection and exact preserved-profile readback. Broader interruption,
+physical OEM/hardware, other target/platform and activation work stays open.
 
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
