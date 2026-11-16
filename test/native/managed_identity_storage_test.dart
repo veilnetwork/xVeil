@@ -92,6 +92,15 @@ void main() {
           await created.storage.upsertContact(
             Contact(nodeId: peer, status: decision),
           );
+          final floor = await created.storage.contactDecisionFloor(peer);
+          expect(
+            await created.storage.acceptOutgoingContactRequest(peer),
+            isFalse,
+          );
+          expect(
+            (await created.storage.contactDecisionFloor(peer))?.token,
+            floor?.token,
+          );
           for (final incoming in [false, true]) {
             expect(
               await created.storage.prepareContactRequest(
@@ -103,6 +112,52 @@ void main() {
             expect((await created.storage.getContact(peer))?.status, decision);
           }
         }
+        final newPeer = NodeId.fromHex('d' * 64);
+        await created.storage.upsertContact(
+          Contact(nodeId: newPeer, status: ContactStatus.pendingIncoming),
+        );
+        expect(
+          await created.storage.acceptOutgoingContactRequest(newPeer),
+          isFalse,
+        );
+        expect(
+          (await created.storage.getContact(newPeer))?.status,
+          ContactStatus.pendingIncoming,
+        );
+        await created.storage.upsertContact(
+          Contact(
+            nodeId: newPeer,
+            name: 'Local label',
+            status: ContactStatus.pendingOutgoing,
+            pinned: true,
+          ),
+        );
+        expect(
+          await created.storage.acceptOutgoingContactRequest(newPeer),
+          isTrue,
+        );
+        final accepted = await created.storage.getContact(newPeer);
+        expect(accepted?.status, ContactStatus.accepted);
+        expect(accepted?.name, 'Local label');
+        expect(accepted?.pinned, isTrue);
+        final acceptedFloor = await created.storage.contactDecisionFloor(
+          newPeer,
+        );
+        expect(acceptedFloor?.status, ContactStatus.accepted);
+        expect(
+          await created.storage.acceptOutgoingContactRequest(newPeer),
+          isFalse,
+        );
+        expect(
+          (await created.storage.contactDecisionFloor(newPeer))?.token,
+          acceptedFloor?.token,
+        );
+        final unknown = NodeId.fromHex('e' * 64);
+        expect(
+          await created.storage.acceptOutgoingContactRequest(unknown),
+          isFalse,
+        );
+        expect(await created.storage.getContact(unknown), isNull);
         await created.storage.close();
         final reopened = binding(entry);
         expect(await reopened.storage.open(password: 'fixture'), isTrue);
@@ -113,6 +168,14 @@ void main() {
         expect(
           await reopened.storage.prepareContactRequest(peer, incoming: true),
           ContactStatus.blocked,
+        );
+        expect(
+          (await reopened.storage.getContact(newPeer))?.status,
+          ContactStatus.accepted,
+        );
+        expect(
+          (await reopened.storage.contactDecisionFloor(newPeer))?.token,
+          acceptedFloor?.token,
         );
         expect(await reopened.storage.pendingOutboxFrames(), isEmpty);
       },

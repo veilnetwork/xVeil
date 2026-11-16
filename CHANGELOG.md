@@ -22,6 +22,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Recheck outgoing-request acceptance inside its storage write turn. A peer's
+  delayed response can no longer undo a concurrent local block; already accepted
+  requests still receive their acknowledgment without another decision write.
 - Keep local camera preview updating when reading an incoming video frame fails.
   Retain independent preview-error counters in opt-in desktop diagnostics.
 - Show desktop incoming-call notifications through one owner. On Windows,

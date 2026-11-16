@@ -2214,9 +2214,6 @@ class MessagingService {
   /// Fires after a local relationship transition, never after a mirrored one.
   void Function(NodeId peer, ContactStatus status)? onContactStatusChanged;
 
-  Future<void> _setStatus(NodeId peer, ContactStatus status) =>
-      _contacts.setStatus(peer, status);
-
   Future<bool> applyMirroredContactStatus(
     NodeId peer,
     ContactStatus status, {

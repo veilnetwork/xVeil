@@ -542,8 +542,18 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
         if (existing?.status == ContactStatus.pendingOutgoing) {
-          await _setStatus(m.src, ContactStatus.accepted);
-          unawaited(_shareAvatarAfterAcceptance(m.src));
+          final changed = await _contacts.acceptOutgoingRequest(m.src);
+          if (!changed) {
+            // A concurrent local/mirrored accept needs its receipt too. Join
+            // a fresh consent read without creating another decision/floor;
+            // block, cancellation or a new incoming request remain refusals.
+            final current = await _realtimeControl._readContactConsent(m.src);
+            if (current?.contact?.status != ContactStatus.accepted) {
+              _declinedLocally(m, 'contact changed during acceptance');
+              return;
+            }
+          }
+          if (changed) unawaited(_shareAvatarAfterAcceptance(m.src));
           // Acceptance is proof that the request reached this peer, including
           // when its mailbox deposit failed and the live copy arrived later.
           for (final greeting in await _storage.loadMessages(m.src.hex)) {

@@ -1033,6 +1033,27 @@ class HiddenVolumeStorage
   );
 
   @override
+  Future<bool> acceptOutgoingContactRequest(NodeId peer) => _trackLogWrite(
+    (store) => _contactSerialized(() async {
+      final existing = await getContact(peer);
+      if (existing?.status != ContactStatus.pendingOutgoing) return false;
+      final contact = existing!.copyWith(status: ContactStatus.accepted);
+      final (index, shards) = await _contactIndexShards();
+      final indexed = index.contains(peer.hex);
+      if (!indexed) index.add(peer.hex);
+      await store.commit([
+        PutOp(Ns.contacts, peer.bytes, _encodeContact(contact)),
+        if (!indexed) ..._contactIndexOps(index, shards),
+        ..._contactDecisionOps(
+          peer,
+          await _newContactDecision(store, peer, ContactStatus.accepted),
+        ),
+      ]);
+      return true;
+    }),
+  );
+
+  @override
   Future<void> setContactStatus(NodeId peer, ContactStatus status) =>
       _trackLogWrite(
         (store) => _contactSerialized(() async {
