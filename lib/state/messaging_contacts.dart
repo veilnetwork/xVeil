@@ -396,12 +396,15 @@ class _MessagingContacts {
   /// answering "sent" regardless was the least useful thing it could say
   /// (report19 XV19-M1). `false` also for the no-op: nothing was deposited.
   Future<bool> resendRequest(NodeId dst) async {
-    final contact = await _owner._storage.getContact(dst);
-    if (contact?.status != ContactStatus.pendingOutgoing) return false;
+    final consent = await _owner._realtimeControl._readContactConsent(dst);
+    if (consent?.contact?.status != ContactStatus.pendingOutgoing) return false;
+    bool isCurrent() =>
+        _owner._realtimeControl._consentCurrent(dst, consent!.epoch);
     String? body;
     String? id;
     int? sentAtMs;
     int? seq;
+    OutboxFrame? original;
     for (final frame in await _owner._storage.pendingOutboxFrames()) {
       if (frame.peerHex != dst.hex || !frame.frameId.startsWith('request:')) {
         continue;
@@ -413,6 +416,7 @@ class _MessagingContacts {
         body = request.body;
         sentAtMs = request.sentAtMs;
         seq = request.seq;
+        if (id != null) original = frame;
         break;
       } catch (_) {
         /* Try the legacy greeting record below. */
@@ -445,7 +449,17 @@ class _MessagingContacts {
       sentAtMs: sentAtMs,
       seq: seq,
     ).withFrameId(frameId).encode();
-    await _owner._outbox.enqueue(dst, frameId, wire);
+    if (!isCurrent() ||
+        !await _owner._outbox.admitRequestRetry(
+          dst,
+          frameId,
+          wire,
+          expected: original,
+          isCurrent: isCurrent,
+        ) ||
+        !isCurrent()) {
+      return false;
+    }
     // Same order as [sendRequest], and for a sharper reason: this method is
     // what a person reaches for when the request did not get through, so the
     // peer it addresses is the one already known not to be answering.
@@ -461,6 +475,7 @@ class _MessagingContacts {
     // The outbox tracks the logical frame, not this manual attempt key.
     // Drop the attempt bookkeeping and remember its successful deposit below.
     _owner._mailboxDelivery.removeStashed(depositId);
+    if (!isCurrent()) return deposited;
     if (deposited) _owner._mailboxDelivery.rememberDeposited(frameId);
     // A direct copy may still arrive after a failed deposit. Keep the greeting
     // pending unless a relay accepted it or the peer has accepted the request.
@@ -468,6 +483,7 @@ class _MessagingContacts {
       final accepted =
           (await _owner._storage.getContact(dst))?.status ==
           ContactStatus.accepted;
+      if (!isCurrent()) return deposited;
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,
@@ -478,7 +494,7 @@ class _MessagingContacts {
             : MessageStatus.sending,
       );
     }
-    _owner._signal();
+    if (isCurrent()) _owner._signal();
     return deposited;
   }
 
@@ -495,10 +511,12 @@ class _MessagingContacts {
     if ((await _owner._storage.getContact(peer))?.hasOutgoingRequest != true) {
       return false;
     }
-    await _owner._outbox.retireRequests(peer);
     final removed = await _withConsentWrite(
       peer,
-      () => _owner._storage.cancelPendingContactRequest(peer),
+      () async {
+        await _owner._outbox.retireRequests(peer);
+        return _owner._storage.cancelPendingContactRequest(peer);
+      },
     );
     if (!removed) return false;
     // A retracted request makes the peer unknown again, so any session the

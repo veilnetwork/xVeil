@@ -422,6 +422,24 @@ class _MessagingOutbox {
     if (!_owner._disposed) _recordEnqueued(peer, frameId, wire);
   }
 
+  Future<bool> admitRequestRetry(
+    NodeId peer,
+    String frameId,
+    Uint8List wire, {
+    OutboxFrame? expected,
+    required bool Function() isCurrent,
+  }) async {
+    final admitted = await _owner._storage.admitContactRequestRetry(
+      OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire),
+      expected: expected,
+      isCurrent: isCurrent,
+    );
+    if (admitted && !_owner._disposed && isCurrent()) {
+      _recordEnqueued(peer, frameId, wire);
+    }
+    return admitted;
+  }
+
   Future<void> enqueueTransfer(NodeId peer, List<OutboxFrame> frames) async {
     await _owner._storage.enqueueOutboxTransfer(frames);
     for (final frame in frames) {
