@@ -21,6 +21,10 @@ profile wipe. Old targets now remain bound to their original work owner through
 inspection/dialog waits; explicit fresh imports still work. The 115-check host
 qualification includes native wipe/storage regressions. Packaged/platform and
 remaining activation inventory gates stay open.
+The Settings follow-up closes the same boundary before file-picker dispatch:
+late import choices cannot recreate erased models, and an old export choice
+cannot export a replacement profile lifetime's files. Its 68-check host run also
+verifies that explicit new import/export actions still preserve exact bytes.
 
 The [native ratchet first-root follow-up](validation/native-ratchet-first-root-2026-11-16/README.md)
 fixes publication of a first conversation with a durable sending reservation
