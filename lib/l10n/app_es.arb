@@ -49,7 +49,7 @@
   "lockWrong": "Contraseña incorrecta",
   "lockTeardownIncomplete": "El bloqueo no se completó: un nodo o túnel VPN puede seguir activo hasta cerrar la app por completo. Ciérrala y vuelve a abrirla para asegurarte.",
   "lockStartOver": "Empezar de cero",
-  "lockStartOverBody": "Configura una identidad nueva en este dispositivo. Tus datos actuales no se borran, pero necesitarás su contraseña para volver a ellos. ¿Continuar?",
+  "lockStartOverBody": "¿Configurar una identidad nueva? Los datos actuales se conservan. Guarda las contraseñas de las identidades cifradas u ocultas.",
   "lockWipe": "Borrar todos los datos",
   "lockWipeBody": "Esto elimina de forma permanente el contenedor y TODAS las identidades que hay dentro, incluidas las ocultas o señuelo. No se puede deshacer: sin el contenedor los datos son irrecuperables, incluso con la contraseña correcta.",
   "profileWipeBody": "Se eliminarán permanentemente todas las identidades de este perfil, con almacenamiento oculto, cifrado o sin cifrar, junto con sus datos, ajustes, acceso rápido y modelos descargados. Se conservarán los demás perfiles y las carpetas externas.",

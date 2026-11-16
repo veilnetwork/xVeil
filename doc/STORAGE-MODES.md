@@ -9,8 +9,14 @@ silently migrated. [Default-policy qualification](validation/storage-default-act
 passes 164 related tests, three retirement controls, an explicit legacy-build
 control and two small product/AOT policy probes. The shared startup policy also
 keeps preference admission and pending-erasure refusal enabled without a QA flag.
-Final app packaging/runtime checks and release of matching native dependencies
-remain required before publication; the installed/released application is unchanged.
+The [ordinary-default Android runtime follow-up](validation/storage-default-android-runtime-2026-11-16/README.md)
+now qualifies hook-free AOT creation, cold entry and isolated reclamation in all
+three modes without an opt-in define. A controlled legacy-mode → new-default
+in-place update preserves the original hidden container before password entry,
+then its identity, notes and old message ID. This is not an official-old-release
+update matrix. Matching dependency releases, branch integration and final app
+packages remain required before publication; the installed/released application
+is unchanged.
 
 The live full-profile wipe, persistent recovery journal and cold-start recovery
 owner are implemented; the chronological sections below record their individual

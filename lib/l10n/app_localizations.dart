@@ -396,7 +396,7 @@ abstract class AppL10n {
   /// No description provided for @lockStartOverBody.
   ///
   /// In en, this message translates to:
-  /// **'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?'**
+  /// **'Set up a new identity? Existing data is kept. Keep the passwords for encrypted or hidden identities.'**
   String get lockStartOverBody;
 
   /// No description provided for @lockWipe.

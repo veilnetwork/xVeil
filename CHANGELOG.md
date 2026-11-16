@@ -15,6 +15,11 @@ bumps may change behaviour a user notices.
   containers keep their protection. Visible identities own their data and can
   reclaim it without other identities' passwords.
 
+### Changed
+
+- Shorten the start-over explanation and distinguish passwords for encrypted
+  or hidden identities from passwordless unencrypted storage.
+
 ### Release preparation
 
 - The three-mode default requires native hidden-volume assets rebuilt from the

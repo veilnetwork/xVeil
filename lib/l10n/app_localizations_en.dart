@@ -180,7 +180,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get lockStartOverBody =>
-      'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?';
+      'Set up a new identity? Existing data is kept. Keep the passwords for encrypted or hidden identities.';
 
   @override
   String get lockWipe => 'Clear all data';
