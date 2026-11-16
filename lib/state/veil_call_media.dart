@@ -3093,7 +3093,17 @@ class VeilCallMediaController implements CallMediaController {
     } catch (_) {
       // The report retains a categorical result, never driver text or IDs.
     }
-    diagnosticJournal.recordCameraStart(success: started, origin: origin);
+    Map<String, dynamic> captureStats = const {};
+    if (diagnosticJournal.enabled) {
+      try {
+        captureStats = engine.getStats();
+      } catch (_) {}
+    }
+    diagnosticJournal.recordCameraStart(
+      success: started,
+      origin: origin,
+      stats: captureStats,
+    );
     _reportCameraStartOutcome(engine, started);
     return started;
   }
@@ -3117,10 +3127,7 @@ class VeilCallMediaController implements CallMediaController {
         capture != 0) {
       return;
     }
-    diagnosticJournal.record(
-      DiagnosticEvent.cameraStopped,
-      values: {DiagnosticMetric.cameraCapturing: 0},
-    );
+    diagnosticJournal.recordCameraStopped(stats);
     _reportCameraStartOutcome(engine, false);
   }
 

@@ -259,11 +259,13 @@ class _CameraChoiceEngine extends _UpgradeEngine {
 
 class _CaptureStateEngine extends _CameraChoiceEngine {
   Object? captureState = 1;
+  Map<String, dynamic> captureEvidence = {};
 
   @override
   Map<String, dynamic> getStats() => {
     ...super.getStats(),
     if (captureState != null) 'camera_capturing': captureState,
+    ...captureEvidence,
   };
 
   @override
@@ -538,6 +540,43 @@ void main() {
     diagnosticJournal.clear();
   });
 
+  test('failed desktop camera keeps numeric source evidence at startup', () async {
+    final engine = _CaptureStateEngine()
+      ..rejectAll = true
+      ..captureEvidence = {
+        'camera_capture_status': 6,
+        'camera_capture_hresult': -1,
+        'camera_capture_reads': 0,
+        'camera_capture_samples': 0,
+        'camera_capture_frames': 0,
+        'camera_capture_dropped': 0,
+        'camera_driver_path': 'PRIVATE_CAMERA_PATH',
+      };
+    final controller = VeilCallMediaController(
+      _Transport(),
+      engineFactory: ({required veilChan, required localId, required peerId}) => engine,
+    );
+    try {
+      expect(await controller.start(_call(video: true)), isTrue);
+      expect(controller.startedWithoutCamera, isTrue);
+      if (kDiagnosticReportEnabled) {
+        final report = diagnosticJournal.toJson();
+        final evidence = report['last_evidence'] as Map;
+        expect((evidence['cameraStart'] as Map)['values'], {
+          'success': 0, 'origin': CameraStartOrigin.callStart.index,
+          'cameraCaptureStatus': 6, 'cameraCaptureHresult': -1,
+          'cameraCaptureReads': 0, 'cameraCaptureSamples': 0,
+          'cameraCaptureFrames': 0, 'cameraCaptureDropped': 0,
+        });
+        expect(jsonEncode(report), isNot(contains('PRIVATE_CAMERA_PATH')));
+      } else {
+        expect(diagnosticJournal.toJson()['events'], isEmpty);
+      }
+    } finally {
+      await controller.stop();
+    }
+  }, skip: Platform.isAndroid ? 'Desktop native-camera path' : false);
+
   for (final remoteFails in [false, true]) {
     test(
       'frame reads stay independent after remote failure=$remoteFails',
@@ -643,6 +682,17 @@ void main() {
               expect(service.current?.cameraOn, isTrue);
               final callId = service.current!.callId;
               engine.captureState = state;
+              if (state is int && state == 0) {
+                engine.captureEvidence = {
+                  'camera_capture_status': 7,
+                  'camera_capture_hresult': 0xc00d3ea2,
+                  'camera_capture_reads': 4,
+                  'camera_capture_samples': 3,
+                  'camera_capture_frames': 3,
+                  'camera_capture_dropped': 0,
+                  'camera_driver_path': 'PRIVATE_CAMERA_PATH',
+                };
+              }
               expect(polls, isNotEmpty);
               for (var tick = 0; tick < 2; tick++) {
                 for (final poll in polls.toList()) {
@@ -663,11 +713,18 @@ void main() {
                   final evidence = report['last_evidence'] as Map;
                   expect((evidence['cameraStopped'] as Map)['values'], {
                     'cameraCapturing': 0,
+                    'cameraCaptureStatus': 7,
+                    'cameraCaptureHresult': 0xc00d3ea2,
+                    'cameraCaptureReads': 4,
+                    'cameraCaptureSamples': 3,
+                    'cameraCaptureFrames': 3,
+                    'cameraCaptureDropped': 0,
                   });
                   final encoded = jsonEncode(report);
                   expect(encoded, isNot(contains('old-camera')));
                   expect(encoded, isNot(contains(callId)));
                   expect(encoded, isNot(contains(_id(2).hex)));
+                  expect(encoded, isNot(contains('PRIVATE_CAMERA_PATH')));
                 }
                 await service.setCameraEnabled(true);
                 for (final poll in polls.toList()) {

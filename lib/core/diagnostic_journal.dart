@@ -195,6 +195,12 @@ enum DiagnosticMetric {
   networkNotSuspended,
   restrictBackgroundStatus,
   cameraCapturing,
+  cameraCaptureStatus,
+  cameraCaptureHresult,
+  cameraCaptureReads,
+  cameraCaptureSamples,
+  cameraCaptureFrames,
+  cameraCaptureDropped,
   localPreviewFrames,
   localPreviewReadErrors,
   remotePreviewReadErrors,
@@ -420,12 +426,44 @@ class DiagnosticJournal {
 
   static const _mediaDiscreteFields = {
     ..._audioStartFields,
+    ..._cameraCaptureFields,
     // Receiver reserve, not network RTT or a user-selected send interval.
     'audio_jb_target_ms': (DiagnosticMetric.audioTargetDelayMs, -1, 60000),
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
     'camera_capturing': (DiagnosticMetric.cameraCapturing, -1, 1),
+  };
+
+  // Source-owned MF stages and counts, not native JSON copied wholesale.
+  // Status -1 / HRESULT -1 means unavailable, never a proven source failure.
+  static const _cameraCaptureFields = {
+    'camera_capture_status': (DiagnosticMetric.cameraCaptureStatus, -1, 10),
+    'camera_capture_hresult': (
+      DiagnosticMetric.cameraCaptureHresult,
+      -1,
+      0xffffffff,
+    ),
+    'camera_capture_reads': (
+      DiagnosticMetric.cameraCaptureReads,
+      0,
+      1000000000,
+    ),
+    'camera_capture_samples': (
+      DiagnosticMetric.cameraCaptureSamples,
+      0,
+      1000000000,
+    ),
+    'camera_capture_frames': (
+      DiagnosticMetric.cameraCaptureFrames,
+      0,
+      1000000000,
+    ),
+    'camera_capture_dropped': (
+      DiagnosticMetric.cameraCaptureDropped,
+      0,
+      1000000000,
+    ),
   };
 
   /// A failed start can end before the periodic media sample. Keep the two
@@ -481,15 +519,31 @@ class DiagnosticJournal {
   void recordCameraStart({
     required bool success,
     required CameraStartOrigin origin,
+    Map<String, dynamic> stats = const {},
   }) {
     record(
       DiagnosticEvent.cameraStart,
       values: {
         DiagnosticMetric.success: success ? 1 : 0,
         DiagnosticMetric.origin: origin.index,
+        for (final entry in _cameraCaptureFields.entries)
+          if (stats[entry.key] case final int number)
+            if (number >= entry.value.$2 && number <= entry.value.$3)
+              entry.value.$1: number,
       },
     );
   }
+
+  void recordCameraStopped(Map<String, dynamic> stats) => record(
+    DiagnosticEvent.cameraStopped,
+    values: {
+      DiagnosticMetric.cameraCapturing: 0,
+      for (final entry in _cameraCaptureFields.entries)
+        if (stats[entry.key] case final int number)
+          if (number >= entry.value.$2 && number <= entry.value.$3)
+            entry.value.$1: number,
+    },
+  );
 
   void recordFolderSavedFailure({
     required FolderSavedDiagnosticAction action,
