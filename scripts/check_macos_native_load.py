@@ -6,6 +6,8 @@ import ctypes
 from pathlib import Path
 import sys
 
+from check_hidden_volume_abi import read_contract, verify_loaded
+
 
 LIBRARIES = (
     "libveilclient_ffi.dylib", "libhidden_volume_ffi.dylib", "libveil_media.dylib",
@@ -29,6 +31,8 @@ def check(app: Path) -> int:
         # The media shim resolves the SDK's transport functions globally.
         # Keep each handle alive until all optional libraries are loaded too.
         handles.append(ctypes.CDLL(str(resolved), mode=ctypes.RTLD_GLOBAL))
+        if name == "libhidden_volume_ffi.dylib":
+            verify_loaded(handles[-1], read_contract())
     return len(handles)
 
 
@@ -38,4 +42,4 @@ if __name__ == "__main__":
     except (OSError, ValueError, RuntimeError) as error:
         print(f"native macOS load check failed: {error}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"OK: {count} bundled native libraries loaded; no app or audio capture started")
+    print(f"OK: {count} bundled native libraries loaded; storage ABI matched; no app or audio capture started")
