@@ -57,6 +57,9 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+include(notification_history.cmake)
+xveil_fix_windows_notification_history(flutter_local_notifications_windows)
+
 # local_auth_windows 2.0.2 requires legacy /await: its coroutine contains an
 # ordinary return, so simply removing /await does not migrate it to C++20.
 # MSVC 14.51 requires this explicit compatibility opt-in for the legacy
