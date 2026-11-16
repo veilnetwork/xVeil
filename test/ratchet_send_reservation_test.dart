@@ -273,6 +273,8 @@ class _ReservationStorage extends HiddenVolumeStorage {
   int pairedSaves = 0;
   Future<void> Function()? beforePairedSave;
   Future<void> Function()? afterPairedSave;
+  Future<void> Function()? beforeUnpairedSave;
+  Future<void> Function()? afterUnpairedSave;
   bool declinePaired = false;
   @override
   Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
@@ -283,7 +285,9 @@ class _ReservationStorage extends HiddenVolumeStorage {
       await super.saveRatchetStates(entries);
       await afterPairedSave?.call();
     } else {
+      await beforeUnpairedSave?.call();
       await super.saveRatchetStates(entries);
+      await afterUnpairedSave?.call();
     }
   }
 
@@ -669,6 +673,80 @@ void _hostPublicationTests() {
       expect(storage.writes, 0);
       expect(node.allowed, 0);
     });
+
+    for (final priorMark in [false, true]) {
+      test(
+        'first publication retains a recoverable root (prior mark=$priorMark)',
+        () async {
+          final fresh = _convKey(local: 1, peerNode: 3);
+          final target = NodeId(Uint8List.fromList(List.filled(32, 3)));
+          node.rotate(fresh, 83);
+          if (priorMark) {
+            await storage.putSetting(
+              ratchetReservationKey(fresh),
+              encodeRatchetReservations([
+                RatchetSendPosition(node.sendPosition(fresh)!.chain, 100),
+              ]),
+            );
+          }
+          await owner.reserveBeforePublish(target);
+          expect(node.seal(fresh), 0);
+          // No flush/saveAll or timer boundary: a publication permit itself
+          // must retain the root to which its durable reservation applies.
+          expect(await storage.loadRatchetState(fresh), isNotNull);
+          final restarted = _Node();
+          final recovered = RatchetPersistence(
+            native: restarted,
+            storage: storage,
+          );
+          expect(await recovered.restore(), 2);
+          await recovered.recoverReservedPositions();
+          expect(
+            restarted.seal(fresh),
+            priorMark ? 100 : RatchetPersistence.reserveAhead,
+          );
+        },
+      );
+    }
+
+    for (final lostReply in [false, true]) {
+      test(
+        'first-root failure never grants a permit (lost reply=$lostReply)',
+        () async {
+          final fresh = _convKey(local: 1, peerNode: 3);
+          final target = NodeId(Uint8List.fromList(List.filled(32, 3)));
+          node.rotate(fresh, 83);
+          Future<void> fail() async => throw StateError('snapshot failure');
+          if (lostReply) {
+            storage.afterUnpairedSave = fail;
+          } else {
+            storage.beforeUnpairedSave = fail;
+          }
+          try {
+            await expectLater(
+              owner.reserveBeforePublish(target),
+              throwsStateError,
+            );
+            expect(node.allowed, 0);
+            expect(() => node.seal(fresh), throwsStateError);
+            expect(
+              await storage.getSetting(ratchetReservationKey(fresh)),
+              isNull,
+            );
+            expect(
+              await storage.loadRatchetState(fresh),
+              lostReply ? isNotNull : isNull,
+            );
+          } finally {
+            storage.beforeUnpairedSave = null;
+            storage.afterUnpairedSave = null;
+          }
+          await owner.reserveBeforePublish(target);
+          expect(node.seal(fresh), 0);
+          expect(await storage.loadRatchetState(fresh), isNotNull);
+        },
+      );
+    }
 
     test(
       'a guarded snapshot prepares its reservation without a separate precheck',
