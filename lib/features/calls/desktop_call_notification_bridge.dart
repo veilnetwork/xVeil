@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../core/diagnostic_journal.dart';
+import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../data/notifications/notification_service.dart';
 import '../../data/storage/storage.dart';
@@ -19,6 +20,31 @@ import '../../state/group_call_service.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+
+// Local presentation is optional: never postpone a ringing alert indefinitely
+// behind a busy container. On timeout, full preview uses the peer's short ID.
+const _callerLabelBudget = Duration(milliseconds: 250);
+
+Future<String?> _callerLabelWhileRinging(
+  Storage storage,
+  NodeId peer,
+  Future<void> cancelled,
+) async {
+  final expired = Completer<String?>();
+  final timer = Timer(_callerLabelBudget, () => expired.complete(null));
+  try {
+    return await Future.any<String?>([
+      loadCallScreenCallerLabel(storage, peer),
+      expired.future,
+      cancelled.then<String?>((_) => null),
+    ]);
+  } catch (_) {
+    // No driver/storage error text or private presentation data is retained.
+    return null;
+  } finally {
+    timer.cancel();
+  }
+}
 
 /// The single desktop call-alert owner. Backend events still run while Flutter
 /// frames are suspended. Posting never shows or focuses the window.
@@ -40,6 +66,7 @@ class _DesktopCallNotificationBridgeState
   String? _desired;
   int _request = 0, _generation = 0;
   Timer? _retry;
+  Completer<void>? _labelCancellation;
   bool _retired = false, _windowListening = false;
 
   bool get _enabled =>
@@ -82,6 +109,14 @@ class _DesktopCallNotificationBridgeState
         );
       }),
     );
+  }
+
+  void _cancelLabel() {
+    final cancellation = _labelCancellation;
+    _labelCancellation = null;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
   }
 
   @override
@@ -136,6 +171,7 @@ class _DesktopCallNotificationBridgeState
         ? null
         : '$session:${settings.preview.name}:${l.localeName}';
     if (key == _desired) return;
+    _cancelLabel();
     _retry?.cancel();
     _retry = null;
     _desired = key;
@@ -167,7 +203,10 @@ class _DesktopCallNotificationBridgeState
       );
       return;
     }
+    final labelCancellation = Completer<void>();
+    _labelCancellation = labelCancellation;
     Storage? presentationStorage;
+    Future<String?>? presentationLabel;
     bool current() {
       if (_retired ||
           !mounted ||
@@ -226,14 +265,16 @@ class _DesktopCallNotificationBridgeState
             : room!.initiator.short;
         if (settings.preview == NotificationPreview.full) {
           try {
-            presentationStorage = ref.read(storageProvider);
-            final caller = await loadCallScreenCaller(
+            presentationStorage ??= ref.read(storageProvider);
+            presentationLabel ??= _callerLabelWhileRinging(
               presentationStorage!,
               directRinging ? call!.mediaIdentity : room!.initiator,
+              labelCancellation.future,
             );
-            body = caller.label;
+            body = await presentationLabel ?? body;
           } catch (_) {
-            presentationStorage = null;
+            // Provider failure also falls back. A captured storage remains
+            // pinned even if its read fails or times out during retirement.
           }
           if (!current()) return;
         }
@@ -277,6 +318,7 @@ class _DesktopCallNotificationBridgeState
   @override
   void dispose() {
     _retired = true;
+    _cancelLabel();
     _retry?.cancel();
     if (_enabled) {
       if (_windowListening) windowManager.removeListener(this);

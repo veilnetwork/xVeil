@@ -55,6 +55,11 @@
   в один: сохранены Windows visibility/focus, bounded retries, ready/clear
   barrier, local caller label и защита смены личности. Общая проверка описана
   [отдельно](../storage-desktop-integration-2026-11-16/README.md).
+  В локальном desktop-пути также устранено ожидание ненужной аватарки и
+  зависшего имени перед post. Имя ограничено 250 мс, старое ожидание отменяется
+  при смене звонка/контекста; full preview использует short ID при отказе.
+  Три assertion-red, 143 related passed без skips. Это не причина пропуска
+  toast в опубликованной сборке. [Механизм и границы](../desktop-call-metadata-wait-2026-11-16/README.md).
 - **ЖАЛОБА: установка 0.13.100 на Android 14 / HyperOS 1.** Установщик
   сообщает `Failed to extract native libraries, res=-18`; причина в проекте
   не установлена. На том же телефоне 0.13.99 ставится, 0.13.100 — нет,
