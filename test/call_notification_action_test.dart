@@ -7,6 +7,10 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:xveil/desktop/desktop_tray.dart';
+import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/close_to_tray_controller.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -23,15 +27,20 @@ class _DesktopAlerts extends NotificationService {
   Completer<void>? readyGate;
   Completer<void>? readyEntered;
   int showCalls = 0;
+  int refusedPosts = 0;
+  bool throwPostFailure = false;
+  bool backendReady = true;
+  int readyCalls = 0;
 
   @override
-  bool get isReady => true;
+  bool get isReady => backendReady;
 
   @override
   Future<bool> waitUntilReady() async {
+    readyCalls++;
     if (readyEntered?.isCompleted == false) readyEntered!.complete();
     await readyGate?.future;
-    return true;
+    return backendReady;
   }
 
   @override
@@ -46,6 +55,11 @@ class _DesktopAlerts extends NotificationService {
     showCalls++;
     if (showEntered?.isCompleted == false) showEntered!.complete();
     await showGate?.future;
+    if (refusedPosts > 0) {
+      refusedPosts--;
+      if (throwPostFailure) throw StateError('synthetic post refusal');
+      return false;
+    }
     visible[id] = (title: title, body: body, payload: payload);
     return true;
   }
@@ -60,6 +74,16 @@ class _CallAlertSettings extends NotificationSettingsController {
   @override
   NotificationSettings build() => initial;
   void replace(NotificationSettings next) => state = next;
+}
+
+class _TrayApp extends AppController {
+  @override
+  AppState build() => const AppState(AppPhase.ready);
+}
+
+class _HideToTray extends CloseToTrayController {
+  @override
+  bool build() => true;
 }
 
 class _GroupAlerts implements GroupCallService {
@@ -100,6 +124,7 @@ void main() {
     _DesktopAlerts alerts, {
     NotificationSettings settings = NotificationSettings.defaults,
     GroupCallService? group,
+    bool withTray = false,
   }) async {
     final wire = _Wire();
     final service = CallService(wire, media: _Media())..start();
@@ -109,6 +134,11 @@ void main() {
         callServiceProvider.overrideWith((ref) => ref.watch(source)),
         groupCallServiceProvider.overrideWithValue(group),
         notificationServiceProvider.overrideWithValue(alerts),
+        if (withTray) ...[
+          appControllerProvider.overrideWith(_TrayApp.new),
+          closeToTrayProvider.overrideWith(_HideToTray.new),
+          conversationsProvider.overrideWith((ref) => Stream.value([])),
+        ],
         notificationSettingsProvider.overrideWith(
           () => _CallAlertSettings(settings),
         ),
@@ -130,11 +160,303 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: CallLifecycleBridge()),
+        child: withTray
+            ? const DesktopTrayHost(
+                child: MaterialApp(home: CallLifecycleBridge()),
+              )
+            : const MaterialApp(home: CallLifecycleBridge()),
       ),
     );
     return (service: service, wire: wire, container: container, source: source);
   }
+
+  for (final throws in [false, true]) {
+    testWidgets(
+      'background call retries a transient post failure throws=$throws',
+      (tester) async {
+        final alerts = _DesktopAlerts()
+          ..refusedPosts = 1
+          ..throwPostFailure = throws;
+        final f = await mountDesktop(tester, alerts);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        f.wire.onCallSignal!(
+          NodeId.fromHex('a' * 64),
+          _desktopOffer('retry-call'),
+        );
+        await tester.idle();
+        expect(alerts.showCalls, 1);
+        expect(alerts.visible, isEmpty);
+        // No second offer, lifecycle transition or service event is required.
+        await tester.pump(const Duration(seconds: 1));
+        await tester.idle();
+        expect(alerts.showCalls, 2);
+        expect(alerts.visible.length, 1);
+        await f.service.hangup();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('persistent post failure exhausts its bounded retry budget', (
+    tester,
+  ) async {
+    final alerts = _DesktopAlerts()..refusedPosts = 100;
+    final f = await mountDesktop(tester, alerts);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    f.wire.onCallSignal!(
+      NodeId.fromHex('a' * 64),
+      _desktopOffer('bounded-call'),
+    );
+    await tester.idle();
+    expect(alerts.showCalls, 1);
+    for (final seconds in [1, 2, 4]) {
+      (f.container.read(notificationSettingsProvider.notifier)
+              as _CallAlertSettings)
+          .replace(NotificationSettings.defaults.copyWith());
+      await tester.idle();
+      await tester.pump(Duration(seconds: seconds));
+      await tester.idle();
+    }
+    expect(alerts.showCalls, 4);
+    expect(alerts.visible, isEmpty);
+    expect(f.service.current?.status, CallStatus.ringing);
+    await tester.pump(const Duration(seconds: 8));
+    await tester.idle();
+    expect(alerts.showCalls, 4);
+    await f.service.hangup();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final stop in [
+    'hangup',
+    'foreground',
+    'disabled',
+    'identity',
+    'dispose',
+  ]) {
+    testWidgets('pending call alert retry is revoked by $stop', (tester) async {
+      final alerts = _DesktopAlerts()..refusedPosts = 1;
+      final f = await mountDesktop(tester, alerts);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      f.wire.onCallSignal!(
+        NodeId.fromHex('a' * 64),
+        _desktopOffer('revoked-retry-call'),
+      );
+      await tester.idle();
+      expect(alerts.showCalls, 1);
+      switch (stop) {
+        case 'hangup':
+          await f.service.hangup();
+        case 'foreground':
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        case 'disabled':
+          (f.container.read(notificationSettingsProvider.notifier)
+                  as _CallAlertSettings)
+              .replace(NotificationSettings.defaults.copyWith(enabled: false));
+        case 'identity':
+          final other = CallService(_Wire(), media: _Media())..start();
+          addTearDown(other.dispose);
+          f.container.read(f.source.notifier).state = other;
+        case 'dispose':
+          await tester.pumpWidget(const SizedBox.shrink());
+      }
+      await tester.idle();
+      await tester.pump(const Duration(seconds: 8));
+      await tester.idle();
+      expect(alerts.showCalls, 1);
+      expect(alerts.visible, isEmpty);
+      await f.service.hangup();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('old failed post retry cannot overwrite the next caller', (
+    tester,
+  ) async {
+    final alerts = _DesktopAlerts()..refusedPosts = 1;
+    final f = await mountDesktop(
+      tester,
+      alerts,
+      settings: NotificationSettings.defaults.copyWith(
+        preview: NotificationPreview.full,
+      ),
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    f.wire.onCallSignal!(
+      NodeId.fromHex('a' * 64),
+      _desktopOffer('old-failed-call'),
+    );
+    await tester.idle();
+    await f.service.hangup();
+    final peer = NodeId.fromHex('b' * 64);
+    f.wire.onCallSignal!(peer, _desktopOffer('next-caller'));
+    await tester.idle();
+    expect(alerts.showCalls, 2);
+    expect(alerts.visible.values.single.body, peer.short);
+    await tester.pump(const Duration(seconds: 8));
+    await tester.idle();
+    expect(alerts.showCalls, 2);
+    expect(alerts.visible.values.single.body, peer.short);
+    await f.service.hangup();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('retry uses the current privacy policy', (tester) async {
+    final alerts = _DesktopAlerts()..refusedPosts = 1;
+    final f = await mountDesktop(
+      tester,
+      alerts,
+      settings: NotificationSettings.defaults.copyWith(
+        preview: NotificationPreview.full,
+      ),
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    final peer = NodeId.fromHex('a' * 64);
+    f.wire.onCallSignal!(peer, _desktopOffer('privacy-retry-call'));
+    await tester.idle();
+    (f.container.read(notificationSettingsProvider.notifier)
+            as _CallAlertSettings)
+        .replace(NotificationSettings.defaults);
+    await tester.idle();
+    expect(alerts.visible.values.single.title, 'xVeil');
+    expect(alerts.visible.values.single.body, isNot(contains(peer.short)));
+    await tester.pump(const Duration(seconds: 8));
+    await tester.idle();
+    expect(alerts.showCalls, 2);
+    expect(alerts.visible.values.single.title, 'xVeil');
+    await f.service.hangup();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'an unready backend is not repeatedly initialized by a ringing call',
+    (tester) async {
+      final alerts = _DesktopAlerts()..backendReady = false;
+      final f = await mountDesktop(tester, alerts);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      f.wire.onCallSignal!(
+        NodeId.fromHex('a' * 64),
+        _desktopOffer('unready-call'),
+      );
+      await tester.idle();
+      await tester.pump(const Duration(seconds: 8));
+      await tester.idle();
+      expect(alerts.showCalls, 0);
+      expect(alerts.readyCalls, 1);
+      await f.service.hangup();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('a late post failure cannot retry an ended call', (tester) async {
+    final alerts = _DesktopAlerts()
+      ..refusedPosts = 1
+      ..showGate = Completer<void>()
+      ..showEntered = Completer<void>();
+    final f = await mountDesktop(tester, alerts);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    f.wire.onCallSignal!(
+      NodeId.fromHex('a' * 64),
+      _desktopOffer('slow-failed-call'),
+    );
+    await tester.idle();
+    expect(alerts.showEntered!.isCompleted, isTrue);
+    await tester.pump(const Duration(seconds: 6));
+    expect(alerts.showCalls, 1);
+    await f.service.hangup();
+    alerts.showGate!.complete();
+    await tester.idle();
+    await tester.pump(const Duration(seconds: 8));
+    await tester.idle();
+    expect(alerts.showCalls, 1);
+    expect(alerts.visible, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'close-to-tray preserves ringing backend without showing or focusing the window',
+    (tester) async {
+      final windowCalls = <String>[];
+      const windowChannel = MethodChannel('window_manager');
+      const trayChannel = MethodChannel('tray_manager');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(windowChannel, (call) async {
+        windowCalls.add(call.method);
+        return call.method == 'isPreventClose' ? true : null;
+      });
+      messenger.setMockMethodCallHandler(trayChannel, (_) async => null);
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(windowChannel, null);
+        messenger.setMockMethodCallHandler(trayChannel, null);
+      });
+      final alerts = _DesktopAlerts();
+      final f = await mountDesktop(tester, alerts, withTray: true);
+      await tester.idle();
+      expect(windowManager.listeners, hasLength(1));
+      windowManager.listeners.single.onWindowClose();
+      await tester.idle();
+      expect(windowCalls.where((m) => m == 'hide'), hasLength(1));
+      expect(windowCalls, isNot(contains('destroy')));
+      // The OS lifecycle transition is supplied explicitly; native Windows
+      // window events and actual toast visibility are outside this fixture.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      f.wire.onCallSignal!(
+        NodeId.fromHex('a' * 64),
+        _desktopOffer('closed-window-call'),
+      );
+      await tester.idle();
+      expect(f.service.current?.status, CallStatus.ringing);
+      expect(alerts.visible.length, 1);
+      expect(windowCalls, isNot(contains('show')));
+      expect(windowCalls, isNot(contains('focus')));
+      await f.service.hangup();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(windowManager.listeners, isEmpty);
+    },
+  );
+
+  testWidgets('group call retries a transient post refusal', (tester) async {
+    final alerts = _DesktopAlerts()..refusedPosts = 1;
+    final group = _GroupAlerts();
+    addTearDown(group.events.close);
+    await mountDesktop(tester, alerts, group: group);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    group.emit(
+      GroupCall(
+        groupId: NodeId.fromHex('c' * 64),
+        callId: 'group-retry',
+        initiator: NodeId.fromHex('a' * 64),
+        membershipEpoch: 1,
+        media: const CallMedia(audio: true),
+        status: GroupCallStatus.ringing,
+        startedAt: DateTime.utc(2026),
+        participants: const {},
+      ),
+    );
+    await tester.idle();
+    expect(alerts.showCalls, 1);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.idle();
+    expect(alerts.showCalls, 2);
+    expect(alerts.visible.length, 1);
+    group.emit(null);
+    await tester.idle();
+    expect(alerts.visible, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('group ringing posts without a frame and clears on join', (
     tester,

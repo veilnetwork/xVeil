@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Retry a refused incoming-call desktop notification up to three times while
+  the same call still rings in the background. Stop retries when its call,
+  identity, visibility or notification policy changes.
 - Keep an accepted or blocked contact from reverting to a pending request
   when an older send action completes. Text for an already accepted contact
   follows ordinary message delivery instead of restarting the handshake.
