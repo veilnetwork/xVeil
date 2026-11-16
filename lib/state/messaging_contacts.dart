@@ -245,6 +245,9 @@ class _MessagingContacts {
   /// message them until they accept.
   ///
   /// Returns whether the request was DEPOSITED at the recipient's relay.
+  /// If already accepted, submit the text as an ordinary message instead and
+  /// return that submission result (or true for an empty no-op). Neither is
+  /// proof of remote delivery. A blocked contact is left blocked and refused.
   ///
   /// It used to return nothing, and both legs below had their outcome thrown
   /// away — so a request that reached neither the relay nor the peer still
@@ -255,7 +258,18 @@ class _MessagingContacts {
   /// so an unsuccessful first attempt can retry after reconnect or restart.
   Future<bool> sendRequest(NodeId dst, String greeting) async {
     var text = greeting.trim();
-    await setStatus(dst, ContactStatus.pendingOutgoing);
+    final status = await _withConsentWrite(
+      dst,
+      () => _owner._storage.prepareContactRequest(dst),
+    );
+    if (_owner._disposed || status == ContactStatus.blocked) return false;
+    if (status == ContactStatus.accepted) {
+      // The composer may still hold its pre-accept snapshot. A new request
+      // must not demote an established conversation or discard this text as
+      // an ignored re-introduction at the other end.
+      return text.isEmpty || await _owner.sendText(dst, text);
+    }
+    await _afterStatusSaved(dst, status);
     // Tag the greeting with a stable id shared between our stored copy and the
     // request on the wire. The greeting is stored `sent`, so the outbox re-sends
     // it as a WireKind.message after the peer accepts; without a shared id the
