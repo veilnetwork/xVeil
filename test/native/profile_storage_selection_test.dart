@@ -263,7 +263,7 @@ void main() {
   );
 
   test(
-    'selection joins accepted native preparation before retiring the old facade',
+    'selection joins preparation but refuses the retired opening result',
     () async {
       final entered = Completer<void>(), release = Completer<void>();
       var factories = 0;
@@ -283,18 +283,28 @@ void main() {
           return factories == 1 ? openingFacade : legacy();
         },
       );
-      final opening = live.storage.open(password: 'fixture');
+      // The owner must drain accepted preparation, but its superseded caller
+      // must never observe a successful unlock and start using the old view.
+      // Attach the rejection observer before retiring the facade.
+      final opening = expectLater(
+        live.storage.open(password: 'fixture'),
+        throwsStateError,
+      );
       await entered.future;
       final selecting = live.create(StorageProtection.hidden);
       await Future<void>.delayed(Duration.zero);
       expect(factories, 1);
       expect(raw.closes, 0);
       release.complete();
-      expect(await opening, isTrue);
+      await opening;
       await selecting;
       expect(factories, 2);
       expect(raw.closes, 1);
       expect(openingFacade.isOpen, isFalse);
+      await expectLater(
+        openingFacade.open(password: 'fixture'),
+        throwsStateError,
+      );
     },
   );
 

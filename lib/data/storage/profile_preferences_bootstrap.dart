@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../core/storage_features.dart';
 import 'async_kv_log_store.dart';
 import 'app_profile.dart';
 import 'legacy_profile_preferences.dart';
@@ -19,7 +20,7 @@ Future<ProfilePreferencesBootstrap> bootstrapProfilePreferences({
   required Future<String> Function() supportDir,
   required List<String> args,
   Map<String, String>? environment,
-  bool managedStorage = const bool.fromEnvironment('XVEIL_MANAGED_STORAGE'),
+  bool managedStorage = managedStorageEnabled,
   void Function(Object error, StackTrace stack)? onError,
 }) async {
   final source = environment ?? Platform.environment;
