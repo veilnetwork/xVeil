@@ -22,6 +22,8 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Keep local camera preview updating when reading an incoming video frame fails.
+  Retain independent preview-error counters in opt-in desktop diagnostics.
 - Show desktop incoming-call notifications through one owner. On Windows,
   check window visibility and focus without opening or activating the window;
   retire old alerts through the same ordered notification queue.
@@ -40,6 +42,7 @@ bumps may change behaviour a user notices.
 - The three-mode default requires native hidden-volume assets rebuilt from the
   current API. Published 2.7.2 binaries must not be reused with these bindings;
   dependency and final application releases remain pending.
+
 ## [0.13.101] - 2026-11-13
 
 ### Fixed

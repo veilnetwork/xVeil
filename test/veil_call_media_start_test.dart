@@ -284,6 +284,30 @@ class _CaptureStateEngine extends _CameraChoiceEngine {
   }
 }
 
+class _PreviewReadEngine extends _CaptureStateEngine {
+  _PreviewReadEngine({required this.remoteFails, required this.localFails});
+  bool remoteFails;
+  bool localFails;
+  int localReads = 0;
+  int remoteReads = 0;
+  final localFrame = VeilVideoFrame(rgba: Uint8List(16), width: 2, height: 2);
+  final remoteFrame = VeilVideoFrame(rgba: Uint8List(16), width: 2, height: 2);
+
+  @override
+  VeilVideoFrame? getVideoFrame() {
+    remoteReads++;
+    if (remoteFails) throw StateError('synthetic remote frame refusal');
+    return remoteFrame;
+  }
+
+  @override
+  VeilVideoFrame? getLocalVideoFrame() {
+    localReads++;
+    if (localFails) throw StateError('synthetic local frame refusal');
+    return localFrame;
+  }
+}
+
 class _CameraCallWire implements MessagingService {
   @override
   bool backgroundStashPaused = false;
@@ -513,6 +537,81 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     diagnosticJournal.clear();
   });
+
+  for (final remoteFails in [false, true]) {
+    test(
+      'frame reads stay independent after remote failure=$remoteFails',
+      () async {
+        final polls = <void Function()>[];
+        final statsPolls = <void Function()>[];
+        await runZoned(
+          () async {
+            final engine = _PreviewReadEngine(
+              remoteFails: remoteFails,
+              localFails: !remoteFails,
+            );
+            final controller = VeilCallMediaController(
+              _Transport(),
+              engineFactory:
+                  ({required veilChan, required localId, required peerId}) =>
+                      engine,
+            );
+            try {
+              expect(await controller.start(_call(video: true)), isTrue);
+              expect(polls, hasLength(1));
+              for (var i = 0; i < 3; i++) {
+                polls.single();
+              }
+              expect(engine.remoteReads, 3);
+              expect(
+                engine.localReads,
+                3,
+                reason: 'a remote read error must not suppress self preview',
+              );
+              expect(
+                remoteVideoFrame.value,
+                remoteFails ? isNull : same(engine.remoteFrame),
+              );
+              expect(
+                localVideoFrame.value,
+                remoteFails ? same(engine.localFrame) : isNull,
+              );
+              if (kDiagnosticReportEnabled) {
+                expect(statsPolls, hasLength(1));
+                statsPolls.single();
+                final values = ((diagnosticJournal.toJson()['last_evidence'] as Map)['videoPreview'] as Map)['values'] as Map;
+                expect(values['enabled'], 1);
+                expect(values['localPreviewFrames'], remoteFails ? 3 : 0);
+                expect(values['remotePreviewReadErrors'], remoteFails ? 3 : 0);
+                expect(values['localPreviewReadErrors'], remoteFails ? 0 : 3);
+                expect(values.containsKey('localPreviewAgeMs'), remoteFails);
+              }
+              engine.remoteFails = false;
+              engine.localFails = false;
+              polls.single();
+              expect(localVideoFrame.value, same(engine.localFrame));
+              expect(remoteVideoFrame.value, same(engine.remoteFrame));
+              expect(engine.disposed, isFalse);
+            } finally {
+              await controller.stop();
+            }
+          },
+          zoneSpecification: ZoneSpecification(
+            createPeriodicTimer: (self, parent, zone, interval, callback) {
+              final timer = parent.createPeriodicTimer(zone, interval, callback)
+                ..cancel();
+              if (interval == const Duration(milliseconds: 12)) {
+                polls.add(() => zone.runUnary(callback, timer));
+              } else if (interval == const Duration(seconds: 1)) {
+                statsPolls.add(() => zone.runUnary(callback, timer));
+              }
+              return timer;
+            },
+          ),
+        );
+      },
+    );
+  }
 
   for (final state in <Object?>[0, -1, 1, null, 0.0, '0']) {
     test(

@@ -76,6 +76,80 @@ void main() {
     expect(disabled.toJson()['events'], isEmpty);
   });
 
+  test(
+    'desktop preview evidence separates empty capture from read refusal and survives traffic',
+    () {
+      final journal = DiagnosticJournal(enabled: true, capacity: 1);
+      journal.recordDesktopVideoPreview(
+        cameraExpected: true,
+        framePumpRunning: true,
+        frames: 0,
+        localReadErrors: 0,
+        remoteReadErrors: 3,
+      );
+      journal.record(DiagnosticEvent.transportSent);
+      Map values() =>
+          ((journal.toJson()['last_evidence'] as Map)['videoPreview']
+                  as Map)['values']
+              as Map;
+      expect(values(), {
+        'enabled': 1,
+        'state': 1,
+        'localPreviewFrames': 0,
+        'localPreviewReadErrors': 0,
+        'remotePreviewReadErrors': 3,
+      });
+      journal.recordDesktopVideoPreview(
+        cameraExpected: true,
+        framePumpRunning: true,
+        frames: 12,
+        localReadErrors: 1,
+        remoteReadErrors: 3,
+        lastFrameAgeMs: 27,
+      );
+      expect(values()['localPreviewFrames'], 12);
+      expect(values()['localPreviewReadErrors'], 1);
+      expect(values()['localPreviewAgeMs'], 27);
+      journal.recordDesktopVideoPreview(
+        cameraExpected: false,
+        framePumpRunning: false,
+        frames: -1,
+        localReadErrors: 1 << 60,
+        remoteReadErrors: -5,
+        lastFrameAgeMs: -1,
+      );
+      expect(values(), {
+        'enabled': 0,
+        'state': 0,
+        'localPreviewFrames': 0,
+        'localPreviewReadErrors': 1000000000,
+        'remotePreviewReadErrors': 0,
+      });
+      journal.recordDesktopVideoPreview(
+        cameraExpected: false,
+        framePumpRunning: true,
+        frames: 1,
+        localReadErrors: 0,
+        remoteReadErrors: 0,
+        lastFrameAgeMs: 1 << 60,
+      );
+      expect(values()['localPreviewAgeMs'], 600000);
+      journal.clear();
+      expect(journal.toJson()['last_evidence'], isEmpty);
+      final disabled = DiagnosticJournal(enabled: false);
+      disabled.recordDesktopVideoPreview(
+        cameraExpected: true,
+        framePumpRunning: true,
+        frames: 2,
+        localReadErrors: 1,
+        remoteReadErrors: 0,
+      );
+      expect(disabled.toJson()['events'], isEmpty);
+      expect(disabled.toJson()['last_evidence'], isEmpty);
+      expect(disabled.toJson()['counts'], isEmpty);
+    },
+  );
+
   test('camera capture evidence accepts only bounded native state', () {
     for (final state in <Object?>[-1, 0, 1, 2, -2, 0.0, '0', _PrivateValue()]) {
       final journal = DiagnosticJournal(enabled: true);
