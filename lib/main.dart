@@ -33,6 +33,7 @@ import 'data/storage/cold_profile_erasure_recovery.dart';
 import 'core/background_service_lifetime.dart';
 import 'core/local_authentication.dart';
 import 'core/quick_unlock_vault.dart';
+import 'core/storage_features.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'state/storage_router_providers.dart';
@@ -330,7 +331,7 @@ Future<void> _runBootstrappedApplication({
 Widget applicationForBootstrap(
   BootstrapResult boot, {
   required bool shipped,
-  bool managedStorage = const bool.fromEnvironment('XVEIL_MANAGED_STORAGE'),
+  bool managedStorage = managedStorageEnabled,
 }) {
   if (boot.managedErasurePending) return const ProfileErasurePendingApp();
   if (mustRefuseInsecureStorage(
@@ -459,9 +460,10 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
         return storage;
       }
 
-      // Staging switch: enable only for isolated QA while the mode-specific
-      // destructive/rotation flows and packaged platforms are qualified.
-      if (const bool.fromEnvironment('XVEIL_MANAGED_STORAGE')) {
+      // New identities use independently owned encrypted/plaintext stores or
+      // explicitly chosen hidden storage. Existing hidden containers still use
+      // the original factory; creating the router performs no migration.
+      if (managedStorageEnabled) {
         final managedPath = '${File(path).parent.path}/visible-storage';
         if (FileSystemEntity.typeSync(managedPath, followLinks: false) ==
                 FileSystemEntityType.notFound &&
@@ -534,9 +536,9 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
       );
     }
   } catch (e) {
-    // Staged managed storage must not turn an unsafe path, native admission
+    // Managed storage must not turn an unsafe path, native admission
     // failure or racing wipe into a successful in-memory onboarding session.
-    if (const bool.fromEnvironment('XVEIL_MANAGED_STORAGE')) rethrow;
+    if (managedStorageEnabled) rethrow;
     // Stay on the in-memory store — but make the degradation visible.
     devLog(
       () =>

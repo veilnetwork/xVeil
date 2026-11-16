@@ -68,6 +68,19 @@ void main() {
       isA<ProviderScope>(),
     );
   });
+  test('ordinary startup applies the selected build storage policy', () {
+    const boot = (
+      overrides: <Never>[],
+      secureStorageReady: false,
+      managedErasurePending: false,
+    );
+    expect(
+      applicationForBootstrap(boot, shipped: false),
+      const bool.fromEnvironment('XVEIL_MANAGED_STORAGE', defaultValue: true)
+          ? isA<StorageUnavailableApp>()
+          : isA<ProviderScope>(),
+    );
+  });
   for (final locale in AppL10n.supportedLocales) {
     testWidgets(
       'pending erasure message is localized for ${locale.languageCode}',

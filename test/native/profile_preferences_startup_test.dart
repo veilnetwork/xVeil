@@ -154,6 +154,32 @@ void main() {
   );
 
   test(
+    'ordinary startup preserves pending erasure without a QA opt-in',
+    () async {
+      await pending();
+      final before = contents();
+      final result = await bootstrapProfilePreferences(
+        supportDir: () async => support.path,
+        args: const [],
+        environment: const {},
+      );
+      final installed = SharedPreferencesStorePlatform.instance;
+      if (installed is ProfilePreferencesStore &&
+          !identical(installed, legacy)) {
+        stores.add(installed);
+      }
+      expect(result.erasurePending, isTrue);
+      expect(result.profile, isNull);
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+      expect(contents(), before);
+      expect(File(prefs()).existsSync(), isFalse);
+    },
+    skip: const bool.hasEnvironment('XVEIL_MANAGED_STORAGE')
+        ? 'default-build policy; explicit legacy/QA definitions are separate controls'
+        : false,
+  );
+
+  test(
     'the application startup helper binds the selected physical profile',
     () async {
       final result = await bootstrapProfilePreferences(

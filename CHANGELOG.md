@@ -8,6 +8,19 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Added
+
+- Choose independently encrypted storage (the new-identity default), optional
+  hidden storage or explicitly unencrypted local storage. Existing hidden
+  containers keep their protection. Visible identities own their data and can
+  reclaim it without other identities' passwords.
+
+### Release preparation
+
+- The three-mode default requires native hidden-volume assets rebuilt from the
+  current API. Published 2.7.2 binaries must not be reused with these bindings;
+  dependency and final application releases remain pending.
+
 ## [0.13.101] - 2026-11-13
 
 ### Fixed

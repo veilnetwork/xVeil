@@ -1,11 +1,22 @@
 # Three storage modes
 
-Status: implementation in progress; not part of the 0.13.101 release.
+Status: enabled by default in unreleased source; not part of the 0.13.101 release.
 
-Managed storage remains disabled in production defaults. The live full-profile
-wipe, persistent recovery journal and cold-start recovery owner are implemented;
-the chronological sections below record their individual qualifications. Android
-saved-entry presence/removal and ordinary metadata reads avoid key initialization.
+Ordinary builds now use the profile router and default new identities to
+independently owned encrypted storage. Hidden and explicitly unencrypted modes
+remain choices; existing hidden containers retain their backend and are not
+silently migrated. [Default-policy qualification](validation/storage-default-activation-2026-11-16/README.md)
+passes 164 related tests, three retirement controls, an explicit legacy-build
+control and two small product/AOT policy probes. The shared startup policy also
+keeps preference admission and pending-erasure refusal enabled without a QA flag.
+Final app packaging/runtime checks and release of matching native dependencies
+remain required before publication; the installed/released application is unchanged.
+
+The live full-profile wipe, persistent recovery journal and cold-start recovery
+owner are implemented; the chronological sections below record their individual
+qualifications. Older section-local statements that defaults remain OFF describe
+those earlier snapshots. Android saved-entry presence/removal and ordinary
+metadata reads avoid key initialization.
 
 The [Android release/AOT qualification](validation/managed-storage-android-aot-2026-11-16/README.md)
 now verifies an isolated ARM64 APK, its native inputs, signature and privacy,
@@ -324,11 +335,11 @@ default. Hidden-volume also reuses retired slots under its churn rules
 necessary definition of hidden storage. A snapshot cannot, however, safely
 attribute every unknown chunk to garbage: another hidden identity may own it.
 
-Production onboarding/unlock still select the legacy backend. An isolated QA
-build can opt into the initial application wiring with
-`--dart-define=XVEIL_MANAGED_STORAGE=true`, as qualified below. This is not
-a release switch: master mutations, mode-aware erase/rotation/recovery and
-packaged-platform qualification remain incomplete.
+The earlier staged implementation selected the legacy backend by default and
+used `--dart-define=XVEIL_MANAGED_STORAGE=true` for isolated QA. The latest
+source-default activation described above supersedes that switch. These earlier
+sections retain the qualification boundaries of their original snapshots; they
+do not claim that the new source default has already been released.
 The catalog rejects hidden entries, credentials, network identifiers, unknown
 fields, duplicate locators and paths outside a strict local ID format. It
 does not silently replace malformed existing metadata with an empty catalog.
