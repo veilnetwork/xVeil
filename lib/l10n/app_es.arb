@@ -1493,7 +1493,6 @@
   },
   "chatForwardedFrom": "Reenviado de {name}",
   "chatForwardTo": "Reenviar a",
-  "chatForwardNoTargets": "No hay contactos aceptados a quien reenviarlo",
   "@chatMsgDeleteSelectedBody": {
     "placeholders": {
       "count": {

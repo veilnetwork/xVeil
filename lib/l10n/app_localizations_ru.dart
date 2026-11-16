@@ -3582,9 +3582,6 @@ class AppL10nRu extends AppL10n {
   String get chatForwardTo => 'Переслать в';
 
   @override
-  String get chatForwardNoTargets => 'Нет принятых контактов для пересылки';
-
-  @override
   String chatMsgDeleteSelectedBody(int count) {
     return 'Удалить $count выбранных сообщений?';
   }

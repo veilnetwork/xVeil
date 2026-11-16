@@ -3583,10 +3583,6 @@ class AppL10nEs extends AppL10n {
   String get chatForwardTo => 'Reenviar a';
 
   @override
-  String get chatForwardNoTargets =>
-      'No hay contactos aceptados a quien reenviarlo';
-
-  @override
   String chatMsgDeleteSelectedBody(int count) {
     return '¿Eliminar $count mensaje(s) seleccionado(s)?';
   }

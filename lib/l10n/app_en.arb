@@ -1522,7 +1522,6 @@
   },
   "chatForwardedFrom": "Forwarded from {name}",
   "chatForwardTo": "Forward to",
-  "chatForwardNoTargets": "No accepted contacts to forward to",
   "@chatMsgDeleteSelectedBody": {
     "placeholders": {
       "count": {

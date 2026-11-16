@@ -1486,7 +1486,6 @@
   },
   "chatForwardedFrom": "Переслано от {name}",
   "chatForwardTo": "Переслать в",
-  "chatForwardNoTargets": "Нет принятых контактов для пересылки",
   "@chatMsgDeleteSelectedBody": {
     "placeholders": {
       "count": {

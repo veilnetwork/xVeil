@@ -599,16 +599,20 @@ class HomeNavigationDrawer extends ConsumerWidget {
             // Saved Messages — always first, always visible.
             Builder(
               builder: (_) {
-                final myHex = ref
-                    .watch(appControllerProvider)
-                    .identity
-                    ?.nodeId
-                    .hex;
-                if (myHex == null) return const SizedBox.shrink();
+                if (ref.watch(appControllerProvider).identity == null) {
+                  return const SizedBox.shrink();
+                }
+                final self = ref.watch(
+                  savedMessagesPeerProvider(
+                    ref.watch(messagingServiceProvider),
+                  ),
+                );
                 return ListTile(
                   leading: const Icon(Icons.bookmark_outline),
                   title: Text(l.savedMessages),
-                  onTap: () => go('/chat/$myHex'),
+                  onTap: self.value == null
+                      ? null
+                      : () => go('/chat/${self.requireValue.hex}'),
                 );
               },
             ),
@@ -946,9 +950,10 @@ class _ConversationTile extends ConsumerWidget {
         ? null
         : parseSpaceRecommendationMessage(last.body);
     final status = conversation.peer.status;
-    // Saved Messages = the conversation with our own node id.
-    final myHex = ref.watch(appControllerProvider).identity?.nodeId.hex;
-    final isSaved = myHex != null && conversation.peer.nodeId.hex == myHex;
+    final self = ref
+        .watch(savedMessagesPeerProvider(ref.watch(messagingServiceProvider)))
+        .value;
+    final isSaved = conversation.peer.nodeId == self;
     final label = isSaved ? l.savedMessages : conversation.peer.label;
     final notificationMode = conversation.peer.notificationModeAt(
       DateTime.now(),

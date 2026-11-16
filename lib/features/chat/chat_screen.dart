@@ -1617,6 +1617,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // blob, so nothing is re-sent or re-downloaded. Wire-forwarding a file to
     // another peer is a real (re-)send and stays out of scope here.
     final storage = _storage;
+    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
+    final savedHex = await _messaging.savedSelfHex();
     final heldFiles = <String>{};
     for (final m in msgs.where((m) => m.isFile)) {
       final key = m.fileId ?? m.fileContentId;
@@ -1627,14 +1629,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .toList(growable: false);
     if (toForward.isEmpty) return;
     if (!mounted) return;
-    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     // A files-only forward can land nowhere but Saved — offer only that.
     final target = await _pickForwardTarget(
       savedOnly: toForward.every((m) => m.isFile),
     );
     if (target == null || !mounted) return;
     final svc = _messaging;
-    final toSaved = myHex != null && target.hex == myHex;
+    final toSaved = target.hex == savedHex;
     for (final m in toForward) {
       // Preserve the true origin when re-forwarding an already-forwarded
       // message; else the author is me (outgoing) or the conversation peer /
@@ -1677,16 +1678,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// copy-reference, so Saved Messages is the only honest destination.
   Future<NodeId?> _pickForwardTarget({bool savedOnly = false}) async {
     final l = AppL10n.of(context);
+    final self = NodeId.fromHex(await _messaging.savedSelfHex());
     final convs = await _storage.loadConversations();
     if (!mounted) return null;
-    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     final accepted = savedOnly
         ? const <Conversation>[]
         : convs
               .where(
                 (c) =>
                     c.peer.status == ContactStatus.accepted &&
-                    c.peer.nodeId.hex != myHex,
+                    c.peer.nodeId != self,
               )
               .toList(growable: false);
     return showModalBottomSheet<NodeId>(
@@ -1702,17 +1703,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
             // Saved Messages is always a target (forward to self, local).
-            if (myHex != null)
-              ListTile(
-                leading: const CircleAvatar(
-                  child: Icon(Icons.bookmark_outline, size: 18),
-                ),
-                title: Text(l.savedMessages),
-                onTap: () => Navigator.of(sheet).pop(NodeId.fromHex(myHex)),
+            ListTile(
+              leading: const CircleAvatar(
+                child: Icon(Icons.bookmark_outline, size: 18),
               ),
-            if (accepted.isEmpty && myHex == null)
-              ListTile(title: Text(l.chatForwardNoTargets))
-            else
+              title: Text(l.savedMessages),
+              onTap: () => Navigator.of(sheet).pop(self),
+            ),
+            if (accepted.isNotEmpty)
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
@@ -2186,21 +2184,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // with one contact, and B is not in that conversation — so leave, rather
     // than repaint A's history and A's draft under B.
     if (!identical(ref.watch(storageProvider), _storage)) return _leftBehind();
+    final self = ref.watch(savedMessagesPeerProvider(_messaging));
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final window = ref.watch(chatWindowProvider(widget.peerHex));
     final contact = ref.watch(contactProvider(widget.peerHex)).value;
     final status = contact?.status;
+    // Do not offer a connection request while the local device address is
+    // unknown: this route may be Saved Messages. Native nodeId is cached;
+    // resolving it performs no discovery or network request.
+    if (!self.hasValue) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: self.hasError
+            ? AsyncErrorView(
+                error: self.error!,
+                stack: self.stackTrace,
+                where: 'chat',
+              )
+            : const Center(child: CircularProgressIndicator()),
+      );
+    }
     // Saved Messages = a chat with yourself (peer == our own node id). Purely
     // local: notes append without the wire, and the consent/call UI is hidden.
-    final myHex = ref.watch(
-      appControllerProvider.select((s) => s.identity?.nodeId.hex),
-    );
-    _saved = myHex != null && myHex == widget.peerHex;
+    _saved = self.requireValue.hex == widget.peerHex;
     // Show the local alias when set, else the short node id (Contact.label).
     final title = _saved ? l.savedMessages : (contact?.label ?? _peer.short);
     ref.listen(messagesProvider(widget.peerHex), (_, next) {
       _scrollToBottom();
       _noteShownWhileOpen(next.value);
+    });
+    // History may finish loading while the local-address guard is still
+    // pending, before this listener is attached. Account for that first
+    // visible snapshot too; the watermark prevents duplicate read writes.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _noteShownWhileOpen(messages.value);
     });
 
     final selectionBar = _selecting
