@@ -7,6 +7,14 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [Android release/AOT qualification](validation/managed-storage-android-aot-2026-11-16/README.md)
+now verifies an isolated ARM64 APK, its native inputs, signature and privacy,
+then normal first launch and encrypted-default creation in a headless Android 15
+emulator. It exposes an open Saved Messages visibility symptom; data loss and
+its cause are not established. A separate selected-mode accessibility defect is
+fixed with 17 host checks. Android all-mode/persistence and activation work is
+not declared complete by this run.
+
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
 ARM64 QA. The packaged app passes native-load, signature and artifact-path
