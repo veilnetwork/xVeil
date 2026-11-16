@@ -8,6 +8,12 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep an accepted or blocked contact from reverting to a pending request
+  when an older send action completes. Text for an already accepted contact
+  follows ordinary message delivery instead of restarting the handshake.
+
 ## [0.13.101] - 2026-11-13
 
 ### Fixed
