@@ -24,6 +24,97 @@ import '../../state/providers.dart';
 // Local presentation is optional: never postpone a ringing alert indefinitely
 // behind a busy container. On timeout, full preview uses the peer's short ID.
 const _callerLabelBudget = Duration(milliseconds: 250);
+const _windowQueryBudget = Duration(milliseconds: 250);
+
+enum _WindowQueryOutcome { observed, timedOut, failed }
+
+typedef _WindowObservation = ({bool background, _WindowQueryOutcome outcome});
+
+/// Bounded first answer, followed by one eventual native answer if still owned.
+/// Neither a pending platform future nor its late callback retains a call,
+/// provider or storage owner. Retirement also stops a second native query.
+class _WindowQuery {
+  _WindowQuery(this._fallback, this._onLate) {
+    _deadline = Timer(_windowQueryBudget, () {
+      if (!_initial.isCompleted) {
+        _initial.complete((
+          background: _fallback,
+          outcome: _WindowQueryOutcome.timedOut,
+        ));
+      }
+    });
+    unawaited(_observe());
+  }
+
+  final bool _fallback;
+  final _initial = Completer<_WindowObservation>();
+  void Function(_WindowObservation)? _onLate;
+  late final Timer _deadline;
+  bool _cancelled = false;
+
+  Future<_WindowObservation> get initial => _initial.future;
+
+  void cancel() {
+    _cancelled = true;
+    _deadline.cancel();
+    _onLate = null;
+    // Release a retired awaiter immediately. The caller's request guard drops
+    // this internal result, so cancellation is not exported as a query failure.
+    if (!_initial.isCompleted) {
+      _initial.complete((
+        background: _fallback,
+        outcome: _WindowQueryOutcome.failed,
+      ));
+    }
+  }
+
+  void _finish(_WindowObservation observation) {
+    if (_cancelled) return;
+    _deadline.cancel();
+    final notifyLate = _onLate;
+    _onLate = null;
+    if (_initial.isCompleted) {
+      notifyLate?.call(observation);
+    } else {
+      _initial.complete(observation);
+    }
+  }
+
+  Future<void> _observe() async {
+    try {
+      final visible = await windowManager.isVisible();
+      if (_cancelled) return;
+      final focused = visible && await windowManager.isFocused();
+      _finish((background: !focused, outcome: _WindowQueryOutcome.observed));
+    } catch (error) {
+      if (!_cancelled) {
+        devLog(
+          () =>
+              'xVeil[call-notify]: window query failed (${error.runtimeType})',
+        );
+      }
+      _finish((background: _fallback, outcome: _WindowQueryOutcome.failed));
+    }
+  }
+}
+
+// Construct the continuation outside the call update's closure context: it
+// must not share captured call/provider locals with the notification sender.
+_WindowQuery _windowQueryForOwner(
+  bool fallback,
+  WeakReference<_DesktopCallNotificationBridgeState> weakOwner,
+  int request,
+) => _WindowQuery(fallback, (observed) {
+  final owner = weakOwner.target;
+  if (owner == null ||
+      owner._retired ||
+      !owner.mounted ||
+      owner._request != request) {
+    return;
+  }
+  // Consume the eventual answer without starting the same slow query again.
+  owner._refresh(windowObservation: observed);
+});
 
 Future<String?> _callerLabelWhileRinging(
   Storage storage,
@@ -67,6 +158,7 @@ class _DesktopCallNotificationBridgeState
   int _request = 0, _generation = 0;
   Timer? _retry;
   Completer<void>? _labelCancellation;
+  _WindowQuery? _windowQuery;
   bool _retired = false, _windowListening = false;
 
   bool get _enabled =>
@@ -96,10 +188,10 @@ class _DesktopCallNotificationBridgeState
     ref.listenManual(localeProvider, (_, _) => _refresh());
   }
 
-  void _refresh() {
+  void _refresh({_WindowObservation? windowObservation}) {
     if (_retired || !mounted) return;
     unawaited(
-      _update().catchError((Object error) {
+      _update(windowObservation: windowObservation).catchError((Object error) {
         devLog(
           () => 'xVeil[call-notify]: update failed (${error.runtimeType})',
         );
@@ -124,8 +216,10 @@ class _DesktopCallNotificationBridgeState
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _refresh();
 
-  Future<void> _update() async {
+  Future<void> _update({_WindowObservation? windowObservation}) async {
     final request = ++_request;
+    _windowQuery?.cancel();
+    _windowQuery = null;
     final direct = ref.read(callServiceProvider);
     final group = ref.read(groupCallServiceProvider);
     final call = direct.current;
@@ -141,20 +235,34 @@ class _DesktopCallNotificationBridgeState
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     var background =
         lifecycle != null && lifecycle != AppLifecycleState.resumed;
+    _WindowQueryOutcome? windowQuery;
     if (_windows && settings.enabled && (directRinging || groupRinging)) {
-      try {
-        final visible = await windowManager.isVisible();
-        final focused = visible && await windowManager.isFocused();
-        background = !focused;
-      } catch (error) {
-        // Optional window chrome must not suppress a lifecycle-backed alert.
-        devLog(
-          () =>
-              'xVeil[call-notify]: window query failed (${error.runtimeType})',
+      // Optional window chrome must not suppress a lifecycle-backed alert.
+      if (windowObservation == null) {
+        final query = _windowQueryForOwner(
+          background,
+          WeakReference(this),
+          request,
         );
+        _windowQuery = query;
+        windowObservation = await query.initial;
       }
+      background = windowObservation.background;
+      windowQuery = windowObservation.outcome;
     }
     if (_retired || !mounted || request != _request) return;
+    if (windowQuery != null) {
+      diagnosticJournal.record(
+        DiagnosticEvent.callAlertWindowQuery,
+        values: {
+          DiagnosticMetric.code: windowQuery.index,
+          DiagnosticMetric.background: background ? 1 : 0,
+          DiagnosticMetric.success: windowQuery == _WindowQueryOutcome.observed
+              ? 1
+              : 0,
+        },
+      );
+    }
     final owner = directRinging
         ? direct
         : groupRinging
@@ -318,6 +426,8 @@ class _DesktopCallNotificationBridgeState
   @override
   void dispose() {
     _retired = true;
+    _windowQuery?.cancel();
+    _windowQuery = null;
     _cancelLabel();
     _retry?.cancel();
     if (_enabled) {

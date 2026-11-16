@@ -23,6 +23,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 '  diagnosticJournal.recordSpaceDiscoveryFailure(stage: SpaceDiscoveryFailureStage.routeResolve, failure: SpaceDiscoveryFailureKind.nodeUnavailable);\n'
                 '  diagnosticJournal.recordCameraStart(success: false, origin: CameraStartOrigin.deviceSelection);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.cameraStopped, values: {DiagnosticMetric.cameraCapturing: 0});\n'
+                '  diagnosticJournal.record(DiagnosticEvent.callAlertWindowQuery, values: {DiagnosticMetric.code: 1, DiagnosticMetric.background: 1, DiagnosticMetric.success: 0});\n'
                 '  diagnosticJournal.recordFolderSavedFailure(action: FolderSavedDiagnosticAction.discarding, failure: FolderSavedDiagnosticFailure.cleanup);\n'
                 '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
                 '    DiagnosticMetric.state: 2, DiagnosticMetric.direction: 0});\n'
@@ -108,6 +109,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'state': 2, 'direction': 0,
                         })
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['callAlertWindowQuery']['values'], {
+                            'code': 1, 'background': 1, 'success': 0,
+                        })
                         self.assertEqual(evidence['videoPreview']['values'], {
                             'enabled': 1, 'state': 1, 'localPreviewFrames': 0,
                             'localPreviewReadErrors': 0, 'remotePreviewReadErrors': 3,

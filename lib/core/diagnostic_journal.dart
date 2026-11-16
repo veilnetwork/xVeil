@@ -55,6 +55,9 @@ enum DiagnosticEvent {
   callAlert,
   callAlertDismissed,
   videoPreview,
+  // code: observed=0, deadline=1, failure=2; background is the chosen fallback
+  // or actual observation, not an OS window handle or user presentation data.
+  callAlertWindowQuery,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -519,6 +522,7 @@ class DiagnosticJournal {
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
+    DiagnosticEvent.callAlertWindowQuery,
     DiagnosticEvent.callAlert,
     DiagnosticEvent.spaceDiscoveryFailed,
     DiagnosticEvent.callHistoryRestore,
