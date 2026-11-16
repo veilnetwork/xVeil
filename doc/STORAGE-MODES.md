@@ -12,9 +12,11 @@ now verifies an isolated ARM64 APK, its native inputs, signature and privacy,
 then normal first launch and encrypted-default creation in a headless Android 15
 emulator. Its Saved Messages symptom was subsequently traced through a cold
 profile/AOT reopen: the notes survived under the device address while the UI
-opened the identity address. The [UI fix and host regressions](validation/saved-messages-device-address-2026-11-16/README.md)
-keep existing notes in place; packaged requalification is still pending. A
-separate selected-mode accessibility defect is fixed with 17 host checks.
+opened the identity address. The [UI fix and packaged follow-up](validation/saved-messages-device-address-2026-11-16/README.md)
+preserve existing notes. Both diagnostic profile/AOT and hook-free release/AOT
+checks pass on the retained encrypted profile, including ordinary input and cold
+reopen. A separate selected-mode accessibility fix is included in those packages
+and covered by 17 host checks.
 Android all-mode/persistence and activation work is not declared complete.
 
 

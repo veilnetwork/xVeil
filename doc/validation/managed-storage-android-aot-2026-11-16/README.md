@@ -3,7 +3,7 @@
 Status: ARM64 release APK compilation, provenance/privacy checks, ordinary
 first launch and encrypted-default creation pass on an isolated Android 15 AOSP
 emulator. Saved Messages exposed a confirmed UI address mismatch, subsequently
-[diagnosed and host-fixed](../saved-messages-device-address-2026-11-16/README.md).
+[diagnosed, fixed and release/AOT-qualified](../saved-messages-device-address-2026-11-16/README.md).
 This original release run alone is not a successful persistence check. Production managed storage remains disabled.
 
 ## Artifact and execution boundaries
@@ -82,8 +82,9 @@ this one-line fix, so its packaged requalification remains separate.
 
 ## Remaining scope
 
-Qualify the Saved Messages fix in the packaged Android application before
-calling this platform's data/persistence qualification complete. All-mode cold readback,
+The [Saved Messages follow-up](../saved-messages-device-address-2026-11-16/README.md)
+now qualifies normal Android release/AOT note submission and cold reopen in the
+retained encrypted profile. This does not complete platform-wide qualification. All-mode cold readback,
 maintenance/recovery and real OS-vault/OEM checks remain separate; this run does
 not replace the earlier debug-mode qualifications. Owned virtual app/emulator
 processes are stopped and their synthetic data retained privately. No push,
