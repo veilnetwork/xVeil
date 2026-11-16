@@ -13,6 +13,13 @@ encrypted and plaintext identities after SIGKILL and cold reopen, with a
 negative control against fabricated ACKs. Its 31-check run qualifies the host
 storage/ingress boundary; native ratchet, platform and activation gates remain.
 
+The [Windows source-barrier follow-up](validation/windows-source-recovery-barrier-2026-11-16/README.md)
+replaces blanket refusal of reference repair with a checked existing-directory
+flush. Fourteen native recovery cases pass with administrative rights disabled;
+four Windows process-death cases remain explicitly skipped. Host regression,
+worker recovery and source-binding checks pass. This closes the missing barrier
+implementation, not packaged/platform crash qualification or default activation.
+
 The [hosted compaction follow-up](validation/managed-compaction-access-root-2026-11-15/README.md)
 separates access-root credentials from hidden keep-set authority, restores
 confirmed source ownership and the selected hosted view, and fixes completion
