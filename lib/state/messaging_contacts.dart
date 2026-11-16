@@ -463,14 +463,27 @@ class _MessagingContacts {
   /// contact locally so the peer is unknown again and a fresh request can be
   /// sent later. The peer can't be un-notified (if it already arrived they may
   /// have seen it), but our side is cleaned up.
-  Future<void> cancelRequest(NodeId peer) async {
+  Future<bool> cancelRequest(NodeId peer) async {
+    if (_owner._disposed) throw StateError('messaging service is closed');
+    // Avoid touching a stale action's queue. This read is only an early exit;
+    // the storage operation rechecks under the contact write lane after all
+    // asynchronous retirement work. Retire first so a failed forensic scrub
+    // cannot leave a request retrying after its contact has been erased.
+    if ((await _owner._storage.getContact(peer))?.hasOutgoingRequest != true) {
+      return false;
+    }
     await _owner._outbox.retireRequests(peer);
-    await _owner._storage.removeConversation(peer);
+    final removed = await _withConsentWrite(
+      peer,
+      () => _owner._storage.cancelPendingContactRequest(peer),
+    );
+    if (!removed) return false;
     // A retracted request makes the peer unknown again, so any session the
     // request itself opened has to go too — otherwise a "fresh" relationship
     // later resumes a chain from before it was withdrawn.
     await _owner._forgetRatchetWith(peer, 'request cancelled');
     _owner._signal();
+    return true;
   }
 
   /// Approve an incoming request — both sides can now message freely.

@@ -4791,10 +4791,29 @@ class HiddenVolumeStorage
     (_) => _withMessageErasure(() => _removeConversation(peer)),
   );
 
-  Future<void> _removeConversation(NodeId peer) async {
+  @override
+  Future<bool> cancelPendingContactRequest(NodeId peer) => _trackLogWrite(
+    (_) => _withMessageErasure(
+      () => _contactSerialized(() async {
+        if ((await getContact(peer))?.hasOutgoingRequest != true) {
+          return false;
+        }
+        // Keep the decision lane through destructive discovery and commit.
+        // A read in the caller followed by unconditional erase is not enough:
+        // an accept/block writer could otherwise win between those steps.
+        await _removeConversation(peer, contactLocked: true);
+        return true;
+      }),
+    ),
+  );
+
+  Future<void> _removeConversation(
+    NodeId peer, {
+    bool contactLocked = false,
+  }) async {
     final blobNames = <String>[];
     final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
-    await _contactSerialized(() async {
+    Future<void> removeContact() async {
       final (index, hadShards) = await _contactIndexShards();
       index.remove(peer.hex);
       // Forgetting a contact must work even if a pending manifest is corrupt.
@@ -4809,7 +4828,13 @@ class HiddenVolumeStorage
       ops.add(DeleteOp(Ns.settings, _sk('$_contactFloorPrefix${peer.hex}')));
       ops.addAll(_contactIndexOps(index, hadShards));
       await _commitBatched(ops);
-    });
+    }
+
+    if (contactLocked) {
+      await removeContact();
+    } else {
+      await _contactSerialized(removeContact);
+    }
     // Bulk rewrites have no point patches: drop their stale fold explicitly,
     // then reclaim orphaned chunks. Durable tombstones survive the rebuild.
     await _scrubRewrittenMessages();

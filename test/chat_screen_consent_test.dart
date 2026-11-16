@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/features/chat/chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -22,6 +23,8 @@ Widget _host(
   List<Message> messages = const [],
   Stream<List<Message>>? messagesStream,
   HiddenVolumeStorage? storage,
+  MessagingService? messaging,
+  bool pushedChat = false,
 }) => ProviderScope(
   overrides: [
     contactProvider(_hex).overrideWith((ref) => Stream.value(contact)),
@@ -29,11 +32,20 @@ Widget _host(
       _hex,
     ).overrideWith((ref) => messagesStream ?? Stream.value(messages)),
     if (storage != null) singleSpaceStorageProvider.overrideWithValue(storage),
+    if (messaging != null)
+      messagingServiceProvider.overrideWithValue(messaging),
   ],
   child: MaterialApp(
     localizationsDelegates: AppL10n.localizationsDelegates,
     supportedLocales: AppL10n.supportedLocales,
-    home: ChatScreen(peerHex: _hex),
+    home: pushedChat ? null : ChatScreen(peerHex: _hex),
+    initialRoute: pushedChat ? '/chat' : null,
+    routes: pushedChat
+        ? {
+            '/': (_) => const Scaffold(body: Text('Conversation list fixture')),
+            '/chat': (_) => ChatScreen(peerHex: _hex),
+          }
+        : const {},
   ),
 );
 
@@ -49,6 +61,21 @@ class _CountingStorage extends HiddenVolumeStorage {
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) {
     fileLoads.update(fileId, (count) => count + 1, ifAbsent: () => 1);
     return super.loadFile(fileId, maxBytes: maxBytes);
+  }
+}
+
+// Navigation contract only. Durable storage and both concurrent writer orders
+// are exercised with real MessagingService instances in contact_greeting_order.
+class _CancellationResult extends MessagingService {
+  _CancellationResult(LoopbackTransport wire, this.removed)
+    : super(wire, _CountingStorage(FakeKvLogStore()));
+  final bool removed;
+  int cancellations = 0;
+
+  @override
+  Future<bool> cancelRequest(NodeId peer) async {
+    cancellations++;
+    return removed;
   }
 }
 
@@ -80,6 +107,41 @@ void main() {
     expect(find.textContaining('Waiting for a response'), findsOneWidget);
     expect(find.byIcon(Icons.send), findsNothing);
   });
+
+  for (final acceptedWhileDialogOpen in [false, true]) {
+    testWidgets(
+      'cancel dialog only leaves chat after successful retraction accepted=$acceptedWhileDialogOpen',
+      (tester) async {
+        final wire = LoopbackTransport(
+          localNodeId: NodeId(Uint8List(32)..fillRange(0, 32, 1)),
+        );
+        final messaging = _CancellationResult(wire, !acceptedWhileDialogOpen);
+        addTearDown(() async {
+          await messaging.dispose();
+          await wire.dispose();
+        });
+        await tester.pumpWidget(
+          _host(
+            _c(ContactStatus.pendingOutgoing),
+            messaging: messaging,
+            pushedChat: true,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(find.text('Cancel request?'), findsOneWidget);
+        await tester.tap(find.widgetWithText(FilledButton, 'Cancel'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(ChatScreen),
+          acceptedWhileDialogOpen ? findsOneWidget : findsNothing,
+        );
+        expect(messaging.cancellations, 1);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 
   testWidgets(
     'accepted shows the normal composer (mic on empty, send on text)',
