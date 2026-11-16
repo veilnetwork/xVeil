@@ -327,6 +327,29 @@ class RatchetPersistence {
       final marks = decodeRatchetReservations(
         await _storage.getSetting(ratchetReservationKey(key)),
       );
+      final blob = await _storage.loadRatchetState(key);
+      List<RatchetSendPosition> durable;
+      if (blob == null) {
+        // A first conversation may publish and receive its peer's ACK inside
+        // the snapshot-coalescing window. A durable position without a root
+        // restores nothing after a crash. Retain that root before granting
+        // any permit, including when a previous attempt saved only its mark.
+        // Existing roots still use the amortized position-only path.
+        final initial = _native.export(key);
+        if (initial == null) continue; // Retired while the storage read waited.
+        try {
+          durable = _native.storedSendPositions(key, initial);
+          await _storage.saveRatchetStates([RatchetStateEntry(key, initial)]);
+        } finally {
+          initial.fillRange(0, initial.length, 0);
+        }
+      } else {
+        try {
+          durable = _native.storedSendPositions(key, blob);
+        } finally {
+          blob.fillRange(0, blob.length, 0);
+        }
+      }
       if (covers(marks)) {
         // A fresh read can be the successful side of a lost commit reply.
         // There is no process witness that its anchor was attempted; do that
@@ -335,13 +358,6 @@ class RatchetPersistence {
         _reserved[_hex(key)] = marks;
         permits.add((key, marks, live));
         continue;
-      }
-      final blob = await _storage.loadRatchetState(key);
-      List<RatchetSendPosition> durable;
-      try {
-        durable = blob == null ? [] : _native.storedSendPositions(key, blob);
-      } finally {
-        if (blob != null) blob.fillRange(0, blob.length, 0);
       }
       // A chain absent from RAM can still be restored after a crash. Retire
       // its mark only after the stored snapshot has also stopped holding it.

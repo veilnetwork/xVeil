@@ -7,6 +7,13 @@ wipe, persistent recovery journal and cold-start recovery owner are implemented;
 the chronological sections below record their individual qualifications. Android
 saved-entry presence/removal and ordinary metadata reads avoid key initialization.
 
+The [native ratchet first-root follow-up](validation/native-ratchet-first-root-2026-11-16/README.md)
+fixes publication of a first conversation with a durable sending reservation
+but no recoverable root snapshot. The real two-node host probe now survives
+post-ACK process death and continues messaging in each of the three modes;
+102 regression checks pass. This extends the earlier unratcheted storage test
+below; packaged/platform and activation gates remain open.
+
 The [mixed-session crash qualification](validation/mixed-session-ack-crash-2026-11-16/README.md)
 now verifies 36 acknowledged messages across simultaneously open hidden,
 encrypted and plaintext identities after SIGKILL and cold reopen, with a
