@@ -5,6 +5,7 @@ import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
+import java.util.Base64
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
@@ -35,10 +36,28 @@ internal class QuickUnlockPreferenceFile(
      */
     fun checkedSnapshot(cached: Map<String, *>): Map<String, String> {
         val before = snapshot()
-        if (cached.values.any { it !is String } || before != cached || before != snapshot()) {
+        if (cached.values.any { it !is String } || before.keys != cached.keys ||
+            before.any { (name, value) -> !sameStoredValue(name, value, cached[name]) } ||
+            before != snapshot()) {
             throw QuickUnlockRecordFileFailure()
         }
         return before
+    }
+
+    private fun sameStoredValue(name: String, disk: String, cached: Any?): Boolean {
+        if (disk == cached) return true
+        if (recordPrefix == null || !name.startsWith(recordPrefix) || cached !is String) return false
+        // FSS Base64.DEFAULT ends in LF. Android's XML serializer can add
+        // closing-tag indentation after it without updating the live cache.
+        // Both ciphertext readers ignore exactly this ASCII whitespace. Keep
+        // all other fields and the raw disk-to-disk stability check exact.
+        fun compact(value: String) = value.filterNot { it == '\r' || it == '\n' || it == ' ' || it == '\t' }
+        val encoded = compact(disk)
+        if (encoded.isEmpty() || encoded != compact(cached)) return false
+        return try {
+            Base64.getDecoder().decode(encoded)
+            true
+        } catch (_: IllegalArgumentException) { false }
     }
 
     fun snapshot(): Map<String, String> = try {

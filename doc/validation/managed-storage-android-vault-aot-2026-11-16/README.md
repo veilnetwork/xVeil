@@ -128,3 +128,10 @@ Physical OEM/hardware validation, graphical pattern entry, automatic screen-cove
 behavior, complete profile erasure/recovery including OS-record retirement and
 other platform qualification retain their own scope. This closes the ordinary
 Android managed/legacy scoped biometric-entry prerequisite only.
+
+## Erasure follow-up
+
+The subsequent [packaged erasure qualification](../managed-storage-android-erasure-aot-2026-11-16/README.md)
+uses these actual OS records, reproduces and fixes a cold-recovery refusal, and
+checks removal plus survival/reopening of a separate named profile. It does not
+expand the hardware/OEM or other-platform scope of this entry qualification.
