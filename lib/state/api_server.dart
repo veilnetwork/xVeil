@@ -276,16 +276,13 @@ class ApiServerController extends Notifier<ApiConfig> {
       // moved while the contact was being added, it is not sent at all — the
       // contact stays in A's stack, where the bearer that asked for it lives.
       if (moved()) return kIdentityChanged;
-      final deposited = await messaging.sendRequest(invite.nodeId, greeting);
-      // The live leg above is best-effort BY CONTRACT — `boundedLiveLeg`
-      // swallows its failure on the stated grounds that "the durable copy and
-      // the deposit both stand". When the deposit does NOT stand there is no
-      // durable path left, and this send has no retry behind it, so silence
-      // here is a request that never happens. Say so instead.
-      if (!deposited) {
-        return 'the request could not be deposited at the recipient relay — '
-            'nothing was sent; try again';
-      }
+      final submitted = await messaging.submitContactRequest(
+        invite.nodeId,
+        greeting,
+      );
+      // The local Outbox retries even when the relay deposit fails. HTTP
+      // success acknowledges admission, not delivery or relay availability.
+      if (!submitted.admitted) return 'the contact request was not admitted';
       return null;
     } catch (e) {
       return '$e';

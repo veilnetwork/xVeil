@@ -2,6 +2,19 @@ part of 'messaging_core.dart';
 
 typedef _HeldBlockedMessage = ({String id, String wire, int? receivedAtMs});
 
+/// Local submission and relay admission are different from peer delivery.
+enum ContactRequestSubmission {
+  refused,
+  queued,
+  deposited,
+  messageSubmitted,
+  alreadyAccepted;
+
+  /// A queued request, ordinary message or allowed no-op was admitted locally.
+  /// This is not proof that a recipient or mailbox relay received it.
+  bool get admitted => this != refused;
+}
+
 /// Contact consent and relationship lifecycle.
 ///
 /// Owns request/reconnect handling, pre-consent anti-spam bounds, local and
@@ -273,10 +286,9 @@ class _MessagingContacts {
   /// Ask [dst] to connect, with an optional [greeting]. We can't freely
   /// message them until they accept.
   ///
-  /// Returns whether the request was DEPOSITED at the recipient's relay.
-  /// If already accepted, submit the text as an ordinary message instead and
-  /// return that submission result (or true for an empty no-op). Neither is
-  /// proof of remote delivery. A blocked contact is left blocked and refused.
+  /// Distinguishes durable local admission from a successful relay deposit.
+  /// An accepted contact receives an ordinary message (or an empty no-op).
+  /// A blocked contact is left blocked and refused. None proves peer delivery.
   ///
   /// It used to return nothing, and both legs below had their outcome thrown
   /// away — so a request that reached neither the relay nor the peer still
@@ -285,18 +297,26 @@ class _MessagingContacts {
   /// the recipient's instance registry did not resolve, nothing was deposited,
   /// and nothing anywhere said so. Persist the handshake before either leg
   /// so an unsuccessful first attempt can retry after reconnect or restart.
-  Future<bool> sendRequest(NodeId dst, String greeting) async {
+  Future<ContactRequestSubmission> submitRequest(
+    NodeId dst,
+    String greeting,
+  ) async {
     var text = greeting.trim();
     final status = await _withConsentWrite(
       dst,
       () => _owner._storage.prepareContactRequest(dst),
     );
-    if (_owner._disposed || status == ContactStatus.blocked) return false;
+    if (_owner._disposed || status == ContactStatus.blocked) {
+      return ContactRequestSubmission.refused;
+    }
     if (status == ContactStatus.accepted) {
       // The composer may still hold its pre-accept snapshot. A new request
       // must not demote an established conversation or discard this text as
       // an ignored re-introduction at the other end.
-      return text.isEmpty || await _owner.sendText(dst, text);
+      if (text.isEmpty) return ContactRequestSubmission.alreadyAccepted;
+      return await _owner.sendText(dst, text)
+          ? ContactRequestSubmission.messageSubmitted
+          : ContactRequestSubmission.refused;
     }
     await _afterStatusSaved(dst, status);
     // Tag the greeting with a stable id shared between our stored copy and the
@@ -360,7 +380,9 @@ class _MessagingContacts {
       );
       _owner._signal();
     }
-    return deposited;
+    return deposited
+        ? ContactRequestSubmission.deposited
+        : ContactRequestSubmission.queued;
   }
 
   /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
@@ -368,7 +390,8 @@ class _MessagingContacts {
   /// the original greeting + id (so the peer dedups), re-sends live AND forces a
   /// fresh mailbox deposit. No-op unless the contact is still pendingOutgoing.
   ///
-  /// Returns whether the request was DEPOSITED, like [sendRequest] — this is
+  /// Returns whether the request was DEPOSITED, like
+  /// [MessagingService.sendRequest] — this is
   /// what a person reaches for when the first attempt did not get through, so
   /// answering "sent" regardless was the least useful thing it could say
   /// (report19 XV19-M1). `false` also for the no-op: nothing was deposited.
