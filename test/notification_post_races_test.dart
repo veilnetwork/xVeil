@@ -147,6 +147,31 @@ void main() {
     },
   );
 
+  test(
+    'retiring a call owner orders cancellation before its successor',
+    () async {
+      final service = _Notifications()
+        ..holdId = 1
+        ..cancelEntered = Completer<void>()
+        ..cancelRelease = Completer<void>();
+      final first = post(service, 1, 'old-call', () => true);
+      await service.entered.future;
+      final retirement = service.cancelAfterPosts(1);
+      final successor = post(service, 1, 'next-call', () => true);
+      service.release.complete();
+      try {
+        await service.cancelEntered!.future;
+        expect(service.shows, 1);
+      } finally {
+        service.cancelRelease!.complete();
+        expect(await first, isTrue);
+        await retirement;
+        expect(await successor, isTrue);
+      }
+      expect(service.visible[1], 'next-call');
+    },
+  );
+
   test('a stale queued ticket never reaches the OS', () async {
     final service = _Notifications()..holdId = 1;
     final first = post(service, 1, 'first', () => true);

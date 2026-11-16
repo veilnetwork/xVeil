@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:window_manager/window_manager.dart';
 import 'app_controller.dart';
 import 'dart:convert';
 
@@ -94,6 +97,11 @@ bool shouldNotifySpaceComment({
 /// latest conversation payload for tap/reply actions.
 int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
 
+/// A separate OS slot for incoming calls; ordinary chat notices cannot replace it.
+const int kNotificationIdIncomingCall = 0x78564341; // "xVCA"
+// Contains no peer, identity, call ID or bearer capability. A tap only opens UI.
+const String kNotificationPayloadIncomingCall = 'incoming-call';
+
 /// The alert for requests to clear a conversation.
 ///
 /// Its OWN id, so it neither replaces a message alert nor is replaced by one:
@@ -115,6 +123,7 @@ const String kNotificationPayloadClearRequests = 'clear-requests';
 /// community publication surface, never `/group/...` or a direct chat.
 String? notificationRouteForPayload(String? payload) {
   if (payload == null || payload.isEmpty) return null;
+  if (payload == kNotificationPayloadIncomingCall) return '/home';
   if (payload.startsWith('mention:')) {
     try {
       final encoded = payload.substring('mention:'.length);
@@ -162,7 +171,8 @@ bool notificationPayloadSupportsReply(String payload) =>
     // Nor does a request to erase a conversation: the only answers it takes
     // are yes and no, and yes is irreversible — neither belongs on a lock
     // screen behind an inline text field.
-    payload != kNotificationPayloadClearRequests;
+    payload != kNotificationPayloadClearRequests &&
+    payload != kNotificationPayloadIncomingCall;
 
 /// Select the newest candidate without relying on storage/list sort order.
 /// Pinned chats, groups, and restored logs can all have different ordering.
@@ -293,6 +303,11 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   svc.init(
     onTap: (raw) {
       final payload = resolveNotificationPayload(ref, raw);
+      if (payload == kNotificationPayloadIncomingCall) {
+        // Only a user's explicit toast tap may restore/focus the call UI.
+        unawaited(_restoreIncomingCallWindow());
+        return;
+      }
       final route = notificationRouteForPayload(payload);
       if (route != null) {
         // go() alone REPLACES the stack: the chat would open with no back
@@ -377,3 +392,13 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   ref.onDispose(svc.cancelAll);
   return svc;
 });
+
+Future<void> _restoreIncomingCallWindow() async {
+  if (!Platform.isWindows) return;
+  try {
+    await windowManager.show();
+    await windowManager.focus();
+  } catch (error) {
+    devLog(() => 'xVeil[call-notify]: open failed (${error.runtimeType})');
+  }
+}
