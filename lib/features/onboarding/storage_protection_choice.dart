@@ -56,6 +56,7 @@ class StorageProtectionChoice extends StatelessWidget {
                     ? Theme.of(context).colorScheme.primaryContainer
                     : null,
                 child: ListTile(
+                  selected: mode == selected,
                   leading: Icon(icon),
                   title: HelpLabel(title: title, help: help),
                   subtitle: Text(brief),
