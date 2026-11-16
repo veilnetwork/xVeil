@@ -2223,7 +2223,7 @@ class MessagingService {
     int? atMs,
   }) => _contacts.applyMirroredContactStatus(peer, status, atMs: atMs);
 
-  Future<void> _handleRequestOrReconnect(
+  Future<bool> _handleRequestOrReconnect(
     InboundMessage message,
     WireEnvelope envelope,
     ContactStatus? status,
