@@ -130,14 +130,14 @@ void main() {
     // after a file picker, so the bytes chosen under A were sent through B and
     // this test stayed green throughout (report18 XV18-H7).
     final sourceBody = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
-    // Export compares the CURRENT owner to its CAPTURED store after a picker.
+    // Async feedback/export compares the CURRENT owner to its CAPTURED store.
     // It never operates on the newly resolved store. Keep exactly this guard
     // exempt; permitting an arbitrary second dynamic read would weaken this.
-    const exportGuard =
-        'bool_exportStillOurs()=>mounted&&'
+    const ownerGuard =
+        'bool_stillOurs()=>mounted&&'
         'identical(ref.read(storageProvider),_storage);';
-    expect(sourceBody.split(exportGuard).length - 1, 1);
-    final body = sourceBody.replaceFirst(exportGuard, '');
+    expect(sourceBody.split(ownerGuard).length - 1, 1);
+    final body = sourceBody.replaceFirst(ownerGuard, '');
 
     expect(
       body,
