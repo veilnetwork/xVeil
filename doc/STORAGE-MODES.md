@@ -40,6 +40,16 @@ also passes from a complete saved entry without injected failure, including cold
 no-resurrection and exact preserved-profile readback. Broader interruption,
 physical OEM/hardware, other target/platform and activation work stays open.
 
+The [Windows native-padding follow-up](validation/managed-storage-windows-padding-ffi-2026-11-16/README.md)
+finds that the earlier QA DLL lacks the constructor used by current bindings.
+The rebuilt MSVC x64 component passes a standalone Dart AOT probe: the prior
+DLL is refused before data creation; three explicit no-padding roles survive
+separate-process read/write with 20-KiB growth; ordinary hidden creation/reopen
+retains its 1-MiB slot-grid padding. The selected DLL's bytes, tracked source
+closure, ABI checksum and privacy checks match. This closes that native
+component gap; full current Windows application packaging/lifecycle and
+production-default activation remain open.
+
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated
 ARM64 QA. The packaged app passes native-load, signature and artifact-path
