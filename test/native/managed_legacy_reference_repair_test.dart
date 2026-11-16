@@ -280,6 +280,10 @@ class _Fixture {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final configuredWriter = Platform.environment['XVEIL_REFERENCE_WRITER_EXE'];
+  final writer = configuredWriter == null || configuredWriter.isEmpty
+      ? null
+      : File(configuredWriter);
   for (final phase in [
     'prepared',
     'published',
@@ -292,6 +296,16 @@ void main() {
         final f = _Fixture();
         addTearDown(f.close);
         await f.create();
+        if (writer != null) {
+          expect(writer.isAbsolute, isTrue);
+          expect(writer.existsSync(), isTrue);
+        }
+        final keyboxPath = f.root.layout.keyboxPath(f.id(1));
+        final keyboxBefore = File(keyboxPath).readAsBytesSync();
+        await f.master(
+          3,
+          (store) => store.putSetting('sibling-witness', phase),
+        );
         final sourceBefore = File(f.source).readAsBytesSync();
         final capabilities = File(
           '${f.directory.path}/capabilities-private.json',
@@ -311,11 +325,15 @@ void main() {
         );
         const ManagedFsPlatform().restrictNewFile(capabilities.path);
         f.root.close();
-        final process = await Process.start('dart', [
-          'run',
-          File(
-            'test/native/managed_legacy_reference_writer.dart',
-          ).absolute.path,
+        // A prebuilt direct child gives Windows an actual owned AOT process,
+        // not a dart.bat launcher whose exit says nothing about its worker.
+        final process = await Process.start(writer?.path ?? 'dart', [
+          if (writer == null) ...[
+            'run',
+            File(
+              'test/native/managed_legacy_reference_writer.dart',
+            ).absolute.path,
+          ],
           f.directory.path,
           phase,
         ]);
@@ -388,6 +406,8 @@ void main() {
             }
           }
 
+          // Dart uses TerminateProcess on Windows, SIGKILL on POSIX. The
+          // checkpoint PID above proves we terminate the actual writer.
           expect(process.kill(ProcessSignal.sigkill), isTrue);
           expect(await terminal, isNot(0));
         } finally {
@@ -434,8 +454,15 @@ void main() {
               : LegacyReferenceRepairOutcome.retainedSource,
         );
         await f.expectUsable(published: phase.endsWith('published'));
+        expect(File(keyboxPath).readAsBytesSync(), keyboxBefore);
+        expect(
+          await f.master(3, (store) => store.getSetting('sibling-witness')),
+          phase,
+        );
       },
-      skip: Platform.isWindows ? 'POSIX SIGKILL writer fixture' : false,
+      skip: Platform.isWindows && writer == null
+          ? 'Set XVEIL_REFERENCE_WRITER_EXE to the owned AOT writer with its native DLLs'
+          : false,
     );
   }
 

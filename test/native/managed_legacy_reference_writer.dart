@@ -10,9 +10,14 @@ import 'package:xveil/domain/storage_locator.dart';
 
 Future<void> main(List<String> args) async {
   if (args.length != 2 || !ensureHiddenVolumeLoaded()) exit(2);
-  final fixture = Directory(args[0]).resolveSymbolicLinksSync();
+  final directory = Directory(args[0]);
+  final fixture = directory.resolveSymbolicLinksSync();
   final temporary = Directory.systemTemp.resolveSymbolicLinksSync();
-  if (!fixture.startsWith('$temporary/xveil-external-references-') ||
+  final basename = Directory(
+    fixture,
+  ).uri.pathSegments.where((s) => s.isNotEmpty).last;
+  if (Directory(fixture).parent.path != temporary ||
+      !basename.startsWith('xveil-external-references-') ||
       ![
         'prepared',
         'published',
