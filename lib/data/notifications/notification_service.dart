@@ -57,6 +57,11 @@ class NotificationService {
   }) {
     final result = (_posts[id] ?? Future<void>.value()).then((_) async {
       if (!isCurrent()) return false;
+      // The first call/message can arrive while the OS backend is starting.
+      // Join that owned initialization instead of permanently losing its post.
+      final startup = _initializing;
+      if (startup != null) await startup;
+      if (!isCurrent()) return false;
       final posted = await show(
         id: id,
         title: title,

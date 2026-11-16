@@ -86,3 +86,25 @@ application. Full packaging, artifact privacy/runtime checks and the incoming
 Windows toast on real hardware remain pending. Production managed-storage
 activation and release are not performed by this cycle. No push or tag is made;
 private stand records and logs remain outside the repository.
+
+## Follow-up: first alert during backend initialization
+
+A separate gate-controlled regression confirms that `showIfCurrent` could finish
+with `false` while the OS plugin was still initializing. The call bridge had
+already remembered its desired ringing session, so a quiet first call need not
+trigger another post. The healthy held-startup case is assertion-red on
+`748401b7`; retiring that ticket before startup completes is the passing negative
+control. No wall-clock latency threshold decides either result.
+
+Guarded posts now join an existing initialization future and recheck their
+session ticket afterward. Calls that ended or changed owner while waiting stay
+suppressed; the next current ticket can post. Bare `show()` keeps its explicit
+not-ready refusal, and initialization failure cannot manufacture success.
+The final focused series passes **54 checks, no skips**; analysis of the changed
+service and new fixture is clean. These are mocked OS-backend checks.
+
+The [baseline full Windows Release/AOT package](../windows-release-aot-storage-package-2026-11-16/README.md)
+now passes architecture, dependency, actual DLL-loader and privacy qualification.
+It was frozen before this startup follow-up. Neither result substitutes for a
+real Windows toast/COM activation test or closes the user's camera and
+asymmetric-message complaints.
