@@ -22,6 +22,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Keep desktop ringing alerts from waiting indefinitely for optional caller
+  metadata. Skip unused avatar reads, use a short-ID fallback for slow name
+  lookups and release obsolete waits when the call or privacy policy changes.
 - Complete crossed contact requests after one side accepts. Preserve the local
   outgoing request across an incoming request and restart, while keeping
   incoming-only peers and blocked or forgotten contacts behind consent gates.

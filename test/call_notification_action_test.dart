@@ -83,6 +83,38 @@ class _CallerStorage implements Storage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _GatedCallerStorage extends _CallerStorage {
+  _GatedCallerStorage({this.holdContact = false, this.holdAvatar = false})
+    : super('Local caller');
+  final bool holdContact, holdAvatar;
+  final contactGate = Completer<void>();
+  final avatarGate = Completer<void>();
+  int contactReads = 0, avatarReads = 0;
+  @override
+  Future<Contact?> getContact(NodeId peer) async {
+    contactReads++;
+    if (holdContact && peer == NodeId.fromHex('a' * 64)) {
+      await contactGate.future;
+    }
+    return Contact(
+      nodeId: peer,
+      name: peer == NodeId.fromHex('a' * 64) ? 'Local caller' : 'Second caller',
+    );
+  }
+
+  @override
+  Future<String?> getSetting(String key) async {
+    avatarReads++;
+    if (holdAvatar) await avatarGate.future;
+    return null;
+  }
+
+  void release() {
+    if (!contactGate.isCompleted) contactGate.complete();
+    if (!avatarGate.isCompleted) avatarGate.complete();
+  }
+}
+
 class _CallAlertSettings extends NotificationSettingsController {
   _CallAlertSettings([this.initial = NotificationSettings.defaults]);
   final NotificationSettings initial;
@@ -141,6 +173,7 @@ void main() {
     GroupCallService? group,
     bool withTray = false,
     String? callerName,
+    Storage? callerStorage,
   }) async {
     final wire = _Wire();
     final service = CallService(wire, media: _Media())..start();
@@ -150,7 +183,9 @@ void main() {
         callServiceProvider.overrideWith((ref) => ref.watch(source)),
         groupCallServiceProvider.overrideWithValue(group),
         notificationServiceProvider.overrideWithValue(alerts),
-        storageProvider.overrideWithValue(_CallerStorage(callerName)),
+        storageProvider.overrideWithValue(
+          callerStorage ?? _CallerStorage(callerName),
+        ),
         if (withTray) ...[
           appControllerProvider.overrideWith(_TrayApp.new),
           closeToTrayProvider.overrideWith(_HideToTray.new),
@@ -185,6 +220,271 @@ void main() {
       ),
     );
     return (service: service, wire: wire, container: container, source: source);
+  }
+
+  void readOnlyWindows(WidgetTester tester) {
+    const channel = MethodChannel('window_manager');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'isVisible' || call.method == 'isFocused') {
+        return false;
+      }
+      if (call.method == 'show' || call.method == 'focus') {
+        fail('metadata must not activate a window');
+      }
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+  }
+
+  testWidgets(
+    'caller metadata does not wait for an unused avatar',
+    (tester) async {
+      readOnlyWindows(tester);
+      final storage = _GatedCallerStorage(holdAvatar: true);
+      final alerts = _DesktopAlerts();
+      final f = await mountDesktop(
+        tester,
+        alerts,
+        callerStorage: storage,
+        settings: NotificationSettings.defaults.copyWith(
+          preview: NotificationPreview.full,
+        ),
+      );
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        f.wire.onCallSignal!(
+          NodeId.fromHex('a' * 64),
+          _desktopOffer('avatar-blocked-call'),
+        );
+        await tester.idle();
+        expect(alerts.visible, hasLength(1));
+        expect(alerts.visible.values.single.body, 'Local caller');
+        expect(
+          storage.avatarReads,
+          0,
+          reason: 'text-only desktop alert never uses the image',
+        );
+      } finally {
+        storage.release();
+        await f.service.hangup();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'caller metadata cannot suppress a ringing alert indefinitely',
+    (tester) async {
+      readOnlyWindows(tester);
+      final storage = _GatedCallerStorage(holdContact: true);
+      final alerts = _DesktopAlerts();
+      final f = await mountDesktop(
+        tester,
+        alerts,
+        callerStorage: storage,
+        settings: NotificationSettings.defaults.copyWith(
+          preview: NotificationPreview.full,
+        ),
+      );
+      final peer = NodeId.fromHex('a' * 64);
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        f.wire.onCallSignal!(peer, _desktopOffer('slow-contact-call'));
+        await tester.idle();
+        expect(storage.contactReads, 1);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.idle();
+        expect(alerts.visible, hasLength(1));
+        expect(alerts.visible.values.single.body, peer.short);
+        storage.release();
+        await tester.idle();
+        expect(
+          alerts.showCalls,
+          1,
+          reason: 'late metadata does not post a second ringing banner',
+        );
+      } finally {
+        storage.release();
+        await f.service.hangup();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'caller metadata for an ended call cannot hold the next caller',
+    (tester) async {
+      readOnlyWindows(tester);
+      final storage = _GatedCallerStorage(holdContact: true);
+      final alerts = _DesktopAlerts();
+      final f = await mountDesktop(
+        tester,
+        alerts,
+        callerStorage: storage,
+        settings: NotificationSettings.defaults.copyWith(
+          preview: NotificationPreview.full,
+        ),
+      );
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        f.wire.onCallSignal!(
+          NodeId.fromHex('a' * 64),
+          _desktopOffer('old-caller-lookup'),
+        );
+        await tester.idle();
+        expect(storage.contactReads, 1);
+        await f.service.hangup();
+        f.wire.onCallSignal!(
+          NodeId.fromHex('b' * 64),
+          _desktopOffer('next-caller-lookup'),
+        );
+        await tester.idle();
+        expect(alerts.visible, hasLength(1));
+        expect(alerts.visible.values.single.body, 'Second caller');
+        storage.release();
+        await tester.idle();
+        expect(alerts.showCalls, 1);
+      } finally {
+        storage.release();
+        await f.service.hangup();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'caller metadata fallback is reused by post retries and late errors are observed',
+    (tester) async {
+      readOnlyWindows(tester);
+      final storage = _GatedCallerStorage(holdContact: true);
+      final alerts = _DesktopAlerts()..refusedPosts = 1;
+      final f = await mountDesktop(
+        tester,
+        alerts,
+        callerStorage: storage,
+        settings: NotificationSettings.defaults.copyWith(
+          preview: NotificationPreview.full,
+        ),
+      );
+      final peer = NodeId.fromHex('a' * 64);
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        f.wire.onCallSignal!(peer, _desktopOffer('retry-metadata'));
+        await tester.idle();
+        await tester.pump(const Duration(seconds: 1));
+        await tester.idle();
+        expect(alerts.showCalls, 1);
+        expect(alerts.visible, isEmpty);
+        expect(storage.contactReads, 1);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.idle();
+        expect(alerts.showCalls, 2);
+        expect(alerts.visible.values.single.body, peer.short);
+        expect(
+          storage.contactReads,
+          1,
+          reason: 'retry must not add another blocked metadata read',
+        );
+        expect(storage.avatarReads, 0);
+        storage.contactGate.completeError(
+          StateError('synthetic late storage error'),
+        );
+        await tester.idle();
+        expect(tester.takeException(), isNull);
+        expect(alerts.showCalls, 2);
+      } finally {
+        storage.release();
+        await f.service.hangup();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  for (final retire in ['privacy', 'dispose']) {
+    testWidgets(
+      'caller metadata wait is cancelled by $retire',
+      (tester) async {
+        readOnlyWindows(tester);
+        final storage = _GatedCallerStorage(holdContact: true);
+        final alerts = _DesktopAlerts();
+        final f = await mountDesktop(
+          tester,
+          alerts,
+          callerStorage: storage,
+          settings: NotificationSettings.defaults.copyWith(
+            preview: NotificationPreview.full,
+          ),
+        );
+        try {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.hidden,
+          );
+          f.wire.onCallSignal!(
+            NodeId.fromHex('a' * 64),
+            _desktopOffer('retiring-metadata'),
+          );
+          await tester.idle();
+          expect(storage.contactReads, 1);
+          if (retire == 'privacy') {
+            (f.container.read(notificationSettingsProvider.notifier)
+                    as _CallAlertSettings)
+                .replace(NotificationSettings.defaults);
+            await tester.idle();
+            expect(
+              alerts.showCalls,
+              1,
+              reason:
+                  'hidden policy must post without waiting for the old name read',
+            );
+            expect(alerts.visible.values.single.title, 'xVeil');
+            expect(
+              alerts.visible.values.single.body,
+              isNot(contains('Local caller')),
+            );
+          } else {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.idle();
+            expect(alerts.showCalls, 0);
+          }
+          await tester.pump(const Duration(seconds: 1));
+          storage.release();
+          await tester.idle();
+          expect(alerts.showCalls, retire == 'privacy' ? 1 : 0);
+          expect(tester.takeException(), isNull);
+        } finally {
+          storage.release();
+          await f.service.hangup();
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
   }
 
   testWidgets(
