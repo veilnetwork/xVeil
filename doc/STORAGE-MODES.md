@@ -18,6 +18,12 @@ update matrix. Matching dependency releases, branch integration and final app
 packages remain required before publication; the installed/released application
 is unchanged.
 
+The [macOS storage ABI packaging gate](validation/storage-package-abi-gate-2026-11-16/README.md)
+now rejects loadable native storage components whose contract, bound exports or
+method checksums do not match the current Dart bindings, including in the final
+copied candidate before publication. Implementation provenance remains a
+separate check.
+
 The live full-profile wipe, persistent recovery journal and cold-start recovery
 owner are implemented; the chronological sections below record their individual
 qualifications. Older section-local statements that defaults remain OFF describe
