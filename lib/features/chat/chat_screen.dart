@@ -128,6 +128,17 @@ Future<void> _cancelContentDownload(WidgetRef ref, String contentId) async {
   }
 }
 
+// A snackbar may outlive its originating page. Re-read only to validate the
+// captured owner; never retarget the retry to newly resolved storage or a
+// different service. A disposed/failed scope cannot authorize the command.
+bool _requestRetryOwnerCurrent(ProviderContainer scope, Storage owner) {
+  try {
+    return identical(scope.read(storageProvider), owner);
+  } catch (_) {
+    return false;
+  }
+}
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.peerHex, this.initialJumpTo});
   final String peerHex;
@@ -610,6 +621,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _submit(ContactStatus? status) async {
+    if (!_stillOurs()) return;
     final wireValue = _input.toWireValue();
     final text = wireValue.body;
     if (text.trim().isEmpty) return;
@@ -638,16 +650,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } else {
       // No contact yet / not accepted — the first message is the request.
       //
-      // The handshake is durable locally. This result describes relay
-      // deposit only; neither outcome proves the peer received the request.
-      if (!await svc.sendRequest(_peer, text)) {
+      // Only a positively admitted local copy can justify the saved-request
+      // warning. Refusal and an already accepted conversation are different
+      // outcomes from a queued request whose relay deposit is unconfirmed.
+      final submitted = await svc.submitContactRequest(_peer, text);
+      if (submitted == ContactRequestSubmission.queued) {
         _reportRequestUndelivered();
       }
     }
+    if (!_stillOurs()) return;
     _scrollToBottom(force: true);
-    if (mounted) {
-      _inputFocus.requestFocus(); // and again after the await settles
-    }
+    _inputFocus.requestFocus(); // and again after the await settles
   }
 
   void _startReply(Message m) {
@@ -711,9 +724,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Timer? _resentReset;
   bool _justResent = false;
 
+  // Feedback is about this view's current pending request, never a completed
+  // relationship, a loading/error snapshot or another active identity.
+  bool _requestFeedbackCurrent() {
+    if (!_stillOurs() || widget.peerHex != _peer.hex) return false;
+    final current = ref.read(contactProvider(widget.peerHex));
+    return !current.isLoading &&
+        !current.hasError &&
+        current.value?.status == ContactStatus.pendingOutgoing;
+  }
+
   Future<void> _resend() async {
+    if (!_stillOurs() || widget.peerHex != _peer.hex) return;
+    await _resendOwned(ProviderScope.containerOf(context, listen: false));
+  }
+
+  Future<void> _resendOwned(ProviderContainer ownerScope) async {
+    if (!_requestRetryOwnerCurrent(ownerScope, _storage)) return;
+    // Keep the snackbar retry usable after leaving the chat under the same
+    // owner. UI loading/error state is not authority over consent; the service
+    // checks the durable relationship before admitting this command.
+    if (mounted && (!_stillOurs() || widget.peerHex != _peer.hex)) return;
     final deposited = await _messaging.resendRequest(_peer);
-    if (!mounted) return;
+    if (!_requestFeedbackCurrent()) return;
     if (!deposited) {
       _reportRequestUndelivered();
       return;
@@ -728,12 +761,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Relay deposit was not confirmed; the durable local request stays pending.
   /// Retrying uses the same greeting/id, so the peer can deduplicate it.
   void _reportRequestUndelivered() {
-    if (!mounted) return;
+    if (!_requestFeedbackCurrent()) return;
     final l = AppL10n.of(context);
+    final ownerScope = ProviderScope.containerOf(context, listen: false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(l.chatRequestNotDelivered),
-        action: SnackBarAction(label: l.chatRequestResend, onPressed: _resend),
+        action: SnackBarAction(
+          label: l.chatRequestResend,
+          onPressed: () => _resendOwned(ownerScope),
+        ),
         duration: const Duration(seconds: 8),
       ),
     );
@@ -1253,7 +1290,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // _watchDownloadFailure(deletePath: dest).
       raf = await File(dest).open(mode: FileMode.write);
     } catch (error) {
-      if (_exportStillOurs()) {
+      if (_stillOurs()) {
         final code = error is FileSystemException
             ? error.osError?.errorCode
             : null;
@@ -1265,7 +1302,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       return;
     }
-    if (!_exportStillOurs()) {
+    if (!_stillOurs()) {
       await raf.close();
       try {
         await File(dest).delete();
@@ -1281,7 +1318,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     svc.contentReceived
         .firstWhere((e) => e.contentId == cid && e.savedToPath != null)
         .then((e) {
-          if (!mounted || !_exportStillOurs()) return;
+          if (!mounted || !_stillOurs()) return;
           if (Platform.isAndroid || Platform.isIOS) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -1340,15 +1377,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         name: _safeDownloadName(m.fileName),
         size: knownSize,
         read: (offset, want) => storage.readFileRange(key, offset, want),
-        stillOurs: _exportStillOurs,
+        stillOurs: _stillOurs,
       );
-      if (saved && _exportStillOurs()) _snack(l.chatFileSavedToChosenFolder);
+      if (saved && _stillOurs()) _snack(l.chatFileSavedToChosenFolder);
     } catch (error) {
-      if (_exportStillOurs()) _snack(_fileSaveError(l, error));
+      if (_stillOurs()) _snack(_fileSaveError(l, error));
     }
   }
 
-  bool _exportStillOurs() =>
+  bool _stillOurs() =>
       mounted && identical(ref.read(storageProvider), _storage);
 
   String _fileSaveError(AppL10n l, Object error) =>
@@ -1369,11 +1406,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           await handle.setPosition(offset);
           return handle.read(want);
         },
-        stillOurs: _exportStillOurs,
+        stillOurs: _stillOurs,
       );
-      if (saved && _exportStillOurs()) _snack(l.chatFileSavedToChosenFolder);
+      if (saved && _stillOurs()) _snack(l.chatFileSavedToChosenFolder);
     } catch (error) {
-      if (_exportStillOurs()) _snack(_fileSaveError(l, error));
+      if (_stillOurs()) _snack(_fileSaveError(l, error));
     } finally {
       await source?.close();
     }
