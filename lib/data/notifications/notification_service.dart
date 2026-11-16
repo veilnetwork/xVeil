@@ -6,6 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/log.dart';
+import 'windows_toast_content.dart';
 
 /// Windows keeps both toast history and the COM activator outside our data
 /// directory. A separately named QA executable must also separate these IDs.
@@ -310,6 +311,11 @@ class NotificationService {
     String? replyHint,
   }) async {
     if (!_ready) return false;
+    final windows = Platform.isWindows
+        ? windowsToastContent(title: title, body: body, payload: payload)
+        : null;
+    // A routing token cannot be truncated into a different conversation.
+    if (Platform.isWindows && windows == null) return false;
     try {
       final actions = (replyLabel != null && Platform.isAndroid)
           ? <AndroidNotificationAction>[
@@ -334,8 +340,8 @@ class NotificationService {
           : null;
       await _plugin.show(
         id: id,
-        title: title,
-        body: body,
+        title: windows?.title ?? title,
+        body: windows?.body ?? body,
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             _channelId,

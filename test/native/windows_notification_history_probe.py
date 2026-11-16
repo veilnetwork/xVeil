@@ -134,6 +134,13 @@ def worker(config, output):
             b'<text>xVeil notification QA</text><text>Cleanup check</text>'
             b'</binding></visual><audio silent="true"/></toast>'
         )
+        oversized_xml = xml.replace(b"Cleanup check", b"x" * 65536)
+        result["oversizedShowRejected"] = not dll.showNotification(
+            plugin, TAG, oversized_xml, Map(None, 0))
+        assert result["oversizedShowRejected"]
+        result["oversizedScheduleRejected"] = not dll.scheduleNotification(
+            plugin, TAG, oversized_xml, int(time.time()) + 3600)
+        assert result["oversizedScheduleRejected"]
         for tag in [TAG, TAG + 1]:
             assert dll.showNotification(plugin, tag, xml, Map(None, 0))
         result["beforeCancel"] = history(config["aumid"])
