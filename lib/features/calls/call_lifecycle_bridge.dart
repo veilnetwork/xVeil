@@ -51,6 +51,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   StreamSubscription<Call?>? _directChanges;
   StreamSubscription<GroupCall?>? _groupChanges;
   String? _desktopAlertKey;
+  Timer? _desktopAlertRetry;
   int _desktopAlertGeneration = 0;
   Future<void> _desktopAlertWork = Future<void>.value();
   NotificationService? _desktopAlerts;
@@ -92,6 +93,8 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     WidgetsBinding.instance.removeObserver(this);
     _ringTimer?.cancel();
     _desktopAlertGeneration++;
+    _desktopAlertRetry?.cancel();
+    _desktopAlertRetry = null;
     final alerts = _desktopAlerts;
     if (alerts != null) {
       _desktopAlertWork = _desktopAlertWork
@@ -188,6 +191,8 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         ? null
         : '$session:${settings.preview.name}:${l.localeName}';
     if (key == _desktopAlertKey) return;
+    _desktopAlertRetry?.cancel();
+    _desktopAlertRetry = null;
     _desktopAlertKey = key;
     final generation = ++_desktopAlertGeneration;
     final alerts = ref.read(notificationServiceProvider);
@@ -223,48 +228,73 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
           live?.startedAt == group.startedAt;
     }
 
-    // Cancellation shares the queue with posting. A delayed take-down must
-    // finish before the next call replaces this same OS notification id.
-    _desktopAlertWork = _desktopAlertWork
-        .then((_) async {
-          if (key == null) {
-            await alerts.cancel(kNotificationIdIncomingCall);
-            diagnosticJournal.record(
-              DiagnosticEvent.callAlertDismissed,
-              values: {DiagnosticMetric.state: 2},
-            );
-            return;
-          }
-          if (!current()) return;
-          if (!await alerts.waitUntilReady()) {
-            diagnosticJournal.record(
-              DiagnosticEvent.callAlert,
-              values: {DiagnosticMetric.state: 0, DiagnosticMetric.success: 0},
-            );
-            return;
-          }
-          if (!current()) return;
-          final posted = await alerts.showIfCurrent(
-            isCurrent: current,
-            id: kNotificationIdIncomingCall,
-            title: title,
-            body: body,
-            payload: kNotificationPayloadIncomingCall,
+    var attempts = 0;
+    late void Function() enqueue;
+    void retryPost() {
+      if (key == null || !current() || attempts >= 4) return;
+      // At most three retries, after 1/2/4 seconds. Unrelated call updates
+      // cannot reset the budget; a new session or policy has its own ticket.
+      _desktopAlertRetry?.cancel();
+      _desktopAlertRetry = Timer(Duration(seconds: 1 << (attempts - 1)), () {
+        _desktopAlertRetry = null;
+        if (current()) enqueue();
+      });
+    }
+
+    Future<void> attempt() async {
+      var triedPost = false;
+      try {
+        if (key == null) {
+          await alerts.cancel(kNotificationIdIncomingCall);
+          diagnosticJournal.record(
+            DiagnosticEvent.callAlertDismissed,
+            values: {DiagnosticMetric.state: 2},
           );
+          return;
+        }
+        if (!current()) return;
+        if (!await alerts.waitUntilReady()) {
           diagnosticJournal.record(
             DiagnosticEvent.callAlert,
-            values: {
-              DiagnosticMetric.state: 1,
-              DiagnosticMetric.success: posted ? 1 : 0,
-            },
+            values: {DiagnosticMetric.state: 0, DiagnosticMetric.success: 0},
           );
-        })
-        .catchError((Object _) {
-          diagnosticJournal.record(
-            DiagnosticEvent.callAlert,
-            values: {DiagnosticMetric.state: 3, DiagnosticMetric.success: 0},
-          );
-        });
+          // Initialization is a separate contract; never repeatedly initialize
+          // a failed native backend merely because one call is still ringing.
+          return;
+        }
+        if (!current()) return;
+        triedPost = true;
+        attempts++;
+        final posted = await alerts.showIfCurrent(
+          isCurrent: current,
+          id: kNotificationIdIncomingCall,
+          title: title,
+          body: body,
+          payload: kNotificationPayloadIncomingCall,
+        );
+        diagnosticJournal.record(
+          DiagnosticEvent.callAlert,
+          values: {
+            DiagnosticMetric.state: 1,
+            DiagnosticMetric.success: posted ? 1 : 0,
+          },
+        );
+        if (!posted) retryPost();
+      } catch (_) {
+        diagnosticJournal.record(
+          DiagnosticEvent.callAlert,
+          values: {DiagnosticMetric.state: 3, DiagnosticMetric.success: 0},
+        );
+        if (triedPost) retryPost();
+      }
+    }
+
+    // Retries and cancellation share the existing ordered lane. A delayed
+    // old post or take-down cannot overwrite the next call's notification.
+    enqueue = () {
+      _desktopAlertWork = _desktopAlertWork.then((_) => attempt());
+    };
+    enqueue();
   }
 
   Future<void> _maybeOfferBatteryExemption() async {
