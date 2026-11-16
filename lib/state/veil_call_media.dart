@@ -636,6 +636,8 @@ class VeilCallMediaController implements CallMediaController {
   final Stopwatch _frameCadenceClock = Stopwatch();
   int _remoteFrames = 0;
   int _localFrames = 0;
+  int _localPreviewReadErrors = 0;
+  int _remotePreviewReadErrors = 0;
   int? _firstRemoteFrameUs;
   int? _lastRemoteFrameUs;
   int _maxRemoteGapUs = 0;
@@ -1762,6 +1764,24 @@ class VeilCallMediaController implements CallMediaController {
         _mediaReceiveActivity.observe(stats, now);
         _observeDesktopCameraCapture(engine, stats);
         diagnosticJournal.recordMediaStats(stats);
+        if (diagnosticJournal.enabled && !Platform.isAndroid) {
+          final lastPreviewUs = _lastLocalFrameUs;
+          diagnosticJournal.recordDesktopVideoPreview(
+            cameraExpected:
+                _cameraState.enabledForCall(call.callId) &&
+                _activeCall?.media.video == true &&
+                !_screenSharing &&
+                _screenStarting == null,
+            framePumpRunning: _frameTimer?.isActive ?? false,
+            frames: _localFrames,
+            localReadErrors: _localPreviewReadErrors,
+            remoteReadErrors: _remotePreviewReadErrors,
+            lastFrameAgeMs: lastPreviewUs == null
+                ? null
+                : (_frameCadenceClock.elapsedMicroseconds - lastPreviewUs) ~/
+                      1000,
+          );
+        }
         unawaited(
           diagnosticAudioOutput.sample(
             duringCall: true,
@@ -2300,6 +2320,8 @@ class VeilCallMediaController implements CallMediaController {
       ..start();
     _remoteFrames = 0;
     _localFrames = 0;
+    _localPreviewReadErrors = 0;
+    _remotePreviewReadErrors = 0;
     _firstRemoteFrameUs = null;
     _lastRemoteFrameUs = null;
     _maxRemoteGapUs = 0;
@@ -2338,6 +2360,12 @@ class VeilCallMediaController implements CallMediaController {
           _remoteFrames++;
           remoteVideoFrame.value = f;
         }
+      } catch (_) {
+        _remotePreviewReadErrors++;
+      }
+      // A bad remote frame must not suppress reading the independent local
+      // camera preview (and vice versa). Neither read owns camera capture.
+      try {
         // Android renders the camera self-preview through Camera2's native
         // texture. Pulling the same frame back as RGBA here copied nearly a MB
         // per tick on the UI isolate and was the main source of preview hitches.
@@ -2361,7 +2389,9 @@ class VeilCallMediaController implements CallMediaController {
           _localFrames++;
           localVideoFrame.value = local;
         }
-      } catch (_) {}
+      } catch (_) {
+        _localPreviewReadErrors++;
+      }
     });
   }
 

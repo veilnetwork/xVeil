@@ -54,6 +54,7 @@ enum DiagnosticEvent {
   spaceDiscoveryFailed,
   callAlert,
   callAlertDismissed,
+  videoPreview,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -191,6 +192,10 @@ enum DiagnosticMetric {
   networkNotSuspended,
   restrictBackgroundStatus,
   cameraCapturing,
+  localPreviewFrames,
+  localPreviewReadErrors,
+  remotePreviewReadErrors,
+  localPreviewAgeMs,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -438,6 +443,38 @@ class DiagnosticJournal {
     );
   }
 
+  /// Desktop Dart/native preview boundary, not proof that pixels were painted,
+  /// encoded or delivered. Counts restart with the owned frame pump; no camera
+  /// labels, exception text, frame bytes or native timestamps enter this API.
+  void recordDesktopVideoPreview({
+    required bool cameraExpected,
+    required bool framePumpRunning,
+    required int frames,
+    required int localReadErrors,
+    required int remoteReadErrors,
+    int? lastFrameAgeMs,
+  }) {
+    if (!enabled) return;
+    record(
+      DiagnosticEvent.videoPreview,
+      values: {
+        DiagnosticMetric.enabled: cameraExpected ? 1 : 0,
+        DiagnosticMetric.state: framePumpRunning ? 1 : 0,
+        DiagnosticMetric.localPreviewFrames: frames.clamp(0, 1000000000),
+        DiagnosticMetric.localPreviewReadErrors: localReadErrors.clamp(
+          0,
+          1000000000,
+        ),
+        DiagnosticMetric.remotePreviewReadErrors: remoteReadErrors.clamp(
+          0,
+          1000000000,
+        ),
+        if (lastFrameAgeMs != null && lastFrameAgeMs >= 0)
+          DiagnosticMetric.localPreviewAgeMs: lastFrameAgeMs.clamp(0, 600000),
+      },
+    );
+  }
+
   void recordCameraStart({
     required bool success,
     required CameraStartOrigin origin,
@@ -489,6 +526,7 @@ class DiagnosticJournal {
     DiagnosticEvent.audioStart,
     DiagnosticEvent.cameraStart,
     DiagnosticEvent.cameraStopped,
+    DiagnosticEvent.videoPreview,
     DiagnosticEvent.folderSavedFailure,
     DiagnosticEvent.audioRoute,
     DiagnosticEvent.backgroundSnapshot,

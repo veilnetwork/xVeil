@@ -70,6 +70,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'audio_capture_start_result': 1, 'audio_playout_start_result': 0, "
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 0, 'audio_agc_enabled': 1, "
                 "'deviceId': 'PRIVATE_CANARY', 'path': 'PRIVATE_CANARY'});\n"
+                '  diagnosticJournal.recordDesktopVideoPreview(cameraExpected: true, '
+                'framePumpRunning: true, frames: 0, localReadErrors: 0, remoteReadErrors: 3);\n'
                 '  print(jsonEncode(diagnosticJournal.toJson()));\n'
                 '}\n'
             )
@@ -106,6 +108,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'state': 2, 'direction': 0,
                         })
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['videoPreview']['values'], {
+                            'enabled': 1, 'state': 1, 'localPreviewFrames': 0,
+                            'localPreviewReadErrors': 0, 'remotePreviewReadErrors': 3,
+                        })
                         self.assertEqual(evidence['folderSavedFailure']['values'], {
                             'origin': 2, 'code': 13, 'success': 0,
                         })
