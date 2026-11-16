@@ -2,8 +2,9 @@
 
 Status: ARM64 release APK compilation, provenance/privacy checks, ordinary
 first launch and encrypted-default creation pass on an isolated Android 15 AOSP
-emulator. Saved Messages visibility is an **open observation**, not a successful
-persistence check. Production managed storage remains disabled.
+emulator. Saved Messages exposed a confirmed UI address mismatch, subsequently
+[diagnosed and host-fixed](../saved-messages-device-address-2026-11-16/README.md).
+This original release run alone is not a successful persistence check. Production managed storage remains disabled.
 
 ## Artifact and execution boundaries
 
@@ -55,12 +56,13 @@ input without a verified field precondition is excluded from the send oracle.
 
 An attempted host read of the pulled Android-store snapshot refused worker
 admission. That refusal is not evidence that the original Android store is
-damaged, and it is not credited as a cold-readback check. An adjacent candidate
-is the distinction between identity and device addresses: the drawer/chat uses
-the application identity for Saved Messages, whereas the local-note service
-uses its transport/device address. The actual stored bucket and cause still need
-verification; changing a storage namespace or rewriting old notes on this
-hypothesis would be premature.
+damaged, and it is not credited as a cold-readback check. A later explicitly
+opted-in profile/AOT build cold-opened the original store through its real native
+owner: both notes were present in the transport/device bucket, and the sovereign
+identity bucket was empty. This confirms a UI address mismatch rather than data
+loss. The [Saved Messages follow-up](../saved-messages-device-address-2026-11-16/README.md)
+records the fix and its current qualification boundaries; no stored namespace
+was migrated or rewritten.
 
 ## Selection accessibility fix
 
@@ -80,8 +82,8 @@ this one-line fix, so its packaged requalification remains separate.
 
 ## Remaining scope
 
-Investigate Saved Messages through the real Android owner before calling this
-platform's data/persistence qualification complete. All-mode cold readback,
+Qualify the Saved Messages fix in the packaged Android application before
+calling this platform's data/persistence qualification complete. All-mode cold readback,
 maintenance/recovery and real OS-vault/OEM checks remain separate; this run does
 not replace the earlier debug-mode qualifications. Owned virtual app/emulator
 processes are stopped and their synthetic data retained privately. No push,

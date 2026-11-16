@@ -6236,12 +6236,6 @@ abstract class AppL10n {
   /// **'Forward to'**
   String get chatForwardTo;
 
-  /// No description provided for @chatForwardNoTargets.
-  ///
-  /// In en, this message translates to:
-  /// **'No accepted contacts to forward to'**
-  String get chatForwardNoTargets;
-
   /// No description provided for @chatMsgDeleteSelectedBody.
   ///
   /// In en, this message translates to:

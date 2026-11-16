@@ -3548,9 +3548,6 @@ class AppL10nEn extends AppL10n {
   String get chatForwardTo => 'Forward to';
 
   @override
-  String get chatForwardNoTargets => 'No accepted contacts to forward to';
-
-  @override
   String chatMsgDeleteSelectedBody(int count) {
     return 'Delete $count selected message(s)?';
   }

@@ -10,10 +10,13 @@ saved-entry presence/removal and ordinary metadata reads avoid key initializatio
 The [Android release/AOT qualification](validation/managed-storage-android-aot-2026-11-16/README.md)
 now verifies an isolated ARM64 APK, its native inputs, signature and privacy,
 then normal first launch and encrypted-default creation in a headless Android 15
-emulator. It exposes an open Saved Messages visibility symptom; data loss and
-its cause are not established. A separate selected-mode accessibility defect is
-fixed with 17 host checks. Android all-mode/persistence and activation work is
-not declared complete by this run.
+emulator. Its Saved Messages symptom was subsequently traced through a cold
+profile/AOT reopen: the notes survived under the device address while the UI
+opened the identity address. The [UI fix and host regressions](validation/saved-messages-device-address-2026-11-16/README.md)
+keep existing notes in place; packaged requalification is still pending. A
+separate selected-mode accessibility defect is fixed with 17 host checks.
+Android all-mode/persistence and activation work is not declared complete.
+
 
 The [macOS release/AOT qualification](validation/managed-storage-macos-aot-2026-11-16/README.md)
 now compiles the ordinary entrypoint with managed storage enabled for isolated

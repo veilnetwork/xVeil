@@ -29,6 +29,15 @@ import 'thumbnail.dart';
 import 'video_thumb.dart';
 import '../data/veil_stack.dart';
 
+/// Saved Messages uses the local device's conversation bucket, just like
+/// saveNote/saveFileNote and local reactions. The public identity address may
+/// differ. Key by the exact service so an open chat keeps its captured owner
+/// across an identity switch rather than resolving the replacement's address.
+final savedMessagesPeerProvider = FutureProvider.autoDispose
+    .family<NodeId, MessagingService>((ref, service) async {
+      return NodeId.fromHex(await service.savedSelfHex());
+    });
+
 /// Constructed once and kept alive for the session; starts listening eagerly.
 final messagingServiceProvider = Provider<MessagingService>((ref) {
   final admitted = ref.watch(sessionWorkIdentityProvider) != null;
