@@ -2332,6 +2332,22 @@ covers fixed-file parsing, existing-key decryption, pinned-plugin format
 interoperability and the unchanged absence/error boundary. Enrollment remains
 an explicit plugin write; device and packaged platform smoke remain outstanding.
 
+## Android packaged profile-erasure follow-up
+
+The [release/AOT erasure qualification](validation/managed-storage-android-erasure-aot-2026-11-16/README.md)
+reproduces an actual OS-store write refusal and a subsequent cold-recovery loop.
+Android can serialize FSS's trailing Base64 newline with extra indentation that
+is absent from its live cache. Known ciphertext fields now compare equivalent
+valid Base64 while raw disk stability, key sets, metadata and refusal checks
+remain strict. Captured scope retirement also avoids competing public writers.
+
+The fixed package completes the same pending operation, verifies removal of
+all original payloads/saved entries, preserves an actual separate profile and
+opens that profile's original identity/note with one CryptoObject request. A
+fresh unencrypted identity also writes and cold-reopens after erasure. Host
+regressions and the packaged scenario are documented separately; production
+managed storage remains disabled and other platform gates remain open.
+
 ## Implementation boundaries
 
 1. Managed stores need independent directories for their database and blobs.

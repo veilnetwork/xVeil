@@ -48,6 +48,31 @@ private fun verifyPreferenceFiles() {
             "<map><string name=\"unrecognized_opaque_record\">opaque</string></map>",
             "<!DOCTYPE map [<!ENTITY fixture 'value'>]><map><string name=\"fixture_key\">&fixture;</string></map>",
         )) { write(bad); refuses() }
+        // Android's serializer may indent the closing tag after FSS's trailing
+        // Base64 newline. The live cache then lacks those four on-disk spaces.
+        val base64 = "Y2lwaGVydGV4dA==\n"
+        val padded = "<map><string name=\"fixture_key\">${base64}    </string></map>"
+        write(padded)
+        val live = mapOf("fixture_key" to base64)
+        check(backing.checkedSnapshot(live)["fixture_key"] == base64 + "    ")
+        check(Files.readAllBytes(file).contentEquals(padded.toByteArray()))
+        for (other in listOf("Y2lwaGVydGV4dQ==\n", base64 + "\u00a0", "not base64\n")) {
+            var refused = false
+            try { backing.checkedSnapshot(mapOf("fixture_key" to other)) }
+            catch (_: QuickUnlockRecordFileFailure) { refused = true }
+            check(refused)
+        }
+        write("<map><string name=\"fixture_key\">invalid-value    </string></map>")
+        var invalidRefused = false
+        try { backing.checkedSnapshot(mapOf("fixture_key" to "invalid-value")) }
+        catch (_: QuickUnlockRecordFileFailure) { invalidRefused = true }
+        check(invalidRefused)
+        val bookkeeping = "__androidx_security_crypto_encrypted_prefs_key_keyset__"
+        write("<map><string name=\"$bookkeeping\">$base64    </string></map>")
+        var bookkeepingRefused = false
+        try { backing.checkedSnapshot(mapOf(bookkeeping to base64)) }
+        catch (_: QuickUnlockRecordFileFailure) { bookkeepingRefused = true }
+        check(bookkeepingRefused)
         write(complete)
         val backup = root.resolve("data.xml.bak")
         Files.write(backup, complete.toByteArray())

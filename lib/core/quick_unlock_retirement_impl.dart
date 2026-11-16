@@ -139,13 +139,20 @@ final class QuickUnlockRetirement {
         await persistWitness?.call(witness);
         _requireOwner?.call();
         final protectedKeys = witness.protectedKeys.toSet();
-        final tasks = [
-          for (final vault in _vaults)
-            vault._retireCapturedForErasure(protectedKeys, _requireOwner),
-        ];
-        // Wait for ALL tasks even if one fails. Every forget verifies absence;
-        // soft UI opt-in flags are intentionally never consulted.
-        await Future.wait(tasks);
+        // Scopes share Android's public metadata file. A cleanup-intent write
+        // in one scope must finish before another scope reads/removes from its
+        // checked disk/cache snapshot. Admission is already sealed for ALL
+        // scopes by capture above; serial removal does not reopen that gap.
+        var refused = false;
+        for (final vault in _vaults) {
+          try {
+            await vault._retireCapturedForErasure(protectedKeys, _requireOwner);
+          } catch (_) {
+            // Still attempt every other captured scope after a refusal.
+            refused = true;
+          }
+        }
+        if (refused) throw const QuickUnlockRetirementFailure();
         _requireOwner?.call();
         await witness.verifyAbsent(_vaults.first.store);
         _requireOwner?.call();
