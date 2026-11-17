@@ -206,3 +206,47 @@ signing certificate. The separate tagged CI has macOS runner-capacity
 cancellations, which are not passes. The mobile iOS job instead reports an
 unsupported macOS 14 configuration before any step. A workflow-only follow-up
 selects macOS 15 for that independent build; the published tag is unchanged.
+
+## Verified dependency publication and isolated seed rollout
+
+Veil source CI `44129668207` completes all six jobs on exact source `6f54938c`.
+The immutable `v0.11.53` release run `44143181448` completes all eight jobs.
+All 43 downloaded public assets match their GitHub digests; seven installer
+manifest signatures authenticate the checksums and architectures of 28
+binaries. The published GNU x64 update manifest verifies its expected issuer,
+version, minimum version, source epoch, URL and binary digest. A corrupted
+signature is independently rejected. Host CLI version and literal/regex
+privacy checks pass, including UTF-16 strings. Veil is published before xVeil.
+
+The separate testnet build `44143183166` proves the same immutable source,
+isolated network features, static x64 ELF and artifact digest. Three testnet
+seeds update sequentially with binary/state backups. Independent post-update
+reads verify exact binaries, unchanged configurations, healthy live sessions,
+zero automatic restarts and successful DHT commands. Production rollout uses
+the independently verified public binary. All six production seeds subsequently
+update sequentially and the independent nine-node final verification passes:
+exact binary digests, unchanged configurations, healthy live sessions, zero
+automatic restarts and successful DHT commands.
+
+One production SSH transfer exceeds its deadline before replacing the binary.
+A read-only observation confirms the old version is still active. The exact
+owned unfinished transfer process is retired and its opened partial file is
+removed, with the original binary/configuration rechecked. An HTTPS download
+of the same immutable public asset completes; its locally authenticated SHA
+remains mandatory before validation, backup, installation or restart. No
+signature or readiness gate is relaxed. Subsequent production nodes use this
+transfer path. State/binary backups remain available for rollback.
+
+hidden-volume's macOS 15 mobile follow-up `44142298546` completes all six jobs,
+including iOS, four Android ABIs and Kotlin bindings. The workflow-only change
+is fast-forwarded to its main branch; the published `v2.8.0` tag and xVeil's
+storage dependency remain unchanged. The downloaded native storage binary also
+passes three actual managed-padding/reopen cases with the application's current
+bindings. The tagged storage CI retry still has separately tracked macOS jobs.
+
+Application source CI `44142441570` uses `2d41293d`, including all fixture fixes.
+Native preparation succeeds and the complete Flutter suite is running. Its
+macOS packaging job is cancelled before any step: annotations explicitly name
+hosted arm64 capacity, not a test failure. A single-job retry is refused while
+the aggregate remains active; retry only the cancelled/failed jobs after its
+terminal result. This documentation follow-up changes no tested runtime input.
