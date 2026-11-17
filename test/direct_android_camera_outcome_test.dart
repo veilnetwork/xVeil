@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
+import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
@@ -117,6 +118,93 @@ class _Engine implements VeilMediaEngine {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _RelayEngine extends _Engine {
+  @override
+  bool setMaxRtpPacketSize(int bytes) => true;
+  @override
+  bool setAudioPacketOverhead(int bytes) => true;
+  @override
+  bool setVideoPacketOverhead(int bytes) => true;
+  @override
+  bool get supportsChannelRebind => false;
+}
+
+class _RepairTransport extends _Transport {
+  Completer<void>? nextIdentity;
+  final identityEntered = Completer<void>();
+  final relayOpens = <bool>[];
+  final directOpens = <bool>[];
+  @override
+  Future<int> openMediaChannel(
+    Uint8List dst, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+    bool direct = false,
+    bool relay = false,
+  }) {
+    relayOpens.add(relay);
+    directOpens.add(direct);
+    return super.openMediaChannel(
+      dst,
+      txKey: txKey,
+      rxKey: rxKey,
+      direct: direct,
+      relay: relay,
+    );
+  }
+
+  @override
+  Future<NodeId> peerFacingNodeId({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    final gate = nextIdentity;
+    nextIdentity = null;
+    if (gate != null) {
+      identityEntered.complete();
+      await gate.future;
+    }
+    return _id(1);
+  }
+
+  @override
+  Future<bool> configureMediaRouteProbes(
+    int channel, {
+    required NodeId directPeer,
+    required NodeId relayPeer,
+  }) async => true;
+  @override
+  int setRelayMediaBatching(int channel, bool on, {bool compact = false}) => 0;
+  @override
+  Map<String, int>? mediaChannelStats(int channel) => const {};
+  @override
+  Map<String, Object?>? mediaPacketCost(
+    int channel, {
+    required int packetBytes,
+    MediaPacketSource source = MediaPacketSource.audio,
+  }) => null;
+}
+
+class _ObservedRepair extends VeilCallMediaController {
+  _ObservedRepair(
+    super.transport, {
+    required CallMediaEngineFactory engineFactory,
+    required AndroidNativeCallCamera Function() nativeCameraFactory,
+    required AndroidCameraCapture Function(bool, String?) cameraCaptureFactory,
+  }) : super(
+         engineFactory: engineFactory,
+         androidCameraCapture: true,
+         nativeCameraFactory: nativeCameraFactory,
+         cameraCaptureFactory: cameraCaptureFactory,
+       );
+  final repairCompleted = Completer<bool>();
+  @override
+  Future<bool> repairRoute() async {
+    final result = await super.repairRoute();
+    if (!repairCompleted.isCompleted) repairCompleted.complete(result);
+    return result;
+  }
+}
+
 class _NativeCamera extends AndroidNativeCallCamera {
   _NativeCamera(bool result) : result = Future.value(result);
   _NativeCamera.held(this.result);
@@ -216,7 +304,11 @@ class _Wire implements MessagingService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Future<void> _connect(CallService service, _Wire wire) async {
+Future<void> _connect(
+  CallService service,
+  _Wire wire, {
+  CallPosture peerPosture = CallPosture.anonymous,
+}) async {
   await service.placeCall(_id(2), const CallMedia(audio: true, video: true));
   final active = Completer<void>();
   final subscription = service.changes.listen((call) {
@@ -230,7 +322,7 @@ Future<void> _connect(CallService service, _Wire wire) async {
       CallSignal(
         callId: service.current!.callId,
         type: CallSignalType.answer,
-        posture: CallPosture.anonymous,
+        posture: peerPosture,
         mediaKey: generateCallMediaKeyContribution(),
       ),
     );
@@ -294,6 +386,182 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final mode in [
+    'normal-native',
+    'normal-plugin',
+    'fence-native',
+    'fence-plugin',
+    'startup-native',
+    'startup-plugin',
+    'startup-error-native',
+    'startup-error-plugin',
+    'normal-lookup-failure',
+    'pending-native',
+    'reentrant-native',
+    'normal-failure',
+    'new-call',
+    'hangup',
+  ]) {
+    test('pending route repair preserves $mode session', () async {
+      final wire = _Wire(), transport = _RepairTransport();
+      final created = <_RelayEngine>[];
+      final old = _NativeCamera(true);
+      final native = !mode.endsWith('plugin');
+      final cameras = Queue<_NativeCamera>.of([
+        old,
+        _NativeCamera(native),
+        _NativeCamera(native),
+        _NativeCamera(native),
+      ]);
+      final plugins = <_PluginCamera>[];
+      final controller = _ObservedRepair(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) {
+              if (mode == 'normal-failure' && created.isNotEmpty) return null;
+              final engine = _RelayEngine();
+              created.add(engine);
+              return engine;
+            },
+        nativeCameraFactory: cameras.removeFirst,
+        cameraCaptureFactory: (_, _) {
+          final camera = _PluginCamera(Future.value(true));
+          plugins.add(camera);
+          return camera;
+        },
+      );
+      final service = CallService(wire, media: controller)..start();
+      final release = Completer<void>(), identity = Completer<void>();
+      Future<bool>? repairing;
+      Future<bool>? latest;
+      try {
+        await _connect(
+          service,
+          wire,
+          peerPosture: CallPosture.direct,
+        ).timeout(const Duration(seconds: 5));
+        await old.entered.future;
+        await pumpEventQueue();
+        expect(service.current?.transport, CallTransportKind.relay);
+        expect(controller.activeTransport, CallTransportKind.relay);
+        final first = service.current!;
+        old.stopGate = release;
+        old.stopEntered = Completer<void>();
+        if (mode == 'reentrant-native') {
+          old.onStop = () {
+            latest = controller.start(service.current!);
+          };
+        }
+        wire.onCallSignal!(
+          _id(2),
+          CallSignal(
+            callId: first.callId,
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        repairing = controller.repairCompleted.future;
+        await old.stopEntered!.future;
+        if (mode.startsWith('startup') || mode == 'normal-lookup-failure') {
+          transport.nextIdentity = identity;
+          release.complete();
+          await transport.identityEntered.future;
+        }
+        if (mode == 'pending-native') {
+          transport.nextIdentity = identity;
+          latest = controller.start(service.current!);
+          await transport.identityEntered.future;
+        }
+        if (mode.startsWith('fence') ||
+            mode.startsWith('startup') ||
+            mode == 'reentrant-native') {
+          if (mode == 'reentrant-native') {
+            expect(await latest, isTrue);
+          } else {
+            expect(await controller.start(service.current!), isTrue);
+          }
+          await pumpEventQueue();
+          expect(created.length, 2);
+          expect(created.last.disposed, isFalse);
+        } else if (mode == 'new-call' || mode == 'hangup') {
+          await service.hangup();
+          if (mode == 'new-call') {
+            await _connect(service, wire, peerPosture: CallPosture.direct);
+            expect(service.current?.callId, isNot(first.callId));
+          }
+        }
+        if (!release.isCompleted) release.complete();
+        if (mode != 'pending-native' && !identity.isCompleted) {
+          if (mode.startsWith('startup-error') ||
+              mode == 'normal-lookup-failure') {
+            identity.completeError(
+              StateError('synthetic retired lookup refusal'),
+            );
+          } else {
+            identity.complete();
+          }
+        }
+        final result = await repairing;
+        await pumpEventQueue();
+        if (mode == 'pending-native') {
+          expect(service.current?.status, CallStatus.active);
+          expect(
+            controller.activeTransport,
+            isNull,
+            reason: 'the newer start still owns a held identity lookup',
+          );
+          identity.complete();
+          expect(await latest, isTrue);
+          await pumpEventQueue();
+        }
+        final live =
+            mode != 'hangup' &&
+            mode != 'normal-failure' &&
+            mode != 'normal-lookup-failure';
+        expect(
+          {
+            'repair_result': result,
+            'call_live': service.current?.status == CallStatus.active,
+            'engine_count': created.length,
+            'old_disposals': created.first.disposals,
+            'current_disposals': created.length > 1
+                ? created.last.disposals
+                : null,
+            'closed_channels': transport.closed,
+            'active_transport': controller.activeTransport,
+            'repairing': controller.diagnostics['media_repairing'],
+            'all_opens_relay': transport.relayOpens.every((value) => value),
+            'no_direct_opens': !transport.directOpens.any((value) => value),
+          },
+          {
+            'repair_result': mode != 'new-call' && live,
+            'call_live': live,
+            'engine_count': live ? 2 : 1,
+            'old_disposals': 1,
+            'current_disposals': live ? 0 : null,
+            'closed_channels': mode == 'normal-failure' ? [42, 43] : [42],
+            'active_transport': live ? CallTransportKind.relay : null,
+            'repairing': false,
+            'all_opens_relay': true,
+            'no_direct_opens': true,
+          },
+        );
+        if (mode.endsWith('plugin')) {
+          expect(plugins, hasLength(1));
+          expect(plugins.single.stops, 0);
+        }
+      } finally {
+        if (!release.isCompleted) release.complete();
+        if (!identity.isCompleted) identity.complete();
+        await repairing;
+        await latest;
+        service.dispose();
+        await controller.stop();
+      }
+    });
+  }
 
   for (final operation in ['select', 'off']) {
     for (final successor in ['none', 'native', 'plugin']) {
