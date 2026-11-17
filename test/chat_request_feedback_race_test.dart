@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -59,7 +60,7 @@ class _HeldRequest extends MessagingService {
 }
 
 class _Fixture {
-  _Fixture(bool initial) {
+  _Fixture(bool initial, {Completer<NodeId>? savedPeer}) {
     currentContact = initial ? null : _contact(ContactStatus.pendingOutgoing);
     activeStorage = first;
     messaging = _HeldRequest(wire, first);
@@ -68,6 +69,10 @@ class _Fixture {
       overrides: [
         storageProvider.overrideWith((ref) => activeStorage),
         messagingServiceProvider.overrideWithValue(messaging),
+        if (savedPeer != null)
+          savedMessagesPeerProvider(
+            messaging,
+          ).overrideWith((ref) => savedPeer.future),
         contactProvider(_peer.hex).overrideWith((ref) => contacts()),
         messagesProvider(
           _peer.hex,
@@ -138,6 +143,54 @@ void main() {
     VeilMediaNative.debugForceAvailable = null;
     VeilMediaNative.forgetProbe();
   });
+  for (final error in [false, true]) {
+    testWidgets('cold chat can leave while saved identity error=$error', (
+      tester,
+    ) async {
+      final peer = Completer<NodeId>();
+      final fixture = _Fixture(false, savedPeer: peer);
+      final router = GoRouter(
+        initialLocation: '/chat',
+        routes: [
+          GoRoute(
+            path: '/chat',
+            builder: (_, _) => ChatScreen(peerHex: _peer.hex),
+          ),
+          GoRoute(path: '/home', builder: (_, _) => const Text('fixture home')),
+        ],
+      );
+      try {
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: fixture.container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        if (error) {
+          peer.completeError(StateError('synthetic identity read failure'));
+          await tester.pump();
+          await tester.pump();
+          expect(find.byType(CircularProgressIndicator), findsNothing);
+        }
+        expect(router.canPop(), isFalse);
+        expect(find.byType(BackButton), findsOneWidget);
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        expect(find.text('fixture home'), findsOneWidget);
+      } finally {
+        if (!peer.isCompleted) peer.complete(_peer);
+        await tester.pumpWidget(const SizedBox.shrink());
+        router.dispose();
+        await fixture.close();
+      }
+    });
+  }
   testWidgets('a refused initial request never claims a saved local copy', (
     tester,
   ) async {

@@ -16,10 +16,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// The body of `_resend` after the "not deposited" early return.
+/// The owned retry after the "not deposited" early return.
 String resendSuccessBranch(String source) {
-  final at = source.indexOf('Future<void> _resend() async {');
-  expect(at, isNot(-1), reason: '_resend was renamed');
+  final at = source.indexOf(
+    'Future<void> _resendOwned(ProviderContainer ownerScope) async {',
+  );
+  expect(at, isNot(-1), reason: 'the owned retry was renamed');
   final end = source.indexOf('\n  }', at);
   expect(end, isNot(-1));
   final body = source.substring(at, end);
@@ -29,9 +31,7 @@ String resendSuccessBranch(String source) {
 }
 
 void main() {
-  final source = File(
-    'lib/features/chat/chat_screen.dart',
-  ).readAsStringSync();
+  final source = File('lib/features/chat/chat_screen.dart').readAsStringSync();
 
   test('a re-send that worked says so without covering the actions', () {
     expect(

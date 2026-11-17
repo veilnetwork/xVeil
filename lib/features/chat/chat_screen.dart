@@ -22,6 +22,7 @@ import '../../data/serve_source.dart';
 import '../../data/transport/wire_envelope.dart'
     show disappearingMarkerSeconds, isChatDeletedMarker;
 import '../../core/log.dart';
+import '../../routing/back_affordance.dart';
 import 'attachment_preview.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
@@ -2231,7 +2232,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // resolving it performs no discovery or network request.
     if (!self.hasValue) {
       return Scaffold(
-        appBar: AppBar(),
+        appBar: AppBar(leading: const RootedBackButton()),
         body: self.hasError
             ? AsyncErrorView(
                 error: self.error!,

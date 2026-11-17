@@ -137,24 +137,13 @@ void main() {
     tester,
   ) async {
     late ProviderContainer container;
-    // The wipe removes the speech model, and resolving the support directory
-    // goes through path_provider — which never answers in a widget test, so
-    // without this the wipe is still in flight when the assertion runs.
-    final modelDir = Directory.systemTemp.createTempSync('lock_wipe_model');
-    addTearDown(() {
-      if (modelDir.existsSync()) modelDir.deleteSync(recursive: true);
-    });
+    final controller = _LeftoverWipeController()..leftovers = const [];
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          // Same reason the speech store is overridden here: wipeContainers
-          // resolves the models directory through a platform channel, which a
-          // widget test does not have. This test is about the phrase gate, not
-          // about what a wipe removes.
-          translationModelsRootProvider.overrideWithValue(() async => null),
-          whisperModelStoreProvider.overrideWithValue(
-            WhisperModelStore(supportDirectory: () async => modelDir),
-          ),
+          // This test checks admission to deletion, independently of file I/O.
+          // Real deletion and its report have separate tests below.
+          appControllerProvider.overrideWith(() => controller),
         ],
         child: Consumer(
           builder: (ctx, ref, _) {
@@ -180,11 +169,22 @@ void main() {
       find.widgetWithText(FilledButton, l.lockWipeConfirm),
     );
     expect(confirm.onPressed, isNull, reason: 'disabled before the phrase');
+    expect(controller.calls, 0);
 
     final dialogField = find.descendant(
       of: find.byType(AlertDialog),
       matching: find.byType(TextField),
     );
+    await tester.enterText(dialogField, '${l.lockWipePhrase}!');
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, l.lockWipeConfirm),
+      ).onPressed,
+      isNull,
+      reason: 'a near match must not authorize deletion',
+    );
+    expect(controller.calls, 0);
     await tester.enterText(dialogField, l.lockWipePhrase);
     await tester.pumpAndSettle();
     final confirmNow = tester.widget<FilledButton>(
@@ -194,21 +194,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
     await tester.pumpAndSettle();
-    // Settled animations do not mean filesystem/model cleanup has finished.
-    // Let real I/O run and observe the wipe's terminal result, rather than
-    // asserting onboarding while its unawaited button callback is in flight.
-    for (
-      var turn = 0;
-      turn < 100 &&
-          container.read(appControllerProvider).phase == AppPhase.locked &&
-          container.read(wipeReportProvider)?.stopped != true;
-      turn++
-    ) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pumpAndSettle();
-    }
+    expect(controller.calls, 1);
     expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
   });
 
