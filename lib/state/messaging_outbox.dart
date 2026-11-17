@@ -5,6 +5,7 @@ typedef _OutboxRedrive = ({
   OutboxFrame frame,
   bool callSignal,
   bool contactIdentity,
+  Object consentEpoch,
 });
 
 class _GroupSliceAcks {
@@ -854,12 +855,19 @@ class _MessagingOutbox {
         }
       }
       final Contact? contact;
+      // Carry this decision through candidate selection and worker waits.
+      // Frame ACKs invalidate the snapshot separately; neither grants a
+      // lease to send after a newer local/mirrored contact decision.
+      final consentEpoch = _owner._realtimeControl._consentEpoch(peer);
+      bool consentCurrent() =>
+          current(frame) &&
+          _owner._realtimeControl._consentCurrent(peer, consentEpoch);
       try {
         contact = await _owner._storage.getContact(peer);
       } catch (_) {
         continue;
       }
-      if (!current(frame)) continue;
+      if (!consentCurrent()) continue;
       var groupMemberCarrier = false;
       final externalSpaceProposalCarrier =
           frame.frameId.startsWith('space-join-request:') ||
@@ -877,6 +885,7 @@ class _MessagingOutbox {
               false;
         }
       }
+      if (!consentCurrent()) continue;
       // A CONTENT REQUEST ADDRESSED TO A SIGNING KEY can never complete: the
       // sovereign owner of a device group is an authority, not a node, and a
       // gcr aimed at it re-drives forever — measured as a sibling's outbox
@@ -885,7 +894,7 @@ class _MessagingOutbox {
       // survivors instead of carrying them to every flush until the till TTL.
       if (frame.frameId.startsWith('gcr:') &&
           (await _owner.isSovereignAuthority?.call(peer) ?? false)) {
-        if (!current(frame)) continue;
+        if (!consentCurrent()) continue;
         devLog(
           () =>
               'xVeil[durable]: retire gcr fid=${frame.frameId} — addressed to '
@@ -904,7 +913,7 @@ class _MessagingOutbox {
       // convinced it had delivered.
       final ownDevice =
           contact == null && (await _owner.isOwnDevice?.call(peer) ?? false);
-      if (!current(frame)) continue;
+      if (!consentCurrent()) continue;
       if (contact == null &&
           !ownDevice &&
           !groupMemberCarrier &&
@@ -971,6 +980,7 @@ class _MessagingOutbox {
         frame: frame,
         callSignal: isCallSignal,
         contactIdentity: contact?.status == ContactStatus.accepted,
+        consentEpoch: consentEpoch,
       ));
     }
     // Give each due recipient a slot before taking another from its backlog.
@@ -1015,7 +1025,11 @@ class _MessagingOutbox {
     _OutboxFlushSnapshot snapshot,
   ) async {
     if (_owner._disposed ||
-        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
+        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId) ||
+        !_owner._realtimeControl._consentCurrent(
+          entry.peer,
+          entry.consentEpoch,
+        )) {
       return true;
     }
     try {
@@ -1034,7 +1048,11 @@ class _MessagingOutbox {
       return true;
     }
     if (_owner._disposed ||
-        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
+        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId) ||
+        !_owner._realtimeControl._consentCurrent(
+          entry.peer,
+          entry.consentEpoch,
+        )) {
       return true;
     }
     final peerHex = entry.frame.peerHex;
