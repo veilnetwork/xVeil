@@ -129,6 +129,32 @@ class _RelayEngine extends _Engine {
   bool get supportsChannelRebind => false;
 }
 
+class _AudioOutcomeRelayEngine extends _RelayEngine {
+  _AudioOutcomeRelayEngine({
+    this.capture = 0,
+    this.playout = 1,
+    this.muteAccepted = true,
+  });
+  int capture;
+  final int playout;
+  final bool muteAccepted;
+  final mutes = <bool>[];
+  @override
+  bool startAudio({bool send = true, bool recv = true}) =>
+      capture == 1 && playout == 1;
+  @override
+  Map<String, dynamic> getStats() => {
+    ...super.getStats(),
+    'audio_capture_start_result': capture,
+    'audio_playout_start_result': playout,
+  };
+  @override
+  bool trySetMicMuted(bool muted) {
+    mutes.add(muted);
+    return muteAccepted && (muted || capture == 1);
+  }
+}
+
 class _RepairTransport extends _Transport {
   Completer<void>? nextIdentity;
   final identityEntered = Completer<void>();
@@ -386,6 +412,84 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final outcome in [
+    'receive-only',
+    'already-muted',
+    'healthy',
+    'output-failure',
+    'mute-refusal',
+  ]) {
+    test('rebuilt audio reports capture posture after $outcome', () async {
+      final wire = _Wire(), transport = _RepairTransport();
+      final old = _RelayEngine();
+      final next = _AudioOutcomeRelayEngine(
+        capture: outcome == 'healthy' ? 1 : 0,
+        playout: outcome == 'output-failure' ? 0 : 1,
+        muteAccepted: outcome != 'mute-refusal',
+      );
+      var creates = 0;
+      final controller = _ObservedRepair(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                creates++ == 0 ? old : next,
+        nativeCameraFactory: () => _NativeCamera(true),
+        cameraCaptureFactory: (_, _) => _PluginCamera(Future.value(true)),
+      );
+      final service = CallService(wire, media: controller)..start();
+      try {
+        await _connect(service, wire, peerPosture: CallPosture.direct);
+        await pumpEventQueue();
+        if (outcome == 'already-muted') await service.setMicEnabled(false);
+        wire.sent.clear();
+        final callId = service.current!.callId;
+        wire.onCallSignal!(
+          _id(2),
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        final repaired = await controller.repairCompleted.future;
+        await pumpEventQueue();
+        final failed = outcome == 'output-failure' || outcome == 'mute-refusal';
+        expect(repaired, !failed);
+        if (failed) {
+          expect(service.current?.isLive, isNot(true));
+          expect(wire.sent.any((s) => s.type == CallSignalType.end), isTrue);
+          return;
+        }
+        expect(service.current?.status, CallStatus.active);
+        expect(service.current?.callId, callId);
+        expect(controller.activeTransport, CallTransportKind.relay);
+        expect(service.current?.cameraOn, isTrue);
+        expect(next.disposed, isFalse);
+        expect(service.current?.micOn, outcome == 'healthy');
+        expect(controller.startedWithoutMicrophone, outcome != 'healthy');
+        expect(transport.relayOpens, [true, true]);
+        expect(transport.directOpens, [false, false]);
+        if (outcome == 'receive-only') {
+          final captures = wire.sent.where((s) => s.capture != null);
+          expect(captures, isNotEmpty);
+          expect(captures.last.capture!.audio, isFalse);
+          expect(captures.last.capture!.video, isTrue);
+          expect(next.mutes.last, isTrue);
+          next.capture = 1;
+          await service.setMicEnabled(true);
+          await pumpEventQueue();
+          expect(service.current?.micOn, isTrue);
+          expect(controller.startedWithoutMicrophone, isFalse);
+          expect(wire.sent.last.capture?.audio, isTrue);
+        }
+      } finally {
+        service.dispose();
+        await controller.stop();
+      }
+    });
+  }
 
   for (final mode in [
     'normal-native',
