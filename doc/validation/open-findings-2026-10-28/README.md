@@ -345,6 +345,16 @@
   анализатор чист. Это controlled platform qualification,
   не атрибуция Windows 10 камеры; не выпущено.
   [Воспроизведение и границы](../video-renderer-owner-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: завершение старой медиасессии не разбирает новую.**
+  После await старой камеры teardown читал общие поля и мог закрыть новый
+  engine/channel/fallback, снять новый network hold и освободить старый engine
+  до native fence. Ресурсы теперь захватываются/отсоединяются до ожиданий,
+  команда audio-stop идёт сразу, а освобождение старого engine ждёт его fence.
+  Start request фиксируется до первого await, в том числе при том же call ID.
+  Восемь baseline assertion-red, 800 related и 206 с диагностикой прошли без
+  skips; анализатор чист. Два deliberate mutants дали один и четыре ожидаемых
+  отказа. Это квалификация controller ordering, не физического Windows-звонка;
+  не выпущено. [Проверки и границы](../media-session-stop-owner-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие

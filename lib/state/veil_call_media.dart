@@ -637,6 +637,9 @@ class VeilCallMediaController implements CallMediaController {
   bool get _routeRepairing => _routeOperations.busy;
   final _networkActivityOwner = Object();
   int _mediaEpoch = 0;
+  // Unlike mediaEpoch, this is claimed BEFORE start's first await, including
+  // the teardown of a previous engine. A later same-call start must win too.
+  int _startOperationEpoch = 0;
   Future<void>? _devicePreferencesReady;
   String? _selectedCameraId;
   String? _selectedMicrophoneId;
@@ -1460,6 +1463,8 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    final request = ++_startOperationEpoch;
+    bool requested() => request == _startOperationEpoch;
     _startedWithoutCamera = false;
     final previousCall = _activeCall;
     final preserveReceiveHistory =
@@ -1501,17 +1506,23 @@ class VeilCallMediaController implements CallMediaController {
     // Never open a route while the call is only ringing: the final route is
     // known only after both peers have applied their consent policy. Reuse is
     // therefore limited to this controller's already-finalized call lifecycle.
-    if (!_microphoneState.belongsToCall(call.callId)) return false;
+    if (!requested() || !_microphoneState.belongsToCall(call.callId)) {
+      return false;
+    }
     if (_engine != null || (_chan != null && _chanPeer != call.mediaPeer.hex)) {
       await _stopSession(
         clearActiveCall: _activeCall?.callId != call.callId,
         clearMicrophoneState: false,
+        startingRequest: request,
       );
     }
-    if (!_microphoneState.belongsToCall(call.callId)) return false;
+    if (!requested() || !_microphoneState.belongsToCall(call.callId)) {
+      return false;
+    }
     final epoch = ++_mediaEpoch;
     _activeCall = call;
     bool currentStart() =>
+        requested() &&
         _mediaEpoch == epoch &&
         _activeCall?.callId == call.callId &&
         _microphoneState.belongsToCall(call.callId);
@@ -2504,8 +2515,10 @@ class VeilCallMediaController implements CallMediaController {
   Future<void> _stopSession({
     required bool clearActiveCall,
     bool clearMicrophoneState = true,
+    int? startingRequest,
   }) async {
-    _mediaEpoch++;
+    if (startingRequest == null) ++_startOperationEpoch;
+    final epoch = ++_mediaEpoch;
     _audioMirrorLease.stop();
     for (final channel in _diagnosticRouteChannels) {
       try {
@@ -2513,7 +2526,6 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     }
     _diagnosticRouteChannels.clear();
-    callVideoSendPausedForAudio.value = false;
     _handoverPacketSizeReady = false;
     for (final entry in _retiringChannels.entries) {
       entry.value.cancel();
@@ -2553,10 +2565,6 @@ class VeilCallMediaController implements CallMediaController {
         _microphoneState.clear();
         _cameraState.clear();
       }
-      // The prompt belongs to a call, not to the app. A route repair
-      // (clearActiveCall: false) deliberately keeps it: the link that could
-      // not carry video a second ago is the same link.
-      callVideoPrompt.value = null;
       // The rebuild cap is per CALL, not per session: a repair's stop+start
       // (clearActiveCall: false) must not refill the budget it just spent.
       _starvedRebuilds = 0;
@@ -2582,60 +2590,27 @@ class VeilCallMediaController implements CallMediaController {
     // must start video at its reduced budget instead of injecting a new burst.
     _bitrateAdapter?.invalidateAppliedState();
     if (!keepScreenCapture) _screenSharing = false;
-    remoteVideoFrame.value = null;
-    localVideoFrame.value = null;
+    // Detach this session's complete resource set BEFORE any teardown await.
+    // A new start can proceed while native detaches acknowledge; it must not
+    // discover/free this engine, and this continuation must never read its
+    // replacement's fields after the fence.
     final videoRenderer = _androidVideoRenderer;
     _androidVideoRenderer = null;
-    if (videoRenderer != null) {
-      try {
-        await videoRenderer.stop();
-      } catch (_) {}
-    }
     final nativeCam = _androidNativeCam;
     _androidNativeCam = null;
-    if (nativeCam != null) {
-      try {
-        // Awaited platform stop is also the JNI-handler lifetime fence. The
-        // engine below cannot be destroyed while a frame push is in flight.
-        await nativeCam.stop();
-      } catch (_) {}
-    }
-    // The camera and screen teardowns are STARTED here and awaited at the end.
-    //
-    // Both detach their sinks synchronously, so nothing can reach the engine
-    // from this line on — and both may then sit on a platform call that has
-    // not answered. Awaiting them here put the audio engine, the media channel
-    // and the call slot behind that wait: the call was over on screen while
-    // the microphone was still running (report24 MEDIA-1).
-    final closing = <Future<void>>[];
     final cam = _androidCam;
     _androidCam = null;
-    if (cam != null) closing.add(cam.stop().catchError((Object _) {}));
     final screen = _androidScreen;
-    if (!keepScreenCapture) {
-      _androidScreen = null;
-      if (screen != null) closing.add(screen.stop().catchError((Object _) {}));
-    }
+    if (!keepScreenCapture) _androidScreen = null;
     final e = _engine;
     _engine = null;
-    if (identical(_diagnosticMediaController, this)) {
-      _diagnosticMediaController = null;
-    }
-    if (e != null) {
-      try {
-        e.stopVideo();
-      } catch (_) {}
-      try {
-        e.stopAudio();
-      } catch (_) {}
-      try {
-        e.dispose();
-      } catch (_) {}
-    }
     final ch = _chan;
     _chan = null;
     _chanPeer = null;
     _chanTransport = null;
+    if (identical(_diagnosticMediaController, this)) {
+      _diagnosticMediaController = null;
+    }
     _mediaBatching = false;
     _compactRelayMedia = false;
     _audioFramingEnabled = false;
@@ -2645,9 +2620,47 @@ class VeilCallMediaController implements CallMediaController {
     _audioSourceCost = null;
     _videoFramingEligible = false;
     _videoFraming = CallVideoFraming();
+
+    // Publishing may synchronously start another call. No remaining shared
+    // session field is reset below; all cleanup uses only the captured owners.
+    callVideoSendPausedForAudio.value = false;
+    // A route repair keeps its call-scoped low-video prompt.
+    if (clearActiveCall) callVideoPrompt.value = null;
+    remoteVideoFrame.value = null;
+    localVideoFrame.value = null;
+    Future<void> settle(Future<void> Function() stop) async {
+      try {
+        await stop();
+      } catch (_) {}
+    }
+    final nativeClosing = <Future<void>>[
+      if (videoRenderer != null) settle(videoRenderer.stop),
+      if (nativeCam != null) settle(nativeCam.stop),
+    ];
+    final closing = <Future<void>>[
+      if (cam != null) settle(cam.stop),
+      if (!keepScreenCapture && screen != null) settle(screen.stop),
+    ];
+    // Stop physical audio immediately. Only freeing the engine/video requires
+    // the native Surface/Camera2 JNI fences; a delayed reply must not keep the
+    // ended call recording or playing while its UI is already gone.
+    if (e != null) {
+      try {
+        e.stopAudio();
+      } catch (_) {}
+    }
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
+      } catch (_) {}
+    }
+    if (nativeClosing.isNotEmpty) await Future.wait(nativeClosing);
+    if (e != null) {
+      try {
+        e.stopVideo();
+      } catch (_) {}
+      try {
+        e.dispose();
       } catch (_) {}
     }
     // Now that the audio, the engine and the channel are gone, wait for the
@@ -2661,9 +2674,11 @@ class VeilCallMediaController implements CallMediaController {
     // A route repair tears down and recreates only the media session. Keep the
     // radio in low-latency mode and the microphone foreground grant across
     // that internal gap; release them only when the call itself ends.
-    if (clearActiveCall) {
+    if (clearActiveCall && epoch == _mediaEpoch) {
       await callAudioRouter.release();
+      if (epoch != _mediaEpoch) return;
       await _networkActivity.release(_networkActivityOwner);
+      if (epoch != _mediaEpoch) return;
       await _microphoneForeground.setActive(false);
     }
   }
