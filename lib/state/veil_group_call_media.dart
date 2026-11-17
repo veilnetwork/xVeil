@@ -646,19 +646,31 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
-  Future<void> update(GroupCall call) => _locked(() async {
-    if (_engine == null) return;
-    await _syncPeersLocked(call);
-    final roomHasVideo =
-        call.media.video ||
-        call.media.screen ||
-        call.participants.values.any(
-          (participant) => participant.media.video || participant.media.screen,
-        );
-    if (roomHasVideo && !_videoRunning) {
-      await _startVideoLocked(startScreen: call.screenOn);
-    }
-  });
+  Future<void> update(GroupCall call) {
+    // Roster updates can accumulate behind a slow peer open. Bind them when
+    // requested: taking the epoch only after entering the lane would authorize
+    // old work with a stop/replacement's newer epoch and reopen media on exit.
+    final request = _sessionRequestEpoch;
+    return _locked(() async {
+      bool isCurrent() =>
+          request == _sessionRequestEpoch &&
+          _engine != null &&
+          _engineRequest == request;
+      if (!isCurrent()) return;
+      await _syncPeersLocked(call);
+      if (!isCurrent()) return;
+      final roomHasVideo =
+          call.media.video ||
+          call.media.screen ||
+          call.participants.values.any(
+            (participant) =>
+                participant.media.video || participant.media.screen,
+          );
+      if (roomHasVideo && !_videoRunning) {
+        await _startVideoLocked(startScreen: call.screenOn);
+      }
+    });
+  }
 
   @override
   Future<bool> setVideoEnabled(bool enabled) async {
@@ -781,9 +793,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _syncPeersLocked(GroupCall call) async {
     final request = _sessionRequestEpoch;
     final engine = _engine;
-    if (engine == null) return;
+    if (engine == null || _engineRequest != request) return;
     bool isCurrent() =>
-        request == _sessionRequestEpoch && _engine == engine;
+        request == _sessionRequestEpoch &&
+        _engineRequest == request &&
+        _engine == engine;
     final nextAudioPeers = call.participants.values
         .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
         .map((peer) => peer.nodeId.hex)

@@ -279,10 +279,14 @@ void main() {
     final transport = _StartingGroupTransport(self);
     final engine = _FakeEngine();
     var creates = 0;
-    final controller = VeilGroupCallMediaController(transport,
+    final controller = VeilGroupCallMediaController(
+      transport,
       roomMediaSecret: _room(),
       audioProcessingReady: ready.future,
-      engineFactory: (_) { creates++; return engine; },
+      engineFactory: (_) {
+        creates++;
+        return engine;
+      },
       requestMicrophone: () async => true,
       networkActivity: CallNetworkActivity(setActive: (_) async => true),
     );
@@ -2820,6 +2824,174 @@ void main() {
       skip: !Platform.isMacOS && !Platform.isIOS,
     );
   }
+
+  for (final action in ['keep', 'stop', 'replace', 'repair']) {
+    test('queued group roster observes session retirement: $action', () async {
+      final self = _id(1), first = _id(2), second = _id(3);
+      final gate = _StartGate('channel');
+      final transport = _CancelledStartTransport(self, gate);
+      final engines = <_FakeEngine>[];
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) {
+          final engine = _FakeEngine();
+          engines.add(engine);
+          return engine;
+        },
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      addTearDown(() async {
+        if (!gate.ready.isCompleted) gate.ready.complete();
+        await controller.stop();
+      });
+      final original = _call(self, const []);
+      expect(await controller.start(original), isTrue);
+      final updating = controller.update(_call(self, [first]));
+      await gate.entered.future;
+      // Real roster commands can accumulate behind a slow peer-channel open.
+      final queued = controller.update(_call(self, [second], video: true));
+      final stopping = action == 'stop' || action == 'replace'
+          ? controller.stop()
+          : null;
+      final starting = action == 'replace' || action == 'repair'
+          ? controller.start(
+              action == 'repair'
+                  ? original
+                  : _call(self, const [], callId: 'next-roster-room'),
+            )
+          : null;
+      try {
+        gate.ready.complete();
+        await updating;
+        await queued;
+        await stopping;
+        if (starting != null) expect(await starting, isTrue);
+        expect(
+          transport.opened,
+          action == 'keep' ? [first, second] : [first],
+          reason: 'a retired roster cannot open another outgoing media channel',
+        );
+        expect(
+          engines.first.added,
+          action == 'keep' ? [first, second] : isEmpty,
+        );
+        expect(engines.first.videoStarted, action == 'keep' ? 1 : 0);
+        if (starting != null) expect(engines.last.added, isEmpty);
+      } finally {
+        if (!gate.ready.isCompleted) gate.ready.complete();
+        await updating;
+        await queued;
+        await stopping;
+        await starting;
+      }
+    });
+  }
+
+  test(
+    'group leave retires roster commands accumulated by incoming joins',
+    () async {
+      final self = _id(1), first = _id(2), second = _id(3), group = _id(9);
+      final groups = _CameraIntentGroups(self);
+      final gate = _StartGate('channel');
+      final transport = _CancelledStartTransport(self, gate);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      final service = GroupCallService(groups, media: controller)..start();
+      addTearDown(() async {
+        if (!gate.ready.isCompleted) gate.ready.complete();
+        await service.dispose();
+        await groups.close();
+      });
+      final active = service.changes.firstWhere(
+        (call) => call?.status == GroupCallStatus.active,
+      );
+      expect(
+        await service.startCall(group, const CallMedia(audio: true)),
+        isTrue,
+      );
+      await active;
+      void incomingJoin(NodeId author) {
+        groups._incoming.add(
+          GroupCallSignal(
+            groupId: group,
+            callId: service.current!.callId,
+            author: author,
+            membershipEpoch: 1,
+            type: GroupCallSignalType.join,
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+            nonce: 'synthetic-queued-roster',
+            signature: Uint8List(64),
+            authorPubKey: Uint8List(32),
+            media: const CallMedia(audio: true),
+          ),
+        );
+      }
+
+      incomingJoin(first);
+      await gate.entered.future;
+      incomingJoin(second);
+      await pumpEventQueue();
+      expect(service.current?.participants.keys, contains(second.hex));
+      await service.leave();
+      expect(service.current?.status, GroupCallStatus.ended);
+      try {
+        gate.ready.complete();
+        await pumpEventQueue();
+        expect(
+          transport.opened,
+          [first],
+          reason: 'queued joins cannot reopen media after the person leaves',
+        );
+        expect(engine.added, isEmpty);
+        expect(controller.audioRunning, isFalse);
+      } finally {
+        if (!gate.ready.isCompleted) gate.ready.complete();
+      }
+    },
+  );
+
+  test('current group roster may queue behind its own initial start', () async {
+    final self = _id(1), peer = _id(2), gate = _StartGate('identity');
+    final transport = _CancelledStartTransport(self, gate);
+    final engine = _FakeEngine();
+    final controller = VeilGroupCallMediaController(
+      transport,
+      roomMediaSecret: _room(),
+      engineFactory: (_) => engine,
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      requestMicrophone: () async => true,
+      requestCamera: () async => true,
+    );
+    addTearDown(() async {
+      if (!gate.ready.isCompleted) gate.ready.complete();
+      await controller.stop();
+    });
+    final starting = controller.start(_call(self, const []));
+    await gate.entered.future;
+    final updating = controller.update(_call(self, [peer], video: true));
+    try {
+      gate.ready.complete();
+      expect(await starting, isTrue);
+      await updating;
+      expect(transport.opened, [peer]);
+      expect(engine.added, [peer]);
+      expect(engine.videoStarted, 1);
+    } finally {
+      if (!gate.ready.isCompleted) gate.ready.complete();
+      await starting;
+      await updating;
+    }
+  });
 
   for (final replace in [false, true]) {
     test(
