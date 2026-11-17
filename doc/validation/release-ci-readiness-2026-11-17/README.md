@@ -276,3 +276,19 @@ successful jobs and one separately skipped guard. hidden-volume's tagged CI
 The already published Veil release receives a short Russian introduction;
 its complete original changelog is retained, identifier checks pass and the
 published body is read back and compared. No artifact or tag is changed.
+
+The exact final-main run `44151579927`, on the same `7a322d5c` source as the
+release tag, now also passes all six jobs; its full Linux suite again reports
+**11151 passed and 251 skipped**. Packaging continues in the tag workflow.
+
+Android 14 qualification begins in an owned ARM64 headless emulator with a
+separate loopback-only ADB server restricted against physical USB devices.
+The official previous stable **0.13.101** APK installs successfully and its
+installed APK digest matches the independently verified download. Loading its
+actual installed storage library passes contract version 30 but correctly
+fails the new binding inventory: one of the 50 current methods is missing.
+This is a real negative ABI control, not a successful 0.13.102 installation.
+The same emulator waits for the source/signature/media-verified normal tagged
+APK before attempting update and fresh-install cases. No camera, microphone,
+host window or physical phone is used. Those new-package cases and final
+emulator cleanup are still pending.
