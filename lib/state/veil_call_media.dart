@@ -3156,9 +3156,23 @@ class VeilCallMediaController implements CallMediaController {
     if (engine == null) return;
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     final chan = _chan;
-    if (enabled &&
-        (chan == null || _transport.setMediaScreenSharing(chan, false) != 0)) {
-      return;
+    if (enabled) {
+      var admitted = false;
+      try {
+        admitted =
+            chan != null && _transport.setMediaScreenSharing(chan, false) == 0;
+      } catch (_) {}
+      if (!admitted) {
+        // The camera never starts if channel preparation refuses it. Report
+        // the same failed posture as a capture refusal, without claiming a
+        // driver failure or leaving the call UI waiting for nonexistent video.
+        diagnosticJournal.recordCameraStart(
+          success: false,
+          origin: CameraStartOrigin.channelAdmission,
+        );
+        _reportCameraStartOutcome(engine, false);
+        return;
+      }
     }
     if (Platform.isAndroid) {
       if (enabled) {

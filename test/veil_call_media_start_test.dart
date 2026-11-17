@@ -60,6 +60,18 @@ class _OpeningTransport extends _Transport {
   }
 }
 
+class _CameraAdmissionTransport extends _Transport {
+  bool refuse = false;
+  bool throwOnRefusal = false;
+
+  @override
+  int setMediaScreenSharing(int channel, bool enabled) {
+    if (!refuse) return 0;
+    if (throwOnRefusal) throw StateError('synthetic screen mode refusal');
+    return -1;
+  }
+}
+
 class _Engine implements VeilMediaEngine {
   @override
   bool get supportsNoiseSuppression => true;
@@ -335,9 +347,10 @@ class _CameraCallWire implements MessagingService {
 
 Future<void> _connectCameraCall(
   CallService service,
-  _CameraCallWire wire,
-) async {
-  await service.placeCall(_id(2), const CallMedia(audio: true, video: true));
+  _CameraCallWire wire, {
+  bool video = true,
+}) async {
+  await service.placeCall(_id(2), CallMedia(audio: true, video: video));
   // Observe actual media admission, rather than assuming a fixed number of
   // event-loop turns also completes asynchronous preference/key setup.
   final active = Completer<void>();
@@ -772,6 +785,79 @@ void main() {
       },
       skip: Platform.isAndroid ? 'Desktop capture state' : false,
     );
+  }
+
+  for (final upgrade in [false, true]) {
+    for (final throws in [false, true]) {
+      test(
+        'camera control admission preserves actual posture '
+        'upgrade=$upgrade throws=$throws',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            'call.capture.camera.${Platform.operatingSystem}': 'old-camera',
+          });
+          final wire = _CameraCallWire();
+          final transport = _CameraAdmissionTransport();
+          final engine = _CameraChoiceEngine();
+          final controller = VeilCallMediaController(
+            transport,
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engine,
+          );
+          final service = CallService(wire, media: controller)..start();
+          try {
+            await _connectCameraCall(service, wire, video: !upgrade);
+            if (!upgrade) await service.setCameraEnabled(false);
+            final starts = engine.cameraStarts.length;
+            transport
+              ..refuse = true
+              ..throwOnRefusal = throws;
+            await service.setCameraEnabled(true);
+            await pumpEventQueue();
+            expect(engine.cameraStarts.length, starts);
+            expect(engine.activeCamera, isNull);
+            expect(service.current?.status, CallStatus.active);
+            expect(service.current?.media.video, isTrue);
+            expect(service.current?.cameraOn, isFalse);
+            expect(
+              wire.sent.where((s) => s.capture != null).last.capture?.video,
+              isFalse,
+            );
+            if (kDiagnosticReportEnabled) {
+              final report = diagnosticJournal.toJson();
+              final evidence = report['last_evidence'] as Map;
+              expect(
+                (evidence['cameraStart'] as Map)['values'],
+                {
+                  'success': 0,
+                  'origin': CameraStartOrigin.channelAdmission.index,
+                },
+              );
+              final encoded = jsonEncode(report);
+              for (final private in [
+                'synthetic screen mode refusal',
+                'old-camera',
+                service.current!.callId,
+                _id(2).hex,
+              ]) {
+                expect(encoded, isNot(contains(private)));
+              }
+            }
+            transport.refuse = false;
+            await service.setCameraEnabled(true);
+            await pumpEventQueue();
+            expect(service.current?.cameraOn, isTrue);
+            expect(engine.activeCamera, 'old-camera');
+            expect(engine.cameraStarts.length, starts + 1);
+          } finally {
+            service.dispose();
+            await controller.stop();
+          }
+        },
+        skip: Platform.isAndroid ? 'Desktop camera control' : false,
+      );
+    }
   }
 
   for (final phase in ['initial', 'toggle']) {
