@@ -259,3 +259,20 @@ qualified. Its tested head remains `2d41293d`; subsequent root changes affect
 only the qualification Markdown files, with unchanged runtime/build inputs.
 Application tagging and its independent mandatory release checks follow this
 source gate; a successful source run alone does not publish application assets.
+
+The unsigned annotated application tag `v0.13.102` names the exact
+`7a322d5c315835cac77a6065bc9c027a6de25318` source, with the project pseudonym
+and allowed email. Its independent mandatory release run `44151584778`
+passes analysis, native preparation, **11151 Flutter tests with 251 skipped**,
+media provenance regressions and the AOT/privacy driver checks. Android,
+Linux and Windows packaging has started; the node-connect helper passes.
+Neither these source checks nor the pushed tag qualify unpublished packages.
+Downloaded package digests, signatures, embedded native bytes, privacy and
+Android 14 clean-install/update checks remain pending.
+
+Veil's tagged mobile run `44143181484` subsequently completes with eleven
+successful jobs and one separately skipped guard. hidden-volume's tagged CI
+`44137568992` also completes all 24 jobs after the previously noted retry.
+The already published Veil release receives a short Russian introduction;
+its complete original changelog is retained, identifier checks pass and the
+published body is read back and compared. No artifact or tag is changed.
