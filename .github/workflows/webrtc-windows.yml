@@ -405,8 +405,11 @@ jobs:
           # the webrtc.lib actually inside this DLL.
           $m = Get-Content -Raw (Join-Path $env:WEBRTC_BUILD 'veil-webrtc-sdk.json') | ConvertFrom-Json
           New-Item -ItemType Directory -Force -Path provenance | Out-Null
-          $mediaSourceSha = (& python scripts/verify-media-provenance.py)
+          & python scripts/verify-media-provenance.py --provenance "$dll.provenance"
           if ($LASTEXITCODE -ne 0) { throw 'native media source digest failed' }
+          $mediaSourceSha = (Get-Content "$dll.provenance" | Where-Object {
+            $_.StartsWith('media-source-sha256:')
+          }).Split(':', 2)[1].Trim()
           $lines = @(
             "asset:           veil_media-${{ matrix.target }}.dll"
             "installs-as:     veil_media.dll"
@@ -446,14 +449,16 @@ jobs:
             (($lines -join "`n") + "`n"),
             [Text.Encoding]::ASCII)
           Get-Content "provenance\veil_media-${{ matrix.target }}.dll.provenance"
+          Copy-Item "provenance\veil_media-${{ matrix.target }}.dll.provenance" "$dll.provenance"
 
-      # Unchanged: the old run-id route still reads this artifact, by this
-      # name, expecting exactly this one file.
+      # The run-id route reads the binary and its matching record together.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.want.outputs.run == 'yes'
         with:
           name: libveil_media-${{ matrix.target }}
-          path: engine-out/veil_media.dll
+          path: |
+            engine-out/veil_media.dll
+            engine-out/veil_media.dll.provenance
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

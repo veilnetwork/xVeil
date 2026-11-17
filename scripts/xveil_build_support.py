@@ -44,6 +44,27 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IS_WINDOWS = platform.system() == "Windows"
 
 
+def verify_media_engine(binary, *, source_root, provenance=None) -> None:
+    """Verify native source and bytes without requiring a host media loader."""
+    import importlib.util
+    from pathlib import Path
+
+    try:
+        helper = Path(__file__).with_name('verify-media-provenance.py')
+        spec = importlib.util.spec_from_file_location('build_support_media_provenance', helper)
+        media = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(media)
+        path = Path(binary)
+        record = Path(provenance) if provenance else path.with_name(path.name + '.provenance')
+        source = Path(source_root) / 'third_party/veil/flutter/veil_media/src'
+        media.verify(source, record, path)
+    except (OSError, ValueError) as error:
+        detail = f'unavailable input (errno={error.errno})' if isinstance(error, OSError) else str(error)
+        raise RuntimeError(
+            f'INVALID call media provenance: {detail}; rebuild/restage the engine and its record'
+        ) from error
+
+
 class Abort(SystemExit):
     """A refusal with a reason the reader can act on."""
 

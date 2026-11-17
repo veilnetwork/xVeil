@@ -628,6 +628,11 @@ hand is still fine:
 tag=<the ENGINE_RELEASE pinned in .github/workflows/release.yml>
 curl -fL -o third_party/veil/flutter/veil_media/linux/libveil_media.so \
   "https://github.com/veilnetwork/xVeil/releases/download/$tag/libveil_media-linux-x64.so"
+curl -fL -o third_party/veil/flutter/veil_media/linux/libveil_media.so.provenance \
+  "https://github.com/veilnetwork/xVeil/releases/download/$tag/libveil_media-linux-x64.so.provenance"
+python3 scripts/verify-media-provenance.py \
+  --provenance third_party/veil/flutter/veil_media/linux/libveil_media.so.provenance \
+  --binary third_party/veil/flutter/veil_media/linux/libveil_media.so
 bash scripts/check-media-symbols.sh \
   third_party/veil/flutter/veil_media/linux/libveil_media.so
 
@@ -637,7 +642,7 @@ gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
 ```
 
 The same shape works for `libveil_media-android-arm64` into
-`android/app/src/main/jniLibs/arm64-v8a` and `libveil_media-win-x64` into
+`android/app/src/main/jniLibs/arm64-v8a` and `veil_media-win-x64.dll` into
 `third_party/veil/flutter/veil_media/windows`. Run
 `scripts/check-media-symbols.sh` afterwards either way: a stale engine links
 and then fails at `dlsym` on the first call, which is a much worse place to
@@ -691,6 +696,16 @@ counted. It is written by the job that built the binary, not reconstructed by
 the job that uploads it. An asset with no provenance is the pinned-run problem
 in a nicer wrapper: downloadable forever, and still no way to tell what it came
 from.
+
+Keep that record beside the staged binary, using its local installed name plus
+`.provenance`. Local release builds verify the current native-source digest and
+binary SHA before compilation, then check the copy inside the APK/desktop bundle.
+Matching exports alone cannot detect an old implementation. The Android APK
+excludes provenance records and preserves the producer's media-library bytes.
+Current Linux/Android/Windows wrapper builds create the record themselves;
+workflow artifacts carry it with the binary. Older artifacts without a matching
+record must be rebuilt. Debug presence admission stays permissive for controlled
+stand builds; it does not establish release qualification.
 
 Downloading one needs nothing at all:
 

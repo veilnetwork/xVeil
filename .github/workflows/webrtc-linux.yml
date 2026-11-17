@@ -316,7 +316,8 @@ jobs:
           so=third_party/veil/flutter/veil_media/linux/libveil_media.so
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
-          media_source_sha="$(python3 scripts/verify-media-provenance.py)"
+          python3 scripts/verify-media-provenance.py --provenance "$so.provenance"
+          media_source_sha="$(awk '/^media-source-sha256:/{print $2}' "$so.provenance")"
           mkdir -p provenance
           {
             echo "asset:           libveil_media-${{ matrix.target }}.so"
@@ -339,6 +340,7 @@ jobs:
             echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
           } > "provenance/libveil_media-${{ matrix.target }}.so.provenance"
           cat "provenance/libveil_media-${{ matrix.target }}.so.provenance"
+          cp "provenance/libveil_media-${{ matrix.target }}.so.provenance" "$so.provenance"
 
       # Unchanged on purpose: the old run-id route still reads this artifact,
       # by this name, expecting exactly this one file. The provenance goes up
@@ -354,7 +356,9 @@ jobs:
         if: steps.want.outputs.run == 'yes'
         with:
           name: libveil_media-${{ matrix.target }}
-          path: third_party/veil/flutter/veil_media/linux/libveil_media.so
+          path: |
+            third_party/veil/flutter/veil_media/linux/libveil_media.so
+            third_party/veil/flutter/veil_media/linux/libveil_media.so.provenance
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -522,7 +526,8 @@ jobs:
           so="$GITHUB_WORKSPACE/engine-out/libveil_media.so"
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
-          media_source_sha="$(python3 scripts/verify-media-provenance.py)"
+          python3 scripts/verify-media-provenance.py --provenance "$so.provenance"
+          media_source_sha="$(awk '/^media-source-sha256:/{print $2}' "$so.provenance")"
           mkdir -p provenance
           {
             echo "asset:           libveil_media-${{ matrix.target }}.so"
@@ -545,12 +550,15 @@ jobs:
             echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
           } > "provenance/libveil_media-${{ matrix.target }}.so.provenance"
           cat "provenance/libveil_media-${{ matrix.target }}.so.provenance"
+          cp "provenance/libveil_media-${{ matrix.target }}.so.provenance" "$so.provenance"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.want.outputs.run == 'yes'
         with:
           name: libveil_media-${{ matrix.target }}
-          path: engine-out/libveil_media.so
+          path: |
+            engine-out/libveil_media.so
+            engine-out/libveil_media.so.provenance
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

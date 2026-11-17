@@ -36,6 +36,7 @@ from xveil_build_support import (  # noqa: E402
     newer_source,
     resolve,
     sh,
+    verify_media_engine,
 )
 
 VEIL = os.path.join("third_party", "veil")
@@ -514,6 +515,18 @@ def _staged_media_so(abi: str) -> str:
     return os.path.join(ROOT, _MEDIA_STAGE_DIR, abi, _MEDIA_SO)
 
 
+def _check_media_provenance(binary: str, *, provenance: str | None = None) -> None:
+    """Use the same source and byte checks as CI, including packaged copies."""
+    verify_media_engine(binary, source_root=ROOT, provenance=provenance)
+
+
+def _check_staged_media_provenance(platform: str) -> None:
+    paths = ([_staged_media_so(abi) for abi in _MEDIA_ABIS] if platform == 'android'
+             else [os.path.join(ROOT, _LINUX_ENGINE_STAGE if platform == 'linux' else _WINDOWS_ENGINE_STAGE)])
+    for path in paths:
+        _check_media_provenance(path)
+
+
 def _check_media_staged() -> None:
     """Refuse to start an Android build without its mandatory startup engine.
 
@@ -612,7 +625,13 @@ def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
             with bundle.open(f"lib/{abi}/{_MEDIA_SO}") as src:
                 with open(extracted, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-        return _media_symbols_verdict(extracted, label=f"{abi}: {_MEDIA_SO}")
+        problems = []
+        try:
+            _check_media_provenance(
+                extracted, provenance=_staged_media_so(abi) + '.provenance')
+        except RuntimeError as error:
+            problems.append(f'{abi}: {error}')
+        return problems + _media_symbols_verdict(extracted, label=f"{abi}: {_MEDIA_SO}")
 
 
 def _android_native_dependency_problems(*, bundle_path: str, abi: str) -> list[str]:
@@ -767,6 +786,8 @@ def _android(release: bool) -> list[Step]:
     # and wrapper compilation. Desktop's optional-engine policy is different.
     steps = [
         Step("call media staged", call=_check_media_staged),
+        *([Step("current call media provenance", call=lambda: _check_staged_media_provenance('android'))]
+          if release else []),
         Step(
             "native libraries (hidden_volume has no gradle cargo step)",
             argv=sh("scripts/build-mobile.sh", "android") if have("bash") else [],
@@ -921,11 +942,12 @@ def _check_linux_engine(bundle: str) -> None:
     this runs — two artifact checks, because an artifact check is the only kind
     a forgotten flag cannot satisfy.
     """
-    for directory, _, files in os.walk(os.path.join(ROOT, bundle)):
-        if _LINUX_ENGINE_SO in files:
-            found = os.path.join(directory, _LINUX_ENGINE_SO)
-            print(f"    {os.path.relpath(found, ROOT)}")
-            return
+    found = os.path.join(ROOT, bundle, 'lib', _LINUX_ENGINE_SO)
+    if os.path.isfile(found):
+        _check_media_provenance(
+            found, provenance=os.path.join(ROOT, _LINUX_ENGINE_STAGE) + '.provenance')
+        print(f"    {os.path.relpath(found, ROOT)}")
+        return
     raise RuntimeError(
         f"MISSING {_LINUX_ENGINE_SO} — this bundle has no call media.\n"
         f"    Expected it bundled from {_LINUX_ENGINE_STAGE}\n"
@@ -944,6 +966,8 @@ _LINUX_ENGINE_STAGE = os.path.join(
 
 def _linux(release: bool) -> list[Step]:
     steps = [
+        *([Step("current call media provenance", call=lambda: _check_staged_media_provenance('linux'))]
+          if release else []),
         Step(
             "native libraries",
             argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
@@ -1281,12 +1305,10 @@ def _check_windows_engine(runner: str) -> None:
     reaching here without it means the bundle was assembled some other way —
     check the artifact rather than trusting that.
     """
-    found = None
-    for directory, _, files in os.walk(os.path.join(ROOT, runner)):
-        if _WINDOWS_ENGINE_DLL in files:
-            found = os.path.join(directory, _WINDOWS_ENGINE_DLL)
-            break
-    if found is not None:
+    found = os.path.join(ROOT, runner, _WINDOWS_ENGINE_DLL)
+    if os.path.isfile(found):
+        _check_media_provenance(
+            found, provenance=os.path.join(ROOT, _WINDOWS_ENGINE_STAGE) + '.provenance')
         print(f"    {os.path.relpath(found, ROOT)}")
         return
     raise RuntimeError(
@@ -1372,6 +1394,8 @@ def _windows(release: bool) -> list[Step]:
         cargo_hv.append(profile)
         cargo_veil.append(profile)
     return [
+        *([Step("current call media provenance", call=lambda: _check_staged_media_provenance('windows'))]
+          if release else []),
         Step("hidden-volume FFI", argv=cargo_hv, env=_build_env(msvc=True)),
         # The plugin's CMake picks the DLL up from windows/lib; without this
         # the app builds and then cannot open its own container at runtime.

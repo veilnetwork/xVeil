@@ -67,6 +67,17 @@ class AotWorkspaceTest(unittest.TestCase):
             self.assertTrue(acl["Owner"])
             self.assertEqual(len(acl["Rules"]), 1)
 
+    def test_staged_media_record_survives_and_affects_input_fingerprint(self):
+        relative = "android/app/src/main/jniLibs/arm64-v8a/libveil_media.so.provenance"
+        self.write(relative, b"first build record")
+        first, staged = self.prepare()
+        self.assertEqual((staged / relative).read_bytes(), b"first build record")
+        (staged / relative).write_bytes(b"child mutation")
+        self.assertEqual((self.source / relative).read_bytes(), b"first build record")
+        self.write(relative, b"replacement build record")
+        second, _ = self.prepare()
+        self.assertNotEqual(first["input_sha256"], second["input_sha256"])
+
     def test_build_git_and_stand_caches_do_not_enter_copy(self):
         for name in [".git/config", "build/huge", "artifacts/stand.store", ".dev-stand/data",
                      "lib/.dart_tool/cache", "third_party/veil/target/object",
