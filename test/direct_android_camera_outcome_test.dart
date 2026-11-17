@@ -6,6 +6,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart'
+    show CameraPlatform;
+import 'support/camera_retirement_platform.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 import 'package:xveil/core/diagnostic_journal.dart';
@@ -16,6 +19,7 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/android_camera_capture.dart';
 import 'package:xveil/state/android_native_call_camera.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
@@ -308,6 +312,65 @@ class _PluginCamera extends AndroidCameraCapture {
   Future<void> stop() async => stops++;
 }
 
+class _ReentrantStopMedia extends CallMediaController {
+  final release = Completer<void>();
+  void Function()? onStop;
+  int stops = 0;
+  @override
+  Future<bool> start(Call call) async => true;
+  @override
+  Future<void> stop() {
+    stops++;
+    // The real direct controller has detached its engine on the first call;
+    // another stop can therefore return before that first engine finishes.
+    if (stops > 1) return Future.value();
+    final callback = onStop;
+    onStop = null;
+    callback?.call();
+    return release.future;
+  }
+}
+
+class _ObservedPluginCamera extends AndroidCameraCapture {
+  final opened = Completer<bool>();
+  @override
+  Future<bool> startAndroid420(Android420FrameSink sink) async {
+    final result = await super.startAndroid420(sink);
+    opened.complete(result);
+    return result;
+  }
+}
+
+class _DrainingPluginCamera extends _PluginCamera {
+  _DrainingPluginCamera({Future<bool>? startResult, this.failStart = false})
+    : super(startResult ?? Future.value(true));
+  final bool failStart;
+  final release = Completer<void>(), stopping = Completer<void>();
+  Future<void>? _closing;
+  void Function()? onStop;
+  bool running = false;
+  @override
+  Future<bool> startAndroid420(Android420FrameSink sink) async {
+    running = await super.startAndroid420(sink);
+    if (failStart) throw StateError('synthetic plugin startup cleanup failure');
+    return running;
+  }
+
+  @override
+  Future<void> stop() {
+    final pending = _closing;
+    if (pending != null) return pending;
+    stops++;
+    final closed = release.future.then((_) => running = false);
+    _closing = closed;
+    stopping.complete();
+    final callback = onStop;
+    onStop = null;
+    callback?.call();
+    return closed;
+  }
+}
+
 class _Wire implements MessagingService {
   @override
   bool backgroundStashPaused = false;
@@ -372,6 +435,317 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(permissions, null);
   });
+
+  for (final operation in ['off', 'select']) {
+    for (final completion in ['ordinary', 'reentrant', 'failure', 'dispose']) {
+      test(
+        'detached plugin $operation retains call slot: $completion',
+        () async {
+          final wire = _Wire(), engine = _Engine();
+          final camera = _DrainingPluginCamera();
+          final slot = CallSlot();
+          final controller = VeilCallMediaController(
+            _Transport(),
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engine,
+            androidCameraCapture: true,
+            nativeCameraFactory: () => _NativeCamera(false),
+            cameraCaptureFactory: (_, _) => camera,
+          );
+          final service = CallService(wire, media: controller, callSlot: slot)
+            ..start();
+          Future<Object?>? changing;
+          Future<void>? observedChanging;
+          Object? changingError;
+          Future<void>? ending;
+          try {
+            await _connect(service, wire);
+            await camera.entered.future;
+            await pumpEventQueue();
+            expect(camera.running, isTrue);
+            expect(slot.owner, CallSlotOwner.direct);
+            if (completion == 'reentrant') {
+              camera.onStop = () {
+                ending = service.hangup();
+              };
+            }
+            changing = operation == 'off'
+                ? service.setCameraEnabled(false)
+                : service.selectCamera('back-fixture');
+            observedChanging = changing.then<void>(
+              (_) {},
+              onError: (Object error, StackTrace _) {
+                changingError = error;
+              },
+            );
+            await camera.stopping.future;
+            if (completion == 'reentrant') {
+              expect(ending, isNotNull);
+              await ending;
+            } else {
+              await service.hangup();
+            }
+            if (completion == 'dispose') service.dispose();
+            await pumpEventQueue();
+            expect(service.current, isNull);
+            expect(engine.audioStops, greaterThan(0));
+            expect(
+              camera.running,
+              isTrue,
+              reason: 'the controlled close has not acknowledged release',
+            );
+            if (completion != 'failure') {
+              final competing = slot.acquire(CallSlotOwner.group);
+              if (competing != null) slot.release(competing);
+              expect(
+                competing,
+                isNull,
+                reason:
+                    'a second call must not acquire pending capture resources',
+              );
+            }
+            if (completion == 'failure') {
+              camera.release.completeError(
+                StateError('synthetic plugin close refusal'),
+              );
+            } else {
+              camera.release.complete();
+            }
+            await observedChanging;
+            await pumpEventQueue();
+            expect(
+              changingError,
+              completion == 'failure' && operation == 'select'
+                  ? isA<StateError>()
+                  : isNull,
+            );
+            expect(engine.disposed, isTrue);
+            expect(slot.owner, isNull);
+            if (completion != 'failure') expect(camera.running, isFalse);
+          } finally {
+            if (!camera.release.isCompleted) camera.release.complete();
+            await observedChanging;
+            await ending;
+            service.dispose();
+            await controller.stop();
+            await pumpEventQueue();
+            expect(slot.owner, isNull);
+          }
+        },
+      );
+    }
+  }
+
+  for (final reentrant in [false, true]) {
+    test(
+      'plugin startup cleanup retains call slot: reentrant=$reentrant',
+      () async {
+        final wire = _Wire(), engine = _Engine(), slot = CallSlot();
+        final opening = Completer<bool>();
+        final camera = _DrainingPluginCamera(
+          startResult: opening.future,
+          failStart: true,
+        );
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          androidCameraCapture: true,
+          nativeCameraFactory: () => _NativeCamera(false),
+          cameraCaptureFactory: (_, _) => camera,
+        );
+        final service = CallService(wire, media: controller, callSlot: slot)
+          ..start();
+        Future<void>? ending;
+        try {
+          await _connect(service, wire);
+          await camera.entered.future;
+          expect(service.current?.status, CallStatus.active);
+          if (reentrant) {
+            camera.onStop = () {
+              ending = service.hangup();
+            };
+          }
+          opening.complete(true);
+          await camera.stopping.future;
+          if (reentrant) {
+            expect(ending, isNotNull);
+            await ending;
+          } else {
+            await service.hangup();
+          }
+          await pumpEventQueue();
+          expect(service.current, isNull);
+          expect(engine.audioStops, greaterThan(0));
+          final competing = slot.acquire(CallSlotOwner.group);
+          if (competing != null) slot.release(competing);
+          expect(
+            competing,
+            isNull,
+            reason: 'startup cleanup still owns its pending platform stop',
+          );
+          camera.release.complete();
+          await pumpEventQueue();
+          expect(camera.running, isFalse);
+          expect(engine.disposed, isTrue);
+          expect(slot.owner, isNull);
+        } finally {
+          if (!opening.isCompleted) opening.complete(true);
+          if (!camera.release.isCompleted) camera.release.complete();
+          await ending;
+          service.dispose();
+          await controller.stop();
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+        }
+      },
+    );
+  }
+
+  for (final operation in ['off', 'select']) {
+    test('platform-backed plugin $operation retains call slot', () async {
+      final previousPlatform = CameraPlatform.instance;
+      final platform = RetirementCameraPlatform()
+        ..disposeGate = Completer<void>();
+      CameraPlatform.instance = platform;
+      final wire = _Wire(), engine = _Engine(), slot = CallSlot();
+      final camera = _ObservedPluginCamera();
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+        androidCameraCapture: true,
+        nativeCameraFactory: () => _NativeCamera(false),
+        cameraCaptureFactory: (_, _) => camera,
+      );
+      final service = CallService(wire, media: controller, callSlot: slot)
+        ..start();
+      Future<void>? observedChanging;
+      Object? commandError;
+      try {
+        await _connect(service, wire);
+        expect(await camera.opened.future, isTrue);
+        await pumpEventQueue();
+        final preview = androidCallCameraPreviewController.value;
+        expect(preview?.value.isInitialized, isTrue);
+        expect(preview?.value.isStreamingImages, isTrue);
+        final changing = operation == 'off'
+            ? service.setCameraEnabled(false)
+            : service.selectCamera('back-fixture');
+        observedChanging = changing.then<void>(
+          (_) {},
+          onError: (Object error, StackTrace _) {
+            commandError = error;
+          },
+        );
+        await platform.disposeEntered.future;
+        await service.hangup();
+        await pumpEventQueue();
+        expect(engine.audioStops, greaterThan(0));
+        final competing = slot.acquire(CallSlotOwner.group);
+        if (competing != null) slot.release(competing);
+        expect(
+          competing,
+          isNull,
+          reason: 'the real adapter still waits on CameraPlatform.dispose',
+        );
+        platform.disposeGate!.complete();
+        await observedChanging;
+        await pumpEventQueue();
+        expect(commandError, isNull);
+        expect(slot.owner, isNull);
+        expect(engine.disposed, isTrue);
+      } finally {
+        if (!platform.disposeGate!.isCompleted) {
+          platform.disposeGate!.complete();
+        }
+        await observedChanging;
+        service.dispose();
+        await controller.stop();
+        await camera.stop();
+        await pumpEventQueue();
+        CameraPlatform.instance = previousPlatform;
+        expect(androidCallCameraPreviewController.value, isNull);
+        expect(platform.errors, isEmpty);
+        expect(slot.owner, isNull);
+      }
+    });
+  }
+
+  for (final fail in [false, true]) {
+    test(
+      'reentrant media teardown shares call slot release: fail=$fail',
+      () async {
+        final wire = _Wire(), media = _ReentrantStopMedia(), slot = CallSlot();
+        final service = CallService(wire, media: media, callSlot: slot)
+          ..start();
+        try {
+          await _connect(service, wire);
+          media.onStop = service.dispose;
+          await service.hangup();
+          await pumpEventQueue();
+          final competing = slot.acquire(CallSlotOwner.group);
+          if (competing != null) slot.release(competing);
+          expect(
+            competing,
+            isNull,
+            reason: 'reentrant dispose must join the in-progress media stop',
+          );
+          expect(media.stops, 1);
+          if (fail) {
+            media.release.completeError(
+              StateError('synthetic media stop failure'),
+            );
+          } else {
+            media.release.complete();
+          }
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+        } finally {
+          if (!media.release.isCompleted) media.release.complete();
+          service.dispose();
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+        }
+      },
+    );
+  }
+
+  for (final terminal in ['hangup', 'dispose']) {
+    test(
+      'standalone distinct calls keep separate media stop ownership: $terminal',
+      () async {
+        // No global slot in this isolated service wiring. A later call still owns
+        // its own stop even while a previous stop's reply remains outstanding.
+        final wire = _Wire(), media = _ReentrantStopMedia();
+        final service = CallService(wire, media: media)..start();
+        try {
+          await _connect(service, wire);
+          final first = service.current!.callId;
+          await service.hangup();
+          await pumpEventQueue();
+          expect(media.stops, 1);
+          expect(media.release.isCompleted, isFalse);
+          await _connect(service, wire);
+          expect(service.current!.callId, isNot(first));
+          if (terminal == 'dispose') {
+            service.dispose();
+          } else {
+            await service.hangup();
+          }
+          await pumpEventQueue();
+          expect(media.stops, 2);
+          expect(media.release.isCompleted, isFalse);
+        } finally {
+          if (!media.release.isCompleted) media.release.complete();
+          service.dispose();
+          await pumpEventQueue();
+        }
+      },
+    );
+  }
 
   for (final recovery in [
     'native',
