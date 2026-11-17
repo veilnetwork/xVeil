@@ -20,6 +20,8 @@ import 'package:xveil/state/veil_call_media.dart';
 NodeId _id(int value) => NodeId(Uint8List(32)..fillRange(0, 32, value));
 
 class _Transport implements VeilFlutterTransport {
+  final opened = <int>[];
+  final closed = <int>[];
   @override
   Future<NodeId> peerFacingNodeId({
     Duration timeout = const Duration(seconds: 2),
@@ -31,7 +33,12 @@ class _Transport implements VeilFlutterTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
-  }) async => 42;
+  }) async {
+    final channel = 42 + opened.length;
+    opened.add(channel);
+    return channel;
+  }
+
   @override
   bool get supportsCallControl => false;
   @override
@@ -41,7 +48,7 @@ class _Transport implements VeilFlutterTransport {
   @override
   int mediaRecvCount(Uint8List peer) => 0;
   @override
-  void closeMediaChannel(int channel) {}
+  void closeMediaChannel(int channel) => closed.add(channel);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -50,6 +57,8 @@ class _Engine implements VeilMediaEngine {
   bool disposed = false;
   bool refuseStats = false;
   int videoStarts = 0;
+  int audioStops = 0;
+  int disposals = 0;
   @override
   bool get supportsNoiseSuppression => true;
   @override
@@ -93,9 +102,17 @@ class _Engine implements VeilMediaEngine {
   @override
   bool stopVideo() => true;
   @override
-  bool stopAudio() => true;
+  bool stopAudio() {
+    audioStops++;
+    return true;
+  }
+
   @override
-  void dispose() => disposed = true;
+  void dispose() {
+    disposals++;
+    disposed = true;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -272,6 +289,204 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final successor in ['none', 'native', 'plugin']) {
+    for (final sameCall in [true, if (successor != 'none') false]) {
+      test(
+        'session stop keeps owned resources successor=$successor same-call=$sameCall',
+        () async {
+          const network = MethodChannel('xveil/call_network');
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          messenger.setMockMethodCallHandler(
+            network,
+            (call) async => (call.arguments as Map)['active'],
+          );
+          final wire = _Wire(), transport = _Transport();
+          final oldEngine = _Engine(), newEngine = _Engine();
+          final engines = Queue<_Engine>.of([oldEngine, newEngine]);
+          final old = _NativeCamera(true),
+              next = _NativeCamera(successor == 'native');
+          final cameras = Queue<_NativeCamera>.of([old, next]);
+          final fallback = _PluginCamera(Future.value(true));
+          final controller = VeilCallMediaController(
+            transport,
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engines.removeFirst(),
+            androidCameraCapture: true,
+            nativeCameraFactory: cameras.removeFirst,
+            cameraCaptureFactory: (_, _) => fallback,
+          );
+          final service = CallService(wire, media: controller)..start();
+          final release = Completer<void>();
+          Future<void>? ending;
+          try {
+            await _connect(service, wire);
+            await old.entered.future;
+            await pumpEventQueue();
+            expect(
+              controller.diagnostics['call_network_activity_active'],
+              isTrue,
+            );
+            final first = service.current!;
+            old.stopGate = release;
+            old.stopEntered = Completer<void>();
+            ending = controller.stop();
+            await old.stopEntered!.future;
+            final stoppedAudioBeforeReply = oldEngine.audioStops > 0;
+            if (successor != 'none') {
+              final nextCall = sameCall
+                  ? first
+                  : Call(
+                      callId: 'replacement-session',
+                      peer: first.peer,
+                      direction: first.direction,
+                      media: first.media,
+                      status: first.status,
+                      localPosture: first.localPosture,
+                      peerPosture: first.peerPosture,
+                      transport: first.transport,
+                      startedAt: first.startedAt,
+                      localMediaKey: first.localMediaKey,
+                      peerMediaKey: first.peerMediaKey,
+                    );
+              expect(await controller.start(nextCall), isTrue);
+              await pumpEventQueue();
+              expect(newEngine.disposed, isFalse);
+            }
+            final oldDisposedBeforeReply = oldEngine.disposed;
+            release.complete();
+            await ending;
+            await pumpEventQueue();
+            final active = successor != 'none';
+            expect(
+              {
+                'old_audio_stopped_before_fence': stoppedAudioBeforeReply,
+                'old_disposed_before_fence': oldDisposedBeforeReply,
+                'old_disposals': oldEngine.disposals,
+                'new_disposals': newEngine.disposals,
+                'new_native_stops': next.stops,
+                'new_plugin_stops': fallback.stops,
+                'closed_channels': transport.closed,
+                'running': controller.diagnostics['running'],
+                'network_held':
+                    controller.diagnostics['call_network_activity_active'],
+              },
+              {
+                'old_audio_stopped_before_fence': true,
+                'old_disposed_before_fence': false,
+                'old_disposals': 1,
+                'new_disposals': 0,
+                'new_native_stops': 0,
+                'new_plugin_stops': 0,
+                'closed_channels': [42],
+                'running': active,
+                'network_held': active,
+              },
+            );
+            if (successor == 'native') expect(next.running, isTrue);
+            if (successor == 'plugin') {
+              expect(fallback.entered.isCompleted, isTrue);
+            }
+          } finally {
+            if (!release.isCompleted) release.complete();
+            await ending;
+            service.dispose();
+            await controller.stop();
+            messenger.setMockMethodCallHandler(network, null);
+          }
+        },
+      );
+    }
+  }
+
+  for (final replacement in ['same-call', 'new-call', 'stop']) {
+    test('pending session rebuild respects $replacement intent', () async {
+      final wire = _Wire(), transport = _Transport();
+      final oldEngine = _Engine(),
+          nextEngine = _Engine(),
+          unexpected = _Engine();
+      final engines = Queue<_Engine>.of([oldEngine, nextEngine, unexpected]);
+      final old = _NativeCamera(true);
+      final cameras = Queue<_NativeCamera>.of([
+        old,
+        _NativeCamera(true),
+        _NativeCamera(true),
+      ]);
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                engines.removeFirst(),
+        androidCameraCapture: true,
+        nativeCameraFactory: cameras.removeFirst,
+      );
+      final service = CallService(wire, media: controller)..start();
+      final release = Completer<void>();
+      Future<bool>? rebuilding;
+      try {
+        await _connect(service, wire);
+        await old.entered.future;
+        await pumpEventQueue();
+        final call = service.current!;
+        old.stopGate = release;
+        old.stopEntered = Completer<void>();
+        rebuilding = controller.start(call);
+        await old.stopEntered!.future;
+        if (replacement == 'stop') {
+          await controller.stop();
+        } else {
+          final next = replacement == 'same-call'
+              ? call
+              : Call(
+                  callId: 'replacement-rebuild',
+                  peer: call.peer,
+                  direction: call.direction,
+                  media: call.media,
+                  status: call.status,
+                  localPosture: call.localPosture,
+                  peerPosture: call.peerPosture,
+                  transport: call.transport,
+                  startedAt: call.startedAt,
+                  localMediaKey: call.localMediaKey,
+                  peerMediaKey: call.peerMediaKey,
+                );
+          expect(await controller.start(next), isTrue);
+          await pumpEventQueue();
+        }
+        final prematureDisposal = oldEngine.disposed;
+        release.complete();
+        final resumed = await rebuilding;
+        await pumpEventQueue();
+        expect(
+          {
+            'retired_start_result': resumed,
+            'old_freed_before_native_fence': prematureDisposal,
+            'old_disposals': oldEngine.disposals,
+            'next_disposals': nextEngine.disposals,
+            'unused_engines': engines.length,
+            'closed_channels': transport.closed,
+            'running': controller.diagnostics['running'],
+          },
+          {
+            'retired_start_result': false,
+            'old_freed_before_native_fence': false,
+            'old_disposals': 1,
+            'next_disposals': 0,
+            'unused_engines': replacement == 'stop' ? 2 : 1,
+            'closed_channels': [42],
+            'running': replacement != 'stop',
+          },
+        );
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await rebuilding;
+        service.dispose();
+        await controller.stop();
+      }
+    });
+  }
 
   for (final operation in ['select', 'off']) {
     for (final replacement in ['none', 'native', 'plugin']) {
