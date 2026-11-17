@@ -131,7 +131,18 @@ class _MessagingContacts {
             existing?.status == ContactStatus.blocked)) {
       return false;
     }
-    if (atMs != null &&
+    if (status == ContactStatus.pendingIncoming ||
+        status == ContactStatus.pendingOutgoing) {
+      // The snapshot check above is only a fast path. A local decision can
+      // commit while it is being read; use the same guarded contact write as
+      // live requests so a delayed device-journal doorbell cannot undo it or
+      // replace newer preferences with the earlier snapshot.
+      final effective = await _owner._storage.prepareContactRequest(
+        peer,
+        incoming: status == ContactStatus.pendingIncoming,
+      );
+      if (effective != status) return false;
+    } else if (atMs != null &&
         (status == ContactStatus.accepted || status == ContactStatus.blocked)) {
       if (!await _withConsentWrite(
         peer,

@@ -210,6 +210,67 @@ Future<void> _verifyOffer(_Fixture f, {required bool allowed}) async {
 
 void main() {
   for (final native in [false, true]) {
+    for (final pending in [
+      ContactStatus.pendingIncoming,
+      ContactStatus.pendingOutgoing,
+    ]) {
+      for (final decision in [ContactStatus.accepted, ContactStatus.blocked]) {
+        test(
+          'mirrored pending preserves concurrent $decision native=$native pending=$pending',
+          () async {
+            final f = await _fixture(native), peer = id(2);
+            await f.storage.upsertContact(
+              Contact(
+                nodeId: peer,
+                status: ContactStatus.pendingIncoming,
+                name: 'Local contact label',
+                pinned: true,
+              ),
+            );
+            f.storage.holdRead = true;
+            final applying = f.service.applyMirroredContactStatus(
+              peer,
+              pending,
+              atMs: DateTime.now().millisecondsSinceEpoch + 60000,
+            );
+            await f.storage.entered.future;
+            if (decision == ContactStatus.accepted) {
+              await f.service.acceptContact(peer);
+            } else {
+              await f.service.blockContact(peer);
+            }
+            final decisions = (await f.storage.pendingContactDecisions())
+                .map((d) => (d.peer, d.status, d.atMs, d.token))
+                .toList();
+            f.storage.release.complete();
+            final changed = await applying;
+            final current = await f.storage.getContact(peer);
+            expect(
+              current?.status,
+              decision,
+              reason:
+                  'a mirrored doorbell cannot replace a saved consent decision',
+            );
+            expect(current?.name, 'Local contact label');
+            expect(current?.pinned, isTrue);
+            expect(changed, isFalse);
+            expect(
+              (await f.storage.pendingContactDecisions())
+                  .map((d) => (d.peer, d.status, d.atMs, d.token))
+                  .toList(),
+              decisions,
+            );
+            await _verifyOffer(f, allowed: decision == ContactStatus.accepted);
+            await f.service.dispose();
+            await f.storage.close();
+            expect(await f.storage.open(password: 'fixture'), isTrue);
+            expect((await f.storage.getContact(peer))?.status, decision);
+          },
+          skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+        );
+      }
+    }
+
     for (final mode in ['before', 'after']) {
       test(
         'a read during an uncertain block cannot survive its completion native=$native mode=$mode',
@@ -282,6 +343,91 @@ void main() {
       },
       skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
     );
+    for (final pending in [
+      ContactStatus.pendingIncoming,
+      ContactStatus.pendingOutgoing,
+    ]) {
+      for (final initial in <ContactStatus?>[
+        null,
+        ContactStatus.pendingIncoming,
+        ContactStatus.pendingOutgoing,
+      ]) {
+        test(
+          'mirrored pending still applies native=$native pending=$pending initial=$initial',
+          () async {
+            final f = await _fixture(native), peer = id(2);
+            if (initial != null) {
+              await f.storage.upsertContact(
+                Contact(
+                  nodeId: peer,
+                  status: initial,
+                  name: 'Current label',
+                  pinned: true,
+                ),
+              );
+            }
+            expect(
+              await f.service.applyMirroredContactStatus(
+                peer,
+                pending,
+                atMs: 17,
+              ),
+              isTrue,
+            );
+            final current = await f.storage.getContact(peer);
+            expect(current?.status, pending);
+            expect(
+              current?.hasOutgoingRequest,
+              pending == ContactStatus.pendingOutgoing ||
+                  initial == ContactStatus.pendingOutgoing,
+            );
+            if (initial != null) {
+              expect(current?.name, 'Current label');
+              expect(current?.pinned, isTrue);
+            }
+            expect(await f.storage.pendingContactDecisions(), isEmpty);
+            await f.service.dispose();
+            await f.storage.close();
+            expect(await f.storage.open(password: 'fixture'), isTrue);
+            expect((await f.storage.getContact(peer))?.status, pending);
+          },
+          skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+        );
+      }
+      test(
+        'mirrored pending keeps newer preferences native=$native pending=$pending',
+        () async {
+          final f = await _fixture(native), peer = id(2);
+          await f.storage.upsertContact(
+            Contact(
+              nodeId: peer,
+              status: ContactStatus.pendingIncoming,
+              name: 'Old label',
+            ),
+          );
+          f.storage.holdRead = true;
+          final applying = f.service.applyMirroredContactStatus(
+            peer,
+            pending,
+            atMs: 19,
+          );
+          await f.storage.entered.future;
+          await f.storage.updateContactPrefs(
+            peer,
+            (current) => current.copyWith(name: 'New label', pinned: true),
+          );
+          f.storage.release.complete();
+          expect(await applying, isTrue);
+          final current = await f.storage.getContact(peer);
+          expect(current?.status, pending);
+          expect(current?.name, 'New label');
+          expect(current?.pinned, isTrue);
+          expect(await f.storage.pendingContactDecisions(), isEmpty);
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
+
     for (final mode in ['incoming', 'outgoing', 'mirror']) {
       test(
         'closing the owner prevents late contact authorization native=$native mode=$mode',
