@@ -18,6 +18,28 @@ void main() {
   tearDown(() => SharedPreferencesStorePlatform.instance = original);
 
   test(
+    'ownership check needs no I/O and never revives a retired backend',
+    () async {
+      final backend = _GatedStore();
+      SharedPreferencesStorePlatform.instance = backend;
+      final owner = ProfilePreferencesLifetime.current();
+      expect(owner.isCurrent, isTrue);
+      expect(backend.reads, 0);
+      final replacement = _GatedStore();
+      SharedPreferencesStorePlatform.instance = replacement;
+      expect(owner.isCurrent, isFalse);
+      final fresh = ProfilePreferencesLifetime.current();
+      expect(fresh.isCurrent, isTrue);
+      expect(replacement.reads, 0);
+      await fresh.retire();
+      expect(fresh.isCurrent, isFalse);
+      SharedPreferencesStorePlatform.instance = backend;
+      expect(owner.isCurrent, isFalse);
+      expect(backend.reads, 0);
+    },
+  );
+
+  test(
     'an old preferences reference cannot write into a replacement backend',
     () async {
       final old = await profilePreferences();

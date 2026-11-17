@@ -65,9 +65,12 @@ class ProfilePreferencesLifetime {
   bool _retired = false;
   bool _drained = false;
 
+  /// Synchronous ownership check, independent of preference I/O availability.
+  bool get isCurrent =>
+      !_retired && identical(_backend, SharedPreferencesStorePlatform.instance);
+
   void _requireActive() {
-    if (_retired ||
-        !identical(_backend, SharedPreferencesStorePlatform.instance)) {
+    if (!isCurrent) {
       throw StateError('profile preferences lifetime has ended');
     }
   }

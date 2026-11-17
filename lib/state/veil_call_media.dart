@@ -2955,8 +2955,19 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<bool> selectMicrophone(String id) async {
     final engine = _engine;
-    if (engine == null) return false;
+    final call = _activeCall;
+    final epoch = _mediaEpoch;
+    if (engine == null || call == null) return false;
+    // Discovery may outlive this call/profile. Bind before its first await,
+    // without making optional preference I/O a gate on native audio routing.
+    final preferencesOwner = ProfilePreferencesLifetime.current();
+    bool current() =>
+        _mediaEpoch == epoch &&
+        _engine == engine &&
+        _activeCall?.callId == call.callId &&
+        preferencesOwner.isCurrent;
     final devices = await listMicrophones();
+    if (!current()) return false;
     CallMediaDevice? chosen;
     for (final device in devices) {
       if (device.id == id) chosen = device;
@@ -2966,7 +2977,7 @@ class VeilCallMediaController implements CallMediaController {
       if (!engine.selectAudioInput(id)) return false;
       _selectedMicrophoneId = id;
       _preferredMicrophoneLabel = chosen.followsSystem ? null : chosen.label;
-      final prefs = await profilePreferences();
+      final prefs = await preferencesOwner.preferences;
       if (chosen.followsSystem) {
         await prefs.remove(_microphonePreferenceKey);
       } else {
@@ -2981,8 +2992,17 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<bool> selectSpeaker(String id) async {
     final engine = _engine;
-    if (engine == null) return false;
+    final call = _activeCall;
+    final epoch = _mediaEpoch;
+    if (engine == null || call == null) return false;
+    final preferencesOwner = ProfilePreferencesLifetime.current();
+    bool current() =>
+        _mediaEpoch == epoch &&
+        _engine == engine &&
+        _activeCall?.callId == call.callId &&
+        preferencesOwner.isCurrent;
     final devices = await listSpeakers();
+    if (!current()) return false;
     CallMediaDevice? chosen;
     for (final device in devices) {
       if (device.id == id) chosen = device;
@@ -2992,7 +3012,7 @@ class VeilCallMediaController implements CallMediaController {
       if (!engine.selectAudioOutput(id)) return false;
       _selectedSpeakerId = id;
       _preferredSpeakerLabel = chosen.followsSystem ? null : chosen.label;
-      final prefs = await profilePreferences();
+      final prefs = await preferencesOwner.preferences;
       if (chosen.followsSystem) {
         await prefs.remove(_speakerPreferenceKey);
       } else {
@@ -3040,10 +3060,12 @@ class VeilCallMediaController implements CallMediaController {
     final call = _activeCall;
     final epoch = _mediaEpoch;
     if (engine == null || call == null) return false;
+    final preferencesOwner = ProfilePreferencesLifetime.current();
     final devices = await listCameras();
     if (_mediaEpoch != epoch ||
         _engine != engine ||
-        _activeCall?.callId != call.callId) {
+        _activeCall?.callId != call.callId ||
+        !preferencesOwner.isCurrent) {
       return false;
     }
     if (!devices.any((device) => device.id == id)) return false;
@@ -3080,7 +3102,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _selectedCameraId = id;
     try {
-      final prefs = await profilePreferences();
+      final prefs = await preferencesOwner.preferences;
       await prefs.setString(_cameraPreferenceKey, id);
     } catch (_) {}
     // A screen share owns the video source; remember the choice and apply it
@@ -3089,7 +3111,8 @@ class VeilCallMediaController implements CallMediaController {
     if (_androidCameraCapture) {
       if (_mediaEpoch != epoch ||
           _engine != engine ||
-          _activeCall?.callId != call.callId) {
+          _activeCall?.callId != call.callId ||
+          !preferencesOwner.isCurrent) {
         return false;
       }
       final native = _androidNativeCam;
