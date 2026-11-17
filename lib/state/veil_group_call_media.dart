@@ -454,6 +454,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final ValueNotifier<VeilVideoFrame?> localVideoFrame = ValueNotifier(null);
 
   GroupAudioEngine? _engine;
+  GroupAudioEngine? _audioStoppedEngine;
   int? _engineRequest;
   Timer? _statsTimer;
   Timer? _frameTimer;
@@ -1687,6 +1688,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _cameraOwner = null;
     _startedWithoutCamera = false;
     _microphoneState.clear();
+    _audioEnabled = false;
+    // Peer opens/permissions can still own the lifecycle lane. Quiesce audio
+    // at the request boundary rather than waiting for that work to return.
+    _stopEngineAudio(_engine);
     return _locked(_stopLocked);
   }
 
@@ -1796,15 +1801,24 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
   }
 
+  void _stopEngineAudio(GroupAudioEngine? engine) {
+    if (engine == null || identical(_audioStoppedEngine, engine)) return;
+    // Fence before invoking the port: a synchronous callback can stop again.
+    // Only a successful reply suppresses the later cleanup attempt.
+    _audioStoppedEngine = engine;
+    var stopped = false;
+    try {
+      stopped = engine.stopAudio();
+    } catch (_) {}
+    if (!stopped && identical(_audioStoppedEngine, engine)) {
+      _audioStoppedEngine = null;
+    }
+  }
+
   Future<void> _stopLocked() async {
     final engine = _engine;
-    // Capture retirement may wait on a driver/worker. End recording/playout
-    // before any such wait, while retaining the call's resource lease.
-    if (engine != null) {
-      try {
-        engine.stopAudio();
-      } catch (_) {}
-    }
+    // Also covers implicit teardown before a replacement engine is started.
+    _stopEngineAudio(engine);
     _audioEnabled = false;
     _sourcePressure.reset();
     _sourcePressured = null;
@@ -1881,6 +1895,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _supportsAudioReceiveStats = false;
     _localIdHex = null;
     _localNode = null;
+    if (identical(_audioStoppedEngine, engine)) _audioStoppedEngine = null;
     try {
       await callAudioRouter.release();
     } finally {
