@@ -6001,6 +6001,7 @@ void main() {
     (CallService, _FakeMessaging, _FakeMedia, Completer<bool>) pendingShare(
       FakeAsync async, {
       required bool enabling,
+      bool observedStop = false,
     }) {
       final messaging = _FakeMessaging(), media = _FakeMedia();
       final service = CallService(
@@ -6020,7 +6021,11 @@ void main() {
       final gate = Completer<bool>();
       media.screenOperation = (on) =>
           on == enabling ? gate.future : Future.value(true);
-      service.setScreenShareEnabled(enabling);
+      if (observedStop) {
+        media.screenStops.add(null);
+      } else {
+        service.setScreenShareEnabled(enabling);
+      }
       async.flushMicrotasks();
       media.log.clear();
       messaging.sent.clear();
@@ -6119,6 +6124,53 @@ void main() {
         async.flushMicrotasks();
         expect(service.current?.screenOn, isTrue);
         expect(service.current?.media.screen, isTrue);
+        expect(media.log, isEmpty);
+        expect(
+          messaging.sent.where((s) => s.type == CallSignalType.renegotiate),
+          isEmpty,
+        );
+        service.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('an observed OS stop survives a refused redundant cleanup', () {
+      fakeAsync((async) {
+        final (service, media) = liveVideoCall(async);
+        service.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        media.log.clear();
+        media.screenOperation = (_) async => false;
+        media.screenStops.add(null);
+        async.flushMicrotasks();
+        expect(service.current?.screenOn, isFalse);
+        expect(service.current?.media.screen, isFalse);
+        expect(media.log, ['screen:false', 'cam:true']);
+        service.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('an observed stop cannot authorize capture in a replacement call', () {
+      fakeAsync((async) {
+        final (service, messaging, media, gate) = pendingShare(
+          async,
+          enabling: false,
+          observedStop: true,
+        );
+        service.hangup();
+        async.flushMicrotasks();
+        messaging.onCallSignal!(peer, videoOffer('after-observed-stop'));
+        service.accept();
+        async.flushMicrotasks();
+        expect(service.current?.callId, 'after-observed-stop');
+        expect(service.current?.status, CallStatus.active);
+        final before = service.current;
+        media.log.clear();
+        messaging.sent.clear();
+        gate.complete(false);
+        async.flushMicrotasks();
+        expect(service.current, same(before));
         expect(media.log, isEmpty);
         expect(
           messaging.sent.where((s) => s.type == CallSignalType.renegotiate),

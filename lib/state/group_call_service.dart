@@ -177,7 +177,7 @@ class GroupCallService {
     );
     _screenShareStoppedSubscription = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
-        unawaited(setScreenShareEnabled(false));
+        unawaited(_setScreenShareEnabled(false, observedStop: true));
       }
     });
   }
@@ -529,7 +529,13 @@ class GroupCallService {
     await _announceMedia();
   }
 
-  Future<void> setScreenShareEnabled(bool enabled) async {
+  Future<void> setScreenShareEnabled(bool enabled) =>
+      _setScreenShareEnabled(enabled);
+
+  Future<void> _setScreenShareEnabled(
+    bool enabled, {
+    bool observedStop = false,
+  }) async {
     final call = _current;
     if (call == null ||
         !call.isLive ||
@@ -537,24 +543,20 @@ class GroupCallService {
         call.screenOn == enabled) {
       return;
     }
-    if (enabled && !(await _media?.setScreenShareEnabled(true) ?? false)) {
-      return;
-    }
-    if (!enabled) {
-      await _media?.setScreenShareEnabled(false);
-      if (call.cameraOn) await _media?.setCameraEnabled(true);
-    }
-    // THE CALL IS RE-READ AFTER THE I/O, the way `setCameraEnabled` does it
-    // one method up. Everything above awaits the native engine, and the room
-    // can end or be replaced while that runs — `call` is a snapshot from
-    // before it. Publishing `call.copyWith(...)` then wrote the OLD room back
-    // over whatever is current: an ended call came back live, carrying its own
-    // callId, with no timers and no media behind it.
-    final current = _current;
-    if (current == null || !current.isLive || current.callId != call.callId) {
-      return;
-    }
+    final changed = await _media?.setScreenShareEnabled(enabled) ?? false;
+    // Validate the room BEFORE another capture command, not only before state
+    // publication. A late source stop cannot enable a camera in a retired or
+    // replacement room. A refused stop must not claim a completed transition.
+    // An OS stop is independent evidence that sharing ended. A redundant
+    // cleanup refusal must not hide it; a refused manual stop proves nothing.
+    if ((!changed && !observedStop) || !_stillOn(call)) return;
+    final current = _current!;
     _set(current.copyWith(screenOn: enabled));
+    if (!enabled && current.cameraOn) {
+      // Camera intent can change while the source stop is awaiting the OS.
+      await _media?.setCameraEnabled(true);
+      if (!_stillOn(call)) return;
+    }
     await _announceMedia();
   }
 

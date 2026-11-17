@@ -71,3 +71,8 @@ No GUI applications, focus changes, keyboard/mouse injection, native builds,
 device capture, user profiles or remote machines were involved. Test processes
 exit, the existing user application stays running, and no installed package,
 phone, relay, push or release changes.
+
+The subsequent [group/OS-stop qualification](../group-share-handback-2026-11-17/README.md)
+corrects one regression from this change: an observed OS stop is independent
+evidence even when redundant cleanup returns false. A refused manual stop still
+cannot claim success, and the call-ownership checks remain mandatory.

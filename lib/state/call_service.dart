@@ -830,7 +830,7 @@ class CallService {
     });
     _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
-        unawaited(setScreenShareEnabled(false));
+        unawaited(_setScreenShareEnabled(false, observedStop: true));
       }
     });
     _microphoneUnavailableSub = _media?.microphoneUnavailable.listen((callId) {
@@ -1419,11 +1419,18 @@ class CallService {
   /// ending the share restores the camera if [Call.cameraOn] still wants it.
   /// The peer is told via a renegotiate signal carrying the updated media set
   /// (advisory — its UI can badge the share; the video content changes anyway).
-  Future<void> setScreenShareEnabled(bool on) async {
+  Future<void> setScreenShareEnabled(bool on) => _setScreenShareEnabled(on);
+
+  Future<void> _setScreenShareEnabled(
+    bool on, {
+    bool observedStop = false,
+  }) async {
     final c = _current;
     if (c == null || !c.isLive || !c.media.video || c.screenOn == on) return;
     final ok = await _media?.setScreenShareEnabled(on) ?? false;
-    if (!ok) return; // A refused start/stop cannot claim a source transition.
+    // An owned OS stop is already evidence that sharing ended, even if the
+    // redundant cleanup refuses. A refused manual stop proves no transition.
+    if (!ok && !observedStop) return;
     // Capture can wait on an OS prompt or source teardown. Its old snapshot
     // must not restore an ended/replaced call or override newer capture intent.
     final current = _current;
