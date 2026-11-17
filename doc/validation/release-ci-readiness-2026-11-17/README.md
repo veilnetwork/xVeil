@@ -250,3 +250,12 @@ macOS packaging job is cancelled before any step: annotations explicitly name
 hosted arm64 capacity, not a test failure. A single-job retry is refused while
 the aggregate remains active; retry only the cancelled/failed jobs after its
 terminal result. This documentation follow-up changes no tested runtime input.
+
+The aggregate subsequently terminates with the full Linux suite green:
+**11151 tests passed, 251 skipped**. Those skips are not passes. Retrying only
+the failed/cancelled jobs obtains the macOS runner, and the final source run
+`44142441570` passes all six jobs. The original capacity cancellation is not
+qualified. Its tested head remains `2d41293d`; subsequent root changes affect
+only the qualification Markdown files, with unchanged runtime/build inputs.
+Application tagging and its independent mandatory release checks follow this
+source gate; a successful source run alone does not publish application assets.
