@@ -48,13 +48,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
-from xveil_build_support import ROOT, Abort, Step, have, host
+from xveil_build_support import ROOT, Abort, Step, have, host, verify_media_engine
 
 # The repository CI publishes from. Not derived from `git remote`: a fork's
 # remote points at the fork, whose Actions have never run, and the resulting
@@ -559,22 +560,26 @@ def _download_release_asset(tag: str, engine: Engine, into: str) -> str:
             "    ENGINE_RELEASE in release.yml names a release that is not "
             "there."
         )
-    for asset in body.get("assets", []):
-        if asset.get("name") != engine.asset:
-            continue
-        target = os.path.join(into, engine.filename)
-        os.makedirs(into, exist_ok=True)
-        partial = target + ".part"
-        with _get(asset["browser_download_url"], None, accept="*/*") as response:
-            with open(partial, "wb") as handle:
-                shutil.copyfileobj(response, handle)
+    assets = {asset.get('name'): asset for asset in body.get('assets', [])}
+    for name in (engine.asset, engine.asset + '.provenance'):
+        if name not in assets:
+            raise Abort(f'release {tag} has no asset called {name}')
+    os.makedirs(into, exist_ok=True)
+    target = os.path.join(into, engine.filename)
+    with tempfile.TemporaryDirectory(prefix='.engine-stage-', dir=into) as temporary:
+        partial = os.path.join(temporary, engine.filename + '.part')
+        for name, destination in ((engine.asset, partial),
+                                  (engine.asset + '.provenance', partial + '.provenance')):
+            with _get(assets[name]['browser_download_url'], None, accept='*/*') as response:
+                with open(destination, 'wb') as handle:
+                    shutil.copyfileobj(response, handle)
+        try:
+            verify_media_engine(partial, source_root=ROOT)
+        except RuntimeError as error:
+            raise Abort(str(error)) from None
         os.replace(partial, target)
-        return target
-    names = ", ".join(a.get("name", "?") for a in body.get("assets", [])) or "none"
-    raise Abort(
-        f"release {tag} has no asset called {engine.asset}.\n"
-        f"    It carries: {names}"
-    )
+        os.replace(partial + '.provenance', target + '.provenance')
+    return target
 
 
 def _download_artifact(artifact_id: int, engine: Engine, into: str, token: str) -> str:
@@ -632,18 +637,29 @@ def _download_artifact(artifact_id: int, engine: Engine, into: str, token: str) 
         handle.write(payload)
     try:
         with zipfile.ZipFile(staging) as archive:
-            members = [n for n in archive.namelist() if n.endswith(engine.filename)]
+            members = [n for n in archive.namelist()
+                       if n.rsplit('/', 1)[-1] == engine.filename]
             if not members:
                 raise Abort(
                     f"the artifact zip has no {engine.filename} in it — it "
                     f"holds {', '.join(archive.namelist()) or 'nothing'}"
                 )
-            with archive.open(members[0]) as source:
-                target = os.path.join(into, engine.filename)
-                partial = target + ".part"
-                with open(partial, "wb") as handle:
-                    shutil.copyfileobj(source, handle)
+            records = [name for name in archive.namelist()
+                       if name.rsplit('/', 1)[-1] == engine.filename + '.provenance']
+            if len(members) != 1 or len(records) != 1:
+                raise Abort('artifact needs one engine and its provenance; rebuild or use a current release pin')
+            target = os.path.join(into, engine.filename)
+            with tempfile.TemporaryDirectory(prefix='.engine-stage-', dir=into) as temporary:
+                partial = os.path.join(temporary, engine.filename + '.part')
+                for member, destination in ((members[0], partial), (records[0], partial + '.provenance')):
+                    with archive.open(member) as source, open(destination, 'wb') as handle:
+                        shutil.copyfileobj(source, handle)
+                try:
+                    verify_media_engine(partial, source_root=ROOT)
+                except RuntimeError as error:
+                    raise Abort(str(error)) from None
                 os.replace(partial, target)
+                os.replace(partial + '.provenance', target + '.provenance')
     finally:
         try:
             os.remove(staging)
@@ -695,6 +711,14 @@ def _check_symbols(path: str) -> tuple[bool, str, list[str]]:
     )
 
 
+def _check_engine(path: str) -> tuple[bool, str, list[str]]:
+    try:
+        verify_media_engine(path, source_root=ROOT)
+    except RuntimeError as error:
+        return False, 'present, but provenance is invalid', [str(error)]
+    return _check_symbols(path)
+
+
 def fetch_engine(target: str) -> None:
     """Stage the call engine for `target`, or say precisely why it cannot be."""
     engine = ENGINES.get(target)
@@ -743,7 +767,7 @@ def fetch_engine(target: str) -> None:
     destination = os.path.join(ROOT, engine.dest)
     existing = os.path.join(destination, engine.filename)
     if os.path.isfile(existing):
-        usable, summary, detail = _check_symbols(existing)
+        usable, summary, detail = _check_engine(existing)
         OUTCOMES.append(
             Outcome(
                 item=f"call engine ({target})",
@@ -794,7 +818,7 @@ def fetch_engine(target: str) -> None:
     tag = releases.get(target) or releases.get("workflow")
     if tag:
         path = _download_release_asset(tag, engine, destination)
-        usable, summary, detail = _check_symbols(path)
+        usable, summary, detail = _check_engine(path)
         OUTCOMES.append(
             Outcome(
                 item=f"call engine ({target})",
@@ -868,7 +892,7 @@ def fetch_engine(target: str) -> None:
         return
 
     path = _download_artifact(int(info["id"]), engine, destination, token)
-    usable, summary, detail = _check_symbols(path)
+    usable, summary, detail = _check_engine(path)
     line = f"downloaded from run {run_id} via {source} — {summary}"
     hint = list(detail)
     if left is not None:

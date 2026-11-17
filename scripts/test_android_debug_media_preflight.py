@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Android debug builds need the same mandatory startup engine as releases."""
 import contextlib
+import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -11,18 +12,27 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import builder
 
+spec = importlib.util.spec_from_file_location(
+    'android_preflight_provenance', Path(builder.__file__).parent /
+    'third_party/veil/flutter/veil_media/source_provenance.py')
+provenance = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(provenance)
+
 
 class AndroidMediaPreflightTest(unittest.TestCase):
     def before_build(self, release, staged):
         with tempfile.TemporaryDirectory(prefix='xveil-android-media-') as directory:
             root = Path(directory)
             (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
+            source = root / 'third_party/veil/flutter/veil_media/src'
+            source.mkdir(parents=True)
+            (source / 'engine.cc').write_text('int capture();\n')
             for abi in staged:
                 path = root / builder._MEDIA_STAGE_DIR / abi / builder._MEDIA_SO
                 path.parent.mkdir(parents=True, exist_ok=True)
-                # This tests presence admission only. ELF/ABI/export/provenance
-                # checks belong to the artifact gates and real packaged smoke.
+                # Admission records are real; ELF/ABI/export checks remain separate.
                 path.write_bytes(b'fixture for staging admission')
+                provenance.record_build(source, path, provenance.source_digest(source))
             with patch.object(builder, 'ROOT', directory), \
                  contextlib.redirect_stdout(io.StringIO()):
                 for step in builder._android(release):

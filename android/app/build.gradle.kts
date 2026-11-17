@@ -213,6 +213,10 @@ android {
             // manifest attribute and requires expressing it here instead; the
             // merged manifest still ends up with extractNativeLibs="true".
             useLegacyPackaging = true
+            // This prebuilt is stripped by its producer and verified byte-for-byte.
+            keepDebugSymbols += "**/libveil_media.so"
+            // Keep build records beside staged inputs, never inside the APK.
+            excludes += "**/*.provenance"
         }
     }
 

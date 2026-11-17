@@ -49,6 +49,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/build/
+/android/app/src/main/jniLibs/**/*.provenance
 
 # Swift Package Manager state — the plugins don't support SPM, so this is just
 # Xcode noise; CocoaPods is the integration path (Podfile.lock is tracked).
