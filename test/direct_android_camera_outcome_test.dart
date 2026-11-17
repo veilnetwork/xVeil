@@ -48,6 +48,7 @@ class _Transport implements VeilFlutterTransport {
 
 class _Engine implements VeilMediaEngine {
   bool disposed = false;
+  bool refuseStats = false;
   int videoStarts = 0;
   @override
   bool get supportsNoiseSuppression => true;
@@ -64,10 +65,16 @@ class _Engine implements VeilMediaEngine {
   @override
   bool startAudio({bool send = true, bool recv = true}) => true;
   @override
-  Map<String, dynamic> getStats() => {
-    'audio_capture_start_result': 1,
-    'audio_playout_start_result': 1,
-  };
+  Map<String, dynamic> getStats() {
+    if (refuseStats) throw StateError('synthetic engine stats refusal');
+    return {
+      'audio_capture_start_result': 1,
+      'audio_playout_start_result': 1,
+      // Android camera capture belongs to Camera2/plugin, not this engine.
+      'camera_capturing': 0,
+    };
+  }
+
   @override
   void setMicMuted(bool muted) {}
   @override
@@ -427,6 +434,156 @@ void main() {
           }
         });
       }
+    }
+  }
+
+  for (final observed in [false, true, null, 0, 'false']) {
+    for (final unreadableStats in [false, if (observed == false) true]) {
+      test(
+        'native Android terminal status is explicit: '
+        '${observed.runtimeType}/$observed stats-failure=$unreadableStats',
+        () async {
+          final polls = <void Function()>[];
+          await runZoned(
+            () async {
+              const channel = MethodChannel(
+                'xveil/native_camera_terminal_test',
+              );
+              Object? running = true;
+              var opens = 0;
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+                  .setMockMethodCallHandler(channel, (call) async {
+                    switch (call.method) {
+                      case 'start':
+                        running = true;
+                        opens++;
+                        return {
+                          'textureId': opens,
+                          'width': 640,
+                          'height': 480,
+                          'previewRotation': 0,
+                          'mirror': false,
+                          'fps': 30,
+                          'cameraId': 'camera-fixture',
+                          'facing': 'front',
+                        };
+                      case 'stats':
+                    return {'camera_running': ?running};
+                      case 'stop':
+                        running = false;
+                    }
+                    return null;
+                  });
+              final wire = _Wire(), engine = _Engine();
+              late AndroidNativeCallCamera source;
+              final controller = VeilCallMediaController(
+                _Transport(),
+                engineFactory:
+                    ({required veilChan, required localId, required peerId}) =>
+                        engine,
+                androidCameraCapture: true,
+                nativeCameraFactory: () =>
+                    source = AndroidNativeCallCamera(channel: channel),
+              );
+              final service = CallService(wire, media: controller)..start();
+              var failures = 0;
+              final subscription = controller.cameraUnavailable.listen((_) {
+                failures++;
+              });
+              void poll() {
+                for (final tick in polls.toList()) {
+                  tick();
+                }
+              }
+
+              try {
+                await _connect(service, wire);
+                await pumpEventQueue();
+                expect(source.isRunning, isTrue);
+                running = observed;
+                await source.refreshStats();
+                engine.refuseStats = unreadableStats;
+                poll();
+                await pumpEventQueue();
+                final stopped = observed == false;
+                expect(service.current?.status, CallStatus.active);
+                expect(engine.disposed, isFalse);
+                expect(service.current?.cameraOn, !stopped);
+                expect(controller.startedWithoutCamera, stopped);
+                expect(failures, stopped ? 1 : 0);
+                if (kDiagnosticReportEnabled) {
+                  final report = diagnosticJournal.toJson();
+                  final evidence = report['last_evidence'] as Map;
+                  expect(
+                    evidence['cameraStopped'],
+                    stopped
+                        ? containsPair('values', {'cameraCapturing': 0})
+                        : isNull,
+                  );
+                  final encoded = jsonEncode(report);
+                  for (final private in [
+                    'synthetic engine stats refusal',
+                    'camera-fixture',
+                    service.current!.callId,
+                    _id(2).hex,
+                  ]) {
+                    expect(encoded, isNot(contains(private)));
+                  }
+                }
+                poll();
+                await pumpEventQueue();
+                expect(failures, stopped ? 1 : 0);
+                if (stopped) {
+                  expect(androidNativeCallCameraPreview.value, isNull);
+                  expect(
+                    wire.sent
+                        .where((s) => s.capture != null)
+                        .last
+                        .capture
+                        ?.video,
+                    isFalse,
+                  );
+                  engine.refuseStats = false;
+                  await service.setCameraEnabled(true);
+                  await pumpEventQueue();
+                  expect(opens, 2);
+                  expect(source.isRunning, isTrue);
+                  expect(service.current?.cameraOn, isTrue);
+                  expect(controller.startedWithoutCamera, isFalse);
+                }
+                await service.setCameraEnabled(false);
+                poll();
+                await pumpEventQueue();
+                expect(service.current?.cameraOn, isFalse);
+                expect(failures, stopped ? 1 : 0);
+              } finally {
+                service.dispose();
+                await controller.stop();
+                await subscription.cancel();
+                TestDefaultBinaryMessengerBinding
+                    .instance
+                    .defaultBinaryMessenger
+                    .setMockMethodCallHandler(channel, null);
+                androidNativeCallCameraPreview.value = null;
+              }
+            },
+            zoneSpecification: ZoneSpecification(
+              createPeriodicTimer: (self, parent, zone, interval, callback) {
+                final timer = parent.createPeriodicTimer(
+                  zone,
+                  interval,
+                  callback,
+                );
+                if (interval == const Duration(seconds: 1)) {
+                  timer.cancel();
+                  polls.add(() => zone.runUnary(callback, timer));
+                }
+                return timer;
+              },
+            ),
+          );
+        },
+      );
     }
   }
 }

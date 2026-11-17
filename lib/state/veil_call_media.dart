@@ -1772,10 +1772,13 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine || _activeCall?.callId != call.callId) return;
       try {
+        // Camera2 owns independent source evidence. A failed C++ statistics
+        // read must not hide its already observed terminal state.
+        if (_androidCameraCapture) _observeCameraCapture(engine, const {});
         final stats = engine.getStats();
         final now = DateTime.now();
         _mediaReceiveActivity.observe(stats, now);
-        _observeDesktopCameraCapture(engine, stats);
+        if (!_androidCameraCapture) _observeCameraCapture(engine, stats);
         diagnosticJournal.recordMediaStats(stats);
         if (diagnosticJournal.enabled && !Platform.isAndroid) {
           final lastPreviewUs = _lastLocalFrameUs;
@@ -3139,26 +3142,32 @@ class VeilCallMediaController implements CallMediaController {
     return started;
   }
 
-  void _observeDesktopCameraCapture(
+  void _observeCameraCapture(
     VeilMediaEngine engine,
     Map<String, dynamic> stats,
   ) {
     // An explicit terminal state from the owned capturer, never a frame-rate
     // timeout: paused encoding and a slow network do not mean capture failed.
-    final capture = stats['camera_capturing'];
     final call = _activeCall;
-    if (_androidCameraCapture ||
-        _engine != engine ||
+    if (_engine != engine ||
         call == null ||
         _startedWithoutCamera ||
         _screenSharing ||
         _screenStarting != null ||
-        !_cameraState.enabledForCall(call.callId) ||
-        capture is! int ||
-        capture != 0) {
+        !_cameraState.enabledForCall(call.callId)) {
       return;
     }
-    diagnosticJournal.recordCameraStopped(stats);
+    if (_androidCameraCapture) {
+      // The Camera2 bridge clears its own preview on an explicit native stop.
+      // Its source-owned status, not the C++ engine's absent Android capturer,
+      // decides whether the camera failed. Missing/malformed stats prove none.
+      if (_androidNativeCam?.diagnostics['camera_running'] != false) return;
+      diagnosticJournal.recordCameraStopped(const {});
+    } else {
+      final capture = stats['camera_capturing'];
+      if (capture is! int || capture != 0) return;
+      diagnosticJournal.recordCameraStopped(stats);
+    }
     _reportCameraStartOutcome(engine, false);
   }
 
