@@ -64,6 +64,25 @@ class ActiveGroupRoom {
   final DateTime lastAnnounceAt;
 }
 
+/// Local capture failure belongs to a room, including its group/channel scope.
+/// It does not contain a driver error or any caller presentation metadata.
+class GroupCallCameraFailure {
+  const GroupCallCameraFailure({
+    required this.groupId,
+    required this.channelId,
+    required this.callId,
+  });
+
+  final NodeId groupId;
+  final NodeId? channelId;
+  final String callId;
+
+  bool belongsTo(GroupCall call) =>
+      groupId == call.groupId &&
+      channelId == call.channelId &&
+      callId == call.callId;
+}
+
 /// Native/media-plane boundary for an N-party room. The control FSM is useful
 /// and fully testable independently, while the production implementation owns
 /// one capture/mixer and a membership-synchronized set of peer channels.
@@ -73,6 +92,9 @@ abstract class GroupCallMediaController {
   Future<void> stop();
   Future<void> setMicMuted(bool muted) async {}
   Future<void> setCameraEnabled(bool enabled) async {}
+  bool get startedWithoutCamera => false;
+  Stream<GroupCallCameraFailure> get cameraUnavailable =>
+      const Stream<GroupCallCameraFailure>.empty();
 
   /// Remember the camera choice while the screen owns the source, without
   /// starting/stopping capture or interrupting the active screen projection.
@@ -137,6 +159,7 @@ class GroupCallService {
 
   StreamSubscription<GroupCallSignal>? _subscription;
   StreamSubscription<void>? _screenShareStoppedSubscription;
+  StreamSubscription<GroupCallCameraFailure>? _cameraUnavailableSubscription;
   int _cameraOperationEpoch = 0;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
@@ -184,6 +207,23 @@ class GroupCallService {
       if (_current?.screenOn == true) {
         unawaited(_setScreenShareEnabled(false, observedStop: true));
       }
+    });
+    _cameraUnavailableSubscription = _media?.cameraUnavailable.listen((
+      failure,
+    ) {
+      final call = _current;
+      if (_disposed ||
+          call == null ||
+          !call.isLive ||
+          !call.cameraOn ||
+          !failure.belongsTo(call) ||
+          !_media.startedWithoutCamera) {
+        return;
+      }
+      ++_cameraOperationEpoch;
+      _media.updateCameraIntent(false);
+      _set(call.copyWith(cameraOn: false));
+      unawaited(_announceMedia());
     });
   }
 
@@ -531,16 +571,35 @@ class GroupCallService {
         ),
       );
       _media?.updateCameraIntent(true);
-      await _media?.setCameraEnabled(true);
+      await _applyCameraIntent(call, true, operation);
       if (!_stillOn(call)) return;
       await _announceMedia();
       return;
     }
     _set(call.copyWith(cameraOn: enabled));
     _media?.updateCameraIntent(enabled);
-    if (!call.screenOn) await _media?.setCameraEnabled(enabled);
+    if (!call.screenOn) await _applyCameraIntent(call, enabled, operation);
     if (!_stillOn(call)) return;
     await _announceMedia();
+  }
+
+  Future<void> _applyCameraIntent(
+    GroupCall call,
+    bool enabled,
+    int operation,
+  ) async {
+    var failed = false;
+    try {
+      await _media?.setCameraEnabled(enabled);
+      failed = enabled && _media?.startedWithoutCamera == true;
+    } catch (_) {
+      failed = enabled;
+    }
+    if (!failed || !_stillOn(call) || operation != _cameraOperationEpoch) {
+      return;
+    }
+    _media?.updateCameraIntent(false);
+    _set(_current!.copyWith(cameraOn: false));
   }
 
   Future<void> setScreenShareEnabled(bool enabled) =>
@@ -568,7 +627,7 @@ class GroupCallService {
     _set(current.copyWith(screenOn: enabled));
     if (!enabled && current.cameraOn) {
       // Camera intent can change while the source stop is awaiting the OS.
-      await _media?.setCameraEnabled(true);
+      await _applyCameraIntent(call, true, ++_cameraOperationEpoch);
       if (!_stillOn(call)) return;
     }
     await _announceMedia();
@@ -1194,6 +1253,7 @@ class GroupCallService {
     _cancelChannelEpochReannounces();
     await _subscription?.cancel();
     await _screenShareStoppedSubscription?.cancel();
+    await _cameraUnavailableSubscription?.cancel();
     await _stopMediaAndReleaseSlot();
     await _changes.close();
   }

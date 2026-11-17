@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:clock/clock.dart' as test_clock;
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -3205,6 +3207,304 @@ void main() {
     );
   }
 
+  for (final phase in [
+    'initial',
+    'toggle',
+    'upgrade',
+    'share-failure',
+    'handback',
+  ]) {
+    for (final throws in [false, true]) {
+      test(
+        'group camera refusal is reflected in FSM: $phase throws=$throws',
+        () async {
+          final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
+          final engine = _CameraOutcomeEngine();
+          if (phase == 'initial') engine.rejectCamera = true;
+          engine.throwOnCamera = throws;
+          final controller = VeilGroupCallMediaController(
+            _FakeTransport(self),
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
+            requestMicrophone: () async => true,
+            requestCamera: () async => true,
+            desktopScreenCaptureSupported: true,
+          );
+          final service = GroupCallService(groups, media: controller)..start();
+          addTearDown(() async {
+            await service.dispose();
+            await groups.close();
+          });
+          final active = service.changes.firstWhere(
+            (call) => call?.status == GroupCallStatus.active,
+          );
+          expect(
+            await service.startCall(
+              _id(9),
+              CallMedia(audio: true, video: phase != 'upgrade'),
+            ),
+            isTrue,
+          );
+          await active;
+          await pumpEventQueue();
+          if (phase != 'initial') {
+            if (phase == 'toggle') await service.setCameraEnabled(false);
+            if (phase == 'handback') await service.setScreenShareEnabled(true);
+            engine.rejectCamera = true;
+            if (phase == 'share-failure') {
+              engine.screenStarts = false;
+              await service.setScreenShareEnabled(true);
+            } else if (phase == 'handback') {
+              await service.setScreenShareEnabled(false);
+            } else {
+              await service.setCameraEnabled(true);
+            }
+            await pumpEventQueue();
+          }
+          expect(engine.cameraActive, isFalse);
+          expect(service.current?.status, GroupCallStatus.active);
+          expect(controller.audioRunning, isTrue);
+          expect(controller.videoRunning, isTrue);
+          expect(
+            service.current?.cameraOn,
+            isFalse,
+            reason: 'a refused camera must not remain advertised as capturing',
+          );
+          expect(service.current?.screenOn, isFalse);
+          expect(groups.sent.last.media?.video, isFalse);
+          // Retry uses the same live room and engine after capture recovers.
+          engine.rejectCamera = false;
+          await service.setCameraEnabled(true);
+          await pumpEventQueue();
+          expect(engine.cameraActive, isTrue);
+          expect(service.current?.cameraOn, isTrue);
+          expect(groups.sent.last.media?.video, isTrue);
+        },
+      );
+    }
+  }
+
+  for (final outcome in ['refused', 'throws', 'off', 'replacement']) {
+    test('Android group camera outcome is owned: $outcome', () async {
+      final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
+      final camera = _IntentCamera()..result = Completer<bool>();
+      var creations = 0;
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => _FakeEngine(),
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        androidCapture: true,
+        cameraCaptureFactory: () => creations++ == 0 ? camera : _IntentCamera(),
+      );
+      final service = GroupCallService(groups, media: controller)..start();
+      addTearDown(() async {
+        if (!camera.result!.isCompleted) camera.result!.complete(false);
+        await service.dispose();
+        await groups.close();
+      });
+      Future<void> startRoom(NodeId id) async {
+        final active = service.changes.firstWhere(
+          (call) => call?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            id,
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await active;
+      }
+
+      await startRoom(_id(9));
+      expect(creations, 1);
+      if (outcome == 'off') await service.setCameraEnabled(false);
+      if (outcome == 'replacement') {
+        await service.leave();
+        await pumpEventQueue();
+        await startRoom(_id(8));
+      }
+      if (outcome == 'throws') {
+        camera.result!.completeError(
+          StateError('synthetic camera source failure'),
+        );
+      } else {
+        camera.result!.complete(false);
+      }
+      await pumpEventQueue();
+      expect(service.current?.status, GroupCallStatus.active);
+      expect(controller.audioRunning, isTrue);
+      expect(controller.videoRunning, isTrue);
+      expect(service.current?.cameraOn, outcome == 'replacement');
+      expect(camera.stops, greaterThan(0));
+      if (outcome == 'refused' || outcome == 'throws') {
+        expect(groups.sent.last.media?.video, isFalse);
+        await service.setCameraEnabled(true);
+        await pumpEventQueue();
+        expect(creations, 2);
+        expect(service.current?.cameraOn, isTrue);
+      }
+    });
+  }
+
+  for (final evidence in [
+    'current',
+    'other-group',
+    'other-channel',
+    'other-call',
+    'recovered',
+    'disposed',
+  ]) {
+    test('group camera failure event keeps its owner: $evidence', () async {
+      final groups = _CameraOutcomeGroups(_id(1));
+      final media = _CameraOutcomeMedia();
+      final service = GroupCallService(groups, media: media)..start();
+      addTearDown(() async {
+        await service.dispose();
+        await media.failures.close();
+        await groups.close();
+      });
+      final active = service.changes.firstWhere(
+        (call) => call?.status == GroupCallStatus.active,
+      );
+      expect(
+        await service.startCall(
+          _id(9),
+          const CallMedia(audio: true, video: true),
+        ),
+        isTrue,
+      );
+      await active;
+      final call = service.current!;
+      media.failed = evidence != 'recovered';
+      if (evidence == 'disposed') await service.dispose();
+      media.failures.add(
+        GroupCallCameraFailure(
+          groupId: evidence == 'other-group' ? _id(8) : call.groupId,
+          channelId: evidence == 'other-channel' ? _id(7) : call.channelId,
+          callId: evidence == 'other-call'
+              ? 'previous-camera-call'
+              : call.callId,
+        ),
+      );
+      await pumpEventQueue();
+      if (evidence == 'disposed') {
+        expect(service.current, isNull);
+      } else {
+        expect(service.current?.status, GroupCallStatus.active);
+        expect(service.current?.cameraOn, evidence != 'current');
+        if (evidence == 'current') {
+          expect(groups.sent.last.media?.video, isFalse);
+        }
+      }
+    });
+  }
+
+  test('late failed group camera command cannot undo a newer ON', () async {
+    final groups = _CameraOutcomeGroups(_id(1));
+    final media = _CameraOutcomeMedia();
+    final gate = Completer<void>(), entered = Completer<void>();
+    var attempts = 0;
+    media.cameraOperation = (on) async {
+      if (on && attempts++ == 0) {
+        entered.complete();
+        await gate.future;
+      }
+    };
+    final service = GroupCallService(groups, media: media)..start();
+    addTearDown(() async {
+      if (!gate.isCompleted) gate.complete();
+      await service.dispose();
+      await media.failures.close();
+      await groups.close();
+    });
+    final active = service.changes.firstWhere(
+      (call) => call?.status == GroupCallStatus.active,
+    );
+    expect(
+      await service.startCall(
+        _id(9),
+        const CallMedia(audio: true, video: true),
+      ),
+      isTrue,
+    );
+    await active;
+    await service.setCameraEnabled(false);
+    final first = service.setCameraEnabled(true);
+    await entered.future;
+    await service.setCameraEnabled(false);
+    await service.setCameraEnabled(true);
+    gate.completeError(StateError('synthetic retired camera command'));
+    await first;
+    expect(service.current?.status, GroupCallStatus.active);
+    expect(service.current?.cameraOn, isTrue);
+    expect(groups.sent.last.media?.video, isTrue);
+  });
+
+  test('group camera report keeps only numeric capture evidence', () async {
+    diagnosticJournal.clear();
+    addTearDown(diagnosticJournal.clear);
+    final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
+    final engine = _CameraOutcomeEngine()..rejectCamera = true;
+    engine.stats = {
+      'camera_capture_status': 6,
+      'camera_capture_hresult': -1,
+      'camera_capture_reads': 0,
+      'camera_capture_samples': 0,
+      'camera_capture_frames': 0,
+      'camera_capture_dropped': 0,
+      'camera_driver_path': 'PRIVATE_GROUP_CAMERA_CANARY',
+    };
+    final controller = VeilGroupCallMediaController(
+      _FakeTransport(self),
+      roomMediaSecret: _room(),
+      engineFactory: (_) => engine,
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      requestMicrophone: () async => true,
+      requestCamera: () async => true,
+    );
+    final service = GroupCallService(groups, media: controller)..start();
+    addTearDown(() async {
+      await service.dispose();
+      await groups.close();
+    });
+    final active = service.changes.firstWhere(
+      (call) => call?.status == GroupCallStatus.active,
+    );
+    expect(
+      await service.startCall(
+        _id(9),
+        const CallMedia(audio: true, video: true),
+      ),
+      isTrue,
+    );
+    await active;
+    await pumpEventQueue();
+    expect(service.current?.cameraOn, isFalse);
+    if (kDiagnosticReportEnabled) {
+      final report = diagnosticJournal.toJson();
+      final evidence = report['last_evidence'] as Map;
+      expect((evidence['cameraStart'] as Map)['values'], {
+        'success': 0,
+        'origin': CameraStartOrigin.callStart.index,
+        'cameraCaptureStatus': 6,
+        'cameraCaptureHresult': -1,
+        'cameraCaptureReads': 0,
+        'cameraCaptureSamples': 0,
+        'cameraCaptureFrames': 0,
+        'cameraCaptureDropped': 0,
+      });
+      final encoded = jsonEncode(report);
+      expect(encoded, isNot(contains('PRIVATE_GROUP_CAMERA_CANARY')));
+      expect(encoded, isNot(contains(service.current!.callId)));
+      expect(encoded, isNot(contains(_id(9).hex)));
+    }
+  });
+
   group('camera intent travels from group FSM to the capture controller', () {
     for (final cameraOn in [false, true]) {
       for (final throws in [false, true]) {
@@ -4090,4 +4390,71 @@ class _IntentScreen implements AndroidScreenCaptureSource {
   }
 
   void frame() => _sink?.call(Uint8List(4), Uint8List(1), Uint8List(1), 2, 2);
+}
+
+class _CameraOutcomeEngine extends _FakeEngine {
+  bool rejectCamera = false;
+  bool throwOnCamera = false;
+  bool cameraActive = false;
+  @override
+  bool startCamera() {
+    super.startCamera();
+    if (rejectCamera) {
+      cameraActive = false;
+      if (throwOnCamera) throw StateError('synthetic camera start refusal');
+      return false;
+    }
+    cameraActive = true;
+    return true;
+  }
+
+  @override
+  bool stopCamera() {
+    cameraActive = false;
+    return super.stopCamera();
+  }
+}
+
+class _CameraOutcomeGroups extends _CameraIntentGroups {
+  _CameraOutcomeGroups(super.selfId);
+  final sent = <GroupCallSignal>[];
+  @override
+  Future<GroupCallSignal?> broadcastGroupCallSignal(
+    NodeId groupId, {
+    NodeId? channelId,
+    required String callId,
+    required GroupCallSignalType type,
+    CallMedia? media,
+    CallEndReason? reason,
+  }) async {
+    final signal = await super.broadcastGroupCallSignal(
+      groupId,
+      channelId: channelId,
+      callId: callId,
+      type: type,
+      media: media,
+      reason: reason,
+    );
+    if (signal != null) sent.add(signal);
+    return signal;
+  }
+}
+
+class _CameraOutcomeMedia extends GroupCallMediaController {
+  final failures = StreamController<GroupCallCameraFailure>.broadcast();
+  bool failed = false;
+  Future<void> Function(bool)? cameraOperation;
+  @override
+  Stream<GroupCallCameraFailure> get cameraUnavailable => failures.stream;
+  @override
+  bool get startedWithoutCamera => failed;
+  @override
+  Future<bool> start(GroupCall call) async => true;
+  @override
+  Future<void> update(GroupCall call) async {}
+  @override
+  Future<void> stop() async {}
+  @override
+  Future<void> setCameraEnabled(bool enabled) async =>
+      cameraOperation?.call(enabled);
 }
