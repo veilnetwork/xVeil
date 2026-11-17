@@ -61,7 +61,11 @@ void main() {
             cut,
             marker.path,
           ],
-          environment: {'TMPDIR': '/private/tmp/'},
+          environment: {
+            'TMPDIR': Platform.isMacOS
+                ? '/private/tmp/'
+                : Directory.systemTemp.path,
+          },
         );
         final stdoutDone = child.stdout.drain<void>();
         final stderrDone = child.stderr.drain<void>();

@@ -86,7 +86,9 @@ void main() {
             'test/native/download_resume_crash_test.dart',
           ],
           environment: {
-            'TMPDIR': '/private/tmp/',
+            'TMPDIR': Platform.isMacOS
+                ? '/private/tmp/'
+                : Directory.systemTemp.path,
             'XVEIL_DOWNLOAD_RESUME_CRASH_DIR': dir.path,
           },
         );

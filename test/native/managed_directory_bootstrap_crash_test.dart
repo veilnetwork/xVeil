@@ -33,7 +33,9 @@ Future<void> _killPausedWriter(
       phase,
       scope,
     ],
-    environment: {'TMPDIR': '/private/tmp/'},
+    environment: {
+      'TMPDIR': Platform.isMacOS ? '/private/tmp/' : Directory.systemTemp.path,
+    },
   );
   final output = StringBuffer();
   final stdoutDone = child.stdout.transform(utf8.decoder).forEach(output.write);

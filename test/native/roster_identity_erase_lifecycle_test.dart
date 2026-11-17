@@ -24,6 +24,22 @@ import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/storage_router_providers.dart';
 
+class _CleanupSecretStore extends RetirementSecretStore {
+  int probes = 0, removals = 0;
+
+  @override
+  Future<bool> contains(String key, {bool biometric = false}) {
+    probes++;
+    return super.contains(key, biometric: biometric);
+  }
+
+  @override
+  Future<void> delete(String key, {bool biometric = false}) {
+    removals++;
+    return super.delete(key, biometric: biometric);
+  }
+}
+
 /// Delegates real native I/O. A selected roster response is withheld,
 /// after physical child deletion and before publishing the reduced roster.
 class _GatedParent implements Storage, StorageOpeningOwner {
@@ -171,7 +187,7 @@ void main() {
             },
           );
           final ownedRouter = router;
-          final secretStore = RetirementSecretStore();
+          final secretStore = _CleanupSecretStore();
           container = ProviderContainer(
             overrides: [
               quickUnlockSecretStoreProvider.overrideWithValue(secretStore),
@@ -214,10 +230,15 @@ void main() {
             ),
           ]);
           expect(
-            secretStore.reads,
+            secretStore.probes,
             greaterThan(0),
             reason:
                 'target OS cleanup must use the injected port before child removal',
+          );
+          expect(
+            secretStore.removals,
+            greaterThan(0),
+            reason: 'absence must be verified after target OS cleanup',
           );
           expect(
             await controller.retryIdentityErasure(),

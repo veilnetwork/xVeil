@@ -19,7 +19,9 @@ Future<String> probeManagedIdentityLease(
       path,
       protection.name,
     ],
-    environment: {'TMPDIR': '/private/tmp/'},
+    environment: {
+      'TMPDIR': Platform.isMacOS ? '/private/tmp/' : Directory.systemTemp.path,
+    },
   );
   final stdoutDone = child.stdout.transform(utf8.decoder).join();
   final stderrDone = child.stderr.transform(utf8.decoder).join();

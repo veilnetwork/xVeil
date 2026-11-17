@@ -37,3 +37,25 @@ No garbage collection or reflog expiration is performed, as requested by the
 owner. Unreachable local objects and hosting caches are not claimed erased.
 No application window, OS input, device installation, running user application
 or seed service is changed.
+
+## Binary-classified source follow-up
+
+A separate reachable-binary audit found two older versions of
+`test/oproxy_invite_test.dart` which contain a NUL byte. Git classifies these
+source blobs as binary, so the text-history audit above did not inspect them.
+Both still carried the same operator label. They are confirmed additional
+matches, not random matches inside compressed artwork.
+
+An isolated second rewrite changes exactly those two blobs to their neutral
+label replacements. All other reachable blobs remain identical; both current
+working trees retain their exact tree IDs. The technical engine tag also keeps
+its exact source tree, so the tested media source digest and asset bytes do not
+change. Text/metadata and binary audits both pass after the rewrite; Veil and
+hidden-volume binary inventories pass independently.
+
+The second atomic publication updates 121 existing tags and four branches with
+explicit old-value leases. All 135 remote heads/tags match the planned snapshot.
+An independent watchdog covers the temporary force-push window; the complete
+original main protection is restored and independently verified. Existing
+release assets are unchanged. No garbage collection or reflog expiration ran;
+unreachable objects and hosting caches are outside this reachability claim.

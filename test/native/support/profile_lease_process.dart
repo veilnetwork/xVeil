@@ -27,7 +27,11 @@ class ProfileLeaseProcess {
         'test/native/managed_profile_lease_probe.dart',
         path,
       ],
-      environment: {'TMPDIR': '/private/tmp/'},
+      environment: {
+        'TMPDIR': Platform.isMacOS
+            ? '/private/tmp/'
+            : Directory.systemTemp.path,
+      },
     );
     final lines = child.stdout
         .transform(utf8.decoder)
