@@ -8,6 +8,8 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.102] - 2026-11-17
+
 ### Added
 
 - Choose independently encrypted storage (the new-identity default), optional
@@ -22,6 +24,18 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Preserve current contact consent across delayed request, retry, acceptance,
+  cancellation and mirrored-history operations. Avoid sending obsolete request
+  feedback after a contact decision or identity switch.
+- Preserve current camera and screen-sharing intent across delayed starts,
+  device changes and call teardown. A retired operation cannot take over the
+  next capture or leave a failed source advertised as enabled.
+- Keep group call-control network waits outside the incoming mutation queue,
+  while retaining ordered sends and current authorization checks.
+- Keep Windows incoming-call alerts ordered with global notification cleanup;
+  bound window-state queries and cancel obsolete or uncertain posts.
+- Provide a way back from a chat whose local identity is still loading or
+  could not be read, including entry without a previous navigation page.
 - Keep desktop ringing alerts from waiting indefinitely for optional caller
   metadata. Skip unused avatar reads, use a short-ID fallback for slow name
   lookups and release obsolete waits when the call or privacy policy changes.
@@ -48,9 +62,13 @@ bumps may change behaviour a user notices.
 
 ### Release preparation
 
+- Require source-current media producer records and verify the actual packaged
+  library bytes. Select the fresh seven-target engine-2026.11.17.1 set.
+- Build and load the SDK/storage test libraries before the full CI suite,
+  rather than running native tests against absent libraries.
 - The three-mode default requires native hidden-volume assets rebuilt from the
   current API. Published 2.7.2 binaries must not be reused with these bindings;
-  dependency and final application releases remain pending.
+  use matching hidden-volume 2.8.0 and Veil 0.11.53 native libraries.
 
 ## [0.13.101] - 2026-11-13
 

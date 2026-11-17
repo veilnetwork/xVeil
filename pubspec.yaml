@@ -16,12 +16,12 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.13.101+120
+version: 0.13.102+121
 
 environment:
   sdk: ^3.12.0
 
-# Experimental managed-identity backend; legacy hidden storage stays unchanged.
+# Managed-identity storage; existing legacy hidden storage keeps its format.
 # The lockfile pins the hook and the package verifies native asset SHA-256.
 hooks:
   user_defines:

@@ -56,6 +56,32 @@ Application source CI `44126361318` tests xVeil `5b06427c`; the later fuzz-only
 pointer update does not change application or SDK runtime inputs. Completion
 of these jobs must be checked before qualification is claimed.
 
+## Versioned release candidates
+
+The complete hidden-volume run `44123443650` subsequently passed all 24 jobs.
+Its first attempt had two macOS jobs cancelled before any steps: GitHub reported
+that no hosted runner was acquired and noted arm64 capacity constraints. The
+retry is qualified; the original cancellations are not passes.
+
+Candidate versions are Veil **0.11.53** (`6f54938c`), hidden-volume **2.8.0**
+(`16871fe`) and xVeil **0.13.102+121**. hidden-volume's minor bump follows its
+public-API addition policy. Matching in-repository constraints, locked metadata,
+format documentation and the API snapshot pass. The format remains generation 3.
+The 53 Veil manifests and the 53/46 owned entries in the main/fuzz locks change
+only package versions; normalized lock comparison preserves every other field.
+
+Final dependency source CI runs are Veil `44129668207` and hidden-volume
+`44129254979`. The prior Veil run passed hygiene before the final-version run
+superseded it. A new application run must use the versioned pointers; the older
+`44126361318` run is superseded rather than counted as a complete qualification.
+Final tags, dependency releases, application packages and seed deployment are
+not created by this preparation.
+
+The application version smoke passes 43 selected tests and the analyzer remains
+clean. All seven published engine binaries and producer records also verify
+against the versioned checkout's unchanged native source digest. These checks
+do not replace the final source CI and tagged artifact gates.
+
 ## Application and test preparation
 
 - The chat loading scaffold now exposes RootedBackButton, including entry with
