@@ -292,3 +292,11 @@ The same emulator waits for the source/signature/media-verified normal tagged
 APK before attempting update and fresh-install cases. No camera, microphone,
 host window or physical phone is used. Those new-package cases and final
 emulator cleanup are still pending.
+
+The waiting guest also qualifies an actual storage-version transition:
+the installed previous APK's library creates two hidden spaces, and the exact
+tagged 2.8.0 Android component reads their payloads, appends distinct new rows
+and retains all four payloads after process reopen. Read-only opens preserve
+the container digest; wrong passwords are refused. This component check does
+not substitute for the new application APK or its installation.
+[Operations, provenance and limits](../android-storage-version-transition-2026-11-17/README.md).
