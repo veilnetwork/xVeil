@@ -12,6 +12,7 @@ import 'package:xveil/data/node/identity_config_fields.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
+import 'package:xveil/data/transport/veil_native.dart';
 
 /// Provisioning against the REAL library, because everything else about this
 /// mechanism can be green while the one thing that matters is not.
@@ -137,6 +138,7 @@ void main() {
 
   setUpAll(() {
     if (!hasDylib) return;
+    expect(ensureVeilClientLoaded(dylibPath: dylib), isTrue);
     final lib = DynamicLibrary.open(dylib!);
     minePhrase = veilGeneratePhrase()!;
     mineToml = EmbeddedNode.configFromPhrase(minePhrase!, lib: lib);

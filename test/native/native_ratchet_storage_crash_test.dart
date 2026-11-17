@@ -38,7 +38,9 @@ class _Writer {
         'test/native/native_ratchet_storage_crash_writer.dart',
       ],
       environment: {
-        'TMPDIR': '/private/tmp/',
+        'TMPDIR': Platform.isMacOS
+            ? '/private/tmp/'
+            : Directory.systemTemp.path,
         'XVEIL_NATIVE_CRASH_ROOT': root.path,
         'XVEIL_NATIVE_CRASH_MODE': mode,
         'XVEIL_NATIVE_CRASH_COLD': cold ? '1' : '0',

@@ -37,7 +37,9 @@ void main() {
           'test/native/mixed_identity_session_crash_writer.dart',
         ],
         environment: {
-          'TMPDIR': '/private/tmp/',
+          'TMPDIR': Platform.isMacOS
+              ? '/private/tmp/'
+              : Directory.systemTemp.path,
           'XVEIL_MIXED_CRASH_FIXTURE': root.path,
         },
       );

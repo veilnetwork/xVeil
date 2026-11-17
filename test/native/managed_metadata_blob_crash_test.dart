@@ -63,7 +63,11 @@ void main() {
               '${cut.boundary}',
               cut.after ? 'after' : 'before',
             ],
-            environment: {'TMPDIR': '/private/tmp/'},
+            environment: {
+              'TMPDIR': Platform.isMacOS
+                  ? '/private/tmp/'
+                  : Directory.systemTemp.path,
+            },
           );
           final output = StringBuffer();
           final outDone = child.stdout

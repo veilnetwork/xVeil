@@ -66,7 +66,11 @@ void main() {
               location.path,
               cut.name,
             ],
-            environment: {'TMPDIR': '/private/tmp/'},
+            environment: {
+              'TMPDIR': Platform.isMacOS
+                  ? '/private/tmp/'
+                  : Directory.systemTemp.path,
+            },
           );
           final output = StringBuffer();
           final out = child.stdout

@@ -186,7 +186,11 @@ void main() {
                 fixture.path,
                 phase,
               ],
-              environment: {'TMPDIR': '/private/tmp/'},
+              environment: {
+                'TMPDIR': Platform.isMacOS
+                    ? '/private/tmp/'
+                    : Directory.systemTemp.path,
+              },
             );
             final output = StringBuffer();
             final stdoutDone = child.stdout

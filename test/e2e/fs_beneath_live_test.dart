@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/fs_beneath.dart';
 import 'package:xveil/data/serve_source.dart';
+import 'package:xveil/data/transport/veil_native.dart';
 import 'package:xveil/state/api_server.dart';
 
 void main() {
@@ -27,6 +28,8 @@ void main() {
 
   setUp(() {
     if (gated) return;
+    // Raw dlopen is RTLD_LOCAL on Linux; register the production FFI handle.
+    expect(ensureVeilClientLoaded(dylibPath: dylib), isTrue);
     lib = DynamicLibrary.open(dylib);
     root = Directory.systemTemp.createTempSync('xveil-beneath-');
   });

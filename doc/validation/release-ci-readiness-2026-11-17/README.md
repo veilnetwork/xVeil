@@ -164,3 +164,45 @@ missing-import compilation error are not counted as product regressions or
 qualification passes.
 No GUI activation, user input, phone installation or seed changes were made.
 The original camera, contact and handover complaints retain their own status.
+
+## Full native-enabled Linux run: remaining fixture failures
+
+Application run `44130170796` completes with five successful jobs and one failed
+test job. The analyzer, real optimized native preparation, build support,
+Windows audio helper and macOS packaging pass. The native-enabled Flutter
+suite reports 116 failed cases across 29 files; these are not 116 independent
+product defects. The following fixture causes were identified:
+
+- Sixteen subprocess launch sites forced macOS `/private/tmp/` on Linux.
+  Writers validate their temporary root before opening any storage, so missing
+  roots terminate them before their crash gates. Lease helpers then report a
+  broken command pipe. Subprocesses now retain `/private/tmp/` on macOS and use
+  the host system temporary directory elsewhere. Prefix/path safety checks,
+  process-group ownership and real SIGKILL boundaries remain unchanged.
+- The beneath-open and sovereign identity fixtures opened the native library
+  directly without registering the application loader's handle. On Linux the
+  raw load is local; sender/default embedded-node calls cannot resolve it from
+  the process image. Both suites now preload through the production loader;
+  no production fallback or ABI guard is weakened.
+- The roster erasure fixture required reading an absent OS record. Cleanup
+  correctly probes presence before reading, so this expectation fails on the
+  current Mac as well. The fixture now observes both presence checks and
+  deletion through its injected OS port, while retaining all actual child
+  removal, lock, key-zeroization and cold-recovery assertions. Both old
+  assertions fail on the unmodified fixture.
+
+Five selected native/crash files complete 23 cases. After correcting a test
+import error, the two FFI suites complete another 25 cases, without skips.
+All use fresh qualified SDK/HV binaries, `TMPDIR=/private/tmp/`, and no GUI.
+The compilation-failed first aggregate is not a green full run.
+The analyzer remains clean. A new full Linux CI is required for these changes.
+
+The hidden-volume `v2.8.0` release pipeline completes all eight jobs, including
+signing and crate publication. All 14 downloaded assets match GitHub digests;
+the 12 binaries match the signed checksum manifest. Cosign verifies the exact
+tagged release-workflow identity, the host CLI reports 2.8.0, both Darwin FFI
+signatures verify, and local literal/regex checks pass, including the decoded
+signing certificate. The separate tagged CI has macOS runner-capacity
+cancellations, which are not passes. The mobile iOS job instead reports an
+unsupported macOS 14 configuration before any step. A workflow-only follow-up
+selects macOS 15 for that independent build; the published tag is unchanged.
