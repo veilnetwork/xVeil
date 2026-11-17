@@ -1026,19 +1026,7 @@ class VeilCallMediaController implements CallMediaController {
         try {
           // Rebuild local audio/engine wiring even for onion. Refreshing only the
           // outbound circuit cannot unblock a stalled local receive worker.
-          await _stopSession(clearActiveCall: false);
-          if (_activeCall?.callId != call.callId) return false;
-          final ok = await start(_activeCall!.copyWith(transport: transport));
-          _lastRepairAt = DateTime.now();
-          devLog(
-            () =>
-                'xVeil[call-media]: local ${transport.name} session rebuilt '
-                'call=${call.callId} ok=$ok',
-          );
-          // start() can restore the explicitly permitted relay after direct
-          // admission disappears. The FSM checks the actual route and announces
-          // that downgrade; reporting false here kills the restored live channel.
-          return ok && activeTransport != null;
+          return await _restartSessionForRoute(call, transport);
         } catch (error) {
           devLog(
             () => 'xVeil[call-media]: local session rebuild failed: $error',
@@ -1091,12 +1079,61 @@ class VeilCallMediaController implements CallMediaController {
           return false;
         }
         if (canCommit != null) return false;
-        await _stopSession(clearActiveCall: false);
-        if (_activeCall?.callId != call.callId) return false;
-        final ok = await start(_activeCall!.copyWith(transport: transport));
-        return ok && activeTransport == transport;
+        return _restartSessionForRoute(call, transport, requireTarget: true);
       },
     );
+  }
+
+  Future<bool> _restartSessionForRoute(
+    Call call,
+    CallTransportKind transport, {
+    bool requireTarget = false,
+  }) async {
+    bool sameCall() => _activeCall?.callId == call.callId;
+    // A newer same-call start owns readiness, including its pending phase.
+    // The FSM already treats true + no open channel as converging. A route
+    // switch, however, can report success only on its requested transport.
+    bool transferred() =>
+        sameCall() && (!requireTarget || activeTransport == transport);
+    // Claim BEFORE stop can notify a synchronous listener. Call-id equality
+    // alone cannot distinguish a newer session of this same call.
+    final request = ++_startOperationEpoch;
+    try {
+      await _stopSession(clearActiveCall: false, startingRequest: request);
+    } catch (_) {
+      if (request != _startOperationEpoch) return transferred();
+      rethrow;
+    }
+    if (!sameCall()) return false;
+    if (request != _startOperationEpoch) return transferred();
+    final startingRequest = ++_startOperationEpoch;
+    final bool ok;
+    try {
+      ok = await _startForRequest(
+        _activeCall!.copyWith(transport: transport),
+        startingRequest,
+      );
+    } catch (_) {
+      // An old lookup/engine failure must not end the newer working session.
+      if (startingRequest != _startOperationEpoch) return transferred();
+      rethrow;
+    }
+    if (!sameCall()) return false;
+    if (startingRequest != _startOperationEpoch) return transferred();
+    // Keep effects and readiness inside this ownership turn; the callers do
+    // not reinterpret an older outcome after another await.
+    if (!requireTarget) {
+      _lastRepairAt = DateTime.now();
+      devLog(
+        () =>
+            'xVeil[call-media]: local ${transport.name} session rebuilt '
+            'call=${call.callId} ok=$ok',
+      );
+    }
+    return ok &&
+        (requireTarget
+            ? activeTransport == transport
+            : activeTransport != null);
   }
 
   Future<bool> _switchRoutePreservingEngine(
@@ -1465,8 +1502,10 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
-  Future<bool> start(Call call) async {
-    final request = ++_startOperationEpoch;
+  Future<bool> start(Call call) =>
+      _startForRequest(call, ++_startOperationEpoch);
+
+  Future<bool> _startForRequest(Call call, int request) async {
     bool requested() => request == _startOperationEpoch;
     _startedWithoutCamera = false;
     final previousCall = _activeCall;
