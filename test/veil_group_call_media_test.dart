@@ -3285,6 +3285,128 @@ void main() {
     }
   }
 
+  for (final capture in [0, 1, -1, null, '0']) {
+    test(
+      'group observes explicit capture termination: ${capture.runtimeType}:$capture',
+      () {
+        diagnosticJournal.clear();
+        addTearDown(diagnosticJournal.clear);
+        fakeAsync((clock) {
+          final groups = _CameraOutcomeGroups(_id(1));
+          final engine = _CameraOutcomeEngine();
+          final controller = VeilGroupCallMediaController(
+            _FakeTransport(_id(1)),
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
+            requestMicrophone: () async => true,
+            requestCamera: () async => true,
+            now: test_clock.clock.now,
+          );
+          final service = GroupCallService(groups, media: controller)..start();
+          service.startCall(_id(9), const CallMedia(audio: true, video: true));
+          clock.flushMicrotasks();
+          expect(service.current?.status, GroupCallStatus.active);
+          expect(engine.cameraActive, isTrue);
+          expect(service.current?.cameraOn, isTrue);
+          final signals = groups.sent.length;
+          // An explicit native capturer state, independent of encoded-frame
+          // counts or network progress. Missing/legacy/malformed is unknown.
+          if (capture == 0) engine.cameraActive = false;
+          engine.stats = {
+            'camera_capturing': ?capture,
+            'camera_driver_text': 'PRIVATE_GROUP_TERMINATION_CANARY',
+          };
+          clock.elapse(const Duration(seconds: 1));
+          expect(service.current?.cameraOn, capture != 0);
+          expect(controller.startedWithoutCamera, capture == 0);
+          expect(service.current?.status, GroupCallStatus.active);
+          expect(controller.audioRunning, isTrue);
+          expect(controller.videoRunning, isTrue);
+          if (capture == 0) {
+            expect(groups.sent.length, signals + 1);
+            expect(groups.sent.last.media?.video, isFalse);
+            if (kDiagnosticReportEnabled) {
+              final report = diagnosticJournal.toJson();
+              final evidence = report['last_evidence'] as Map;
+              expect((evidence['cameraStopped'] as Map)['values'], {
+                'cameraCapturing': 0,
+              });
+              final encoded = jsonEncode(report);
+              expect(
+                encoded,
+                isNot(contains('PRIVATE_GROUP_TERMINATION_CANARY')),
+              );
+              expect(encoded, isNot(contains(service.current!.callId)));
+              expect(encoded, isNot(contains(_id(9).hex)));
+            }
+            clock.elapse(const Duration(seconds: 2));
+            expect(
+              groups.sent.length,
+              signals + 1,
+              reason: 'one terminal observation produces one posture change',
+            );
+            engine.stats = {'camera_capturing': 1};
+            service.setCameraEnabled(true);
+            clock.flushMicrotasks();
+            expect(engine.cameraStarted, 2);
+            expect(service.current?.cameraOn, isTrue);
+            expect(groups.sent.last.media?.video, isTrue);
+          } else {
+            expect(groups.sent.length, signals);
+          }
+          service.dispose();
+          clock.flushMicrotasks();
+          groups.close();
+          clock.flushMicrotasks();
+        });
+      },
+    );
+  }
+
+  for (final source in ['off', 'screen', 'android', 'stopped']) {
+    test('group capture termination respects source ownership: $source', () {
+      fakeAsync((clock) {
+        final engine = _CameraOutcomeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(_id(1)),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          desktopScreenCaptureSupported: true,
+          androidCapture: source == 'android',
+          cameraCaptureFactory: () => _IntentCamera(),
+          now: test_clock.clock.now,
+        );
+        final failures = <GroupCallCameraFailure>[];
+        final subscription = controller.cameraUnavailable.listen(failures.add);
+        controller.start(_call(_id(1), [], video: true));
+        clock.flushMicrotasks();
+        expect(controller.videoRunning, isTrue);
+        if (source == 'off') controller.setCameraEnabled(false);
+        bool? shareStarted;
+        if (source == 'screen') {
+          controller
+              .setScreenShareEnabled(true)
+              .then((value) => shareStarted = value);
+        }
+        if (source == 'stopped') controller.stop();
+        clock.flushMicrotasks();
+        if (source == 'screen') expect(shareStarted, isTrue);
+        engine.stats = {'camera_capturing': 0};
+        clock.elapse(const Duration(seconds: 2));
+        expect(failures, isEmpty);
+        expect(controller.startedWithoutCamera, isFalse);
+        controller.stop();
+        clock.flushMicrotasks();
+        subscription.cancel();
+        clock.flushMicrotasks();
+      });
+    });
+  }
+
   for (final outcome in ['refused', 'throws', 'off', 'replacement']) {
     test('Android group camera outcome is owned: $outcome', () async {
       final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
