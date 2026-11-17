@@ -1,0 +1,71 @@
+{
+  "schema": "xveil-revocation-realtime-check/1",
+  "date": "2026-11-18",
+  "nativeCommit": "2cd892571ccbdaff3c8af7d7aeb2bc3350b9ca0c",
+  "baselinePublishedSdk": {
+    "strongScenarioPassed": false,
+    "failure": "fresh-offer-reached-revoked-device",
+    "ownedProcessesRemaining": 0,
+    "portsNotReleased": 0
+  },
+  "nativeUnitBaseline": {
+    "assertionFailures": 3,
+    "permittedControlPassed": 1
+  },
+  "relatedRust": {
+    "passed": 1024,
+    "ignored": 16,
+    "execution": "serial",
+    "earlierParallelAdminFailure": true,
+    "isolatedAdminRepeatPassed": true
+  },
+  "clippyPassed": true,
+  "candidateScenario": {
+    "firstWriteDurableButCompletionLost": true,
+    "firstCallerFailed": true,
+    "authorKilledBeforeLivePublication": true,
+    "actualAuthorVmGoneBeforeColdRead": true,
+    "exactColdDocumentMatched": true,
+    "coldReadDidNotRepairStorage": true,
+    "oldRelaysAndAuthorRuntimeRemoved": true,
+    "authorRepublishedWithoutManualRevokeRetry": true,
+    "sameAuthorIdentityAndDevice": true,
+    "contactLearnedCurrentDocument": true,
+    "contactDurableCheckpointObserved": true,
+    "revokedDeviceRejected": true,
+    "negativeObservationMs": 30410,
+    "negativeObservationRounds": 60,
+    "freshOfferAndReplyExcludedRevokedDevice": true,
+    "freshOfferObservationMs": 8199,
+    "authorizedBidirectionalMessagesAndCallSignal": true
+  },
+  "execution": {
+    "exitCode": 0,
+    "phase": "candidate-timing-final",
+    "elapsedSeconds": 88.43,
+    "sourceFiles": 1929,
+    "sourceUnchanged": true,
+    "nativeBytesUnchanged": true,
+    "ownedProcessesTracked": 39,
+    "ownedProcessesRemaining": 0,
+    "portsChecked": 28,
+    "portsNotReleased": 0
+  },
+  "publicationOracle": {
+    "deliberateOldDocumentRejected": true,
+    "failure": "cold-author-did-not-publish-saved-tombstone",
+    "execution": {
+      "exitCode": 1,
+      "phase": "oracle",
+      "elapsedSeconds": 52.52,
+      "sourceFiles": 1929,
+      "sourceUnchanged": true,
+      "nativeBytesUnchanged": true,
+      "ownedProcessesTracked": 33,
+      "ownedProcessesRemaining": 0,
+      "portsChecked": 22,
+      "portsNotReleased": 0
+    }
+  },
+  "earlierCandidateScenarioPassed": true
+}
