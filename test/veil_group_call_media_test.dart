@@ -3294,6 +3294,127 @@ void main() {
     }
   }
 
+  for (final ending in [
+    'leave',
+    'dispose',
+    'reentrant',
+    'late-grant',
+    'stop-error',
+    'accepted',
+  ]) {
+    test('group initial screen consent can be cancelled: $ending', () async {
+      final channel = MethodChannel('xveil/group_screen_consent_$ending');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final nativeStart = Completer<bool>(), startEntered = Completer<void>();
+      final stopGate = Completer<void>();
+      final captures = <AndroidScreenCapture>[];
+      var stopCalls = 0, forceCleanup = false;
+      Object? session;
+      Future<void>? disposing;
+      late _GroupProjectionStand stand;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'start') {
+          session = (call.arguments as Map)['session'];
+          expect(session, isA<String>());
+          startEntered.complete();
+          return nativeStart.future;
+        }
+        if (call.method == 'stop') {
+          expect(call.arguments, {'session': session});
+          stopCalls++;
+          if (!nativeStart.isCompleted && ending != 'late-grant') {
+            nativeStart.complete(false);
+          }
+          if (ending == 'reentrant' && stopCalls == 1) {
+            disposing = stand.service.dispose();
+          }
+          await stopGate.future;
+          if (!forceCleanup && ending == 'stop-error') {
+            throw PlatformException(code: 'synthetic_stop_refused');
+          }
+        }
+        return null;
+      });
+      stand = _GroupProjectionStand((stopped) {
+        final capture = AndroidScreenCapture(
+          stopped,
+          channel: channel,
+          isAndroid: true,
+        );
+        captures.add(capture);
+        return capture;
+      });
+      var activeSeen = false;
+      final changes = stand.service.changes.listen((call) {
+        if (call?.status == GroupCallStatus.active) activeSeen = true;
+      });
+      try {
+        expect(
+          await stand.service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true, screen: true),
+          ),
+          isTrue,
+        );
+        await startEntered.future;
+        expect(stand.service.current?.status, GroupCallStatus.connecting);
+        expect(stand.engine.started, 1);
+        if (ending == 'accepted') {
+          final active = stand.service.changes.firstWhere(
+            (c) => c?.status == GroupCallStatus.active,
+          );
+          nativeStart.complete(true);
+          await active;
+        }
+        if (ending == 'dispose') {
+          disposing = stand.service.dispose();
+        } else {
+          await stand.service.leave();
+        }
+        await pumpEventQueue();
+        expect(
+          stopCalls,
+          1,
+          reason: 'stop must reach native before the pending start reply',
+        );
+        expect(stand.engine.audioStops, greaterThan(0));
+        expect(stand.engine.disposals, 0);
+        final competing = stand.slot.acquire(CallSlotOwner.direct);
+        if (competing != null) stand.slot.release(competing);
+        expect(competing, isNull, reason: 'native stop has not answered');
+        if (ending == 'late-grant') nativeStart.complete(true);
+        stopGate.complete();
+        await disposing;
+        await pumpEventQueue();
+        expect(stand.engine.disposals, 1);
+        expect(stand.slot.owner, isNull);
+        expect(activeSeen, ending == 'accepted');
+        expect(
+          stopCalls,
+          1,
+          reason: 'joined cleanup does not send another native stop',
+        );
+      } finally {
+        forceCleanup = true;
+        if (!nativeStart.isCompleted) nativeStart.complete(false);
+        if (!stopGate.isCompleted) stopGate.complete();
+        if (disposing == null) {
+          await stand.close();
+        } else {
+          await disposing;
+          await stand.groups.close();
+        }
+        for (final capture in captures) {
+          await capture.stop();
+        }
+        await changes.cancel();
+        messenger.setMockMethodCallHandler(channel, null);
+        await pumpEventQueue();
+      }
+    });
+  }
+
   for (final ending in ['off', 'reentrant', 'dispose', 'failure', 'attached']) {
     test('group screen retirement holds slot: $ending', () async {
       final screen = _HeldGroupScreen()..result.complete(true);

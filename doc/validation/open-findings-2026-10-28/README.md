@@ -553,6 +553,16 @@
   qualification с controlled native replies, не физическая MediaProjection;
   исходная Windows 10 жалоба не атрибутирована, не выпущено.
   [Воспроизведение и границы](../group-screen-retirement-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: выход отменяет первоначальное разрешение экрана группы.**
+  Start ждал ответа consent, а stop экрана стоял за ним в той же очереди.
+  Теперь stop своего источника отправляется при запросе выхода; известный
+  ответ по-прежнему удерживает engine/слот. Используется существующая Android
+  отмена с проверкой session. Пять baseline assertion-red и один control;
+  954 related и 504 с диагностикой прошли без skips, анализатор чист.
+  Deliberate mutant без регистрации ответа дал один ожидаемый отказ.
+  Это настоящий Dart Android bridge над controlled replies и source-проверка
+  Kotlin; физический consent/MediaProjection не проверялся, не выпущено.
+  [Воспроизведение и границы](../group-screen-consent-cancel-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие
