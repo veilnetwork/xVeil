@@ -225,11 +225,591 @@ class _Media extends GroupCallMediaController {
   }
 }
 
+class _CallEgressFixture {
+  final storage = FakeHvContainer().storage();
+  final owner = _id(1), bob = _id(2), carol = _id(3);
+  late GroupService groups;
+  late NodeId gid;
+  NodeId? channel;
+  final frames = <({NodeId peer, GroupCallSignal signal, String json})>[];
+  final entered = Completer<void>(), release = Completer<void>();
+  bool holdNext = true;
+  bool throwSync = false, throwAsync = false;
+  int active = 0, maxActive = 0;
+
+  Future<void> open(String mode) async {
+    await storage.open(password: 'fixture', createIfMissing: true);
+    groups = GroupService(
+      storage,
+      _Signer(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (peer, signal, json) {
+        if (throwSync) {
+          throwSync = false;
+          throw StateError('synthetic sender failure');
+        }
+        return send(peer, signal, json);
+      },
+    );
+    gid = mode == 'group'
+        ? await groups.createGroup('Egress fixture')
+        : await groups.createSpace('Egress fixture');
+    for (final peer in [bob, carol]) {
+      expect(
+        await groups.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: peer,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+    }
+    if (mode != 'group') {
+      channel = await groups.createChannel(
+        gid,
+        name: 'Voice',
+        kind: SpaceChannelKind.voice,
+        access: mode == 'protected'
+            ? SpaceChannelAccess.restricted
+            : SpaceChannelAccess.space,
+        members: [bob, carol],
+      );
+      expect(channel, isNotNull);
+    }
+  }
+
+  Future<void> send(NodeId peer, GroupCallSignal signal, String json) async {
+    active++;
+    if (active > maxActive) maxActive = active;
+    try {
+      frames.add((peer: peer, signal: signal, json: json));
+      if (holdNext) {
+        holdNext = false;
+        entered.complete();
+        await release.future;
+      }
+      if (throwAsync) {
+        throwAsync = false;
+        throw StateError('synthetic async sender failure');
+      }
+    } finally {
+      active--;
+    }
+  }
+
+  Future<GroupCallSignal?> broadcast(String id) =>
+      groups.broadcastGroupCallSignal(
+        gid,
+        channelId: channel,
+        callId: id,
+        type: GroupCallSignalType.heartbeat,
+      );
+
+  Future<void> close() async {
+    if (!release.isCompleted) release.complete();
+    await groups.dispose();
+    await storage.close();
+  }
+}
+
 void main() {
   final owner = _id(1);
   final bob = _id(2);
   final carol = _id(3);
   final stranger = _id(9);
+
+  test(
+    'a held call sender leaves incoming group validation available',
+    () async {
+      final aStore = FakeHvContainer().storage();
+      final bStore = FakeHvContainer().storage();
+      await aStore.open(password: 'fixture', createIfMissing: true);
+      await bStore.open(password: 'fixture', createIfMissing: true);
+      final entered = Completer<void>(), release = Completer<void>();
+      var hold = false;
+      String? incoming;
+      final a = GroupService(
+        aStore,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (_, _, _) async {
+          if (hold) {
+            entered.complete();
+            await release.future;
+          }
+        },
+      );
+      final b = GroupService(
+        bStore,
+        _Signer(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (_, _, json) async {
+          incoming = json;
+        },
+      );
+      Future<GroupCallSignal?>? sending;
+      Future<bool>? receiving;
+      try {
+        final gid = await a.createGroup('Call lane');
+        expect(
+          await a.addControlOp(
+            gid,
+            ControlOp.addMember,
+            target: bob,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        expect(
+          await b.ingestSnapshot(
+            a.snapshotJson((await a.load(gid))!, recipient: bob),
+          ),
+          isTrue,
+        );
+        expect(
+          await b.broadcastGroupCallSignal(
+            gid,
+            callId: 'lane-fixture',
+            type: GroupCallSignalType.heartbeat,
+          ),
+          isNotNull,
+        );
+        hold = true;
+        sending = a.broadcastGroupCallSignal(
+          gid,
+          callId: 'lane-fixture',
+          type: GroupCallSignalType.heartbeat,
+        );
+        await entered.future;
+        var admitted = false;
+        receiving = a.ingestGroupCallFrame(bob, incoming!).then((ok) {
+          admitted = ok;
+          return ok;
+        });
+        await pumpEventQueue();
+        final beforeRelease = admitted;
+        release.complete();
+        expect(await sending, isNotNull);
+        expect(await receiving, isTrue);
+        expect(
+          beforeRelease,
+          isTrue,
+          reason: 'the outgoing sender must not own the mutation lane',
+        );
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await sending;
+        await receiving;
+        await a.dispose();
+        await b.dispose();
+        await aStore.close();
+        await bStore.close();
+      }
+    },
+  );
+
+  test('simultaneous call sends can await the opposite ingress', () async {
+    final aStore = FakeHvContainer().storage();
+    final bStore = FakeHvContainer().storage();
+    await aStore.open(password: 'fixture', createIfMissing: true);
+    await bStore.open(password: 'fixture', createIfMissing: true);
+    final entered = Completer<void>(), cleanup = Completer<void>();
+    final receipts = <Future<bool>>[], accepted = <bool>[];
+    var senders = 0;
+    late GroupService a, b;
+    Future<void> send(GroupService target, NodeId peer, String json) async {
+      if (++senders == 2) entered.complete();
+      await entered.future;
+      final receipt = target.ingestGroupCallFrame(peer, json).then((ok) {
+        accepted.add(ok);
+        return ok;
+      });
+      receipts.add(receipt);
+      await Future.any<void>([receipt.then<void>((_) {}), cleanup.future]);
+    }
+
+    a = GroupService(
+      aStore,
+      _Signer(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (_, _, json) => send(b, owner, json),
+    );
+    b = GroupService(
+      bStore,
+      _Signer(bob),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (_, _, json) => send(a, bob, json),
+    );
+    final jobs = <Future<GroupCallSignal?>>[];
+    try {
+      final gid = await a.createGroup('Bidirectional call lane');
+      expect(
+        await a.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await b.ingestSnapshot(
+          a.snapshotJson((await a.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      for (final service in [a, b]) {
+        jobs.add(
+          service.broadcastGroupCallSignal(
+            gid,
+            callId: 'lane-fixture',
+            type: GroupCallSignalType.heartbeat,
+          ),
+        );
+      }
+      await entered.future;
+      await pumpEventQueue();
+      final beforeCleanup = accepted.toList();
+      cleanup.complete();
+      expect(await Future.wait(jobs), everyElement(isNotNull));
+      expect(await Future.wait(receipts), [true, true]);
+      expect(
+        beforeCleanup,
+        [true, true],
+        reason: 'both senders must finish without the teardown escape',
+      );
+    } finally {
+      if (!cleanup.isCompleted) cleanup.complete();
+      await Future.wait(jobs);
+      await Future.wait(receipts);
+      await a.dispose();
+      await b.dispose();
+      await aStore.close();
+      await bStore.close();
+    }
+  });
+
+  for (final mode in ['group', 'open', 'protected']) {
+    for (final change in [
+      'none',
+      'membership',
+      'shutdown',
+      if (mode == 'protected') 'channel',
+      if (mode == 'protected') 'voice',
+      if (mode != 'group') 'archive',
+    ]) {
+      test(
+        'call egress retains authorization mode=$mode change=$change',
+        () async {
+          final stand = _CallEgressFixture();
+          await stand.open(mode);
+          Future<GroupCallSignal?>? first, second;
+          Future<void>? closing;
+          try {
+            first = stand.broadcast('first');
+            await stand.entered.future;
+            final firstFrame = stand.frames.single;
+            final removed = firstFrame.peer == stand.bob
+                ? stand.carol
+                : stand.bob;
+            second = stand.broadcast('second');
+            await pumpEventQueue();
+            expect(
+              stand.frames.length,
+              1,
+              reason: 'queued egress must retain FIFO',
+            );
+            if (change == 'membership') {
+              expect(
+                await stand.groups.addControlOp(
+                  stand.gid,
+                  ControlOp.removeMember,
+                  target: removed,
+                ),
+                isTrue,
+              );
+            } else if (change == 'channel') {
+              expect(
+                await stand.groups.setChannelMembers(
+                  stand.gid,
+                  stand.channel!,
+                  [firstFrame.peer],
+                ),
+                isTrue,
+              );
+            } else if (change == 'voice') {
+              expect(
+                await stand.groups.moderateSpace(
+                  stand.gid,
+                  kind: SpaceModerationKind.restrictVoice,
+                  target: removed,
+                  scope: SpaceModerationScope.voice,
+                  reason: 'fixture restriction',
+                ),
+                isNotNull,
+              );
+            } else if (change == 'archive') {
+              expect(
+                await stand.groups.setChannelArchived(
+                  stand.gid,
+                  stand.channel!,
+                  true,
+                ),
+                isTrue,
+              );
+            } else if (change == 'shutdown') {
+              var drained = false;
+              closing = stand.groups.dispose().then((_) => drained = true);
+              await pumpEventQueue();
+              expect(drained, isFalse, reason: 'dispose joins the live sender');
+              expect(await stand.broadcast('late'), isNull);
+            }
+            stand.release.complete();
+            expect(await first, change == 'none' ? isNotNull : isNull);
+            final next = await second;
+            expect(
+              next,
+              change == 'shutdown' || change == 'archive' ? isNull : isNotNull,
+            );
+            await closing;
+            expect(stand.maxActive, 1);
+            if (change == 'none') {
+              expect(stand.frames.map((frame) => frame.signal.callId), [
+                'first',
+                'first',
+                'second',
+                'second',
+              ]);
+              expect(stand.frames.map((frame) => frame.peer).toSet(), {
+                stand.bob,
+                stand.carol,
+              });
+            } else if (change == 'membership' ||
+                change == 'channel' ||
+                change == 'voice') {
+              expect(stand.frames.length, 2);
+              expect(stand.frames.last.peer, firstFrame.peer);
+              expect(stand.frames.last.signal.callId, 'second');
+              if (change == 'membership') {
+                expect(
+                  next!.membershipEpoch,
+                  greaterThan(firstFrame.signal.membershipEpoch),
+                );
+              } else if (change == 'channel') {
+                expect(
+                  next!.channelEpoch,
+                  greaterThan(firstFrame.signal.channelEpoch!),
+                );
+              } else {
+                expect(
+                  next!.membershipEpoch,
+                  firstFrame.signal.membershipEpoch,
+                );
+                expect(next.channelEpoch, firstFrame.signal.channelEpoch);
+              }
+            } else {
+              expect(stand.frames.length, 1);
+            }
+            for (final frame in stand.frames) {
+              final decoded = GroupCallWireFrame.tryDecode(frame.json)!;
+              expect(decoded.isChannelEncrypted, mode == 'protected');
+              expect(decoded.channelEpoch, frame.signal.channelEpoch);
+              expect(
+                frame.json,
+                isNot(contains(jsonEncode(frame.signal.callId))),
+              );
+            }
+          } finally {
+            if (!stand.release.isCompleted) stand.release.complete();
+            await first;
+            await second;
+            await closing;
+            await stand.close();
+          }
+        },
+      );
+    }
+  }
+
+  for (final restriction in ['membership', 'voice']) {
+    test(
+      'queued call sends recheck local author $restriction authorization',
+      () async {
+        final stand = _CallEgressFixture();
+        await stand.open(restriction == 'voice' ? 'open' : 'group');
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'fixture', createIfMissing: true);
+        final entered = Completer<void>(), release = Completer<void>();
+        var sent = 0;
+        final peer = GroupService(
+          storage,
+          _Signer(stand.bob),
+          epochService: GroupEpochService(
+            LoopbackMailboxCrypto(senderForOpen: stand.owner),
+          ),
+          sendGroupCallFrame: (_, _, _) async {
+            if (++sent == 1) {
+              entered.complete();
+              await release.future;
+            }
+          },
+        );
+        Future<GroupCallSignal?>? first, second;
+        try {
+          expect(
+            await peer.ingestSnapshot(
+              stand.groups.snapshotJson(
+                (await stand.groups.load(stand.gid))!,
+                recipient: stand.bob,
+              ),
+            ),
+            isTrue,
+          );
+          final epochBefore = (await peer.stateOf(stand.gid))!.epoch;
+          first = peer.broadcastGroupCallSignal(
+            stand.gid,
+            channelId: stand.channel,
+            callId: 'first',
+            type: GroupCallSignalType.heartbeat,
+          );
+          await entered.future;
+          second = peer.broadcastGroupCallSignal(
+            stand.gid,
+            channelId: stand.channel,
+            callId: 'second',
+            type: GroupCallSignalType.heartbeat,
+          );
+          if (restriction == 'membership') {
+            expect(
+              await stand.groups.addControlOp(
+                stand.gid,
+                ControlOp.removeMember,
+                target: stand.bob,
+              ),
+              isTrue,
+            );
+          } else {
+            expect(
+              await stand.groups.moderateSpace(
+                stand.gid,
+                kind: SpaceModerationKind.restrictVoice,
+                target: stand.bob,
+                scope: SpaceModerationScope.voice,
+                reason: 'fixture restriction',
+              ),
+              isNotNull,
+            );
+          }
+          expect(
+            await peer.ingestSnapshot(
+              stand.groups.snapshotJson(
+                (await stand.groups.load(stand.gid))!,
+                recipient: stand.bob,
+              ),
+            ),
+            isTrue,
+          );
+          expect(
+            (await peer.stateOf(stand.gid))!.members.containsKey(stand.bob.hex),
+            restriction == 'voice',
+          );
+          expect(
+            (await peer.stateOf(stand.gid))!.epoch,
+            restriction == 'voice' ? epochBefore : greaterThan(epochBefore),
+          );
+          release.complete();
+          expect(await first, isNull);
+          expect(await second, isNull);
+          expect(
+            sent,
+            1,
+            reason: 'only the previously admitted callback may finish',
+          );
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await first;
+          await second;
+          await peer.dispose();
+          await storage.close();
+          await stand.close();
+        }
+      },
+    );
+  }
+
+  for (final synchronous in [false, true]) {
+    test(
+      'call egress sender failure retires its turn sync=$synchronous',
+      () async {
+        final stand = _CallEgressFixture();
+        await stand.open('group');
+        try {
+          stand.holdNext = false;
+          stand.throwSync = synchronous;
+          stand.throwAsync = !synchronous;
+          final failed = stand.broadcast('failed');
+          final recovered = stand.broadcast('recovered');
+          expect(await failed, isNull);
+          expect(await recovered, isNotNull);
+          expect(
+            stand.frames.where((f) => f.signal.callId == 'recovered').length,
+            2,
+          );
+          expect(stand.maxActive, 1);
+        } finally {
+          await stand.close();
+        }
+      },
+    );
+  }
+
+  test(
+    'a held group call sender does not serialize a different group',
+    () async {
+      final stand = _CallEgressFixture();
+      await stand.open('group');
+      Future<GroupCallSignal?>? held;
+      try {
+        held = stand.broadcast('held');
+        await stand.entered.future;
+        final other = await stand.groups.createGroup('Other group');
+        expect(
+          await stand.groups.addControlOp(
+            other,
+            ControlOp.addMember,
+            target: stand.bob,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        expect(
+          await stand.groups.broadcastGroupCallSignal(
+            other,
+            callId: 'other',
+            type: GroupCallSignalType.heartbeat,
+          ),
+          isNotNull,
+        );
+        expect(stand.frames.map((f) => f.signal.callId), ['held', 'other']);
+        expect(stand.maxActive, 2);
+      } finally {
+        if (!stand.release.isCompleted) stand.release.complete();
+        await held;
+        await stand.close();
+      }
+    },
+  );
 
   for (final supported in [true, false]) {
     test(
