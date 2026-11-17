@@ -1700,6 +1700,9 @@ class _MessagingOutbox {
   /// Keep the synchronous invalidation and early-live ACK race bookkeeping.
   void _forgetRetiredFrame(String peerHex, String frameId) {
     final key = _key(peerHex, frameId);
+    if (frameId == 'accept:$peerHex') {
+      _owner._contacts.retireAcceptance(peerHex, frameId);
+    }
     _callReceiptKeys.remove(key);
     _flushSnapshot?.invalidate(key);
     if (_sendingUnpersisted.contains(key)) {

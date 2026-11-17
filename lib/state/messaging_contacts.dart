@@ -24,6 +24,16 @@ class _MessagingContacts {
 
   final MessagingService _owner;
   final _acceptances = <Future<void>>{};
+  // Only active response jobs own a token (bounded by the recipient queue's
+  // concurrency). Retiring a row invalidates metadata still being read; an
+  // already-started transport future continues to hold its lane until done.
+  final _acceptanceAdmissions = <String, Object>{};
+
+  void retireAcceptance(String peerHex, String frameId) {
+    if (frameId != 'accept:$peerHex') return;
+    _acceptanceAdmissions.remove(frameId);
+    _owner._contactResponseQueue.cancelPending(frameId);
+  }
 
   Future<void> close() async {
     while (_acceptances.isNotEmpty) {
@@ -347,21 +357,31 @@ class _MessagingContacts {
       bytes: 512 + 2 * wire.length + 6 * frameId.length,
       send: () async {
         if (_owner._disposed) return;
-        final skipLive = await _owner._outbox._longSilent(peer.hex);
-        // Recheck durable membership: ACK/cancellation while this job waited
-        // must not recreate a retired row. There is no enqueue in the worker.
-        if (!await _owner._storage.containsOutboxFrame(frame) ||
-            _owner._disposed) {
-          return;
+        final admission = Object();
+        _acceptanceAdmissions[frameId] = admission;
+        bool current() =>
+            !_owner._disposed &&
+            identical(_acceptanceAdmissions[frameId], admission);
+        try {
+          final skipLive = await _owner._outbox._longSilent(peer.hex);
+          final consent = await _owner._realtimeControl._readContactConsent(peer);
+          if (consent?.contact?.status != ContactStatus.accepted) return;
+          // No enqueue here. An ACK during either read invalidates admission,
+          // even when a delayed storage reply still reports membership=true.
+          if (!await _owner._storage.containsOutboxFrame(frame) ||
+              !current() ||
+              !_owner._realtimeControl._consentCurrent(peer, consent?.epoch)) {
+            return;
+          }
+          _owner._stashInBackground(peer, frameId, wire);
+          if (skipLive) return;
+          _owner._outbox.recordQueued(frameId, peer.hex);
+          await _owner._send(peer, wire);
+        } finally {
+          if (identical(_acceptanceAdmissions[frameId], admission)) {
+            _acceptanceAdmissions.remove(frameId);
+          }
         }
-        final contact = await _owner._storage.getContact(peer);
-        if (_owner._disposed || contact?.status != ContactStatus.accepted) {
-          return;
-        }
-        _owner._stashInBackground(peer, frameId, wire);
-        if (skipLive) return;
-        _owner._outbox.recordQueued(frameId, peer.hex);
-        await _owner._send(peer, wire);
       },
     );
   }
