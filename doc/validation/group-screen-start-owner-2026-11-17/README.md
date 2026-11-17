@@ -55,6 +55,10 @@ The existing exception contract remains unchanged. This is not a complete audit
 of source-start exceptions or detached screen-stop lifetime. No permission,
 native ABI, media pin, codec, signaling, membership or storage policy changes.
 
+The [following cycle](../group-screen-retirement-2026-11-17/README.md) now covers
+failed-start retry and known detached screen-stop replies, including actual Dart
+Android-bridge executions against controlled native responses.
+
 ## Qualification and limits
 
 **937 tests pass, zero skipped**, in twenty related call, group, source/capture,

@@ -460,9 +460,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Timer? _statsTimer;
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
-  // Commands outside the lifecycle lane may detach a source before awaiting
-  // its stop. Keep known replies with their engine, including late cleanup.
-  final _cameraRetirements =
+  // Camera and screen commands can detach a source outside the lifecycle lane.
+  // Keep known stop replies with their engine, including late cleanup.
+  final _captureRetirements =
       Map<GroupAudioEngine, Set<Future<void>>>.identity();
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
@@ -1630,7 +1630,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       if (!enabled) {
         final screen = _androidScreen;
         _androidScreen = null;
-        if (screen != null) await screen.stop();
+        if (screen != null) await _retireScreen(engine, screen);
         if (_engine != engine) return false;
         _selectScreenSource(false);
         _screenSharing = false;
@@ -1832,17 +1832,27 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _retireCamera(
     GroupAudioEngine? engine,
     AndroidCameraCapture camera,
+  ) => _retireCapture(engine, camera.stop);
+
+  Future<void> _retireScreen(
+    GroupAudioEngine? engine,
+    AndroidScreenCaptureSource screen,
+  ) => _retireCapture(engine, screen.stop);
+
+  Future<void> _retireCapture(
+    GroupAudioEngine? engine,
+    Future<void> Function() stop,
   ) {
-    if (engine == null) return Future<void>.sync(camera.stop);
+    if (engine == null) return Future<void>.sync(stop);
     final completion = Completer<void>();
-    final pending = _cameraRetirements.putIfAbsent(
+    final pending = _captureRetirements.putIfAbsent(
       engine,
       Set<Future<void>>.identity,
     );
     // The preview's synchronous listeners can request leave/dispose here.
     pending.add(completion.future);
     unawaited(
-      Future<void>.sync(camera.stop).then<void>(
+      Future<void>.sync(stop).then<void>(
         (_) => completion.complete(),
         onError: (Object error, StackTrace stack) =>
             completion.completeError(error, stack),
@@ -1850,8 +1860,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     );
     void forget() {
       pending.remove(completion.future);
-      if (pending.isEmpty && identical(_cameraRetirements[engine], pending)) {
-        _cameraRetirements.remove(engine);
+      if (pending.isEmpty && identical(_captureRetirements[engine], pending)) {
+        _captureRetirements.remove(engine);
       }
     }
 
@@ -1864,9 +1874,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return completion.future;
   }
 
-  Future<void> _joinCameraRetirements(GroupAudioEngine engine) async {
+  Future<void> _joinCaptureRetirements(GroupAudioEngine engine) async {
     for (;;) {
-      final pending = _cameraRetirements[engine];
+      final pending = _captureRetirements[engine];
       if (pending == null || pending.isEmpty) return;
       // The command keeps its existing error contract. Ending remains
       // best-effort after a returned failure; no response is still pending.
@@ -1930,10 +1940,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _androidScreen = null;
     if (androidScreen != null) {
       try {
-        await androidScreen.stop();
+        await _retireScreen(engine, androidScreen);
       } catch (_) {}
     }
-    if (engine != null) await _joinCameraRetirements(engine);
+    if (engine != null) await _joinCaptureRetirements(engine);
     localVideoFrame.value = null;
     for (final frame in _peerVideoFrames.values) {
       frame.value = null;
@@ -2052,28 +2062,40 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       _reportScreenShareStopped(engine, request, epoch);
     });
     _androidScreen = screen;
-    final started = await screen.start((y, u, v, width, height) {
-      if (!current() || _androidScreen != screen) {
-        return;
-      }
+    Future<void> retire() async {
+      // Detach before entering the port, but register its reply before any
+      // callback can leave/dispose the call. Never detach a replacement.
+      if (identical(_androidScreen, screen)) _androidScreen = null;
       try {
-        final pushed = engine.pushVideoFrame(y, u, v, width, height);
-        if (!_androidScreenPushLogged) {
-          _androidScreenPushLogged = true;
-          devLog(() => 'veil-screen: first group engine push=$pushed');
-        }
+        await _retireScreen(engine, screen);
       } catch (_) {}
-    });
+    }
+
+    final bool started;
+    try {
+      started = await screen.start((y, u, v, width, height) {
+        if (!current() || _androidScreen != screen) {
+          return;
+        }
+        try {
+          final pushed = engine.pushVideoFrame(y, u, v, width, height);
+          if (!_androidScreenPushLogged) {
+            _androidScreenPushLogged = true;
+            devLog(() => 'veil-screen: first group engine push=$pushed');
+          }
+        } catch (_) {}
+      });
+    } catch (_) {
+      await retire();
+      rethrow;
+    }
     if (!current() || !identical(_androidScreen, screen)) {
       // Teardown may have stopped this source before its start reply. Reclaim
-      // only this source, retaining an attached reference until stop returns.
-      try {
-        await screen.stop();
-      } catch (_) {}
-      if (identical(_androidScreen, screen)) _androidScreen = null;
+      // only this source; the registered reply retains its own engine.
+      await retire();
       return false;
     }
-    if (!started && _androidScreen == screen) _androidScreen = null;
+    if (!started) await retire();
     return started;
   }
 

@@ -541,6 +541,18 @@
   Это Android control flow над synthetic ports, не физическая MediaProjection
   и не атрибуция Windows 10; не выпущено.
   [Воспроизведение и границы](../group-screen-start-owner-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: остановка экрана группы удерживает engine/слот.**
+  Известные screen-stop ответы теперь учитываются вместе с camera-stop под
+  своим engine. OFF и cleanup отказавшего старта не освобождают слот раньше
+  ответа; отказавший источник больше не выдаёт ложный успех при повторе.
+  Настоящий AndroidScreenCapture проверен с удержанным stop и с потерянным
+  start reply/отказом cleanup: временный отказ восстанавливается, постоянный
+  не объявляется успешной демонстрацией. Девять baseline assertion-red и два
+  controls; 948 related и 498 с диагностикой прошли без skips, анализатор чист.
+  Четыре deliberate mutants дали пять, два, один и два отказа. Это host/bridge
+  qualification с controlled native replies, не физическая MediaProjection;
+  исходная Windows 10 жалоба не атрибутирована, не выпущено.
+  [Воспроизведение и границы](../group-screen-retirement-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие

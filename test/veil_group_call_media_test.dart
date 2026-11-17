@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:camera_platform_interface/camera_platform_interface.dart'
     show CameraPlatform;
 import 'package:xveil/state/call_slot.dart';
@@ -3293,6 +3294,282 @@ void main() {
     }
   }
 
+  for (final ending in ['off', 'reentrant', 'dispose', 'failure', 'attached']) {
+    test('group screen retirement holds slot: $ending', () async {
+      final screen = _HeldGroupScreen()..result.complete(true);
+      final stand = _GroupProjectionStand((_) => screen);
+      Future<void>? command, disposing;
+      Object? error;
+      try {
+        await stand.start();
+        await stand.service.setScreenShareEnabled(true);
+        expect(stand.service.current?.screenOn, isTrue);
+        if (ending == 'reentrant') {
+          screen.onStop = () {
+            disposing = stand.service.dispose();
+          };
+        }
+        if (ending != 'attached') {
+          command = stand.service
+              .setScreenShareEnabled(false)
+              .then<void>(
+                (_) {},
+                onError: (Object e, StackTrace _) {
+                  error = e;
+                },
+              );
+          await screen.stopping.future;
+        }
+        await stand.service.leave();
+        if (ending == 'dispose') disposing = stand.service.dispose();
+        await screen.stopping.future;
+        await pumpEventQueue();
+        final competing = stand.slot.acquire(CallSlotOwner.direct);
+        if (competing != null) stand.slot.release(competing);
+        expect(
+          competing,
+          isNull,
+          reason: 'the known stop reply still owns the slot',
+        );
+        expect(stand.engine.disposals, 0);
+        expect(stand.engine.audioStops, greaterThan(0));
+        if (ending == 'failure') {
+          screen.release.completeError(
+            StateError('synthetic screen stop failure'),
+          );
+        } else {
+          screen.release.complete();
+        }
+        await command;
+        await disposing;
+        await pumpEventQueue();
+        expect(error, ending == 'failure' ? isA<StateError>() : isNull);
+        expect(stand.slot.owner, isNull);
+        expect(stand.engine.disposals, 1);
+      } finally {
+        if (!screen.release.isCompleted) screen.release.complete();
+        await command;
+        if (disposing == null) {
+          await stand.close();
+        } else {
+          await disposing;
+          await stand.groups.close();
+        }
+        await pumpEventQueue();
+      }
+    });
+  }
+
+  test(
+    'group screen retirement joins the real Android bridge stop reply',
+    () async {
+      const channel = MethodChannel('xveil/group_screen_stop_lease');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final entered = Completer<void>(), release = Completer<void>();
+      final captures = <AndroidScreenCapture>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'start') return true;
+        if (call.method == 'stop') {
+          if (!entered.isCompleted) entered.complete();
+          await release.future;
+        }
+        return null;
+      });
+      final stand = _GroupProjectionStand((stopped) {
+        final capture = AndroidScreenCapture(
+          stopped,
+          channel: channel,
+          isAndroid: true,
+        );
+        captures.add(capture);
+        return capture;
+      });
+      Future<void>? off;
+      try {
+        await stand.start();
+        await stand.service.setScreenShareEnabled(true);
+        expect(stand.service.current?.screenOn, isTrue);
+        off = stand.service.setScreenShareEnabled(false);
+        await entered.future;
+        await stand.service.leave();
+        await pumpEventQueue();
+        final competing = stand.slot.acquire(CallSlotOwner.direct);
+        if (competing != null) stand.slot.release(competing);
+        expect(competing, isNull);
+        expect(stand.engine.disposals, 0);
+        release.complete();
+        await off;
+        await pumpEventQueue();
+        expect(stand.slot.owner, isNull);
+        expect(stand.engine.disposals, 1);
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await off;
+        await stand.close();
+        for (final capture in captures) {
+          await capture.stop();
+        }
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    },
+  );
+
+  for (final outcome in ['refused', 'throws']) {
+    test(
+      'group screen failed start retains its close reply: $outcome',
+      () async {
+        final screen = _HeldGroupScreen();
+        final stand = _GroupProjectionStand((_) => screen);
+        Future<void>? sharing;
+        Object? error;
+        try {
+          await stand.start();
+          sharing = stand.service
+              .setScreenShareEnabled(true)
+              .then<void>(
+                (_) {},
+                onError: (Object e, StackTrace _) {
+                  error = e;
+                },
+              );
+          await screen.entered.future;
+          if (outcome == 'throws') {
+            screen.result.completeError(
+              StateError('synthetic screen start failure'),
+            );
+          } else {
+            screen.result.complete(false);
+          }
+          await pumpEventQueue();
+          expect(
+            screen.stops,
+            1,
+            reason: 'failed startup must retire its source',
+          );
+          await stand.service.leave();
+          await pumpEventQueue();
+          final competing = stand.slot.acquire(CallSlotOwner.direct);
+          if (competing != null) stand.slot.release(competing);
+          expect(
+            competing,
+            isNull,
+            reason: 'failed-start cleanup still owns its reply',
+          );
+          expect(stand.engine.disposals, 0);
+          screen.release.complete();
+          await sharing;
+          await pumpEventQueue();
+          expect(error, outcome == 'throws' ? isA<StateError>() : isNull);
+          expect(stand.slot.owner, isNull);
+          expect(stand.engine.disposals, 1);
+        } finally {
+          if (!screen.result.isCompleted) screen.result.complete(false);
+          if (!screen.release.isCompleted) screen.release.complete();
+          await sharing;
+          await stand.close();
+        }
+      },
+    );
+  }
+
+  test('group screen start exception does not admit a phantom retry', () async {
+    final screens = <_PendingGroupScreen>[];
+    final stand = _GroupProjectionStand((_) {
+      final screen = _PendingGroupScreen();
+      if (screens.isNotEmpty) screen.result.complete(true);
+      screens.add(screen);
+      return screen;
+    });
+    Future<void>? sharing;
+    Object? error;
+    try {
+      await stand.start();
+      sharing = stand.service
+          .setScreenShareEnabled(true)
+          .then<void>(
+            (_) {},
+            onError: (Object e, StackTrace _) {
+              error = e;
+            },
+          );
+      await pumpEventQueue();
+      expect(screens, hasLength(1));
+      screens.first.result.completeError(
+        StateError('synthetic screen start failure'),
+      );
+      await sharing;
+      expect(error, isA<StateError>());
+      expect(stand.service.current?.screenOn, isFalse);
+      await stand.service.setScreenShareEnabled(true);
+      expect(screens, hasLength(2), reason: 'retry must start a new source');
+      expect(screens.first.stops, greaterThan(0));
+      expect(stand.service.current?.screenOn, isTrue);
+      final before = stand.engine.videoPushed;
+      screens.last.frame();
+      expect(stand.engine.videoPushed, before + 1);
+      screens.first.frame();
+      expect(stand.engine.videoPushed, before + 1);
+    } finally {
+      for (final screen in screens) {
+        if (!screen.result.isCompleted) screen.result.complete(false);
+      }
+      await sharing;
+      await stand.close();
+    }
+  });
+
+  for (final recover in [false, true]) {
+    test('group screen failed native start cleanup recover=$recover', () async {
+      final channel = MethodChannel('xveil/group_screen_retry_$recover');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final captures = <AndroidScreenCapture>[];
+      var starts = 0, stops = 0, forceCleanup = false;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'start') {
+          starts++;
+          if (starts == 1) {
+            throw PlatformException(code: 'synthetic_start_lost');
+          }
+          return true;
+        }
+        if (call.method == 'stop') {
+          stops++;
+          if (!forceCleanup && (stops == 1 || !recover)) {
+            throw PlatformException(code: 'synthetic_stop_refused');
+          }
+        }
+        return null;
+      });
+      final stand = _GroupProjectionStand((stopped) {
+        final capture = AndroidScreenCapture(
+          stopped,
+          channel: channel,
+          isAndroid: true,
+        );
+        captures.add(capture);
+        return capture;
+      });
+      try {
+        await stand.start();
+        await stand.service.setScreenShareEnabled(true);
+        expect(stand.service.current?.screenOn, isFalse);
+        expect(starts, 1);
+        await stand.service.setScreenShareEnabled(true);
+        expect(stand.service.current?.screenOn, recover);
+        expect(starts, recover ? 2 : 1);
+      } finally {
+        forceCleanup = true;
+        await stand.close();
+        for (final capture in captures) {
+          await capture.stop();
+        }
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    });
+  }
+
   for (final ending in ['leave', 'replacement']) {
     test(
       'group pending screen handoff rejects $ending before lifecycle cleanup',
@@ -5787,6 +6064,66 @@ class _IntentCamera extends AndroidCameraCapture {
 
   // Deliberately retain a callable sink as an adversarial late-callback probe.
   void frame() => _sink?.call(Uint8List(4), Uint8List(1), Uint8List(1), 2, 2);
+}
+
+class _GroupProjectionStand {
+  _GroupProjectionStand(this.screenFactory);
+  final AndroidScreenCaptureFactory screenFactory;
+  final groups = _CameraOutcomeGroups(_id(1)), slot = CallSlot();
+  final engine = _HeldGroupEngine();
+  late final controller = VeilGroupCallMediaController(
+    _FakeTransport(_id(1)),
+    roomMediaSecret: _room(),
+    engineFactory: (_) => engine,
+    androidCapture: true,
+    cameraCaptureFactory: () => _IntentCamera(),
+    screenCaptureFactory: screenFactory,
+    requestMicrophone: () async => true,
+    requestCamera: () async => true,
+    networkActivity: CallNetworkActivity(setActive: (_) async => false),
+  );
+  late final service = GroupCallService(
+    groups,
+    media: controller,
+    callSlot: slot,
+  )..start();
+  Future<void> start() async {
+    final active = service.changes.firstWhere(
+      (c) => c?.status == GroupCallStatus.active,
+    );
+    expect(
+      await service.startCall(
+        _id(9),
+        const CallMedia(audio: true, video: true),
+      ),
+      isTrue,
+    );
+    await active;
+    await pumpEventQueue();
+  }
+
+  Future<void> close() async {
+    await service.dispose();
+    await groups.close();
+    await pumpEventQueue();
+  }
+}
+
+class _HeldGroupScreen extends _PendingGroupScreen {
+  final stopping = Completer<void>(), release = Completer<void>();
+  Future<void>? _closing;
+  void Function()? onStop;
+  @override
+  Future<void> stop() {
+    if (_closing != null) return _closing!;
+    stops++;
+    _closing = release.future;
+    stopping.complete();
+    final callback = onStop;
+    onStop = null;
+    callback?.call();
+    return release.future;
+  }
 }
 
 class _PendingGroupScreen extends _IntentScreen {
