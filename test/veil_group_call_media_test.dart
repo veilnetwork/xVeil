@@ -3290,6 +3290,150 @@ void main() {
     }
   }
 
+  for (final outcome in [
+    'success',
+    'refused',
+    'throws',
+    'reentrant',
+    'queued-repair',
+  ]) {
+    test(
+      'group stop requests audio before pending peer open: $outcome',
+      () async {
+        final self = _id(1), engine = _RequestStopEngine(outcome);
+        final transport = _BlockedGroupPeerOpen(self);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        );
+        final initial = _call(self, []);
+        Future<void>? updating, stopping, nestedStop;
+        Future<bool>? repair;
+        try {
+          expect(await controller.start(initial), isTrue);
+          expect(engine.started, 1);
+          updating = controller.update(_call(self, [_id(2)]));
+          await transport.entered.future;
+          if (outcome == 'queued-repair') repair = controller.start(initial);
+          if (outcome == 'reentrant') {
+            engine.onAudioStop = () {
+              nestedStop = controller.stop();
+            };
+          }
+          var stopped = false;
+          stopping = controller.stop().then((_) {
+            stopped = true;
+          });
+          await pumpEventQueue();
+          expect(
+            engine.audioStops,
+            1,
+            reason: 'audio stop must not wait on the lifecycle lane',
+          );
+          expect(
+            stopped,
+            isFalse,
+            reason: 'accepted channel creation is still owned',
+          );
+          expect(engine.disposals, 0);
+          transport.release.complete();
+          await updating;
+          await stopping;
+          await nestedStop;
+          if (repair != null) expect(await repair, isFalse);
+          expect(
+            engine.audioStops,
+            outcome == 'refused' || outcome == 'throws' ? 2 : 1,
+          );
+          expect(engine.disposals, 1);
+          expect(engine.added, isEmpty);
+          expect(transport.closed, [
+            1,
+          ], reason: 'late accepted channel is reclaimed');
+        } finally {
+          if (!transport.release.isCompleted) transport.release.complete();
+          await updating;
+          await stopping;
+          await nestedStop;
+          await repair;
+          await controller.stop();
+          await pumpEventQueue();
+        }
+      },
+    );
+  }
+
+  for (final ending in ['leave', 'dispose']) {
+    test('group $ending stops audio while peer open retains slot', () async {
+      final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
+      final engine = _HeldGroupEngine(), slot = CallSlot();
+      final transport = _BlockedGroupPeerOpen(self);
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      final service = GroupCallService(
+        groups,
+        media: controller,
+        callSlot: slot,
+      )..start();
+      Future<void>? updating, disposing;
+      try {
+        final active = service.changes.firstWhere(
+          (call) => call?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(_id(9), const CallMedia(audio: true)),
+          isTrue,
+        );
+        final call = (await active)!;
+        expect(engine.started, 1);
+        updating = controller.update(
+          _call(self, [_id(2)], callId: call.callId),
+        );
+        await transport.entered.future;
+        if (ending == 'leave') {
+          await service.leave();
+          expect(service.current?.status, GroupCallStatus.ended);
+        } else {
+          disposing = service.dispose();
+        }
+        await pumpEventQueue();
+        expect(engine.audioStops, 1);
+        expect(engine.disposals, 0);
+        final competing = slot.acquire(CallSlotOwner.direct);
+        if (competing != null) slot.release(competing);
+        expect(competing, isNull);
+        transport.release.complete();
+        await updating;
+        await pumpEventQueue();
+        expect(slot.owner, isNull);
+        expect(engine.audioStops, 1);
+        expect(engine.disposals, 1);
+        expect(engine.added, isEmpty);
+        expect(transport.closed, [1]);
+      } finally {
+        if (!transport.release.isCompleted) transport.release.complete();
+        await updating;
+        if (disposing != null) {
+          await disposing;
+        } else {
+          await service.dispose();
+        }
+        await groups.close();
+        await pumpEventQueue();
+      }
+    });
+  }
+
   for (final operation in ['off', 'screen', 'attached']) {
     for (final ending in ['ordinary', 'reentrant', 'dispose', 'failure']) {
       test('group camera stop holds slot: $operation/$ending', () async {
@@ -4836,6 +4980,40 @@ class _CameraIntentGroups implements GroupService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BlockedGroupPeerOpen extends _FakeTransport {
+  _BlockedGroupPeerOpen(super.self);
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<int> open(
+    NodeId peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  }) async {
+    final channel = await super.open(peer, txKey: txKey, rxKey: rxKey);
+    entered.complete();
+    await release.future;
+    return channel;
+  }
+}
+
+class _RequestStopEngine extends _HeldGroupEngine {
+  _RequestStopEngine(this.outcome);
+  final String outcome;
+  void Function()? onAudioStop;
+  @override
+  bool stopAudio() {
+    final result = super.stopAudio();
+    final callback = onAudioStop;
+    onAudioStop = null;
+    callback?.call();
+    if (audioStops == 1 && outcome == 'throws') {
+      throw StateError('synthetic audio stop failure');
+    }
+    if (audioStops == 1 && outcome == 'refused') return false;
+    return result;
+  }
 }
 
 class _HeldGroupEngine extends _FakeEngine {
