@@ -1,0 +1,78 @@
+{
+  "schema": "xveil-default-network-device-check/1",
+  "androidApi": 36,
+  "standaloneProcessUnderQaApplicationUid": false,
+  "standaloneProcessUnderShellUid": true,
+  "operatorHarnessAttributionCorrected": true,
+  "originalAppActivityLaunched": false,
+  "apkInstalled": false,
+  "sourceSha256": {
+    "android/app/src/main/kotlin/network/veil/xveil/DefaultNetworkState.kt": "c462e669a5970be6488b35e0a57418c595561db64790b78898795d25d3815464",
+    "android/app/src/main/kotlin/network/veil/xveil/DefaultNetworkObserver.kt": "dbde060c1ffb47e24f0f5743d21e220e492678163bb9786cae415983d5d7b30c"
+  },
+  "dexJarSha256": "5063d653d793a6e8ea0ad1f4d7529685e73dce36fdab1ccc4898b0db852bc699",
+  "events": [
+    {
+      "event": "observation",
+      "kind": "cellular",
+      "revision": 1,
+      "ordinal": 1
+    },
+    {
+      "event": "observation",
+      "kind": "cellular",
+      "revision": 1,
+      "ordinal": 2
+    },
+    {
+      "event": "snapshot",
+      "kind": "cellular",
+      "revision": 1
+    },
+    {
+      "event": "observation",
+      "kind": "wifi",
+      "revision": 2,
+      "ordinal": 3
+    },
+    {
+      "event": "observation",
+      "kind": "offline",
+      "revision": 3,
+      "ordinal": 4
+    },
+    {
+      "event": "observation",
+      "kind": "cellular",
+      "revision": 4,
+      "ordinal": 5
+    },
+    {
+      "event": "retired",
+      "observations": 5
+    },
+    {
+      "event": "finished",
+      "observations": 5,
+      "errors": 0,
+      "retired": true,
+      "handlersCleared": true
+    }
+  ],
+  "activeRequestsForOwnedProcess": {
+    "before": 0,
+    "during": 1,
+    "retired": 0,
+    "after": 0
+  },
+  "retirementObservedWhileProcessAlive": true,
+  "focusUnchanged": true,
+  "wifiRestored": true,
+  "mobileDataRemainedEnabled": true,
+  "probeProcessGone": true,
+  "privateDirectoryGone": true,
+  "sameKindReplacementWithoutOfflinePhysicallyTested": false,
+  "cellularDefaultNetworkTransitionTested": true,
+  "fullApplicationCallTested": false,
+  "hostTestCompleted": true
+}
