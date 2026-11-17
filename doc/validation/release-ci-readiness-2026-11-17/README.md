@@ -97,6 +97,12 @@ clean. All seven published engine binaries and producer records also verify
 against the versioned checkout's unchanged native source digest. These checks
 do not replace the final source CI and tagged artifact gates.
 
+The final hidden-volume source run `44130909593` passes all **24 jobs** after
+retrying four macOS jobs which never acquired a hosted runner. Their original
+cancellations are not counted as passes. A separate ordinary macOS ARM64 AOT
+package now passes source/native/ABI/signature/privacy checks without opening
+the application; [qualification and limits](../macos-release-candidate-2026-11-17/README.md).
+
 ## Application and test preparation
 
 - The chat loading scaffold now exposes RootedBackButton, including entry with
