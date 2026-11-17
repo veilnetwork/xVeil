@@ -355,6 +355,16 @@
   skips; анализатор чист. Два deliberate mutants дали один и четыре ожидаемых
   отказа. Это квалификация controller ordering, не физического Windows-звонка;
   не выпущено. [Проверки и границы](../media-session-stop-owner-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: завершение ждёт уже отсоединённую native-камеру.**
+  Select/OFF убирали ссылку до await, и teardown мог освободить engine до
+  ответа stop. Ожидания native-источников теперь учитываются по engine identity
+  до вызова stop, включая reentrant callback. Новый engine не ждёт чужие fence;
+  исходный error-контракт сохранён. Десять baseline assertion-red и один
+  допустимый error-control; два deliberate mutants дали два и четыре отказа.
+  809 related и 215 с диагностикой прошли без skips, анализатор чист.
+  Два прежних rebuild-теста теперь проверяют ожидание своего fence перед новым
+  захватом. Это controlled lifetime qualification, не физический Windows-звонок;
+  не выпущено. [Проверки и границы](../detached-native-retirement-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие
