@@ -463,6 +463,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
+  final _cameraFailures = StreamController<GroupCallCameraFailure>.broadcast();
+  GroupCallCameraFailure? _cameraOwner;
+  bool _startedWithoutCamera = false;
+  @override
+  bool get startedWithoutCamera => _startedWithoutCamera;
+  @override
+  Stream<GroupCallCameraFailure> get cameraUnavailable =>
+      _cameraFailures.stream;
   bool _videoRunning = false;
   final _cameraState = CallCameraState();
   bool get _cameraEnabled => _cameraState.enabled;
@@ -521,6 +529,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<bool> start(GroupCall call) {
     final request = ++_sessionRequestEpoch;
+    _cameraOwner = GroupCallCameraFailure(
+      groupId: call.groupId,
+      channelId: call.channelId,
+      callId: call.callId,
+    );
+    _startedWithoutCamera = false;
     // A remote initiator may reuse a call id in another group/channel. Such a
     // room must not inherit the first room's capture choices.
     final captureScope = jsonEncode([
@@ -765,11 +779,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       if (!_screenSharing) _selectScreenSource(false);
     } else if (_cameraEnabled) {
       if (_androidCapture) {
-        unawaited(_startAndroidCamera(engine));
+        unawaited(
+          _startAndroidCamera(engine, origin: CameraStartOrigin.callStart),
+        );
       } else {
-        try {
-          engine.startCamera();
-        } catch (_) {}
+        _startDesktopCamera(engine, CameraStartOrigin.callStart);
       }
     }
     return true;
@@ -1454,7 +1468,49 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
-  void updateCameraIntent(bool enabled) => _cameraState.setEnabled(enabled);
+  void updateCameraIntent(bool enabled) {
+    _cameraState.setEnabled(enabled);
+    // An old queued failure cannot undo a newer successful capture attempt.
+    if (enabled) _startedWithoutCamera = false;
+  }
+
+  void _startDesktopCamera(GroupAudioEngine engine, CameraStartOrigin origin) {
+    if (_engine != engine || _engineRequest != _sessionRequestEpoch) return;
+    var started = false;
+    try {
+      started = engine.startCamera();
+    } catch (_) {
+      // Only categorical/numeric evidence leaves the native boundary.
+    }
+    _reportCameraStartOutcome(engine, started, origin);
+  }
+
+  void _reportCameraStartOutcome(
+    GroupAudioEngine engine,
+    bool started,
+    CameraStartOrigin origin,
+  ) {
+    final owner = _cameraOwner;
+    if (_engine != engine ||
+        _engineRequest != _sessionRequestEpoch ||
+        !_cameraEnabled ||
+        owner == null) {
+      return;
+    }
+    Map<String, dynamic> stats = const {};
+    if (diagnosticJournal.enabled) {
+      try {
+        stats = engine.getStats();
+      } catch (_) {}
+    }
+    diagnosticJournal.recordCameraStart(
+      success: started,
+      origin: origin,
+      stats: stats,
+    );
+    _startedWithoutCamera = !started;
+    if (!started) _cameraFailures.add(owner);
+  }
 
   @override
   Future<void> setCameraEnabled(bool enabled) async {
@@ -1485,7 +1541,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     try {
       if (enabled) {
-        engine.startCamera();
+        _startDesktopCamera(engine, CameraStartOrigin.toggle);
       } else {
         engine.stopCamera();
         localVideoFrame.value = null;
@@ -1528,7 +1584,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           mayRestoreCamera: () =>
               _engine == engine && _videoRunning && _cameraEnabled,
           restoreCamera: () {
-            engine.startCamera();
+            _startDesktopCamera(engine, CameraStartOrigin.recovery);
           },
         );
         _screenSharing = started;
@@ -1596,6 +1652,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     // Clear at the request boundary, not in delayed cleanup: a queued newer
     // call may already have installed its own intent by the time cleanup runs.
     _cameraState.clear();
+    _cameraOwner = null;
+    _startedWithoutCamera = false;
     _microphoneState.clear();
     return _locked(_stopLocked);
   }
@@ -1653,7 +1711,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     if (!started) _selectScreenSource(false);
     _screenSharing = started;
-    if (!started && cameraWasRunning) await _startAndroidCamera(engine);
+    if (!started && cameraWasRunning) {
+      await _startAndroidCamera(engine, origin: CameraStartOrigin.recovery);
+    }
     return started;
   }
 
@@ -1745,7 +1805,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
   }
 
-  Future<void> _startAndroidCamera(GroupAudioEngine engine) async {
+  Future<void> _startAndroidCamera(
+    GroupAudioEngine engine, {
+    CameraStartOrigin origin = CameraStartOrigin.toggle,
+  }) async {
     if (_engine != engine ||
         _engineRequest != _sessionRequestEpoch ||
         !_videoRunning ||
@@ -1757,28 +1820,28 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final epoch = _mediaEpoch;
     final camera = _createAndroidCamera();
     _androidCamera = camera;
-    final started = await camera.start((y, u, v, width, height) {
-      if (_engine != engine ||
-          _engineRequest != _sessionRequestEpoch ||
-          epoch != _mediaEpoch ||
-          !_videoRunning ||
-          !_cameraEnabled ||
-          _screenSharing ||
-          _androidCamera != camera) {
-        return;
-      }
-      try {
-        engine.pushVideoFrame(y, u, v, width, height);
-      } catch (_) {}
-    });
-    if (!started ||
-        _engine != engine ||
-        _engineRequest != _sessionRequestEpoch ||
-        epoch != _mediaEpoch ||
-        !_videoRunning ||
-        !_cameraEnabled ||
-        _screenSharing ||
-        _androidCamera != camera) {
+    bool current() =>
+        _engine == engine &&
+        _engineRequest == _sessionRequestEpoch &&
+        epoch == _mediaEpoch &&
+        _videoRunning &&
+        _cameraEnabled &&
+        !_screenSharing &&
+        _androidCamera == camera;
+    var started = false;
+    try {
+      started = await camera.start((y, u, v, width, height) {
+        if (!current()) return;
+        try {
+          engine.pushVideoFrame(y, u, v, width, height);
+        } catch (_) {}
+      });
+    } catch (_) {
+      // Treat a source exception as a capture refusal, keeping receive/audio.
+    }
+    final owned = current();
+    if (owned) _reportCameraStartOutcome(engine, started, origin);
+    if (!started || !owned) {
       if (_androidCamera == camera) _androidCamera = null;
       try {
         await camera.stop();
