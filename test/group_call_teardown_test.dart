@@ -6,8 +6,14 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_policy.dart';
+import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/group_service.dart';
+
+class _PendingSend {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+}
 
 /// Minimal [GroupService] stand-in: only the members [GroupCallService]
 /// touches are real (selfId, changes, groupCallIncoming, stateOf,
@@ -21,6 +27,9 @@ class _FakeGroups implements GroupService {
   /// When set, [broadcastGroupCallSignal] records the signal only after the
   /// gate completes — models the slow per-member durable fan-out.
   Completer<void>? sendGate;
+
+  /// One-shot refusal; later broadcasts can complete independently.
+  _PendingSend? refuseNextSend;
 
   /// One-shot: the NEXT admission read waits on it and then answers
   /// "excluded". Consumed on entry, so everything after it — including a new
@@ -86,6 +95,13 @@ class _FakeGroups implements GroupService {
     CallMedia? media,
     CallEndReason? reason,
   }) async {
+    final refusal = refuseNextSend;
+    if (refusal != null) {
+      refuseNextSend = null;
+      refusal.entered.complete();
+      await refusal.release.future;
+      return null;
+    }
     final gate = sendGate;
     if (gate != null) await gate.future;
     sent.add(type);
@@ -132,6 +148,7 @@ class _GatedMedia extends GroupCallMediaController {
 
   /// How many times media was actually asked to start.
   int starts = 0;
+  int stops = 0;
 
   @override
   Future<bool> start(GroupCall call) async {
@@ -142,7 +159,9 @@ class _GatedMedia extends GroupCallMediaController {
   @override
   Future<void> update(GroupCall call) async {}
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stops++;
+  }
 
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
@@ -654,6 +673,168 @@ void main() {
       expect(svc.current?.callId, isNot(first));
     },
   );
+
+  // These inject signals at the already-authenticated GroupService boundary.
+  // They exercise the real call FSM, not wire signatures or physical transport.
+  Future<void> ring(GroupCallService service, _FakeGroups groups) async {
+    final ringing = service.changes.firstWhere(
+      (call) => call?.status == GroupCallStatus.ringing,
+    );
+    groups._incoming.add(
+      GroupCallSignal(
+        groupId: groupId,
+        callId: 'incoming-room',
+        author: NodeId.fromHex('d' * 64),
+        membershipEpoch: 1,
+        type: GroupCallSignalType.announce,
+        sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        nonce: 'aabbccddeeff001122334455',
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+        media: const CallMedia(audio: true),
+      ),
+    );
+    await ringing;
+  }
+
+  for (final operation in ['start', 'join']) {
+    for (final terminal in [
+      'current',
+      'leave',
+      'replacement',
+      'other-group',
+      'dispose',
+    ]) {
+      test(
+        'late $operation refusal respects $terminal room lifetime',
+        () async {
+          final groups = _FakeGroups(NodeId.fromHex('a' * 64));
+          final media = _GatedMedia();
+          final slot = CallSlot();
+          final service = GroupCallService(groups, media: media, callSlot: slot)
+            ..start();
+          final refusal = _PendingSend();
+          Future<bool>? pending;
+          var disposed = false;
+          try {
+            if (operation == 'join') await ring(service, groups);
+            groups.refuseNextSend = refusal;
+            pending = operation == 'start'
+                ? service.startCall(groupId, const CallMedia(audio: true))
+                : service.join();
+            await refusal.entered.future;
+            final oldId = service.current!.callId;
+            expect(service.current?.status, GroupCallStatus.connecting);
+            if (terminal == 'dispose') {
+              await service.dispose();
+              disposed = true;
+            } else if (terminal != 'current') {
+              await service.leave();
+              await pumpEventQueue();
+              expect(service.current?.endReason, CallEndReason.hangup);
+              if (terminal == 'replacement' || terminal == 'other-group') {
+                final active = service.changes.firstWhere(
+                  (call) => call?.status == GroupCallStatus.active,
+                );
+                expect(
+                  await service.startCall(
+                    terminal == 'other-group'
+                        ? NodeId.fromHex('c' * 64)
+                        : groupId,
+                    const CallMedia(audio: true),
+                  ),
+                  isTrue,
+                );
+                await active;
+                expect(service.current?.callId, isNot(oldId));
+                expect(media.starts, 1);
+              }
+            }
+            final before = service.current;
+            final stops = media.stops;
+            final owner = slot.owner;
+            refusal.release.complete();
+            expect(await pending, isFalse);
+            await pumpEventQueue();
+            if (terminal == 'current') {
+              expect(service.current?.callId, oldId);
+              expect(service.current?.status, GroupCallStatus.ended);
+              expect(service.current?.endReason, CallEndReason.error);
+              expect(media.stops, stops + 1);
+            } else {
+              expect(
+                service.current,
+                same(before),
+                reason:
+                    'a verdict about the old call cannot change its successor',
+              );
+              expect(
+                media.stops,
+                stops,
+                reason: 'a late refusal cannot stop media again',
+              );
+              expect(
+                slot.owner,
+                owner,
+                reason: 'the replacement keeps its call slot',
+              );
+            }
+          } finally {
+            if (!refusal.release.isCompleted) refusal.release.complete();
+            await pending;
+            if (!disposed) await service.dispose();
+            await groups.close();
+          }
+        },
+      );
+    }
+  }
+
+  for (final terminal in ['current', 'leave', 'replacement', 'other-group']) {
+    test('join admission exclusion respects $terminal room lifetime', () async {
+      final groups = _FakeGroups(NodeId.fromHex('a' * 64));
+      final service = GroupCallService(groups)..start();
+      final verdict = Completer<void>();
+      Future<bool>? joining;
+      try {
+        await ring(service, groups);
+        groups.excludeOnceGate = verdict;
+        joining = service.join();
+        await pumpEventQueue();
+        expect(
+          groups.excludeOnceGate,
+          isNull,
+          reason: 'join must be parked in the one-shot admission read',
+        );
+        if (terminal != 'current') {
+          await service.leave();
+          if (terminal == 'replacement' || terminal == 'other-group') {
+            expect(
+              await service.startCall(
+                terminal == 'other-group' ? NodeId.fromHex('c' * 64) : groupId,
+                const CallMedia(audio: true),
+              ),
+              isTrue,
+            );
+          }
+        }
+        final before = service.current;
+        verdict.complete();
+        expect(await joining, isFalse);
+        if (terminal == 'current') {
+          expect(service.current?.endReason, CallEndReason.error);
+          expect(service.current?.status, GroupCallStatus.ended);
+        } else {
+          expect(service.current, same(before));
+        }
+      } finally {
+        if (!verdict.isCompleted) verdict.complete();
+        await joining;
+        await service.dispose();
+        await groups.close();
+      }
+    });
+  }
 
   test('leave clears the room before the fan-out broadcast lands', () async {
     final fake = _FakeGroups(NodeId.fromHex('a' * 64));

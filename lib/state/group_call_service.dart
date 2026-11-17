@@ -361,15 +361,14 @@ class GroupCallService {
       type: GroupCallSignalType.announce,
       media: media,
     );
+    // Both success and refusal belong to this call. A late refusal must not
+    // end a replacement room or repeat teardown after the user has left.
+    // This also keeps disposed/ended calls from arming timers (XV19-H1).
+    if (!_stillOn(call)) return false;
     if (sent == null) {
       _end(CallEndReason.error, roomOver: true);
       return false;
     }
-    // The broadcast is an await too. A teardown landing there left this
-    // continuation to arm two periodic timers on a disposed service and
-    // report success — `_startMedia` already refused, so the timers were the
-    // whole of it, and they never stop (report19 XV19-H1).
-    if (!_stillOn(call)) return false;
     _startTimers();
     unawaited(_startMedia(call.callId));
     return true;
@@ -388,6 +387,8 @@ class GroupCallService {
       call.groupId,
       call.channelId,
     );
+    // Admission was read for the ringing call, including an exclusion verdict.
+    if (!_stillOn(call)) return false;
     if (state == null || admission == null) {
       // TRANSIENT unavailability: the group snapshot or the (possibly
       // rotated) channel admission simply has not arrived yet — announces
@@ -426,7 +427,6 @@ class GroupCallService {
       joinedAt: now,
       participants: participants,
     );
-    if (!_stillOn(call)) return false;
     _set(joined);
     _cancelRingTimer();
     final sent = await _groups.broadcastGroupCallSignal(
@@ -436,11 +436,11 @@ class GroupCallService {
       type: GroupCallSignalType.join,
       media: call.media,
     );
+    if (!_stillOn(call)) return false;
     if (sent == null) {
       _end(CallEndReason.error);
       return false;
     }
-    if (!_stillOn(call)) return false;
     _startTimers();
     unawaited(_startMedia(call.callId));
     return true;
