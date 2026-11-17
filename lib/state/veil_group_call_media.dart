@@ -1765,7 +1765,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _audioEnabled = false;
     // Peer opens/permissions can still own the lifecycle lane. Quiesce audio
     // at the request boundary rather than waiting for that work to return.
-    _stopEngineAudio(_engine);
+    final engine = _engine;
+    _stopEngineAudio(engine);
+    final screen = _androidScreen;
+    _androidScreen = null;
+    // Initial screen consent can itself own the lane. Cancel it now: native
+    // stop resolves that start request, letting serialized cleanup proceed.
+    // Its registered reply still holds the engine/slot until stop answers.
+    if (screen != null) {
+      unawaited(_retireScreen(engine, screen).catchError((Object _) {}));
+    }
     return _locked(_stopLocked);
   }
 
