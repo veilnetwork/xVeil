@@ -84,11 +84,10 @@ class _RefusingOutboxStorage extends HiddenVolumeStorage {
   int attempts = 0;
 
   @override
-  Future<void> enqueueOutboxFrame(
-    String frameId,
-    String peerHex,
-    Uint8List wire,
-  ) async {
+  Future<bool> admitInitialContactRequest(
+    OutboxFrame request, {
+    required bool Function() isCurrent,
+  }) async {
     attempts++;
     throw StateError('fixture durable admission refused');
   }
