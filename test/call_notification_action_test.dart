@@ -23,6 +23,8 @@ import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/notifications.dart';
 
+import 'support/queued_clear_notification_plugin.dart';
+
 class _DesktopAlerts extends NotificationService {
   final visible = <int, ({String title, String body, String? payload})>{};
   Completer<void>? showGate;
@@ -168,7 +170,7 @@ void main() {
   >
   mountDesktop(
     WidgetTester tester,
-    _DesktopAlerts alerts, {
+    NotificationService alerts, {
     NotificationSettings settings = NotificationSettings.defaults,
     GroupCallService? group,
     bool withTray = false,
@@ -240,6 +242,74 @@ void main() {
         channel,
         null,
       ),
+    );
+  }
+
+  for (final endsWhileClearing in [false, true]) {
+    testWidgets(
+      'queued global clear cannot erase a fresh call, ended=$endsWhileClearing',
+      (tester) async {
+        readOnlyWindows(tester);
+        final plugin = QueuedClearNotificationPlugin()..holdFirstClear = true;
+        final alerts = NotificationService(plugin: plugin);
+        await alerts.init(onTap: (_) {});
+        final storage = _GatedCallerStorage(holdContact: true);
+        final f = await mountDesktop(
+          tester,
+          alerts,
+          callerStorage: storage,
+          settings: const NotificationSettings(
+            enabled: true,
+            preview: NotificationPreview.full,
+          ),
+        );
+        f.wire.onCallSignal!(
+          NodeId.fromHex('a' * 64),
+          _desktopOffer('clear-admission'),
+        );
+        await tester.idle();
+        expect(f.service.current?.status, CallStatus.ringing);
+        expect(
+          storage.contactReads,
+          1,
+          reason:
+              'the actual bridge has passed readiness and is awaiting the label',
+        );
+        expect(plugin.posts, 0);
+        final first = alerts.cancelAll();
+        await tester.idle();
+        expect(plugin.firstClearEntered.isCompleted, isTrue);
+        final second = alerts.cancelAll();
+        late int postsWhileClearing;
+        try {
+          storage.release();
+          await tester.idle();
+          postsWhileClearing = plugin.posts;
+          if (endsWhileClearing) {
+            await f.service.hangup();
+            await tester.idle();
+          }
+        } finally {
+          plugin.release();
+          storage.release();
+          await Future.wait([first, second]);
+          await tester.idle();
+        }
+        expect(postsWhileClearing, 0);
+        expect(
+          plugin.visible,
+          endsWhileClearing
+              ? <int, String?>{}
+              : {kNotificationIdIncomingCall: kNotificationPayloadIncomingCall},
+        );
+        expect(plugin.posts, endsWhileClearing ? 0 : 1);
+        await f.service.hangup();
+        await tester.idle();
+        expect(plugin.visible, isEmpty);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.idle();
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
   }
 
