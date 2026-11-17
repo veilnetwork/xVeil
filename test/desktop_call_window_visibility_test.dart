@@ -199,6 +199,58 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
   }
+  for (final hiddenEvent in ['hide', 'minimize']) {
+    for (final pending in [false, true]) {
+      for (final ended in [false, if (pending) true]) {
+        testWidgets(
+          'Windows native hidden fallback $hiddenEvent pending=$pending ended=$ended',
+          (tester) async {
+            await _checkHiddenFallback(
+              tester,
+              hiddenEvent: hiddenEvent,
+              pending: pending,
+              ended: ended,
+              expectedPosts: ended ? 0 : 1,
+            );
+          },
+          variant: TargetPlatformVariant.only(TargetPlatform.windows),
+        );
+      }
+    }
+  }
+  for (final clearingEvent in ['show', 'restore', 'focus']) {
+    testWidgets(
+      'Windows native hidden fallback is cleared by $clearingEvent',
+      (tester) async {
+        await _checkHiddenFallback(
+          tester,
+          hiddenEvent: 'hide',
+          clearingEvent: clearingEvent,
+          expectedPosts: 0,
+        );
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
+  }
+  testWidgets(
+    'Windows native hidden fallback needs hidden evidence',
+    (tester) async {
+      await _checkHiddenFallback(tester, expectedPosts: 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+  testWidgets(
+    'Windows native foreground observation supersedes hidden evidence',
+    (tester) async {
+      await _checkHiddenFallback(
+        tester,
+        hiddenEvent: 'hide',
+        observeForeground: true,
+        expectedPosts: 0,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
   for (final queryMethod in ['isVisible', 'isFocused']) {
     for (final background in [false, true]) {
       for (final ended in [false, true]) {
@@ -332,6 +384,124 @@ void main() {
       }
     }
   }
+}
+
+Future<void> _windowEvent(WidgetTester tester, String name) async {
+  final reply = Completer<void>();
+  tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+    'window_manager',
+    const StandardMethodCodec().encodeMethodCall(
+      MethodCall('onEvent', {'eventName': name}),
+    ),
+    (data) {
+      try {
+        const StandardMethodCodec().decodeEnvelope(data!);
+        reply.complete();
+      } catch (error, stack) {
+        reply.completeError(error, stack);
+      }
+    },
+  );
+  await reply.future;
+  await tester.idle();
+}
+
+Future<void> _checkHiddenFallback(
+  WidgetTester tester, {
+  String? hiddenEvent,
+  String? clearingEvent,
+  bool pending = false,
+  bool ended = false,
+  bool observeForeground = false,
+  required int expectedPosts,
+}) async {
+  final wire = _Wire();
+  final service = CallService(wire, media: _Media())..start();
+  final alerts = _Alerts();
+  final container = ProviderContainer(
+    overrides: [
+      callServiceProvider.overrideWithValue(service),
+      groupCallServiceProvider.overrideWithValue(null),
+      notificationServiceProvider.overrideWithValue(alerts),
+      notificationSettingsProvider.overrideWith(_Settings.new),
+    ],
+  );
+  addTearDown(container.dispose);
+  addTearDown(service.dispose);
+  final query = Completer<bool>();
+  var foreground = observeForeground;
+  var queries = 0;
+  const window = MethodChannel('window_manager');
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(window, (
+    call,
+  ) async {
+    if (call.method == 'isVisible' || call.method == 'isFocused') {
+      queries++;
+      if (foreground) return true;
+      if (pending) return query.future;
+      throw PlatformException(code: 'window_query_unavailable');
+    }
+    fail(
+      'notification handling must not control a native window: ${call.method}',
+    );
+  });
+  addTearDown(() {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      window,
+      null,
+    );
+    if (!query.isCompleted) query.complete(true);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: CallLifecycleBridge()),
+    ),
+  );
+  if (hiddenEvent != null) await _windowEvent(tester, hiddenEvent);
+  if (clearingEvent != null) await _windowEvent(tester, clearingEvent);
+  expect(tester.binding.lifecycleState, AppLifecycleState.resumed);
+  wire.onCallSignal!(
+    NodeId.fromHex('a' * 64),
+    CallSignal(
+      callId: 'native-hidden-window',
+      type: CallSignalType.offer,
+      media: const CallMedia(audio: true),
+      posture: CallPosture.direct,
+      transport: const CallTransportProposal(CallTransportKind.relay),
+      mediaKey: generateCallMediaKeyContribution(),
+    ),
+  );
+  await tester.idle();
+  expect(service.current?.status, CallStatus.ringing);
+  expect(queries, greaterThan(0));
+  if (observeForeground) {
+    expect(alerts.posts, isEmpty);
+    foreground = false;
+    await _windowEvent(tester, 'resized');
+  }
+  if (pending) {
+    expect(alerts.posts, isEmpty);
+    if (ended) await service.hangup();
+    // The actual production watchdog, advanced with virtual time only.
+    await tester.pump(const Duration(milliseconds: 250));
+  }
+  expect(alerts.posts, hasLength(expectedPosts));
+  if (!ended) await service.hangup();
+  await tester.idle();
+  if (expectedPosts != 0) {
+    expect(alerts.cancelled, contains(kNotificationIdIncomingCall));
+  }
+  // Even a late successful foreground result cannot revive a retired alert.
+  if (pending) {
+    query.complete(true);
+    await tester.idle();
+    expect(alerts.posts, hasLength(expectedPosts));
+  }
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.idle();
 }
 
 class _Media extends CallMediaController {

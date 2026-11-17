@@ -160,6 +160,7 @@ class _DesktopCallNotificationBridgeState
   Completer<void>? _labelCancellation;
   _WindowQuery? _windowQuery;
   bool _retired = false, _windowListening = false;
+  bool _windowKnownHidden = false;
 
   bool get _enabled =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -212,7 +213,21 @@ class _DesktopCallNotificationBridgeState
   }
 
   @override
-  void onWindowEvent(String eventName) => _refresh();
+  void onWindowEvent(String eventName) {
+    // Close-to-tray can leave Flutter resumed. Retain native hiding evidence
+    // for the bounded query's fallback, but never infer focus from show/restore.
+    switch (eventName) {
+      case 'hide':
+      case kWindowEventMinimize:
+        _windowKnownHidden = true;
+      case 'show':
+      case kWindowEventRestore:
+      case kWindowEventFocus:
+        _windowKnownHidden = false;
+    }
+    _refresh();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _refresh();
 
@@ -234,10 +249,12 @@ class _DesktopCallNotificationBridgeState
     );
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     var background =
-        lifecycle != null && lifecycle != AppLifecycleState.resumed;
+        (_windows && _windowKnownHidden) ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed);
     _WindowQueryOutcome? windowQuery;
     if (_windows && settings.enabled && (directRinging || groupRinging)) {
-      // Optional window chrome must not suppress a lifecycle-backed alert.
+      // Optional window chrome must not suppress an alert backed by lifecycle
+      // or a native hide/minimize event. A successful query remains decisive.
       if (windowObservation == null) {
         final query = _windowQueryForOwner(
           background,
@@ -251,6 +268,11 @@ class _DesktopCallNotificationBridgeState
       windowQuery = windowObservation.outcome;
     }
     if (_retired || !mounted || request != _request) return;
+    if (windowQuery == _WindowQueryOutcome.observed && !background) {
+      // Recover even if a show/restore event was missed. A later failed query
+      // must not resurrect superseded evidence that this window was hidden.
+      _windowKnownHidden = false;
+    }
     if (windowQuery != null) {
       diagnosticJournal.record(
         DiagnosticEvent.callAlertWindowQuery,
