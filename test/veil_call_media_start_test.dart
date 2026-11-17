@@ -14,6 +14,7 @@ import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/veil_call_media.dart';
+import 'package:xveil/state/android_native_call_camera.dart';
 import 'package:xveil/state/call_microphone_state.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/messaging.dart';
@@ -434,6 +435,42 @@ class _RestoreStageEngine extends _Engine {
     touch('start audio');
     audioStarts++;
     return super.startAudio(send: send, recv: recv);
+  }
+}
+
+class _AudioChoiceCameraEngine extends _RestoreStageEngine {
+  _AudioChoiceCameraEngine() : super('none', 'choice');
+  @override
+  int get nativeAddress => 1;
+  @override
+  bool startVideo({
+    bool send = true,
+    bool recv = true,
+    int maxBitrateKbps = 150,
+    num maxFps = 15,
+  }) => true;
+}
+
+class _ClosingCamera extends AndroidNativeCallCamera {
+  final stopping = Completer<void>(), released = Completer<void>();
+  bool running = false;
+  @override
+  bool get isRunning => running;
+  @override
+  String? get cameraId => running ? 'camera-fixture' : null;
+  @override
+  Future<bool> start({
+    required int engineAddress,
+    required int width,
+    required int height,
+    required int fps,
+    String? cameraId,
+  }) async => running = true;
+  @override
+  Future<void> stop() async {
+    running = false;
+    if (!stopping.isCompleted) stopping.complete();
+    await released.future;
   }
 }
 
@@ -1091,6 +1128,143 @@ void main() {
         }
       },
       skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
+    );
+  }
+
+  for (final replaceProfile in [false, true]) {
+    test('camera preference owner replace=$replaceProfile', () async {
+      final key = 'call.capture.camera.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({key: 'old-camera'});
+      final engine = _CameraChoiceEngine();
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call(video: true)), isTrue);
+        final selecting = controller.selectCamera('new-camera');
+        if (replaceProfile) {
+          SharedPreferences.setMockInitialValues({'profile-fixture': 'new'});
+        }
+        expect(await selecting, !replaceProfile);
+        expect(
+          engine.activeCamera,
+          replaceProfile ? 'old-camera' : 'new-camera',
+        );
+        expect(
+          (await SharedPreferences.getInstance()).getString(key),
+          replaceProfile ? null : 'new-camera',
+        );
+      } finally {
+        await controller.stop();
+      }
+    });
+  }
+
+  for (final output in [false, true]) {
+    for (final action in ['current', 'hangup', 'profile', 'profile-live']) {
+      test('audio selection lifetime output=$output action=$action', () async {
+        final engine = _AudioChoiceCameraEngine(), camera = _ClosingCamera();
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          androidCameraCapture: true,
+          nativeCameraFactory: () => camera,
+        );
+        final key = output
+            ? 'call.playout.speaker.${Platform.operatingSystem}'
+            : 'call.capture.microphone.${Platform.operatingSystem}';
+        Future<void>? ending;
+        try {
+          expect(
+            await controller.start(
+              _call(video: true).copyWith(cameraOn: false),
+            ),
+            isTrue,
+          );
+          await controller.setCameraEnabled(true);
+          expect(camera.isRunning, isTrue);
+          final selecting = output
+              ? controller.selectSpeaker('choice-output')
+              : controller.selectMicrophone('choice-input');
+          if (action == 'hangup' || action == 'profile') {
+            ending = controller.stop();
+          }
+          if (action.startsWith('profile')) {
+            SharedPreferences.setMockInitialValues({'profile-fixture': 'new'});
+          }
+          // The list API's actual await is enough: no mocked discovery delay.
+          // The camera fence leaves the old native engine live during hangup.
+          final accepted = await selecting;
+          if (ending != null) await camera.stopping.future;
+          expect(engine.disposed, isFalse);
+          expect(
+            {
+              'accepted': accepted,
+              'selected': output
+                  ? engine.selectedOutputs
+                  : engine.selectedInputs,
+              'saved': (await SharedPreferences.getInstance()).getString(key),
+            },
+            {
+              'accepted': action == 'current',
+              'selected': action == 'current'
+                  ? [output ? 'choice-output' : 'choice-input']
+                  : <String>[],
+              'saved': action == 'current'
+                  ? (output ? 'saved output' : 'saved input')
+                  : null,
+            },
+          );
+        } finally {
+          if (!camera.released.isCompleted) camera.released.complete();
+          await ending;
+          await controller.stop();
+        }
+      });
+    }
+  }
+
+  for (final output in [false, true]) {
+    test(
+      'optional preference failure preserves native routing output=$output',
+      () async {
+        final original = SharedPreferencesStorePlatform.instance;
+        final unavailable = _PreflightPreferences(failRead: true)
+          ..ready.complete();
+        SharedPreferencesStorePlatform.instance = unavailable;
+        SharedPreferences.resetStatic();
+        final engine = _RestoreStageEngine('none', 'choice');
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+        );
+        try {
+          expect(await controller.start(_call()), isTrue);
+          final selected = output
+              ? await controller.selectSpeaker('choice-output')
+              : await controller.selectMicrophone('choice-input');
+          expect(
+            selected,
+            isFalse,
+          ); // Existing failed-preference result contract.
+          expect(
+            output ? engine.selectedOutputs : engine.selectedInputs,
+            [output ? 'choice-output' : 'choice-input'],
+            reason:
+                'optional persistence must not skip the live native selection',
+          );
+        } finally {
+          await controller.stop();
+          SharedPreferencesStorePlatform.instance = original;
+          SharedPreferences.resetStatic();
+        }
+      },
     );
   }
 
