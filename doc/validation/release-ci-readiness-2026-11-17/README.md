@@ -44,8 +44,17 @@ Separate source/widget/camera failures require their own fixes below.
   the legacy default. **35 unit and 3 padding checks pass**, including cold
   reopen. Builds use a separate external target with mount monitoring.
 
-New full dependency runs: Veil `44123443333`, hidden-volume `44123443650`.
-Their completion must be checked before qualification is claimed.
+Veil run `44123443333` passed workspace/vendor auditing but rejected the
+independent fuzz lock at its locked metadata gate: its two path-package version
+entries were still old. Veil `f4c7895b` updates only those two entries. Locked
+offline metadata resolves exactly the two current local forks, and a separate
+fuzz-lock audit reports zero vulnerabilities/warnings. No runtime source or
+production dependency graph changes in this follow-up.
+
+New full dependency runs: Veil `44126741124`, hidden-volume `44123443650`.
+Application source CI `44126361318` tests xVeil `5b06427c`; the later fuzz-only
+pointer update does not change application or SDK runtime inputs. Completion
+of these jobs must be checked before qualification is claimed.
 
 ## Application and test preparation
 
