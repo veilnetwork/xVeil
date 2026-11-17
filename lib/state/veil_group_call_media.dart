@@ -458,6 +458,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Timer? _statsTimer;
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
+  // Commands outside the lifecycle lane may detach a source before awaiting
+  // its stop. Keep known replies with their engine, including late cleanup.
+  final _cameraRetirements =
+      Map<GroupAudioEngine, Set<Future<void>>>.identity();
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidScreenCaptureSource? _androidScreen;
@@ -1560,7 +1564,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _androidCamera = null;
         if (camera != null) {
           try {
-            await camera.stop();
+            await _retireCamera(engine, camera);
           } catch (_) {}
         }
         localVideoFrame.value = null;
@@ -1713,7 +1717,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final cameraWasRunning = _androidCamera != null;
     final camera = _androidCamera;
     _androidCamera = null;
-    if (camera != null) await camera.stop();
+    if (camera != null) await _retireCamera(engine, camera);
     if (epoch != _mediaEpoch) return false;
     if (!_selectScreenSource(true)) return false;
     final bool started;
@@ -1745,7 +1749,62 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return started;
   }
 
+  Future<void> _retireCamera(
+    GroupAudioEngine? engine,
+    AndroidCameraCapture camera,
+  ) {
+    if (engine == null) return Future<void>.sync(camera.stop);
+    final completion = Completer<void>();
+    final pending = _cameraRetirements.putIfAbsent(
+      engine,
+      Set<Future<void>>.identity,
+    );
+    // The preview's synchronous listeners can request leave/dispose here.
+    pending.add(completion.future);
+    unawaited(
+      Future<void>.sync(camera.stop).then<void>(
+        (_) => completion.complete(),
+        onError: (Object error, StackTrace stack) =>
+            completion.completeError(error, stack),
+      ),
+    );
+    void forget() {
+      pending.remove(completion.future);
+      if (pending.isEmpty && identical(_cameraRetirements[engine], pending)) {
+        _cameraRetirements.remove(engine);
+      }
+    }
+
+    unawaited(
+      completion.future.then<void>(
+        (_) => forget(),
+        onError: (Object _, StackTrace _) => forget(),
+      ),
+    );
+    return completion.future;
+  }
+
+  Future<void> _joinCameraRetirements(GroupAudioEngine engine) async {
+    for (;;) {
+      final pending = _cameraRetirements[engine];
+      if (pending == null || pending.isEmpty) return;
+      // The command keeps its existing error contract. Ending remains
+      // best-effort after a returned failure; no response is still pending.
+      await Future.wait(
+        pending.toList().map((reply) => reply.catchError((Object _) {})),
+      );
+    }
+  }
+
   Future<void> _stopLocked() async {
+    final engine = _engine;
+    // Capture retirement may wait on a driver/worker. End recording/playout
+    // before any such wait, while retaining the call's resource lease.
+    if (engine != null) {
+      try {
+        engine.stopAudio();
+      } catch (_) {}
+    }
     _audioEnabled = false;
     _sourcePressure.reset();
     _sourcePressured = null;
@@ -1772,7 +1831,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _androidCamera = null;
     if (androidCamera != null) {
       try {
-        await androidCamera.stop();
+        await _retireCamera(engine, androidCamera);
       } catch (_) {}
     }
     final androidScreen = _androidScreen;
@@ -1782,11 +1841,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         await androidScreen.stop();
       } catch (_) {}
     }
+    if (engine != null) await _joinCameraRetirements(engine);
     localVideoFrame.value = null;
     for (final frame in _peerVideoFrames.values) {
       frame.value = null;
     }
-    final engine = _engine;
     _engine = null;
     _engineRequest = null;
     if (engine != null) {
@@ -1796,9 +1855,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         } catch (_) {}
       }
       _videoRunning = false;
-      try {
-        engine.stopAudio();
-      } catch (_) {}
       for (final peer in _peers.values) {
         try {
           engine.removePeer(peer.nodeId);
@@ -1872,7 +1928,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!started || !owned) {
       if (_androidCamera == camera) _androidCamera = null;
       try {
-        await camera.stop();
+        await _retireCamera(engine, camera);
       } catch (_) {
         // The source's capture lifetime retains failed retirement work. Never
         // publish this source to a newer engine or resume its frame delivery.
