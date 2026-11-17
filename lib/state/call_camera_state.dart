@@ -15,6 +15,8 @@ class CallCameraState {
 
   bool enabledForCall(String callId) => _callId == callId && _enabled;
 
+  bool get enabled => _callId != null && _enabled;
+
   /// Permission sheets can outlive the bounded media-start preflight. Capture
   /// still belongs to the same engine and the person's current camera intent.
   Future<void> startWhenGranted({

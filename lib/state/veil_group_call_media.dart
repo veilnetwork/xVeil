@@ -19,6 +19,7 @@ import 'android_call_foreground.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
+import 'call_camera_state.dart';
 import 'call_audio_route.dart';
 import 'call_microphone_state.dart';
 import 'call_network_activity.dart';
@@ -453,6 +454,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final ValueNotifier<VeilVideoFrame?> localVideoFrame = ValueNotifier(null);
 
   GroupAudioEngine? _engine;
+  int? _engineRequest;
   Timer? _statsTimer;
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
@@ -462,7 +464,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
-  bool _cameraEnabled = false;
+  final _cameraState = CallCameraState();
+  bool get _cameraEnabled => _cameraState.enabled;
   bool _audioEnabled = false;
   final _microphoneState = CallMicrophoneState();
   CallBitrateAdapter? _bitrateAdapter;
@@ -518,14 +521,31 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<bool> start(GroupCall call) {
     final request = ++_sessionRequestEpoch;
-    return _locked(() => _startLocked(call, request));
+    // A remote initiator may reuse a call id in another group/channel. Such a
+    // room must not inherit the first room's capture choices.
+    final captureScope = jsonEncode([
+      call.groupId.hex,
+      call.channelId?.hex,
+      call.callId,
+    ]);
+    // Bind before waiting for the native operation lane: intent changes while
+    // this start is queued must not be replaced by its captured Call snapshot.
+    _cameraState.beginCall(
+      captureScope,
+      enabled: call.cameraOn && call.media.video,
+    );
+    _microphoneState.beginCall(captureScope, micOn: call.micOn);
+    return _locked(() => _startLocked(call, request, captureScope));
   }
 
-  Future<bool> _startLocked(GroupCall call, int request) async {
+  Future<bool> _startLocked(
+    GroupCall call,
+    int request,
+    String captureScope,
+  ) async {
     bool isCurrent() => request == _sessionRequestEpoch;
     if (!isCurrent()) return false;
-    _microphoneState.beginCall(call.callId, micOn: call.micOn);
-    await _stopLocked(clearMicrophoneState: false);
+    await _stopLocked();
     if (!isCurrent()) return false;
     _audioEnabled = call.media.audio;
     // Match direct calls: bound the permission prompt, then bring up playout
@@ -561,13 +581,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       return false;
     }
     _engine = engine;
+    _engineRequest = request;
     var committed = false;
     try {
       await _networkActivity.acquire(_networkActivityOwner);
       if (!isCurrent()) return false;
       // Capture intent can change while permission or channel setup is pending.
       // Apply it before audio starts, then keep it as the video policy's source.
-      engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
+      engine.setMicMuted(_microphoneState.mutedForCall(captureScope));
       // Before capture opens: keeps AudioRecord unmuted once the screen locks;
       // released by _stopLocked on every teardown path.
       if (call.media.audio) {
@@ -602,7 +623,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       var videoReady = !(call.media.video || call.media.screen);
       if (!videoReady) {
         videoReady = await _startVideoLocked(
-          startCamera: call.cameraOn && call.media.video,
           startScreen: call.screenOn || call.media.screen,
         );
       }
@@ -621,7 +641,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     } finally {
       // A newer start can repair this same call. Its user's mute intent must
       // survive disposal of this engine; an explicit stop clears it in order.
-      if (!committed) await _stopLocked(clearMicrophoneState: false);
+      if (!committed) await _stopLocked();
     }
   }
 
@@ -636,34 +656,31 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           (participant) => participant.media.video || participant.media.screen,
         );
     if (roomHasVideo && !_videoRunning) {
-      await _startVideoLocked(
-        startCamera: call.cameraOn && call.media.video,
-        startScreen: call.screenOn,
-      );
+      await _startVideoLocked(startScreen: call.screenOn);
     }
   });
 
   @override
   Future<bool> setVideoEnabled(bool enabled) async {
     if (!enabled) return false;
+    final request = _sessionRequestEpoch;
     if (Platform.isMacOS || Platform.isIOS) {
       final granted = await _requestCamera();
       if (!granted) return false;
     }
     return _locked(() async {
+      if (request != _sessionRequestEpoch) return false;
       final engine = _engine;
-      if (engine == null) return false;
+      if (engine == null || _engineRequest != request) return false;
       if (_videoRunning) return true;
       return _startVideoLocked();
     });
   }
 
-  Future<bool> _startVideoLocked({
-    bool startCamera = false,
-    bool startScreen = false,
-  }) async {
+  Future<bool> _startVideoLocked({bool startScreen = false}) async {
     final engine = _engine;
-    if (engine == null) return false;
+    final request = _sessionRequestEpoch;
+    if (engine == null || _engineRequest != request) return false;
     if (_videoRunning) return true;
     final adapter = _bitrateAdapter = CallBitrateAdapter(
       baseBitrateKbps: 150,
@@ -708,11 +725,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final ready = engine.startVideo();
     if (!ready) return false;
     _videoRunning = true;
-    _cameraEnabled = startCamera;
     _applyVideoPolicy(engine, adapter);
     await callAudioRouter.useDefaultFor(
       const CallMedia(audio: true, video: true),
     );
+    if (_engine != engine || request != _sessionRequestEpoch) return false;
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
       (_) => _pollFrames(engine),
@@ -734,7 +751,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         } catch (_) {}
       }
       if (!_screenSharing) _selectScreenSource(false);
-    } else if (startCamera) {
+    } else if (_cameraEnabled) {
       if (_androidCapture) {
         unawaited(_startAndroidCamera(engine));
       } else {
@@ -1397,6 +1414,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> setMicMuted(bool muted) async {
     final changed = muted != _microphoneState.muted;
     _microphoneState.setMuted(muted);
+    final currentEngine = _engine;
+    // A newer queued room owns this choice, not the retiring engine that may
+    // still be waiting on a channel/permission operation before cleanup.
+    if (currentEngine == null || _engineRequest != _sessionRequestEpoch) return;
     if (changed) {
       _sourcePressure.reset();
       _sourcePressured = null;
@@ -1414,18 +1435,22 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         adapter.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
         _applyVideoPolicy(engine, adapter);
       }
-      _engine?.setMicMuted(muted);
+      currentEngine.setMicMuted(muted);
     } catch (_) {}
   }
 
   @override
-  void updateCameraIntent(bool enabled) => _cameraEnabled = enabled;
+  void updateCameraIntent(bool enabled) => _cameraState.setEnabled(enabled);
 
   @override
   Future<void> setCameraEnabled(bool enabled) async {
-    final engine = _engine;
-    if (engine == null || !_videoRunning) return;
     updateCameraIntent(enabled);
+    final engine = _engine;
+    if (engine == null ||
+        _engineRequest != _sessionRequestEpoch ||
+        !_videoRunning) {
+      return;
+    }
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     if (enabled && !_selectScreenSource(false)) return;
     if (enabled) _prepareVideoCapture(engine);
@@ -1554,6 +1579,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     // Record hangup before waiting for an old start's permission/IPC future.
     // The lock serializes cleanup, but must not authorize late capture.
     _sessionRequestEpoch++;
+    // Clear at the request boundary, not in delayed cleanup: a queued newer
+    // call may already have installed its own intent by the time cleanup runs.
+    _cameraState.clear();
+    _microphoneState.clear();
     return _locked(_stopLocked);
   }
 
@@ -1614,8 +1643,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return started;
   }
 
-  Future<void> _stopLocked({bool clearMicrophoneState = true}) async {
-    if (clearMicrophoneState) _microphoneState.clear();
+  Future<void> _stopLocked() async {
     _audioEnabled = false;
     _sourcePressure.reset();
     _sourcePressured = null;
@@ -1658,6 +1686,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     final engine = _engine;
     _engine = null;
+    _engineRequest = null;
     if (engine != null) {
       if (_videoRunning) {
         try {
@@ -1665,7 +1694,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         } catch (_) {}
       }
       _videoRunning = false;
-      _cameraEnabled = false;
       try {
         engine.stopAudio();
       } catch (_) {}
@@ -1688,7 +1716,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
     }
     _videoRunning = false;
-    _cameraEnabled = false;
     _peers.clear();
     _lastRxPackets.clear();
     _lastRxAt.clear();
@@ -1706,6 +1733,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {
     if (_engine != engine ||
+        _engineRequest != _sessionRequestEpoch ||
         !_videoRunning ||
         !_cameraEnabled ||
         _screenSharing ||
@@ -1717,6 +1745,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _androidCamera = camera;
     final started = await camera.start((y, u, v, width, height) {
       if (_engine != engine ||
+          _engineRequest != _sessionRequestEpoch ||
           epoch != _mediaEpoch ||
           !_videoRunning ||
           !_cameraEnabled ||
@@ -1730,6 +1759,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     });
     if (!started ||
         _engine != engine ||
+        _engineRequest != _sessionRequestEpoch ||
         epoch != _mediaEpoch ||
         !_videoRunning ||
         !_cameraEnabled ||

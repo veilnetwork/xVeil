@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -28,11 +29,19 @@ Uint8List _secret(int byte) => Uint8List.fromList(List.filled(32, byte));
 GroupCallMediaSecretResolver _room([int byte = 0x5a]) =>
     (_) async => _secret(byte);
 
-GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
+GroupCall _call(
+  NodeId self,
+  List<NodeId> peers, {
+  bool video = false,
+  String callId = 'group-media',
+  NodeId? groupId,
+  NodeId? channelId,
+}) {
   final now = DateTime(2026, 7, 13);
   return GroupCall(
-    groupId: _id(9),
-    callId: 'group-media',
+    groupId: groupId ?? _id(9),
+    channelId: channelId,
+    callId: callId,
     initiator: self,
     membershipEpoch: 1,
     media: CallMedia(audio: true, video: video),
@@ -2722,6 +2731,308 @@ void main() {
     expect(controller.videoFrameFor(peer).value?.rgba.first, 2);
   });
 
+  for (final stage in ['permission', 'identity']) {
+    for (final cameraOn in [false, true]) {
+      test('initial group camera intent at $stage stays $cameraOn', () async {
+        final self = _id(1), groups = _CameraIntentGroups(_id(1));
+        final gate = _StartGate(stage), engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _CancelledStartTransport(self, gate),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async {
+            await gate.pause('permission');
+            return true;
+          },
+          requestCamera: () async => true,
+        );
+        final service = GroupCallService(groups, media: controller)..start();
+        addTearDown(() async {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          await service.dispose();
+          await groups.close();
+        });
+        final active = service.changes.firstWhere(
+          (call) => call?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await gate.entered.future;
+        await service.setCameraEnabled(false);
+        if (cameraOn) await service.setCameraEnabled(true);
+        gate.ready.complete();
+        await active;
+        expect(service.current?.cameraOn, cameraOn);
+        expect(engine.cameraStarted, cameraOn ? 1 : 0);
+      });
+    }
+  }
+
+  for (final change in ['stop', 'replacement']) {
+    test(
+      'pending group video permission cannot mount after $change',
+      () async {
+        final self = _id(1),
+            permission = Completer<bool>(),
+            entered = Completer<void>();
+        final engines = <_FakeEngine>[];
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) {
+            final engine = _FakeEngine();
+            engines.add(engine);
+            return engine;
+          },
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async => true,
+          requestCamera: () async {
+            entered.complete();
+            return permission.future;
+          },
+        );
+        addTearDown(() async {
+          if (!permission.isCompleted) permission.complete(false);
+          await controller.stop();
+        });
+        expect(await controller.start(_call(self, const [])), isTrue);
+        final upgrading = controller.setVideoEnabled(true);
+        await entered.future;
+        try {
+          await controller.stop();
+          if (change == 'replacement') {
+            expect(await controller.start(_call(self, const [])), isTrue);
+          }
+          permission.complete(true);
+          expect(await upgrading, isFalse);
+          expect(engines.every((engine) => engine.videoStarted == 0), isTrue);
+        } finally {
+          if (!permission.isCompleted) permission.complete(false);
+          await upgrading;
+        }
+      },
+      skip: !Platform.isMacOS && !Platform.isIOS,
+    );
+  }
+
+  for (final replace in [false, true]) {
+    test(
+      'queued group video mount is revoked at stop replace=$replace',
+      () async {
+        final self = _id(1), gate = _StartGate('channel');
+        final engines = <_FakeEngine>[];
+        final controller = VeilGroupCallMediaController(
+          _CancelledStartTransport(self, gate),
+          roomMediaSecret: _room(),
+          engineFactory: (_) {
+            final e = _FakeEngine();
+            engines.add(e);
+            return e;
+          },
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        addTearDown(() async {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          await controller.stop();
+        });
+        expect(await controller.start(_call(self, const [])), isTrue);
+        final updating = controller.update(_call(self, [_id(2)]));
+        await gate.entered.future;
+        final upgrading = controller.setVideoEnabled(true);
+        await pumpEventQueue(); // drain the immediate permission reply into the held operation lane
+        final stopping = controller.stop();
+        final replacement = replace
+            ? controller.start(_call(self, const [], callId: 'next-room'))
+            : null;
+        gate.ready.complete();
+        await updating;
+        expect(await upgrading, isFalse);
+        await stopping;
+        if (replacement != null) expect(await replacement, isTrue);
+        expect(engines.every((e) => e.videoStarted == 0), isTrue);
+      },
+    );
+  }
+
+  for (final mode in ['same call', 'new call', 'failed start']) {
+    test(
+      'group camera intent survives $mode without borrowing another call',
+      () async {
+        final self = _id(1), engine = _FakeEngine();
+        if (mode == 'failed start') engine.videoReady = false;
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        addTearDown(controller.stop);
+        final original = _call(self, const [], video: true);
+        expect(await controller.start(original), mode != 'failed start');
+        await controller.setCameraEnabled(false);
+        final before = engine.cameraStarted;
+        engine.videoReady = true;
+        if (mode == 'new call') await controller.stop();
+        final retry = mode == 'new call'
+            ? _call(self, const [], video: true, callId: 'another-room')
+            : original;
+        expect(await controller.start(retry), isTrue);
+        expect(engine.cameraStarted, before + (mode == 'new call' ? 1 : 0));
+      },
+    );
+  }
+
+  for (final mode in ['same call', 'new call', 'stop then new']) {
+    test(
+      'queued group start preserves the correct camera owner: $mode',
+      () async {
+        final self = _id(1),
+            gate = _StartGate('permission'),
+            engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async {
+            await gate.pause('permission');
+            return true;
+          },
+          requestCamera: () async => true,
+        );
+        addTearDown(() async {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          await controller.stop();
+        });
+        final original = _call(self, const [], video: true);
+        final starting = controller.start(original);
+        await gate.entered.future;
+        controller.updateCameraIntent(false);
+        final superseded = mode == 'stop then new'
+            ? controller.start(original)
+            : null;
+        final stopping = mode == 'stop then new' ? controller.stop() : null;
+        final next = controller.start(
+          mode == 'same call'
+              ? original
+              : _call(self, const [], video: true, callId: 'queued-room'),
+        );
+        gate.ready.complete();
+        expect(await starting, isFalse);
+        if (superseded != null) expect(await superseded, isFalse);
+        await stopping;
+        expect(await next, isTrue);
+        expect(engine.cameraStarted, mode == 'same call' ? 0 : 1);
+      },
+    );
+  }
+
+  for (final scope in ['group', 'channel']) {
+    for (final capture in ['camera', 'microphone']) {
+      test(
+        'reused call id in another $scope cannot borrow $capture intent',
+        () async {
+          final self = _id(1), engine = _FakeEngine();
+          final controller = VeilGroupCallMediaController(
+            _FakeTransport(self),
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
+            requestMicrophone: () async => true,
+            requestCamera: () async => true,
+          );
+          addTearDown(controller.stop);
+          expect(
+            await controller.start(
+              _call(self, const [], video: capture == 'camera'),
+            ),
+            isTrue,
+          );
+          final before = engine.cameraStarted;
+          final next = _call(
+            self,
+            const [],
+            video: capture == 'camera',
+            groupId: scope == 'group' ? _id(8) : null,
+            channelId: scope == 'channel' ? _id(7) : null,
+          ).copyWith(cameraOn: false, micOn: capture != 'microphone');
+          expect(await controller.start(next), isTrue);
+          if (capture == 'camera') {
+            expect(engine.cameraStarted, before);
+          } else {
+            expect(engine.audioStartMuted.last, isTrue);
+          }
+        },
+      );
+    }
+  }
+
+  for (final muted in [false, true]) {
+    test(
+      'queued group microphone intent stays with its engine muted=$muted',
+      () async {
+        final self = _id(1), gate = _StartGate('channel');
+        final engines = <_FakeEngine>[];
+        final controller = VeilGroupCallMediaController(
+          _CancelledStartTransport(self, gate),
+          roomMediaSecret: _room(),
+          engineFactory: (_) {
+            final engine = _FakeEngine();
+            engines.add(engine);
+            return engine;
+          },
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        addTearDown(() async {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          await controller.stop();
+        });
+        expect(
+          await controller.start(_call(self, const []).copyWith(micOn: false)),
+          isTrue,
+        );
+        final old = engines.single;
+        expect(old.muted, isTrue);
+        final updating = controller.update(_call(self, [_id(2)]));
+        await gate.entered.future;
+        final stopping = controller.stop();
+        final starting = controller.start(
+          _call(self, const [], callId: 'queued-mic-room'),
+        );
+        await controller.setMicMuted(muted);
+        try {
+          expect(
+            old.muted,
+            isTrue,
+            reason: 'a new room cannot unmute the retiring engine',
+          );
+          gate.ready.complete();
+          await updating;
+          await stopping;
+          expect(await starting, isTrue);
+          expect(engines.last.audioStartMuted.single, muted);
+        } finally {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          await updating;
+          await stopping;
+          await starting;
+        }
+      },
+    );
+  }
+
   group('camera intent travels from group FSM to the capture controller', () {
     for (final cameraOn in [false, true]) {
       for (final throws in [false, true]) {
@@ -3385,6 +3696,7 @@ class _FakeEngine implements GroupAudioEngine {
   final Map<String, int> rx = {};
   int started = 0;
   int videoStarted = 0;
+  bool videoReady = true;
   final List<bool?> videoMountPauses = [];
   final List<({int maxBitrateKbps, double maxFps})?> videoMountTargets = [];
   bool videoActive = false;
@@ -3455,6 +3767,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   @override
   bool startVideo() {
+    if (!videoReady) return false;
     videoMountPauses.add(pauses.isEmpty ? null : pauses.last);
     videoMountTargets.add(targets.isEmpty ? null : targets.last);
     videoActive = true;

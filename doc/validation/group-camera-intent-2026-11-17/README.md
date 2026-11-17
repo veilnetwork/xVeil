@@ -75,3 +75,7 @@ No GUI apps, focus changes, OS input, native builds, camera/microphone recording
 real profiles, phones, remote hosts or relays were used. Test services/sources
 are disposed and test processes exit. The user's existing application stays
 running; no installed package, push or release changes.
+
+The subsequent [startup/engine-owner qualification](../group-capture-startup-2026-11-17/README.md)
+extends these checks to initial permission waits and audio-to-video upgrade,
+with capture choices bound to the full room scope before engine work queues.
