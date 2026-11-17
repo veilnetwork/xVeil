@@ -40,21 +40,31 @@ class _MessagingContacts {
   /// [kMaxPreConsentIntros]. No-op for an accepted peer (we must never evict a
   /// real conversation) or a same-id re-send (it overwrites in place, not a new
   /// intro). Evicted bodies are scrubbed so they leave no recoverable trace.
-  Future<void> capPreConsentIntros(NodeId peer, String? newId) async {
+  /// False leaves the current owner's decided/retired conversation untouched.
+  Future<bool> capPreConsentIntros(
+    NodeId peer,
+    String? newId,
+    bool Function() isCurrent,
+  ) async {
     final contact = await _owner._storage.getContact(peer);
-    if (contact?.status == ContactStatus.accepted) return;
+    if (!isCurrent() ||
+        (contact?.status != ContactStatus.pendingIncoming &&
+            contact?.status != ContactStatus.pendingOutgoing)) {
+      return false;
+    }
     final msgs = await _owner._storage.loadMessages(peer.hex);
-    if (newId != null && msgs.any((m) => m.id == newId)) return; // overwrite
+    if (newId != null && msgs.any((m) => m.id == newId)) return isCurrent();
     final intros =
         msgs.where((m) => m.direction == MessageDirection.incoming).toList()
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     // Make room for the one we're about to add: keep at most cap-1 of the old.
     final evict = intros.length - (kMaxPreConsentIntros - 1);
-    if (evict <= 0) return;
-    for (var i = 0; i < evict; i++) {
-      await _owner._storage.deleteMessage(peer.hex, intros[i].id);
-    }
-    await _owner._storage.scrubDeleted();
+    if (evict <= 0) return isCurrent();
+    return _owner._storage.trimPendingContactIntroductions(
+      peer,
+      intros.take(evict).map((m) => m.id).toList(),
+      isCurrent: isCurrent,
+    );
   }
 
   Future<void> setStatus(NodeId peer, ContactStatus status) async {
@@ -194,6 +204,8 @@ class _MessagingContacts {
       _owner._declinedLocally(m, 'messaging service is closed');
       return false;
     }
+    final epoch = _owner._realtimeControl._consentEpoch(m.src);
+    bool isCurrent() => _owner._realtimeControl._consentCurrent(m.src, epoch);
     // Preparing a pending intro cannot revoke or grant accepted access. It
     // preserves decided relationships under the storage contact lane. Do not
     // invalidate an in-progress outgoing greeting merely for a crossed intro.
@@ -223,7 +235,16 @@ class _MessagingContacts {
     // senders) — only the FIRST arrival should write the contact record; the
     // rewrite is pure storage churn on every later copy.
     if (initialStatus != ContactStatus.pendingIncoming) {
-      await _afterStatusSaved(m.src, ContactStatus.pendingIncoming);
+      final consent = await _owner._realtimeControl._readContactConsent(m.src);
+      final currentStatus = consent?.contact?.status;
+      if (!isCurrent() ||
+          (currentStatus != ContactStatus.pendingIncoming &&
+              currentStatus != ContactStatus.pendingOutgoing)) {
+        return _finishSupersededIntroduction(m);
+      }
+      // A decision may have completed while prepare/read waited. Never emit
+      // its old pending status into the UI or the own-device journal.
+      await _afterStatusSaved(m.src, currentStatus!);
     }
     if (env.body.isNotEmpty &&
         !(env.id != null &&
@@ -231,7 +252,9 @@ class _MessagingContacts {
       // Bound pre-consent intros: a hostile peer minting a fresh id per
       // request/reconnect would otherwise pile up unbounded greetings before we
       // ever accept. Evict the oldest down to the cap, keeping the most recent.
-      await capPreConsentIntros(m.src, env.id);
+      if (!await capPreConsentIntros(m.src, env.id, isCurrent)) {
+        return _finishSupersededIntroduction(m);
+      }
       // Store the greeting under its id so a later outbox re-send of the same
       // greeting (as a WireKind.message) dedups instead of creating a second copy.
       // An undecided request may arrive many times. New requests carry their
@@ -245,7 +268,7 @@ class _MessagingContacts {
               held?.author == m.src.hex
           ? held
           : null;
-      await _owner._store(
+      final stored = await _owner._store(
         m.src,
         MessageDirection.incoming,
         env.body,
@@ -253,9 +276,38 @@ class _MessagingContacts {
         id: env.id,
         timestamp: _owner._wireSentAt(env) ?? intro?.timestamp,
         seq: env.seq ?? intro?.seq,
+        pendingIntroduction: isCurrent,
       );
+      if (stored == null) {
+        return _finishSupersededIntroduction(m, expiredPending: isCurrent);
+      }
     }
     return true;
+  }
+
+  Future<bool> _finishSupersededIntroduction(
+    InboundMessage message, {
+    bool Function()? expiredPending,
+  }) async {
+    final consent = await _owner._realtimeControl._readContactConsent(
+      message.src,
+    );
+    if (consent?.contact?.status == ContactStatus.accepted) {
+      // Acceptance may have won while discovery waited. Preserve the normal
+      // accepted re-request response, without importing its unverified body.
+      _owner._mailboxDelivery.removeStashed('accept:${message.src.hex}');
+      await _queueAcceptance(message.src);
+      return true;
+    }
+    // The shared store can also suppress a deleted/expired intro without a
+    // consent change. Preserve that handled outcome while it is still owned.
+    if (expiredPending?.call() == true &&
+        (consent?.contact?.status == ContactStatus.pendingIncoming ||
+            consent?.contact?.status == ContactStatus.pendingOutgoing)) {
+      return true;
+    }
+    _owner._declinedLocally(message, 'contact changed during intro admission');
+    return false;
   }
 
   /// Finish durable admission inside ingress; send on bounded recipient lanes.

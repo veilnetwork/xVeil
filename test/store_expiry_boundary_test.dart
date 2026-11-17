@@ -321,18 +321,19 @@ void main() {
   );
 
   test(
-    'expiry of a stored greeting does not send that body in the handshake',
+    'expiry of a stored greeting refuses the handshake without a replacement',
     () async {
-      final sending = service.sendRequest(peer, 'PRIVATE_DURING_APPEND');
+      final sending = service.submitContactRequest(
+        peer,
+        'PRIVATE_DURING_APPEND',
+      );
       await storage.entered.future;
       now = now.add(const Duration(seconds: 31));
       storage.release.complete();
-      await sending;
+      expect(await sending, ContactRequestSubmission.refused);
       expect(published, isEmpty);
-      expect(
-        link.sent.where((e) => e.kind == WireKind.request).single.body,
-        isEmpty,
-      );
+      expect(link.sent.where((e) => e.kind == WireKind.request), isEmpty);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
       expect(rawContains('PRIVATE_DURING_APPEND'), isFalse);
     },
   );

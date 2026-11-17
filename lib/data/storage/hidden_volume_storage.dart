@@ -3229,6 +3229,69 @@ class HiddenVolumeStorage
   }
 
   @override
+  Future<Message?> appendPendingContactIntroduction(
+    Message message, {
+    required bool Function() isCurrent,
+  }) {
+    if (message.direction != MessageDirection.incoming ||
+        message.author != message.conversationId) {
+      return Future.error(ArgumentError('Invalid contact introduction'));
+    }
+    final peer = NodeId.fromHex(message.conversationId);
+    final frozen = message.copyWith(
+      customEmoji: List.unmodifiable(message.customEmoji),
+    );
+    return _trackLogWrite(
+      (_) => _contactSerialized(() async {
+        if (!isCurrent()) return null;
+        final status = (await getContact(peer))?.status;
+        if (!isCurrent() ||
+            (status != ContactStatus.pendingIncoming &&
+                status != ContactStatus.pendingOutgoing)) {
+          return null;
+        }
+        return appendMessage(frozen);
+      }),
+    );
+  }
+
+  @override
+  Future<bool> trimPendingContactIntroductions(
+    NodeId peer,
+    List<String> messageIds, {
+    required bool Function() isCurrent,
+  }) {
+    final ids = List<String>.of(messageIds);
+    return _trackLogWrite((_) async {
+      var attempted = false;
+      try {
+        return await _contactSerialized(() async {
+          if (!isCurrent()) return false;
+          final status = (await getContact(peer))?.status;
+          if (!isCurrent() ||
+              (status != ContactStatus.pendingIncoming &&
+                  status != ContactStatus.pendingOutgoing)) {
+            return false;
+          }
+          if (ids.isEmpty) return true;
+          return _withMessageErasure(() async {
+            for (final id in ids) {
+              if (!isCurrent()) return false;
+              attempted = true;
+              await _deleteMessage(peer.hex, id);
+            }
+            return isCurrent();
+          });
+        });
+      } finally {
+        // Physical reclamation does not decide contact membership. Do not
+        // hold unrelated accept/block writes behind a potentially large scrub.
+        if (attempted) await scrubDeleted();
+      }
+    });
+  }
+
+  @override
   Future<Message> appendMessage(Message message) async {
     if (_store == null || _convSequenceFences > 0) {
       throw StateError('storage is closing or locked');
