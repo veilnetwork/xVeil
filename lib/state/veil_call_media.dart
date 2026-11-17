@@ -3269,35 +3269,67 @@ class VeilCallMediaController implements CallMediaController {
         return false;
       }
     }
-    _selectedCameraId = id;
-    try {
-      final prefs = await preferencesOwner.preferences;
-      await prefs.setString(_cameraPreferenceKey, id);
-    } catch (_) {}
-    // A screen share owns the video source; remember the choice and apply it
-    // when sharing ends. Likewise an off camera needs no eager hardware open.
-    if (!captureNow) return true;
-    if (_androidCameraCapture) {
-      if (!current()) return false;
-      final native = _androidNativeCam;
-      _androidNativeCam = null;
-      if (native != null) await _retireNativeSource(engine, native.stop);
-      // New intent may already own a source in these fields. Check BEFORE
-      // reading/detaching it, not only before starting another camera.
-      if (!current()) return false;
-      final fallback = _androidCam;
-      _androidCam = null;
-      if (fallback != null) await fallback.stop();
-      if (!current()) return false;
+    if (_androidCameraCapture && captureNow) {
+      final previous = _selectedCameraId;
+      // Probe refusal must not turn camera intent OFF before the old source
+      // has had its recovery attempt. Both attempts retain this exact owner.
+      final selectionCurrent = current;
+      Future<bool> stopOwnedSources() async {
+        if (!current()) return false;
+        final native = _androidNativeCam;
+        _androidNativeCam = null;
+        if (native != null) await _retireNativeSource(engine, native.stop);
+        // A newer choice may already own a source after the native stop.
+        if (!current()) return false;
+        final fallback = _androidCam;
+        _androidCam = null;
+        if (fallback != null) await fallback.stop();
+        return current();
+      }
+
+      if (!await stopOwnedSources()) return false;
       await _startAndroidCam(
         engine,
         highQuality: _highQualityRoute,
         origin: CameraStartOrigin.deviceSelection,
+        requestedCameraId: id,
+        isCurrent: selectionCurrent,
+        reportOutcome: false,
       );
       if (!current()) return false;
-      return _androidNativeCam?.cameraId == id || _androidCam?.cameraId == id;
+      final selected =
+          _androidNativeCam?.cameraId == id || _androidCam?.cameraId == id;
+      if (!selected) {
+        if (!await stopOwnedSources()) return false;
+        _selectedCameraId = previous;
+        await _startAndroidCam(
+          engine,
+          highQuality: _highQualityRoute,
+          origin: CameraStartOrigin.recovery,
+          requestedCameraId: previous,
+          isCurrent: selectionCurrent,
+          reportOutcome: false,
+        );
+        if (current()) {
+          _reportCameraStartOutcome(
+            engine,
+            (_androidNativeCam?.isRunning ?? false) || _androidCam != null,
+          );
+        }
+        return false;
+      }
+      _reportCameraStartOutcome(engine, true);
     }
-    return true;
+    if (!current()) return false;
+    _selectedCameraId = id;
+    try {
+      final prefs = await preferencesOwner.preferences;
+      if (!current()) return false;
+      await prefs.setString(_cameraPreferenceKey, id);
+    } catch (_) {}
+    // Off/share choices are deferred intentions. A live Android choice is
+    // persisted only after the requested source actually starts.
+    return current();
   }
 
   bool _startDesktopCamera(
@@ -3682,8 +3714,13 @@ class VeilCallMediaController implements CallMediaController {
     required bool highQuality,
     bool restoringAfterScreenFailure = false,
     CameraStartOrigin origin = CameraStartOrigin.toggle,
+    String? requestedCameraId,
+    bool Function()? isCurrent,
+    bool reportOutcome = true,
   }) async {
+    final cameraId = requestedCameraId ?? _selectedCameraId;
     bool mayCapture() =>
+        (isCurrent?.call() ?? true) &&
         _engine == engine &&
         _activeCall != null &&
         _cameraState.enabledForCall(_activeCall!.callId) &&
@@ -3707,7 +3744,7 @@ class VeilCallMediaController implements CallMediaController {
       width: profile.cameraWidth,
       height: profile.cameraHeight,
       fps: profile.maxFps,
-      cameraId: _selectedCameraId,
+      cameraId: cameraId,
     );
     if (!mayCapture() || _androidNativeCam != nativeCam) {
       if (nativeOk) await _retireNativeSource(engine, nativeCam.stop);
@@ -3717,7 +3754,7 @@ class VeilCallMediaController implements CallMediaController {
     if (nativeOk) {
       _selectedCameraId = nativeCam.cameraId;
       diagnosticJournal.recordCameraStart(success: true, origin: origin);
-      _reportCameraStartOutcome(engine, true);
+      if (reportOutcome) _reportCameraStartOutcome(engine, true);
       devLog(
         () =>
             'xVeil[call-media]: native Camera2 started '
@@ -3728,11 +3765,11 @@ class VeilCallMediaController implements CallMediaController {
     _androidNativeCam = null;
     devLog(() => 'xVeil[call-media]: native Camera2 failed; plugin fallback');
     final cam =
-        _injectedCameraFactory?.call(highQuality, _selectedCameraId) ??
+        _injectedCameraFactory?.call(highQuality, cameraId) ??
         AndroidCameraCapture(
           captureLifetime: _cameraLifetime,
           highQuality: highQuality,
-          requestedCameraId: _selectedCameraId,
+          requestedCameraId: cameraId,
         );
     _androidCam = cam;
     var ok = false;
@@ -3774,7 +3811,7 @@ class VeilCallMediaController implements CallMediaController {
     final owned = mayCapture() && _androidCam == cam;
     if (owned) {
       diagnosticJournal.recordCameraStart(success: ok, origin: origin);
-      _reportCameraStartOutcome(engine, ok);
+      if (reportOutcome) _reportCameraStartOutcome(engine, ok);
     }
     if (!ok || !owned) {
       if (_androidCam == cam) _androidCam = null;

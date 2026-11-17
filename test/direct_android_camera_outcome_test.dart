@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -371,6 +372,221 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(permissions, null);
   });
+
+  for (final recovery in [
+    'native',
+    'plugin',
+    'unavailable',
+    'selected',
+    'selected-plugin',
+  ]) {
+    test(
+      'Android camera selection commits only a live choice: $recovery',
+      () async {
+        final key = 'call.capture.camera.${Platform.operatingSystem}';
+        SharedPreferences.setMockInitialValues({key: 'camera-fixture'});
+        final wire = _Wire(), engine = _Engine();
+        final old = _NativeCamera(true);
+        final selected = _NativeCamera(recovery == 'selected');
+        final restored = _NativeCamera(recovery == 'native');
+        final native = Queue<_NativeCamera>.of([old, selected, restored]);
+        final refusedPlugin = _PluginCamera(
+          Future.value(recovery == 'selected-plugin'),
+          id: 'back-fixture',
+        );
+        final restoredPlugin = _PluginCamera(
+          Future.value(recovery == 'plugin'),
+          id: 'camera-fixture',
+        );
+        final plugins = Queue<_PluginCamera>.of([
+          refusedPlugin,
+          restoredPlugin,
+        ]);
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          androidCameraCapture: true,
+          // Enumeration after plugin recovery constructs a bridge without
+          // starting a source. Keep this separate from capture attempts.
+          nativeCameraFactory: () =>
+              native.isNotEmpty ? native.removeFirst() : _NativeCamera(false),
+          cameraCaptureFactory: (_, _) => plugins.removeFirst(),
+        );
+        final service = CallService(wire, media: controller)..start();
+        try {
+          await _connect(service, wire);
+          await old.entered.future;
+          await pumpEventQueue();
+          expect(service.current?.cameraOn, isTrue);
+          final signals = wire.sent.length;
+          final success = await service.selectCamera('back-fixture');
+          await pumpEventQueue();
+          expect(success, recovery.startsWith('selected'));
+          expect(
+            (await SharedPreferences.getInstance()).getString(key),
+            recovery.startsWith('selected') ? 'back-fixture' : 'camera-fixture',
+          );
+          expect(service.current?.status, CallStatus.active);
+          expect(engine.disposed, isFalse);
+          expect(service.current?.cameraOn, recovery != 'unavailable');
+          expect(old.running, isFalse);
+          if (recovery == 'native' || recovery == 'plugin') {
+            expect(restored.requestedId, 'camera-fixture');
+            expect(
+              (await controller.listCameras())
+                  .singleWhere((d) => d.selected)
+                  .id,
+              'camera-fixture',
+            );
+            expect(
+              wire.sent.skip(signals).where((s) => s.capture?.video == false),
+              isEmpty,
+              reason:
+                  'a rejected probe must not advertise a lost camera after recovery',
+            );
+          }
+          if (kDiagnosticReportEnabled) {
+            final report = diagnosticJournal.toJson();
+            final evidence = report['last_evidence'] as Map;
+            expect((evidence['cameraStart'] as Map)['values'], {
+              'success': recovery == 'unavailable' ? 0 : 1,
+              'origin': recovery.startsWith('selected')
+                  ? CameraStartOrigin.deviceSelection.index
+                  : CameraStartOrigin.recovery.index,
+            });
+            final encoded = jsonEncode(report);
+            for (final private in [
+              'camera-fixture',
+              'back-fixture',
+              service.current!.callId,
+            ]) {
+              expect(encoded, isNot(contains(private)));
+            }
+          }
+          if (recovery == 'selected-plugin') {
+            expect(refusedPlugin.entered.isCompleted, isTrue);
+            expect(refusedPlugin.stops, 0);
+          }
+          if (recovery == 'native') expect(restored.running, isTrue);
+          if (recovery == 'plugin') {
+            expect(restoredPlugin.entered.isCompleted, isTrue);
+          }
+          if (recovery == 'unavailable') {
+            expect(wire.sent.last.capture?.video, isFalse);
+            expect(restoredPlugin.stops, greaterThan(0));
+          }
+        } finally {
+          service.dispose();
+          await controller.stop();
+        }
+      },
+    );
+  }
+
+  test(
+    'Android off-camera selection saves intent without opening a source',
+    () async {
+      final key = 'call.capture.camera.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({key: 'camera-fixture'});
+      final wire = _Wire(), engine = _Engine(), camera = _NativeCamera(true);
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+        androidCameraCapture: true,
+        nativeCameraFactory: () => camera,
+      );
+      final service = CallService(wire, media: controller)..start();
+      try {
+        await _connect(service, wire);
+        await camera.entered.future;
+        await pumpEventQueue();
+        await service.setCameraEnabled(false);
+        expect(await service.selectCamera('back-fixture'), isTrue);
+        expect(
+          (await SharedPreferences.getInstance()).getString(key),
+          'back-fixture',
+        );
+        expect(camera.running, isFalse);
+        expect(service.current?.cameraOn, isFalse);
+        expect(
+          (await controller.listCameras()).singleWhere((d) => d.selected).id,
+          'back-fixture',
+        );
+      } finally {
+        service.dispose();
+        await controller.stop();
+      }
+    },
+  );
+
+  for (final action in ['off', 'hangup', 'new-selection', 'profile']) {
+    test('Android selection rollback respects $action owner', () async {
+      final key = 'call.capture.camera.${Platform.operatingSystem}';
+      SharedPreferences.setMockInitialValues({key: 'camera-fixture'});
+      final wire = _Wire(), engine = _Engine();
+      final release = Completer<bool>();
+      final old = _NativeCamera(true), refused = _NativeCamera(false);
+      final restoring = _NativeCamera.held(release.future);
+      final next = _NativeCamera(true);
+      final native = Queue<_NativeCamera>.of([old, refused, restoring, next]);
+      final plugin = _PluginCamera(Future.value(false), id: 'back-fixture');
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+        androidCameraCapture: true,
+        nativeCameraFactory: native.removeFirst,
+        cameraCaptureFactory: (_, _) => plugin,
+      );
+      final service = CallService(wire, media: controller)..start();
+      Future<bool>? selecting;
+      try {
+        await _connect(service, wire);
+        await old.entered.future;
+        await pumpEventQueue();
+        selecting = service.selectCamera('back-fixture');
+        await restoring.entered.future;
+        expect(restoring.requestedId, 'camera-fixture');
+        if (action == 'off') await service.setCameraEnabled(false);
+        if (action == 'hangup') await service.hangup();
+        if (action == 'new-selection') {
+          expect(await service.selectCamera('camera-fixture'), isTrue);
+          expect(next.running, isTrue);
+        }
+        if (action == 'profile') {
+          SharedPreferences.setMockInitialValues({'profile-fixture': 'next'});
+        }
+        final signals = wire.sent.length;
+        release.complete(true);
+        expect(await selecting, isFalse);
+        await pumpEventQueue();
+        expect(restoring.running, isFalse);
+        expect(restoring.stops, greaterThan(0));
+        expect(
+          (await SharedPreferences.getInstance()).getString(key),
+          action == 'profile' ? null : 'camera-fixture',
+        );
+        expect(
+          wire.sent.skip(signals).where((s) => s.capture?.video == false),
+          isEmpty,
+        );
+        if (action == 'new-selection') {
+          expect(next.running, isTrue);
+          expect(next.stops, 0);
+          expect(service.current?.cameraOn, isTrue);
+        }
+        if (action == 'off') expect(service.current?.cameraOn, isFalse);
+      } finally {
+        if (!release.isCompleted) release.complete(true);
+        await selecting;
+        service.dispose();
+        await controller.stop();
+      }
+    });
+  }
 
   test('Android camera denial reports receive-only posture', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -1440,7 +1656,7 @@ void main() {
                           'facing': 'front',
                         };
                       case 'stats':
-                    return {'camera_running': ?running};
+                        return {'camera_running': ?running};
                       case 'stop':
                         running = false;
                     }
