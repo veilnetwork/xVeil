@@ -78,7 +78,13 @@ enum SpaceDiscoveryFailureKind {
 }
 
 /// Source-owned stages; never a device ID, label or native error string.
-enum CameraStartOrigin { callStart, toggle, deviceSelection, recovery }
+enum CameraStartOrigin {
+  callStart,
+  toggle,
+  deviceSelection,
+  recovery,
+  channelAdmission,
+}
 
 enum FolderSavedDiagnosticAction { listing, exporting, discarding }
 
