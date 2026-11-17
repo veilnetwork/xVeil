@@ -183,9 +183,12 @@ class _MessagingContacts {
       _owner._declinedLocally(m, 'messaging service is closed');
       return false;
     }
-    final status = await _withConsentWrite(
+    // Preparing a pending intro cannot revoke or grant accepted access. It
+    // preserves decided relationships under the storage contact lane. Do not
+    // invalidate an in-progress outgoing greeting merely for a crossed intro.
+    final status = await _owner._storage.prepareContactRequest(
       m.src,
-      () => _owner._storage.prepareContactRequest(m.src, incoming: true),
+      incoming: true,
     );
     if (_owner._disposed) {
       _owner._declinedLocally(m, 'messaging service is closed');
@@ -301,11 +304,15 @@ class _MessagingContacts {
     NodeId dst,
     String greeting,
   ) async {
-    var text = greeting.trim();
-    final status = await _withConsentWrite(
-      dst,
-      () => _owner._storage.prepareContactRequest(dst),
-    );
+    final text = greeting.trim();
+    if (_owner._disposed) throw StateError('messaging service is closed');
+    // Keep the originating relationship lifetime across preparation, greeting
+    // persistence and queue admission. Pending preparation itself never changes
+    // decided consent, so concurrent new/crossed greetings share this lifetime;
+    // block, accept, cancel and owner shutdown still revoke it.
+    final epoch = _owner._realtimeControl._consentEpoch(dst);
+    bool isCurrent() => _owner._realtimeControl._consentCurrent(dst, epoch);
+    final status = await _owner._storage.prepareContactRequest(dst);
     if (_owner._disposed || status == ContactStatus.blocked) {
       return ContactRequestSubmission.refused;
     }
@@ -318,6 +325,7 @@ class _MessagingContacts {
           ? ContactRequestSubmission.messageSubmitted
           : ContactRequestSubmission.refused;
     }
+    if (!isCurrent()) return ContactRequestSubmission.refused;
     await _afterStatusSaved(dst, status);
     // Tag the greeting with a stable id shared between our stored copy and the
     // request on the wire. The greeting is stored `sent`, so the outbox re-sends
@@ -336,8 +344,9 @@ class _MessagingContacts {
         id: id,
         timestamp: sentAt,
       );
-      if (stored == null) text = '';
-      seq = stored?.seq;
+      // Erasure/expiry is not permission to emit an empty replacement request.
+      if (stored == null) return ContactRequestSubmission.refused;
+      seq = stored.seq;
     }
     _owner._signal();
     final frameId = 'request:$id';
@@ -349,7 +358,18 @@ class _MessagingContacts {
     ).withFrameId(frameId).encode();
     // Survive a failed deposit, a lost live leg and an application restart.
     // The peer's acceptance or cancellation retires this handshake row.
-    await _owner._outbox.enqueue(dst, frameId, wire);
+    if (!isCurrent() ||
+        !await _owner._outbox.admitInitialRequest(
+          dst,
+          frameId,
+          wire,
+          isCurrent: isCurrent,
+        )) {
+      return ContactRequestSubmission.refused;
+    }
+    // Admission may complete just before a newer decision. Its queued result
+    // remains truthful, but no new network attempt belongs to the old lifetime.
+    if (!isCurrent()) return ContactRequestSubmission.queued;
     // Expect the accept/decline back as mailbox mail.
     _owner._mailboxDelivery.noteActivity();
     // Deposit the request at the recipient's mailbox relay so a NAT'd /
@@ -365,10 +385,15 @@ class _MessagingContacts {
     // the direct leg can arrive minutes later as routes warm up. Keep the
     // greeting pending until a relay accepts it or the peer accepts us; a
     // failed mark incorrectly claimed the request could no longer arrive.
-    if (text.isNotEmpty) {
+    if (text.isNotEmpty && isCurrent()) {
       final accepted =
           (await _owner._storage.getContact(dst))?.status ==
           ContactStatus.accepted;
+      if (!isCurrent()) {
+        return deposited
+            ? ContactRequestSubmission.deposited
+            : ContactRequestSubmission.queued;
+      }
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,

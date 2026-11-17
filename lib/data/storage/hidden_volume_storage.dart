@@ -6808,15 +6808,37 @@ class HiddenVolumeStorage
   }
 
   @override
+  Future<bool> admitInitialContactRequest(
+    OutboxFrame request, {
+    required bool Function() isCurrent,
+  }) => _admitContactRequest(
+    request,
+    isCurrent: isCurrent,
+    requirePendingOutgoing: false,
+  );
+
+  @override
   Future<bool> admitContactRequestRetry(
     OutboxFrame request, {
     OutboxFrame? expected,
     required bool Function() isCurrent,
+  }) => _admitContactRequest(
+    request,
+    expected: expected,
+    isCurrent: isCurrent,
+    requirePendingOutgoing: true,
+  );
+
+  Future<bool> _admitContactRequest(
+    OutboxFrame request, {
+    OutboxFrame? expected,
+    required bool Function() isCurrent,
+    required bool requirePendingOutgoing,
   }) {
     final peer = NodeId.fromHex(request.peerHex);
     if (!request.frameId.startsWith('request:') ||
         (expected != null && expected.peerHex != request.peerHex)) {
-      throw ArgumentError('invalid contact retry destination or frame');
+      throw ArgumentError('invalid contact request destination or frame');
     }
     final record = _ownedOutboxRecord(
       request.frameId,
@@ -6835,11 +6857,13 @@ class HiddenVolumeStorage
         () => _contactSerialized(() async {
           if (!isCurrent()) return false;
           if (!identical(store, _store)) {
-            throw StateError('contact retry storage session changed');
+            throw StateError('contact request storage session changed');
           }
-          if ((await getContact(peer))?.status !=
-                  ContactStatus.pendingOutgoing ||
-              !isCurrent()) {
+          final contact = await getContact(peer);
+          final pending = requirePendingOutgoing
+              ? contact?.status == ContactStatus.pendingOutgoing
+              : contact?.hasOutgoingRequest == true;
+          if (!pending || !isCurrent()) {
             return false;
           }
           if (!await _ensureOutboxLoadedCritical()) {

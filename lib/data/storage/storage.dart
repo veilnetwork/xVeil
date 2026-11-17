@@ -219,6 +219,15 @@ abstract interface class Storage {
     Uint8List wire,
   );
 
+  /// Admit a first request only while the originating owner/lifetime is current
+  /// and the durable contact still carries outgoing request intent. Crossed
+  /// incoming requests retain it. Check and enqueue under outbox/contact lanes;
+  /// newer decisions or retraction cannot authorize this obsolete operation.
+  Future<bool> admitInitialContactRequest(
+    OutboxFrame request, {
+    required bool Function() isCurrent,
+  });
+
   /// The stored contact for [nodeId], or null if we have no record of them.
   Future<Contact?> getContact(NodeId nodeId);
 
