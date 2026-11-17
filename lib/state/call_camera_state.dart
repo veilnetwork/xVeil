@@ -24,9 +24,15 @@ class CallCameraState {
     required Future<bool> permission,
     required bool Function() isCurrent,
     required Future<void> Function() start,
+    void Function()? onDenied,
   }) async {
-    if (!await permission) return;
-    if (isCurrent() && enabledForCall(callId)) await start();
+    final granted = await permission;
+    if (!isCurrent() || !enabledForCall(callId)) return;
+    if (!granted) {
+      onDenied?.call();
+      return;
+    }
+    await start();
   }
 
   void clear() {
