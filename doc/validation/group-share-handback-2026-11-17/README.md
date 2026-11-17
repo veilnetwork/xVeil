@@ -74,3 +74,9 @@ previously started event whose cleanup completes after ownership changed.
 No native build, camera/microphone capture, user profile, phone, relay, GUI app,
 focus change or OS input was involved. The existing user app remains running,
 test processes exit, and no installed binary, push or release changes.
+
+The subsequent [capture-intent qualification](../group-camera-intent-2026-11-17/README.md)
+connects the group FSM to the production media controller: a choice changed
+while sharing must reach capture rollback, not only the Call snapshot. It also
+qualifies Android fallback/ownership with injected sources, without claiming
+physical Android camera behavior.

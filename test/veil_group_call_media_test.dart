@@ -9,10 +9,15 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
+import 'package:xveil/domain/group_policy.dart';
+import 'package:xveil/state/group_call_service.dart';
+import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
 import 'package:xveil/state/call_audio_buffer_window.dart';
 import 'package:xveil/state/call_network_activity.dart';
 import 'package:xveil/state/android_call_foreground.dart';
+import 'package:xveil/state/android_camera_capture.dart';
+import 'package:xveil/state/android_screen_capture.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
@@ -2717,6 +2722,285 @@ void main() {
     expect(controller.videoFrameFor(peer).value?.rgba.first, 2);
   });
 
+  group('camera intent travels from group FSM to the capture controller', () {
+    for (final cameraOn in [false, true]) {
+      for (final throws in [false, true]) {
+        test('share failure honors camera=$cameraOn throws=$throws', () async {
+          final self = _id(1), groupId = _id(9);
+          final groups = _CameraIntentGroups(self);
+          final engine = _FakeEngine();
+          final controller = VeilGroupCallMediaController(
+            _FakeTransport(self),
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            requestMicrophone: () async => true,
+            requestCamera: () async => true,
+            desktopScreenCaptureSupported: true,
+          );
+          final service = GroupCallService(groups, media: controller)..start();
+          addTearDown(() async {
+            await service.dispose();
+            await groups.close();
+          });
+          final active = service.changes.firstWhere(
+            (call) => call?.status == GroupCallStatus.active,
+          );
+          expect(
+            await service.startCall(
+              groupId,
+              const CallMedia(audio: true, video: true),
+            ),
+            isTrue,
+          );
+          await active;
+          expect(engine.cameraStarted, 1);
+          await service.setScreenShareEnabled(true);
+          expect(service.current?.screenOn, isTrue);
+          final sourceBeforeToggle = (
+            engine.cameraStarted,
+            engine.cameraStopped,
+            engine.screenStarted,
+            engine.screenStopped,
+          );
+          await service.setCameraEnabled(!cameraOn);
+          await service.setCameraEnabled(cameraOn);
+          expect(service.current?.cameraOn, cameraOn);
+          expect(service.current?.screenOn, isTrue);
+          expect(
+            (
+              engine.cameraStarted,
+              engine.cameraStopped,
+              engine.screenStarted,
+              engine.screenStopped,
+            ),
+            sourceBeforeToggle,
+            reason:
+                'remembering camera intent must not interrupt the screen source',
+          );
+          await service.setScreenShareEnabled(false);
+          expect(service.current?.screenOn, isFalse);
+          final beforeFailure = engine.cameraStarted;
+          engine.screenStarts = false;
+          engine.throwOnScreenStart = throws;
+          await service.setScreenShareEnabled(true);
+          expect(service.current?.screenOn, isFalse);
+          expect(service.current?.cameraOn, cameraOn);
+          expect(
+            engine.cameraStarted,
+            beforeFailure + (cameraOn ? 1 : 0),
+            reason:
+                'failed screen capture must not reopen a camera disabled while sharing',
+          );
+          engine.screenStarts = true;
+          engine.throwOnScreenStart = false;
+          final beforeRecovery = engine.cameraStarted;
+          await service.setScreenShareEnabled(true);
+          expect(service.current?.screenOn, isTrue);
+          expect(engine.cameraStarted, beforeRecovery);
+          await service.setScreenShareEnabled(false);
+          expect(service.current?.screenOn, isFalse);
+          expect(engine.cameraStarted, beforeRecovery + (cameraOn ? 1 : 0));
+        });
+      }
+    }
+  });
+
+  for (final cameraOn in [false, true]) {
+    test(
+      'Android failed share restores only current camera=$cameraOn',
+      () async {
+        final self = _id(1), groups = _CameraIntentGroups(_id(1));
+        final engine = _FakeEngine();
+        final cameras = <_IntentCamera>[];
+        final screen = _IntentScreen();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          androidCapture: true,
+          cameraCaptureFactory: () {
+            final camera = _IntentCamera();
+            cameras.add(camera);
+            return camera;
+          },
+          screenCaptureFactory: (_) => screen,
+        );
+        final service = GroupCallService(groups, media: controller)..start();
+        addTearDown(() async {
+          if (!screen.result.isCompleted) screen.result.complete(false);
+          await service.dispose();
+          await groups.close();
+        });
+        final active = service.changes.firstWhere(
+          (call) => call?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await active;
+        expect(cameras, hasLength(1));
+        final sharing = service.setScreenShareEnabled(true);
+        await screen.entered.future;
+        try {
+          await service.setCameraEnabled(false);
+          if (cameraOn) await service.setCameraEnabled(true);
+          expect(service.current?.cameraOn, cameraOn);
+          screen.result.complete(false);
+          await sharing;
+          expect(service.current?.screenOn, isFalse);
+          expect(
+            cameras,
+            hasLength(cameraOn ? 2 : 1),
+            reason:
+                'a denied Android screen must not recreate a camera after OFF',
+          );
+          if (cameraOn) {
+            final before = engine.videoPushed;
+            cameras.last.frame();
+            expect(engine.videoPushed, before + 1);
+          }
+        } finally {
+          if (!screen.result.isCompleted) screen.result.complete(false);
+          await sharing;
+        }
+      },
+    );
+  }
+
+  test('Android screen ownership refuses retired camera callbacks', () async {
+    final self = _id(1), engine = _FakeEngine();
+    final camera = _IntentCamera(), screen = _IntentScreen();
+    final controller = VeilGroupCallMediaController(
+      _FakeTransport(self),
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      roomMediaSecret: _room(),
+      engineFactory: (_) => engine,
+      requestMicrophone: () async => true,
+      requestCamera: () async => true,
+      androidCapture: true,
+      cameraCaptureFactory: () => camera,
+      screenCaptureFactory: (_) => screen,
+    );
+    addTearDown(() async {
+      if (!screen.result.isCompleted) screen.result.complete(false);
+      await controller.stop();
+    });
+    expect(await controller.start(_call(self, const [], video: true)), isTrue);
+    camera.frame();
+    final before = engine.videoPushed;
+    expect(before, 1);
+    final sharing = controller.setScreenShareEnabled(true);
+    await screen.entered.future;
+    screen.result.complete(true);
+    expect(await sharing, isTrue);
+    camera.frame();
+    expect(
+      engine.videoPushed,
+      before,
+      reason: 'retired camera cannot feed the screen-owned source',
+    );
+    screen.frame();
+    expect(
+      engine.videoPushed,
+      before + 1,
+      reason: 'owned screen frames must still flow',
+    );
+  });
+
+  for (final change in ['off', 'stop', 'replacement']) {
+    test('late Android camera start is retired after $change', () async {
+      final self = _id(1), engine = _FakeEngine();
+      final result = Completer<bool>();
+      final cameras = <_IntentCamera>[];
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        androidCapture: true,
+        cameraCaptureFactory: () {
+          final camera = _IntentCamera();
+          if (cameras.isEmpty) camera.result = result;
+          cameras.add(camera);
+          return camera;
+        },
+      );
+      addTearDown(() async {
+        if (!result.isCompleted) result.complete(false);
+        await pumpEventQueue();
+        await controller.stop();
+      });
+      expect(
+        await controller.start(_call(self, const [], video: true)),
+        isTrue,
+      );
+      final old = cameras.single;
+      if (change == 'off') {
+        await controller.setCameraEnabled(false);
+      } else {
+        await controller.stop();
+      }
+      expect(old.stops, 1);
+      if (change == 'replacement') {
+        expect(
+          await controller.start(_call(self, const [], video: true)),
+          isTrue,
+        );
+        expect(cameras, hasLength(2));
+      }
+      result.complete(true);
+      await pumpEventQueue();
+      expect(
+        old.stops,
+        2,
+        reason: 'a late successful orphan must be reclaimed',
+      );
+      final before = engine.videoPushed;
+      old.frame();
+      expect(engine.videoPushed, before);
+      if (change == 'replacement') {
+        cameras.last.frame();
+        expect(
+          engine.videoPushed,
+          before + 1,
+          reason: 'old cleanup must not retire the replacement source',
+        );
+      }
+    });
+  }
+
+  test('refused Android camera start is cleaned up', () async {
+    final camera = _IntentCamera()
+      ..result = (Completer<bool>()..complete(false));
+    final controller = VeilGroupCallMediaController(
+      _FakeTransport(_id(1)),
+      roomMediaSecret: _room(),
+      engineFactory: (_) => _FakeEngine(),
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      requestMicrophone: () async => true,
+      requestCamera: () async => true,
+      androidCapture: true,
+      cameraCaptureFactory: () => camera,
+    );
+    addTearDown(controller.stop);
+    expect(
+      await controller.start(_call(_id(1), const [], video: true)),
+      isTrue,
+    );
+    await pumpEventQueue();
+    expect(camera.stops, 1);
+  });
+
   test('unsupported desktop screen leaves the camera source intact', () async {
     final self = _id(1);
     final transport = _FakeTransport(self);
@@ -3106,6 +3390,10 @@ class _FakeEngine implements GroupAudioEngine {
   bool videoActive = false;
   bool acceptColdTarget = true;
   int cameraStarted = 0;
+  int cameraStopped = 0;
+  int screenStarted = 0;
+  int screenStopped = 0;
+  int videoPushed = 0;
   bool muted = false;
   final List<bool> audioStartMuted = [];
   Map<String, dynamic> stats = const {};
@@ -3187,13 +3475,17 @@ class _FakeEngine implements GroupAudioEngine {
   }
 
   @override
-  bool stopCamera() => true;
+  bool stopCamera() {
+    cameraStopped++;
+    return true;
+  }
 
   bool screenStarts = true;
   bool throwOnScreenStart = false;
 
   @override
   bool startScreen({String? sourceId}) {
+    screenStarted++;
     if (throwOnScreenStart) throw StateError('capture unavailable');
     return screenStarts;
   }
@@ -3202,7 +3494,10 @@ class _FakeEngine implements GroupAudioEngine {
   List<MediaDevice> listScreens() => const [];
 
   @override
-  bool stopScreen() => true;
+  bool stopScreen() {
+    screenStopped++;
+    return true;
+  }
 
   @override
   bool pushVideoFrame(
@@ -3211,11 +3506,103 @@ class _FakeEngine implements GroupAudioEngine {
     Uint8List v,
     int width,
     int height,
-  ) => true;
+  ) {
+    videoPushed++;
+    return true;
+  }
 
   @override
   VeilVideoFrame? localVideoFrame() => localFrame;
 
   @override
   VeilVideoFrame? peerVideoFrame(NodeId peer) => peerFrames[peer.hex];
+}
+
+// The real FSM and media controller share one synthetic room. Membership and
+// broadcasts are controlled here; no signature, network or hardware is claimed.
+class _CameraIntentGroups implements GroupService {
+  _CameraIntentGroups(this.selfId);
+  @override
+  final NodeId selfId;
+  @override
+  final changes = GroupChangeSignal();
+  final _incoming = StreamController<GroupCallSignal>.broadcast();
+  @override
+  Stream<GroupCallSignal> get groupCallIncoming => _incoming.stream;
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) async =>
+      GroupState.genesis(selfId);
+  @override
+  Future<({int? channelEpoch, Set<NodeId> recipients})?>
+  currentVoiceChannelAdmission(NodeId groupId, NodeId? channelId) async =>
+      (channelEpoch: null, recipients: {selfId});
+  @override
+  Future<GroupCallSignal?> broadcastGroupCallSignal(
+    NodeId groupId, {
+    NodeId? channelId,
+    required String callId,
+    required GroupCallSignalType type,
+    CallMedia? media,
+    CallEndReason? reason,
+  }) async => GroupCallSignal(
+    groupId: groupId,
+    channelId: channelId,
+    callId: callId,
+    author: selfId,
+    membershipEpoch: 1,
+    type: type,
+    sentAtMs: DateTime.now().millisecondsSinceEpoch,
+    nonce: 'synthetic-camera-intent',
+    signature: Uint8List(64),
+    authorPubKey: Uint8List(32),
+    media: media,
+    reason: reason,
+  );
+  Future<void> close() async {
+    await _incoming.close();
+    changes.dispose();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _IntentCamera extends AndroidCameraCapture {
+  I420FrameSink? _sink;
+  Completer<bool>? result;
+  int stops = 0;
+  @override
+  Future<bool> start(I420FrameSink sink) async {
+    _sink = sink;
+    return result?.future ?? true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stops++;
+  }
+
+  // Deliberately retain a callable sink as an adversarial late-callback probe.
+  void frame() => _sink?.call(Uint8List(4), Uint8List(1), Uint8List(1), 2, 2);
+}
+
+class _IntentScreen implements AndroidScreenCaptureSource {
+  final entered = Completer<void>(), result = Completer<bool>();
+  I420FrameSink? _sink;
+  @override
+  Future<bool> start(I420FrameSink sink) async {
+    _sink = sink;
+    entered.complete();
+    return result.future;
+  }
+
+  @override
+  Future<void> stop() async {}
+  @override
+  bool rebindFrameSink(I420FrameSink? sink) {
+    _sink = sink;
+    return true;
+  }
+
+  void frame() => _sink?.call(Uint8List(4), Uint8List(1), Uint8List(1), 2, 2);
 }

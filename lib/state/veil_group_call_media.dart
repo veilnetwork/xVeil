@@ -338,6 +338,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     Future<bool> Function()? requestMicrophone,
     Future<bool> Function()? requestCamera,
     bool? desktopScreenCaptureSupported,
+    @visibleForTesting bool? androidCapture,
+    @visibleForTesting AndroidCameraCapture Function()? cameraCaptureFactory,
+    @visibleForTesting AndroidScreenCaptureFactory? screenCaptureFactory,
     this._statsInterval = const Duration(seconds: 1),
     DateTime Function()? now,
     CallNetworkActivity? networkActivity,
@@ -352,6 +355,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        _requestCamera = requestCamera ?? _defaultCameraPermission,
        _desktopScreenCaptureSupported =
            desktopScreenCaptureSupported ?? Platform.isMacOS,
+       _androidCapture = androidCapture ?? Platform.isAndroid,
+       _injectedCameraFactory = cameraCaptureFactory,
+       _injectedScreenFactory = screenCaptureFactory,
        _now = now ?? DateTime.now,
        _networkActivity = networkActivity ?? CallNetworkActivity.shared;
 
@@ -381,16 +387,25 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Future<bool> Function() _requestCamera;
   // The injected engine's screen capability can differ from the test host.
   final bool _desktopScreenCaptureSupported;
+  final bool _androidCapture;
+  final AndroidCameraCapture Function()? _injectedCameraFactory;
+  final AndroidScreenCaptureFactory? _injectedScreenFactory;
   final Duration _statsInterval;
   final DateTime Function() _now;
   final CallNetworkActivity _networkActivity;
   final _networkActivityOwner = Object();
   AndroidScreenCaptureSource _screenCaptureFactory(
     VoidCallback onUnexpectedStop,
-  ) => createAndroidScreenCapture(
-    onUnexpectedStop,
-    captureLifetime: _cameraLifetime,
-  );
+  ) =>
+      _injectedScreenFactory?.call(onUnexpectedStop) ??
+      createAndroidScreenCapture(
+        onUnexpectedStop,
+        captureLifetime: _cameraLifetime,
+      );
+
+  AndroidCameraCapture _createAndroidCamera() =>
+      _injectedCameraFactory?.call() ??
+      AndroidCameraCapture(captureLifetime: _cameraLifetime);
   final Map<String, _GroupPeerChannel> _peers = {};
   bool _screenSourceSelected = false;
   final Map<String, int> _lastRxPackets = {};
@@ -705,7 +720,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (startScreen) {
       _prepareVideoCapture(engine);
       if (!_selectScreenSource(true)) return false;
-      if (Platform.isAndroid) {
+      if (_androidCapture) {
         final start = _startAndroidScreen(engine);
         _screenStarting = start;
         try {
@@ -720,7 +735,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
       if (!_screenSharing) _selectScreenSource(false);
     } else if (startCamera) {
-      if (Platform.isAndroid) {
+      if (_androidCapture) {
         unawaited(_startAndroidCamera(engine));
       } else {
         try {
@@ -1404,14 +1419,17 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
+  void updateCameraIntent(bool enabled) => _cameraEnabled = enabled;
+
+  @override
   Future<void> setCameraEnabled(bool enabled) async {
     final engine = _engine;
     if (engine == null || !_videoRunning) return;
-    _cameraEnabled = enabled;
+    updateCameraIntent(enabled);
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     if (enabled && !_selectScreenSource(false)) return;
     if (enabled) _prepareVideoCapture(engine);
-    if (Platform.isAndroid) {
+    if (_androidCapture) {
       if (enabled) {
         await _startAndroidCamera(engine);
       } else {
@@ -1441,7 +1459,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engine;
     if (engine == null || !_videoRunning) return false;
     if (enabled) _prepareVideoCapture(engine);
-    if (Platform.isAndroid) {
+    if (_androidCapture) {
       if (!enabled) {
         final screen = _androidScreen;
         _androidScreen = null;
@@ -1687,16 +1705,44 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {
-    if (_androidCamera != null) return;
-    final camera = AndroidCameraCapture(captureLifetime: _cameraLifetime);
+    if (_engine != engine ||
+        !_videoRunning ||
+        !_cameraEnabled ||
+        _screenSharing ||
+        _androidCamera != null) {
+      return;
+    }
+    final epoch = _mediaEpoch;
+    final camera = _createAndroidCamera();
     _androidCamera = camera;
     final started = await camera.start((y, u, v, width, height) {
-      if (_engine != engine || !_videoRunning) return;
+      if (_engine != engine ||
+          epoch != _mediaEpoch ||
+          !_videoRunning ||
+          !_cameraEnabled ||
+          _screenSharing ||
+          _androidCamera != camera) {
+        return;
+      }
       try {
         engine.pushVideoFrame(y, u, v, width, height);
       } catch (_) {}
     });
-    if (!started && _androidCamera == camera) _androidCamera = null;
+    if (!started ||
+        _engine != engine ||
+        epoch != _mediaEpoch ||
+        !_videoRunning ||
+        !_cameraEnabled ||
+        _screenSharing ||
+        _androidCamera != camera) {
+      if (_androidCamera == camera) _androidCamera = null;
+      try {
+        await camera.stop();
+      } catch (_) {
+        // The source's capture lifetime retains failed retirement work. Never
+        // publish this source to a newer engine or resume its frame delivery.
+      }
+    }
   }
 
   Future<bool> _startAndroidScreen(GroupAudioEngine engine) async {
