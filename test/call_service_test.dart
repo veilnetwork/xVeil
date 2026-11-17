@@ -5998,6 +5998,237 @@ void main() {
       return (svc, media);
     }
 
+    (CallService, _FakeMessaging, _FakeMedia, Completer<bool>) pendingShare(
+      FakeAsync async, {
+      required bool enabling,
+    }) {
+      final messaging = _FakeMessaging(), media = _FakeMedia();
+      final service = CallService(
+        messaging,
+        now: () => clock.now(),
+        media: media,
+      )..start();
+      messaging.onCallSignal!(peer, videoOffer('call-pending-share'));
+      service.accept();
+      async.flushMicrotasks();
+      expect(service.current?.status, CallStatus.active);
+      if (!enabling) {
+        service.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        expect(service.current?.screenOn, isTrue);
+      }
+      final gate = Completer<bool>();
+      media.screenOperation = (on) =>
+          on == enabling ? gate.future : Future.value(true);
+      service.setScreenShareEnabled(enabling);
+      async.flushMicrotasks();
+      media.log.clear();
+      messaging.sent.clear();
+      return (service, messaging, media, gate);
+    }
+
+    for (final enabling in [false, true]) {
+      for (final terminal in ['hangup', 'replacement', 'dispose']) {
+        test('pending share enabling=$enabling cannot outlive $terminal', () {
+          fakeAsync((async) {
+            final (service, messaging, media, gate) = pendingShare(
+              async,
+              enabling: enabling,
+            );
+            switch (terminal) {
+              case 'hangup' || 'replacement':
+                service.hangup();
+                async.flushMicrotasks();
+                expect(service.current, isNull);
+                if (terminal == 'replacement') {
+                  messaging.onCallSignal!(peer, videoOffer('replacement-call'));
+                  service.accept();
+                  async.flushMicrotasks();
+                  expect(service.current?.callId, 'replacement-call');
+                  expect(service.current?.status, CallStatus.active);
+                }
+              case 'dispose':
+                service.dispose();
+                async.flushMicrotasks();
+                expect(service.current, isNull);
+            }
+            final before = service.current;
+            media.log.clear();
+            messaging.sent.clear();
+            gate.complete(true);
+            async.flushMicrotasks();
+            expect(
+              service.current,
+              same(before),
+              reason:
+                  'capture completion is not permission to restore an old call',
+            );
+            expect(
+              media.log,
+              isEmpty,
+              reason: 'old share completion must not restart a camera',
+            );
+            expect(
+              messaging.sent.where((s) => s.type == CallSignalType.renegotiate),
+              isEmpty,
+            );
+            service.dispose();
+            async.flushMicrotasks();
+          });
+        });
+      }
+      test(
+        'pending share enabling=$enabling preserves newer mic and camera off',
+        () {
+          fakeAsync((async) {
+            final (service, messaging, media, gate) = pendingShare(
+              async,
+              enabling: enabling,
+            );
+            service.setMicEnabled(false);
+            service.setCameraEnabled(false);
+            async.flushMicrotasks();
+            expect(service.current?.micOn, isFalse);
+            expect(service.current?.cameraOn, isFalse);
+            media.log.clear();
+            messaging.sent.clear();
+            gate.complete(true);
+            async.flushMicrotasks();
+            expect(service.current?.micOn, isFalse);
+            expect(service.current?.cameraOn, isFalse);
+            expect(service.current?.screenOn, enabling);
+            expect(media.log.where((entry) => entry == 'cam:true'), isEmpty);
+            final update = messaging.sent.lastWhere(
+              (s) => s.type == CallSignalType.renegotiate,
+            );
+            expect(update.media?.screen, enabling);
+            service.dispose();
+            async.flushMicrotasks();
+          });
+        },
+      );
+    }
+
+    test('a refused share stop does not claim camera restoration', () {
+      fakeAsync((async) {
+        final (service, messaging, media, gate) = pendingShare(
+          async,
+          enabling: false,
+        );
+        gate.complete(false);
+        async.flushMicrotasks();
+        expect(service.current?.screenOn, isTrue);
+        expect(service.current?.media.screen, isTrue);
+        expect(media.log, isEmpty);
+        expect(
+          messaging.sent.where((s) => s.type == CallSignalType.renegotiate),
+          isEmpty,
+        );
+        service.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('share hand-back uses a camera enabled during its wait', () {
+      fakeAsync((async) {
+        final (service, media) = liveVideoCall(async);
+        service.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        service.setCameraEnabled(false);
+        async.flushMicrotasks();
+        final gate = Completer<bool>();
+        media.screenOperation = (_) => gate.future;
+        service.setScreenShareEnabled(false);
+        async.flushMicrotasks();
+        service.setCameraEnabled(true);
+        async.flushMicrotasks();
+        media.log.clear();
+        gate.complete(true);
+        async.flushMicrotasks();
+        expect(service.current?.cameraOn, isTrue);
+        expect(service.current?.screenOn, isFalse);
+        expect(media.log, ['cam:true']);
+        service.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    for (final mode in ['throw', 'unavailable']) {
+      test('share hand-back handles camera $mode', () {
+        fakeAsync((async) {
+          final (service, messaging, media, gate) = pendingShare(
+            async,
+            enabling: false,
+          );
+          media.cameraOperation = (_) async {
+            if (mode == 'throw') throw StateError('fixture camera refused');
+            media.startedWithoutCamera = true;
+          };
+          gate.complete(true);
+          async.flushMicrotasks();
+          expect(service.current?.status, CallStatus.active);
+          expect(service.current?.screenOn, isFalse);
+          expect(service.current?.cameraOn, isFalse);
+          expect(media.cameraIntent, isFalse);
+          expect(
+            messaging.sent
+                .lastWhere((s) => s.type == CallSignalType.renegotiate)
+                .media
+                ?.screen,
+            isFalse,
+          );
+          service.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    for (final change in ['hangup', 'replacement', 'camera off']) {
+      test('camera hand-back wait respects $change', () {
+        fakeAsync((async) {
+          final (service, messaging, media, screenGate) = pendingShare(
+            async,
+            enabling: false,
+          );
+          final cameraGate = Completer<void>();
+          media.cameraOperation = (on) =>
+              on ? cameraGate.future : Future.value();
+          screenGate.complete(true);
+          async.flushMicrotasks();
+          expect(service.current?.screenOn, isFalse);
+          expect(media.log, ['cam:true']);
+          if (change == 'camera off') {
+            service.setCameraEnabled(false);
+          } else {
+            service.hangup();
+          }
+          async.flushMicrotasks();
+          if (change == 'replacement') {
+            messaging.onCallSignal!(peer, videoOffer('after-hand-back'));
+            service.accept();
+            async.flushMicrotasks();
+            expect(service.current?.callId, 'after-hand-back');
+          }
+          final before = service.current;
+          messaging.sent.clear();
+          media.log.clear();
+          cameraGate.complete();
+          async.flushMicrotasks();
+          expect(service.current, same(before));
+          expect(media.log, isEmpty);
+          final updates = messaging.sent.where(
+            (s) => s.type == CallSignalType.renegotiate,
+          );
+          expect(updates, hasLength(change == 'camera off' ? 1 : 0));
+          if (change == 'camera off') {
+            expect(service.current?.cameraOn, isFalse);
+          }
+          service.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('share on drives the controller and flips screenOn; share off '
         'restores the camera the intent flag still wants', () {
       fakeAsync((async) {
@@ -7512,6 +7743,7 @@ CallSignal _diagnosticOffer() => CallSignal(
 );
 
 class _FakeMedia extends CallMediaController {
+  Future<bool> Function(bool)? screenOperation;
   final cameraFailures = StreamController<String>.broadcast();
   @override
   Stream<String> get cameraUnavailable => cameraFailures.stream;
@@ -7736,6 +7968,8 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
     log.add('screen:$enabled');
+    final operation = screenOperation;
+    if (operation != null) return operation(enabled);
     return enabled ? screenOk : true;
   }
 }
