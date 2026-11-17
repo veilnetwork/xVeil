@@ -800,7 +800,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       _prepareVideoCapture(engine);
       if (!_selectScreenSource(true)) return false;
       if (_androidCapture) {
-        final start = _startAndroidScreen(engine);
+        final start = _startAndroidScreen(
+          engine,
+          request: request,
+          epoch: _mediaEpoch,
+        );
         _screenStarting = start;
         try {
           _screenSharing = await start;
@@ -1616,7 +1620,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
-    if (engine == null || !_videoRunning) return false;
+    if (engine == null ||
+        _engineRequest != _sessionRequestEpoch ||
+        !_videoRunning) {
+      return false;
+    }
     if (enabled) _prepareVideoCapture(engine);
     if (_androidCapture) {
       if (!enabled) {
@@ -1784,34 +1792,35 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   /// Stop the camera, then take the screen — checking, at each await, that
   /// the session that asked for this is still the session running.
   Future<bool> _startAndroidScreenShare(GroupAudioEngine engine) async {
+    final request = _sessionRequestEpoch;
     final epoch = _mediaEpoch;
+    bool current() =>
+        identical(_engine, engine) &&
+        _engineRequest == request &&
+        _sessionRequestEpoch == request &&
+        _mediaEpoch == epoch &&
+        _videoRunning;
+    if (!current()) return false;
     final cameraWasRunning = _androidCamera != null;
     final camera = _androidCamera;
     _androidCamera = null;
     if (camera != null) await _retireCamera(engine, camera);
-    if (epoch != _mediaEpoch) return false;
+    if (!current()) return false;
     if (!_selectScreenSource(true)) return false;
     final bool started;
     try {
-      started = await _startAndroidScreen(engine);
+      started = await _startAndroidScreen(
+        engine,
+        request: request,
+        epoch: epoch,
+      );
     } catch (_) {
-      if (epoch == _mediaEpoch) _selectScreenSource(false);
+      if (current()) _selectScreenSource(false);
       rethrow;
     }
-    if (epoch != _mediaEpoch) {
-      // `_startAndroidScreen` publishes its source before awaiting the
-      // platform start, so a teardown landing there stops a source that has
-      // not started yet and the start then succeeds behind it. Reclaim it.
-      final orphan = _androidScreen;
-      _androidScreen = null;
-      _screenSharing = false;
-      if (orphan != null) {
-        try {
-          await orphan.stop();
-        } catch (_) {}
-      }
-      return false;
-    }
+    // The source helper reclaims its own retired source. Never read a newer
+    // session's shared source here after the platform start reply.
+    if (!current()) return false;
     if (!started) _selectScreenSource(false);
     _screenSharing = started;
     if (!started && cameraWasRunning) {
@@ -1907,6 +1916,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _frameTimer?.cancel();
     _frameTimer = null;
     _screenSharing = false;
+    // A still-pending permission/start reply belongs to the retiring session.
+    // It cannot answer a later session's enable request.
+    _screenStarting = null;
     final androidCamera = _androidCamera;
     _androidCamera = null;
     if (androidCamera != null) {
@@ -2017,13 +2029,22 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
   }
 
-  Future<bool> _startAndroidScreen(GroupAudioEngine engine) async {
-    final request = _sessionRequestEpoch;
-    final epoch = _mediaEpoch;
+  Future<bool> _startAndroidScreen(
+    GroupAudioEngine engine, {
+    required int request,
+    required int epoch,
+  }) async {
+    bool current() =>
+        identical(_engine, engine) &&
+        _engineRequest == request &&
+        _sessionRequestEpoch == request &&
+        _mediaEpoch == epoch &&
+        _videoRunning;
+    if (!current()) return false;
     _androidScreenPushLogged = false;
     late final AndroidScreenCaptureSource screen;
     screen = _screenCaptureFactory(() {
-      if (_androidScreen != screen) return;
+      if (!current() || _androidScreen != screen) return;
       _androidScreen = null;
       if (_engine == engine) _selectScreenSource(false);
       _screenSharing = false;
@@ -2032,7 +2053,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     });
     _androidScreen = screen;
     final started = await screen.start((y, u, v, width, height) {
-      if (_engine != engine || !_videoRunning || _androidScreen != screen) {
+      if (!current() || _androidScreen != screen) {
         return;
       }
       try {
@@ -2043,6 +2064,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         }
       } catch (_) {}
     });
+    if (!current() || !identical(_androidScreen, screen)) {
+      // Teardown may have stopped this source before its start reply. Reclaim
+      // only this source, retaining an attached reference until stop returns.
+      try {
+        await screen.stop();
+      } catch (_) {}
+      if (identical(_androidScreen, screen)) _androidScreen = null;
+      return false;
+    }
     if (!started && _androidScreen == screen) _androidScreen = null;
     return started;
   }

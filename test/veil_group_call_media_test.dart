@@ -3293,6 +3293,299 @@ void main() {
     }
   }
 
+  for (final ending in ['leave', 'replacement']) {
+    test(
+      'group pending screen handoff rejects $ending before lifecycle cleanup',
+      () async {
+        final self = _id(1),
+            groups = _CameraOutcomeGroups(_id(1)),
+            slot = CallSlot();
+        final transport = _BlockedGroupPeerOpen(self),
+            camera = _HeldGroupCamera();
+        final engines = <_HeldGroupEngine>[];
+        var cameras = 0, screens = 0;
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) {
+            final engine = _HeldGroupEngine();
+            engines.add(engine);
+            return engine;
+          },
+          androidCapture: true,
+          cameraCaptureFactory: () => cameras++ == 0 ? camera : _IntentCamera(),
+          screenCaptureFactory: (_) {
+            screens++;
+            return _IntentScreen()..result.complete(true);
+          },
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        );
+        final service = GroupCallService(
+          groups,
+          media: controller,
+          callSlot: slot,
+        )..start();
+        Future<void>? updating, sharing;
+        Future<bool>? replacement;
+        try {
+          final active = service.changes.firstWhere(
+            (c) => c?.status == GroupCallStatus.active,
+          );
+          expect(
+            await service.startCall(
+              _id(9),
+              const CallMedia(audio: true, video: true),
+            ),
+            isTrue,
+          );
+          final call = (await active)!;
+          await camera.opened.future;
+          updating = controller.update(
+            _call(self, [_id(2)], video: true, callId: call.callId),
+          );
+          await transport.entered.future;
+          sharing = service.setScreenShareEnabled(true);
+          await camera.stopping.future;
+          if (ending == 'leave') {
+            await service.leave();
+          } else {
+            replacement = controller.start(call);
+          }
+          camera.release.complete();
+          await sharing;
+          expect(
+            screens,
+            0,
+            reason: 'a retired request cannot start a projection',
+          );
+          expect(engines.first.disposals, 0);
+          expect(slot.owner, CallSlotOwner.group);
+          transport.release.complete();
+          await updating;
+          if (replacement != null) expect(await replacement, isTrue);
+        } finally {
+          if (!camera.release.isCompleted) camera.release.complete();
+          if (!transport.release.isCompleted) transport.release.complete();
+          await updating;
+          await sharing;
+          await replacement;
+          await service.dispose();
+          await groups.close();
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+        }
+      },
+    );
+  }
+
+  for (final scenario in [
+    'next-camera',
+    'next-camera-share',
+    'next-screen-success',
+    'next-screen-refused',
+    'next-screen-throws',
+    'current-success',
+    'current-refused',
+    'current-throws',
+  ]) {
+    test('group pending screen reply stays with source: $scenario', () async {
+      final groups = _CameraOutcomeGroups(_id(1)), slot = CallSlot();
+      final engines = <_HeldGroupEngine>[], screens = <_PendingGroupScreen>[];
+      var cameras = 0;
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(_id(1)),
+        roomMediaSecret: _room(),
+        engineFactory: (_) {
+          final engine = _HeldGroupEngine();
+          engines.add(engine);
+          return engine;
+        },
+        androidCapture: true,
+        cameraCaptureFactory: () {
+          cameras++;
+          return _IntentCamera();
+        },
+        screenCaptureFactory: (_) {
+          final screen = _PendingGroupScreen();
+          if (screens.isNotEmpty) screen.result.complete(true);
+          screens.add(screen);
+          return screen;
+        },
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      final service = GroupCallService(
+        groups,
+        media: controller,
+        callSlot: slot,
+      )..start();
+      Future<void>? sharing, successorSharing;
+      Object? shareError;
+      Future<void> start({bool screen = false}) async {
+        final active = service.changes.firstWhere(
+          (c) => c?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            CallMedia(audio: true, video: true, screen: screen),
+          ),
+          isTrue,
+        );
+        await active;
+        await pumpEventQueue();
+      }
+
+      try {
+        await start();
+        expect(cameras, 1);
+        sharing = service
+            .setScreenShareEnabled(true)
+            .then<void>(
+              (_) {},
+              onError: (Object error, StackTrace _) {
+                shareError = error;
+              },
+            );
+        await pumpEventQueue();
+        expect(screens, hasLength(1));
+        await screens.first.entered.future;
+        final successor = scenario.startsWith('next-');
+        if (successor) {
+          await service.leave();
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+          expect(engines.first.disposals, 1);
+          await start(screen: scenario.startsWith('next-screen-'));
+          if (scenario == 'next-camera-share') {
+            successorSharing = service.setScreenShareEnabled(true);
+            await pumpEventQueue();
+            expect(
+              screens,
+              hasLength(2),
+              reason: 'the old request cannot answer a new screen enable',
+            );
+          }
+        }
+        if (scenario.endsWith('throws')) {
+          screens.first.result.completeError(
+            StateError('synthetic screen start failure'),
+          );
+        } else {
+          screens.first.result.complete(!scenario.endsWith('refused'));
+        }
+        await sharing;
+        await successorSharing;
+        await pumpEventQueue();
+        expect(
+          shareError,
+          scenario.endsWith('throws') ? isA<StateError>() : isNull,
+        );
+        expect(service.current?.status, GroupCallStatus.active);
+        if (scenario == 'next-camera') {
+          expect(
+            cameras,
+            2,
+            reason: 'the retired start cannot gate successor capture',
+          );
+        } else if (successor) {
+          expect(screens, hasLength(2));
+          expect(
+            screens.last.stops,
+            0,
+            reason: 'old cleanup cannot stop the new projection',
+          );
+          final before = engines.last.videoPushed;
+          screens.last.frame();
+          expect(engines.last.videoPushed, before + 1);
+          expect(service.current?.screenOn, isTrue);
+        } else {
+          expect(service.current?.screenOn, scenario.endsWith('success'));
+          if (scenario.endsWith('refused')) expect(cameras, 2);
+        }
+        final before = engines.last.videoPushed;
+        if (successor) {
+          screens.first.frame();
+          expect(engines.last.videoPushed, before);
+        }
+      } finally {
+        for (final screen in screens) {
+          if (!screen.result.isCompleted) screen.result.complete(false);
+        }
+        await sharing;
+        await successorSharing;
+        await service.dispose();
+        await groups.close();
+        await pumpEventQueue();
+        expect(slot.owner, isNull);
+      }
+    });
+  }
+
+  test(
+    'group pending screen frames stop at leave before lifecycle cleanup',
+    () async {
+      final self = _id(1), groups = _CameraOutcomeGroups(_id(1));
+      final transport = _BlockedGroupPeerOpen(self),
+          engine = _HeldGroupEngine();
+      final screen = _PendingGroupScreen();
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        androidCapture: true,
+        cameraCaptureFactory: () => _IntentCamera(),
+        screenCaptureFactory: (_) => screen,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      final service = GroupCallService(groups, media: controller)..start();
+      Future<void>? updating, sharing;
+      try {
+        final active = service.changes.firstWhere(
+          (c) => c?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        final call = (await active)!;
+        updating = controller.update(
+          _call(self, [_id(2)], video: true, callId: call.callId),
+        );
+        await transport.entered.future;
+        sharing = service.setScreenShareEnabled(true);
+        await screen.entered.future;
+        final before = engine.videoPushed;
+        screen.frame();
+        expect(engine.videoPushed, before + 1);
+        await service.leave();
+        screen.frame();
+        expect(
+          engine.videoPushed,
+          before + 1,
+          reason: 'ended-room frames cannot wait for lane cleanup',
+        );
+        expect(engine.disposals, 0);
+      } finally {
+        if (!screen.result.isCompleted) screen.result.complete(false);
+        if (!transport.release.isCompleted) transport.release.complete();
+        await sharing;
+        await updating;
+        await service.dispose();
+        await groups.close();
+        await pumpEventQueue();
+      }
+    },
+  );
+
   for (final change in [
     'current',
     'hangup',
@@ -5494,6 +5787,15 @@ class _IntentCamera extends AndroidCameraCapture {
 
   // Deliberately retain a callable sink as an adversarial late-callback probe.
   void frame() => _sink?.call(Uint8List(4), Uint8List(1), Uint8List(1), 2, 2);
+}
+
+class _PendingGroupScreen extends _IntentScreen {
+  int stops = 0;
+  @override
+  Future<void> stop() async {
+    stops++;
+    await super.stop();
+  }
 }
 
 class _IntentScreen implements AndroidScreenCaptureSource {
