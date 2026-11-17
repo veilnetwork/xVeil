@@ -63,6 +63,11 @@ class NotificationService {
       final startup = _initializing;
       if (startup != null) await startup;
       if (!isCurrent()) return false;
+      // Readiness checked by a caller can precede metadata/queue waits. A
+      // global clear requested meanwhile must finish before this post, across
+      // every OS id; otherwise a queued clear can erase a fresh accepted alert.
+      await _waitForNativeClears();
+      if (!isCurrent() || _clearWanted) return false;
       try {
         final posted = await show(
           id: id,
@@ -126,13 +131,17 @@ class NotificationService {
   Future<bool> waitUntilReady() async {
     final running = _initializing;
     if (running != null) await running;
+    await _waitForNativeClears();
+    return isReady && !_clearWanted;
+  }
+
+  Future<void> _waitForNativeClears() async {
     if (isReady && _clearWanted) await cancelAll();
     while (true) {
       final clearing = _nativeClear;
       if (clearing == null) break;
       await clearing;
     }
-    return isReady && !_clearWanted;
   }
 
   /// A clear that arrived before there was anything to clear it with.
