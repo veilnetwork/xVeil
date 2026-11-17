@@ -38,8 +38,93 @@ class _StartingPlugin extends Fake implements FlutterLocalNotificationsPlugin {
   }
 }
 
+class _ReplyFailurePlugin extends Fake
+    implements FlutterLocalNotificationsPlugin {
+  final entered = Completer<void>(), release = Completer<void>();
+  final visible = <int, String?>{};
+  final cancelled = <int>[];
+  int posts = 0;
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async => true;
+  @override
+  Future<NotificationAppLaunchDetails?>
+  getNotificationAppLaunchDetails() async =>
+      const NotificationAppLaunchDetails(false);
+  @override
+  Future<void> show({
+    required int id,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async {
+    visible[id] = payload;
+    if (++posts == 1) {
+      entered.complete();
+      await release.future;
+      throw StateError('synthetic response failure after backend effect');
+    }
+  }
+
+  @override
+  Future<void> cancel({required int id, String? tag}) async {
+    cancelled.add(id);
+    visible.remove(id);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final change in ['retired', 'successor', 'current']) {
+    test('backend reply failure respects $change notification owner', () async {
+      final plugin = _ReplyFailurePlugin();
+      final service = NotificationService(plugin: plugin);
+      await service.init(onTap: (_) {});
+      expect(service.isReady, isTrue);
+      var current = true;
+      final first = service.showIfCurrent(
+        isCurrent: () => current,
+        id: 1,
+        title: 'xVeil',
+        body: 'old',
+        payload: 'old',
+      );
+      Future<bool>? second;
+      try {
+        await plugin.entered.future;
+        current = change == 'current';
+        if (change == 'successor') {
+          second = service.showIfCurrent(
+            isCurrent: () => true,
+            id: 1,
+            title: 'xVeil',
+            body: 'new',
+            payload: 'new',
+          );
+        }
+      } finally {
+        plugin.release.complete();
+        expect(
+          await first,
+          isFalse,
+          reason: 'the real wrapper reports the plugin exception as false',
+        );
+        if (second != null) expect(await second, isTrue);
+      }
+      expect(plugin.cancelled, change == 'current' ? isEmpty : [1]);
+      expect(plugin.visible, switch (change) {
+        'current' => {1: 'old'},
+        'successor' => {1: 'new'},
+        _ => <int, String?>{},
+      });
+    });
+  }
 
   for (final retireDuringStartup in [false, true]) {
     test('guarded alert joins startup; retired=$retireDuringStartup', () async {

@@ -68,6 +68,7 @@ class _Notifications extends NotificationService {
   final cancelled = <int>[];
   int shows = 0;
   bool failFirstShow = false;
+  String firstCompletion = 'ok';
   Completer<void>? cancelEntered, cancelRelease;
 
   @override
@@ -92,11 +93,16 @@ class _Notifications extends NotificationService {
     String? replyHint,
   }) async {
     shows++;
+    final attempt = shows;
     if (failFirstShow && shows == 1) throw StateError('fixture OS refusal');
     visible[id] = payload;
     if (id == holdId && !entered.isCompleted) {
       entered.complete();
       await release.future;
+    }
+    if (attempt == 1 && firstCompletion == 'false') return false;
+    if (attempt == 1 && firstCompletion == 'throw') {
+      throw StateError('fixture response lost after OS post');
     }
     return true;
   }
@@ -146,6 +152,64 @@ void main() {
       expect(service.visible[1], 'new');
     },
   );
+
+  for (final completion in ['false', 'throw']) {
+    for (final change in ['retired', 'successor', 'current']) {
+      test('uncertain OS post completion=$completion owner=$change', () async {
+        final service = _Notifications()
+          ..holdId = 1
+          ..firstCompletion = completion;
+        if (change == 'successor') {
+          service.cancelEntered = Completer<void>();
+          service.cancelRelease = Completer<void>();
+        }
+        var current = true;
+        final first = post(service, 1, 'old', () => current).then<Object>(
+          (value) => value,
+          onError: (Object error, StackTrace _) => error,
+        );
+        Future<bool>? second;
+        late Object result;
+        Map<String, Object>? duringCancel;
+        try {
+          await service.entered.future;
+          expect(service.visible[1], 'old');
+          current = change == 'current';
+          if (change == 'successor') {
+            second = post(service, 1, 'new', () => true);
+          }
+          service.release.complete();
+          if (change == 'successor') {
+            // Drain immediate Dart work while the actual cancellation gate is
+            // closed; a missing cancel must fail an assertion, not a timeout.
+            await pumpEventQueue();
+            duringCancel = {
+              'entered': service.cancelEntered!.isCompleted,
+              'shows': service.shows,
+            };
+          }
+        } finally {
+          if (!service.release.isCompleted) service.release.complete();
+          final cancelling = service.cancelRelease;
+          if (cancelling != null && !cancelling.isCompleted) {
+            cancelling.complete();
+          }
+          result = await first;
+          if (second != null) expect(await second, isTrue);
+        }
+        expect(result, completion == 'throw' ? isStateError : isFalse);
+        expect(service.cancelled, change == 'current' ? isEmpty : [1]);
+        expect(service.visible, switch (change) {
+          'current' => {1: 'old'},
+          'successor' => {1: 'new'},
+          _ => <int, String?>{},
+        });
+        if (change == 'successor') {
+          expect(duringCancel, {'entered': true, 'shows': 1});
+        }
+      });
+    }
+  }
 
   test(
     'retiring a call owner orders cancellation before its successor',
@@ -359,47 +423,50 @@ void main() {
   );
 
   for (final clear in [false, true]) {
-    testWidgets(
-      'a ${clear ? 'clear request' : 'message'} post notices an identity change before service rebind',
-      (tester) async {
-        await mount(tester);
-        try {
-          final id = clear
-              ? kNotificationIdClearRequests
-              : notificationIdForIncomingMessage('');
-          notifications.holdId = id;
-          if (clear) {
-            requests.add([
-              PendingClearRequest(
-                chatHex: _id(2).hex,
-                requesterHex: _id(2).hex,
-                atMs: 1000,
-                seq: 1,
-                watermark: {},
-              ),
-            ]);
-          } else {
-            message(2);
+    for (final completion in ['ok', 'false']) {
+      testWidgets(
+        'a ${clear ? 'clear request' : 'message'} post notices an identity change before service rebind completion=$completion',
+        (tester) async {
+          await mount(tester);
+          try {
+            notifications.firstCompletion = completion;
+            final id = clear
+                ? kNotificationIdClearRequests
+                : notificationIdForIncomingMessage('');
+            notifications.holdId = id;
+            if (clear) {
+              requests.add([
+                PendingClearRequest(
+                  chatHex: _id(2).hex,
+                  requesterHex: _id(2).hex,
+                  atMs: 1000,
+                  seq: 1,
+                  watermark: {},
+                ),
+              ]);
+            } else {
+              message(2);
+            }
+            await _pump(tester);
+            expect(notifications.entered.isCompleted, isTrue);
+            (container.read(appControllerProvider.notifier) as _App)
+                .changeIdentity();
+            expect(
+              container.read(messagingServiceProvider),
+              same(messaging),
+              reason:
+                  'the binder has not been notified of a replacement service yet',
+            );
+            notifications.release.complete();
+            await _pump(tester);
+            expect(notifications.visible, isNot(contains(id)));
+            expect(notifications.cancelled, contains(id));
+          } finally {
+            await cleanup(tester);
           }
-          await _pump(tester);
-          expect(notifications.entered.isCompleted, isTrue);
-          (container.read(appControllerProvider.notifier) as _App)
-              .changeIdentity();
-          expect(
-            container.read(messagingServiceProvider),
-            same(messaging),
-            reason:
-                'the binder has not been notified of a replacement service yet',
-          );
-          notifications.release.complete();
-          await _pump(tester);
-          expect(notifications.visible, isNot(contains(id)));
-          expect(notifications.cancelled, contains(id));
-        } finally {
-          await cleanup(tester);
-        }
-      },
-    );
+        },
+      );
+    }
   }
 
   testWidgets('disposing the binder reclaims a late OS post safely', (

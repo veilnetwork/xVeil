@@ -63,19 +63,22 @@ class NotificationService {
       final startup = _initializing;
       if (startup != null) await startup;
       if (!isCurrent()) return false;
-      final posted = await show(
-        id: id,
-        title: title,
-        body: body,
-        payload: payload,
-        replyLabel: replyLabel,
-        replyHint: replyHint,
-      );
-      if (posted && !isCurrent()) {
-        await cancel(id);
-        return false;
+      try {
+        final posted = await show(
+          id: id,
+          title: title,
+          body: body,
+          payload: payload,
+          replyLabel: replyLabel,
+          replyHint: replyHint,
+        );
+        return posted && isCurrent();
+      } finally {
+        // Failure is not proof that the OS was untouched. A retired ticket
+        // must withdraw even after a false/exceptional completion, before a
+        // successor using this id can enter the backend.
+        if (!isCurrent()) await cancel(id);
       }
-      return posted;
     });
     late final Future<void> tail;
     void release() {
@@ -295,8 +298,10 @@ class NotificationService {
   /// offer it when the sender is visible (full preview), so the user knows whom
   /// they are answering.
   ///
-  /// Answers whether the alert was actually POSTED. It used to return void
-  /// over two silent failure paths — a service that is not ready, and a plugin
+  /// Answers whether the backend accepted the post without an error. A false
+  /// result does not establish that the OS had no side effect.
+  /// It used to return void over two silent failure paths — a service that is
+  /// not ready, and a plugin
   /// that threw — and the caller recorded the new alert's owner before
   /// calling: a show that did not happen left the PREVIOUS alert on screen
   /// with the new identity written against it, and its inline reply then went
