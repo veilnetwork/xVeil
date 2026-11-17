@@ -592,6 +592,9 @@ class VeilCallMediaController implements CallMediaController {
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
   AndroidNativeCallVideoRenderer? _androidVideoRenderer;
   AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
+  // A choice or ON/OFF intent can supersede a stop fence within the same call.
+  // Its late continuation owns no newer source.
+  int _cameraOperationEpoch = 0;
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
   final _networkActivity = CallNetworkActivity.shared;
@@ -3060,14 +3063,16 @@ class VeilCallMediaController implements CallMediaController {
     final call = _activeCall;
     final epoch = _mediaEpoch;
     if (engine == null || call == null) return false;
+    final operation = ++_cameraOperationEpoch;
     final preferencesOwner = ProfilePreferencesLifetime.current();
+    bool current() =>
+        _mediaEpoch == epoch &&
+        _engine == engine &&
+        _activeCall?.callId == call.callId &&
+        operation == _cameraOperationEpoch &&
+        preferencesOwner.isCurrent;
     final devices = await listCameras();
-    if (_mediaEpoch != epoch ||
-        _engine != engine ||
-        _activeCall?.callId != call.callId ||
-        !preferencesOwner.isCurrent) {
-      return false;
-    }
+    if (!current()) return false;
     if (!devices.any((device) => device.id == id)) return false;
     final captureNow =
         _cameraState.enabledForCall(call.callId) &&
@@ -3109,23 +3114,23 @@ class VeilCallMediaController implements CallMediaController {
     // when sharing ends. Likewise an off camera needs no eager hardware open.
     if (!captureNow) return true;
     if (_androidCameraCapture) {
-      if (_mediaEpoch != epoch ||
-          _engine != engine ||
-          _activeCall?.callId != call.callId ||
-          !preferencesOwner.isCurrent) {
-        return false;
-      }
+      if (!current()) return false;
       final native = _androidNativeCam;
       _androidNativeCam = null;
       if (native != null) await native.stop();
+      // New intent may already own a source in these fields. Check BEFORE
+      // reading/detaching it, not only before starting another camera.
+      if (!current()) return false;
       final fallback = _androidCam;
       _androidCam = null;
       if (fallback != null) await fallback.stop();
+      if (!current()) return false;
       await _startAndroidCam(
         engine,
         highQuality: _highQualityRoute,
         origin: CameraStartOrigin.deviceSelection,
       );
+      if (!current()) return false;
       return _androidNativeCam?.cameraId == id || _androidCam?.cameraId == id;
     }
     return true;
@@ -3207,6 +3212,7 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   void updateCameraIntent(bool enabled) {
+    ++_cameraOperationEpoch;
     _cameraState.setEnabled(enabled);
     // A new intent supersedes queued failure evidence from the older attempt.
     if (enabled) _startedWithoutCamera = false;
@@ -3215,8 +3221,14 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<void> setCameraEnabled(bool enabled) async {
     updateCameraIntent(enabled);
+    final operation = _cameraOperationEpoch;
+    final epoch = _mediaEpoch;
     final engine = _engine;
     if (engine == null) return;
+    bool current() =>
+        operation == _cameraOperationEpoch &&
+        epoch == _mediaEpoch &&
+        _engine == engine;
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     final chan = _chan;
     if (enabled) {
@@ -3248,6 +3260,7 @@ class VeilCallMediaController implements CallMediaController {
             await nativeCam.stop();
           } catch (_) {}
         }
+        if (!current()) return;
         final cam = _androidCam;
         _androidCam = null;
         if (cam != null) {
@@ -3255,6 +3268,7 @@ class VeilCallMediaController implements CallMediaController {
             await cam.stop();
           } catch (_) {}
         }
+        if (!current()) return;
         _startFramePump(engine);
       }
     } else {

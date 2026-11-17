@@ -107,10 +107,26 @@ class _NativeCamera extends AndroidNativeCallCamera {
   final entered = Completer<void>();
   bool running = false;
   int stops = 0;
+  Completer<void>? stopGate;
+  Completer<void>? stopEntered;
+  String? requestedId;
+  @override
+  Future<List<AndroidNativeCameraDevice>> listDevices() async => const [
+    AndroidNativeCameraDevice(
+      id: 'camera-fixture',
+      label: 'Front',
+      facing: 'front',
+    ),
+    AndroidNativeCameraDevice(
+      id: 'back-fixture',
+      label: 'Back',
+      facing: 'back',
+    ),
+  ];
   @override
   bool get isRunning => running;
   @override
-  String? get cameraId => running ? 'camera-fixture' : null;
+  String? get cameraId => running ? requestedId ?? 'camera-fixture' : null;
   @override
   Future<bool> start({
     required int engineAddress,
@@ -120,6 +136,7 @@ class _NativeCamera extends AndroidNativeCallCamera {
     String? cameraId,
   }) async {
     entered.complete();
+    requestedId = cameraId;
     return running = await result;
   }
 
@@ -127,16 +144,23 @@ class _NativeCamera extends AndroidNativeCallCamera {
   Future<void> stop() async {
     stops++;
     running = false;
+    final gate = stopGate;
+    stopGate = null;
+    if (gate != null) {
+      stopEntered!.complete();
+      await gate.future;
+    }
   }
 }
 
 class _PluginCamera extends AndroidCameraCapture {
-  _PluginCamera(this.result);
+  _PluginCamera(this.result, {this.id = 'camera-fixture'});
   final Future<bool> result;
+  final String id;
   final entered = Completer<void>();
   int stops = 0;
   @override
-  String? get cameraId => 'camera-fixture';
+  String? get cameraId => id;
   @override
   Future<bool> startAndroid420(Android420FrameSink sink) async {
     entered.complete();
@@ -248,6 +272,157 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final operation in ['select', 'off']) {
+    for (final replacement in ['none', 'native', 'plugin']) {
+      test('camera $operation drain preserves $replacement successor', () async {
+        final wire = _Wire(), engine = _Engine();
+        final old = _NativeCamera(true);
+        final next = _NativeCamera(replacement != 'plugin');
+        final fallback = _PluginCamera(Future.value(true), id: 'back-fixture');
+        final cameras = Queue<_NativeCamera>.of([
+          old,
+          next,
+          _NativeCamera(true),
+        ]);
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          androidCameraCapture: true,
+          nativeCameraFactory: cameras.removeFirst,
+          cameraCaptureFactory: (_, _) => fallback,
+        );
+        final service = CallService(wire, media: controller)..start();
+        final release = Completer<void>();
+        Future<Object?>? pending;
+        try {
+          await _connect(service, wire);
+          await old.entered.future;
+          await pumpEventQueue();
+          expect(old.running, isTrue);
+          old.stopGate = release;
+          old.stopEntered = Completer<void>();
+          pending = operation == 'select'
+              ? service.selectCamera('back-fixture')
+              : service.setCameraEnabled(false);
+          await old.stopEntered!.future;
+          if (replacement != 'none') {
+            if (operation == 'select') await service.setCameraEnabled(false);
+            await service.setCameraEnabled(true);
+            await pumpEventQueue();
+            expect(service.current?.cameraOn, isTrue);
+            if (replacement == 'plugin') {
+              expect(fallback.entered.isCompleted, isTrue);
+              expect(fallback.stops, 0);
+            } else {
+              expect(next.running, isTrue);
+            }
+          }
+          release.complete();
+          final result = await pending;
+          await pumpEventQueue();
+          expect(service.current?.status, CallStatus.active);
+          if (replacement == 'none') {
+            if (operation == 'select') {
+              expect(result, isTrue);
+              expect(next.cameraId, 'back-fixture');
+            } else {
+              expect(service.current?.cameraOn, isFalse);
+              expect(next.entered.isCompleted, isFalse);
+            }
+          } else {
+            expect(
+              fallback.stops,
+              0,
+              reason:
+                  'the old native stop cannot detach or stop a new plugin source',
+            );
+            expect(next.stops, 0);
+            expect(service.current?.cameraOn, isTrue);
+            if (operation == 'select') {
+              expect(
+                result,
+                isFalse,
+                reason:
+                    'the old selection was superseded by the newer camera intent',
+              );
+            }
+          }
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await pending;
+          service.dispose();
+          await controller.stop();
+        }
+      });
+    }
+  }
+
+  for (final nativeReplacement in [true, false]) {
+    test(
+      'old camera selection cannot stop rebuilt source native=$nativeReplacement',
+      () async {
+        final wire = _Wire();
+        final old = _NativeCamera(true);
+        final replacement = _NativeCamera(nativeReplacement);
+        final fallback = _PluginCamera(Future.value(true), id: 'back-fixture');
+        final cameras = Queue<_NativeCamera>.of([
+          old,
+          replacement,
+          _NativeCamera(true),
+        ]);
+        final oldEngine = _Engine(), newEngine = _Engine();
+        final engines = Queue<_Engine>.of([oldEngine, newEngine]);
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engines.removeFirst(),
+          androidCameraCapture: true,
+          nativeCameraFactory: cameras.removeFirst,
+          cameraCaptureFactory: (_, _) => fallback,
+        );
+        final service = CallService(wire, media: controller)..start();
+        final release = Completer<void>();
+        Future<bool>? selecting;
+        try {
+          await _connect(service, wire);
+          await old.entered.future;
+          await pumpEventQueue();
+          old.stopGate = release;
+          old.stopEntered = Completer<void>();
+          selecting = service.selectCamera('back-fixture');
+          await old.stopEntered!.future;
+          expect(await controller.start(service.current!), isTrue);
+          await pumpEventQueue();
+          expect(oldEngine.disposed, isTrue);
+          expect(newEngine.disposed, isFalse);
+          expect(fallback.stops, 0);
+          if (nativeReplacement) {
+            expect(replacement.running, isTrue);
+          } else {
+            expect(fallback.entered.isCompleted, isTrue);
+          }
+          release.complete();
+          expect(await selecting, isFalse);
+          expect(
+            fallback.stops,
+            0,
+            reason: 'a choice from the old engine cannot stop the new source',
+          );
+          expect(replacement.stops, 0);
+          expect(service.current?.cameraOn, isTrue);
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await selecting;
+          service.dispose();
+          await controller.stop();
+        }
+      },
+    );
+  }
 
   for (final initial in [true, false]) {
     for (final outcome in ['native', 'fallback', 'refused', 'exception']) {
