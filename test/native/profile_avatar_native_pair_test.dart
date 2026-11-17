@@ -2,10 +2,13 @@
 // Unix defaults to private loopback. Windows requires an explicit owned IPv4
 // interface: its production outbound pin intentionally cannot reach loopback.
 // No fake transport/inbound injection or production relay configuration.
+// XVEIL_AVATAR_PAIR_STORAGE_MATRIX=1 additionally qualifies explicit managed
+// encrypted/plaintext adapters, independently inspected after all nodes stop.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +22,8 @@ import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/managed_identity_catalog.dart';
+import 'package:xveil/data/storage/managed_identity_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/data/transport/veil_native.dart';
@@ -27,6 +32,7 @@ import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/profile_avatar.dart';
+import 'package:xveil/domain/storage_protection.dart';
 import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
 
@@ -59,8 +65,11 @@ class _Peer {
     this.profileLabels,
     this.clock, {
     this.localAddress,
+    this.protection = StorageProtection.hidden,
   });
   final String? localAddress;
+  final StorageProtection protection;
+  ManagedIdentityEntry? _managedEntry;
   final Map<String, int> profileLabels;
   final Stopwatch clock;
   final frameEvidence = <Map<String, Object>>[];
@@ -75,15 +84,59 @@ class _Peer {
   late NodeId id;
   int profileFrames = 0, authenticatedProfileFrames = 0;
   int savedRatchetKeys = 0;
+  String? sovereignWitness;
+  final textWitness =
+      <
+        String,
+        ({
+          String peer,
+          String body,
+          MessageDirection direction,
+          String? author,
+          MessageStatus status,
+        })
+      >{};
 
   VeilFlutterTransport get transport =>
       stack!.transport as VeilFlutterTransport;
 
+  HiddenVolumeStorage _freshStorage({required bool fresh}) {
+    if (protection == StorageProtection.hidden) {
+      return HiddenVolumeStorage.async(
+        workerSpaceOpener('${root.path}/store.hv'),
+      );
+    } else {
+      final random = Random.secure();
+      final entry = _managedEntry ??= ManagedIdentityEntry(
+        id: ManagedIdentityId(
+          List.generate(
+            16,
+            (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+          ).join(),
+        ),
+        protection: protection,
+      );
+      final binding = fresh
+          ? ManagedIdentityStorage.forCreation(
+              profileDirectory: root.path,
+              entry: entry,
+            )
+          : ManagedIdentityStorage.existing(
+              profileDirectory: root.path,
+              entry: entry,
+            );
+      return binding.storage;
+    }
+  }
+
   Future<void> open({bool fresh = false}) async {
     await root.create(recursive: true);
-    storage ??= HiddenVolumeStorage.async(
-      workerSpaceOpener('${root.path}/store.hv'),
+    expect(
+      storage,
+      isNull,
+      reason: 'every boot reconstructs its storage facade',
     );
+    storage = _freshStorage(fresh: fresh);
     expect(
       await storage!.open(
         password: 'native-avatar-fixture',
@@ -152,6 +205,85 @@ class _Peer {
     messaging!.start();
   }
 
+  Future<void> verifyColdStorage(StorageProtection expectedMode) async {
+    expect(storage, isNull);
+    expect(
+      textWitness,
+      hasLength(4),
+      reason: 'four distinct nonempty message witnesses per peer',
+    );
+    expect(sovereignWitness, isNotEmpty);
+    final legacy = File('${root.path}/store.hv');
+    expect(legacy.existsSync(), expectedMode == StorageProtection.hidden);
+    if (expectedMode.hasPublicCatalogEntry) {
+      final entry = _managedEntry;
+      expect(
+        entry,
+        isNotNull,
+        reason: 'the requested managed backend must actually have been created',
+      );
+      final layout = ManagedIdentityLayout(root.path);
+      if (expectedMode == StorageProtection.encrypted) {
+        expect(File(layout.keyboxPath(entry!.id)).lengthSync(), greaterThan(0));
+        expect(File(layout.contentPath(entry.id)).lengthSync(), greaterThan(0));
+        expect(File(layout.dataPath(entry.id)).existsSync(), isFalse);
+      } else {
+        expect(File(layout.dataPath(entry!.id)).lengthSync(), greaterThan(0));
+        expect(File(layout.keyboxPath(entry.id)).existsSync(), isFalse);
+      }
+      final wrong = ManagedIdentityStorage.existing(
+        profileDirectory: root.path,
+        entry: ManagedIdentityEntry(
+          id: entry.id,
+          protection: expectedMode == StorageProtection.encrypted
+              ? StorageProtection.unencrypted
+              : StorageProtection.encrypted,
+        ),
+      ).storage;
+      try {
+        await expectLater(
+          wrong.open(password: 'native-avatar-fixture'),
+          throwsA(
+            isA<ManagedWorkerFailure>().having(
+              (e) => e.kind,
+              'kind',
+              ManagedWorkerFailureKind.mode,
+            ),
+          ),
+        );
+      } finally {
+        await wrong.close();
+      }
+    }
+    final reader = _freshStorage(fresh: false);
+    try {
+      expect(await reader.open(password: 'native-avatar-fixture'), isTrue);
+      expect(await readSovereignMaterial(reader), sovereignWitness);
+      for (final record in textWitness.entries) {
+        final expected = record.value;
+        final row = await reader.loadMessageById(expected.peer, record.key);
+        expect(row, isNotNull);
+        expect(row!.body, expected.body);
+        expect(row.direction, expected.direction);
+        expect(row.author, expected.author);
+        expect(row.status, expected.status);
+        expect(
+          (await reader.loadMessages(
+            expected.peer,
+          )).where((m) => m.id == record.key),
+          hasLength(1),
+        );
+        expect(
+          (await reader.getContact(NodeId.fromHex(expected.peer)))?.status,
+          ContactStatus.accepted,
+        );
+      }
+      expect((await reader.ratchetConversationKeys()).length, greaterThan(0));
+    } finally {
+      await reader.close();
+    }
+  }
+
   Future<String> invite() async {
     final raw = await transport.createInvite();
     final address = localAddress;
@@ -187,7 +319,15 @@ class _Peer {
     if (closing != null) {
       expect(closing.controller.current.phase, NodePhase.stopped);
     }
+    await leg('sovereign witness', () async {
+      if (storage != null) {
+        sovereignWitness = await readSovereignMaterial(storage!);
+        expect(sovereignWitness, isNotEmpty);
+      }
+    });
     await leg('storage', () async => storage?.close());
+    // Do not let a reopen pass using an old facade's caches or opener state.
+    if (errors.isEmpty) storage = null;
     messaging = null;
     stack = null;
     tap = null;
@@ -233,6 +373,24 @@ Future<void> _exchangeText(_Peer sender, _Peer recipient, String body) async {
           delivered?.status == MessageStatus.delivered &&
           notices.any((n) => n.from == sender.id && n.messageId == id);
     }, 'accepted contact text and receipt');
+    final received = (await recipient.storage!.loadMessageById(
+      sender.id.hex,
+      id,
+    ))!;
+    sender.textWitness[id] = (
+      peer: recipient.id.hex,
+      body: body,
+      direction: MessageDirection.outgoing,
+      author: sent.single.author,
+      status: MessageStatus.delivered,
+    );
+    recipient.textWitness[id] = (
+      peer: sender.id.hex,
+      body: body,
+      direction: MessageDirection.incoming,
+      author: sender.id.hex,
+      status: received.status,
+    );
     expect(
       notices.where((n) => n.from == sender.id && n.messageId == id),
       hasLength(1),
@@ -251,14 +409,37 @@ Future<void> _exchangeText(_Peer sender, _Peer recipient, String body) async {
 void main() {
   _registerPairTest(crossed: false);
   _registerPairTest(crossed: true);
+  _registerPairTest(
+    crossed: false,
+    protections: const [
+      StorageProtection.encrypted,
+      StorageProtection.unencrypted,
+    ],
+  );
+  _registerPairTest(
+    crossed: true,
+    protections: const [StorageProtection.encrypted, StorageProtection.hidden],
+  );
 }
 
-void _registerPairTest({required bool crossed}) {
+void _registerPairTest({
+  required bool crossed,
+  List<StorageProtection> protections = const [
+    StorageProtection.hidden,
+    StorageProtection.hidden,
+  ],
+}) {
+  final managed = protections.any((mode) => mode != StorageProtection.hidden);
+  final matrix =
+      Platform.environment['XVEIL_AVATAR_PAIR_STORAGE_MATRIX'] == '1';
+  final modeLabel = protections.map((mode) => mode.name).join('/');
   final enabled = Platform.environment['XVEIL_AVATAR_PAIR_NATIVE'] == '1';
   final configuredAddress =
       Platform.environment['XVEIL_AVATAR_PAIR_LOCAL_IPV4'];
   test(
-    crossed
+    managed
+        ? 'managed $modeLabel ${crossed ? 'crossed' : 'ordinary'} sovereign request/accept and restart'
+        : crossed
         ? 'crossed sovereign requests converge after one acceptance'
         : 'sovereign peers exchange avatars and resume after a native restart',
     () async {
@@ -297,6 +478,7 @@ void _registerPairTest({required bool crossed}) {
             profileLabels,
             clock,
             localAddress: localAddress,
+            protection: protections[i],
           ),
       ];
       void stage(String label) => stderr.writeln(
@@ -515,7 +697,7 @@ void _registerPairTest({required bool crossed}) {
           expect(peer.profileFrames, greaterThan(0));
           expect(peer.authenticatedProfileFrames, greaterThan(0));
         }
-        stage('passed');
+        stage('workflow-complete');
         completed = true;
       } finally {
         final cleanupErrors = <String>[];
@@ -550,11 +732,27 @@ void _registerPairTest({required bool crossed}) {
             }
           }
         }
+        var coldCopies = 0;
+        try {
+          if (completed && cleanupErrors.isEmpty) {
+            for (var i = 0; i < peers.length; i++) {
+              await peers[i].verifyColdStorage(protections[i]);
+              coldCopies += peers[i].textWitness.length;
+            }
+          }
+        } finally {
+          // An inspector failure must also close the diagnostic file. Keep
+          // failed evidence, without leaking an open Windows file handle or
+          // redirecting the next test's log into this retired fixture.
+          devLogDirectoryOverride = oldLog;
+        }
         stderr.writeln(
           jsonEncode({
             'avatar_native_result': completed,
             'crossed_requests': crossed,
+            'storage_protection': protections.map((mode) => mode.name).toList(),
             'text_controls': textControls,
+            'cold_message_copies': coldCopies,
             'profile_frames': [for (final p in peers) p.profileFrames],
             'authenticated_profile_frames': [
               for (final p in peers) p.authenticatedProfileFrames,
@@ -564,9 +762,6 @@ void _registerPairTest({required bool crossed}) {
             'cleanup_errors': cleanupErrors,
           }),
         );
-        // Close the explicit diagnostic file before deleting its directory:
-        // unlike Unix, Windows refuses deletion while that handle is open.
-        devLogDirectoryOverride = oldLog;
         // Preserve failed-run evidence for the owning stand to collect. A
         // teardown error must not hide the original network/SDK failure.
         if (completed && cleanupErrors.isEmpty) {
@@ -577,6 +772,8 @@ void _registerPairTest({required bool crossed}) {
     },
     skip: !enabled
         ? 'set XVEIL_AVATAR_PAIR_NATIVE=1 and both native libraries'
+        : managed && !matrix
+        ? 'set XVEIL_AVATAR_PAIR_STORAGE_MATRIX=1 for the opt-in storage matrix'
         : Platform.isWindows && configuredAddress == null
         ? 'Windows needs XVEIL_AVATAR_PAIR_LOCAL_IPV4 for its pinned QUIC sockets'
         : false,
