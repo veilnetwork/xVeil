@@ -595,6 +595,9 @@ class VeilCallMediaController implements CallMediaController {
   // A choice or ON/OFF intent can supersede a stop fence within the same call.
   // Its late continuation owns no newer source.
   int _cameraOperationEpoch = 0;
+  // Sources can be detached by a toggle/selection while native stop is still
+  // pending. Their engine must retain those JNI fences after the field is null.
+  final _nativeRetirements = Map<VeilMediaEngine, Set<Future<void>>>.identity();
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
   final _networkActivity = CallNetworkActivity.shared;
@@ -2512,6 +2515,54 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<void> stop() => _stopSession(clearActiveCall: true);
 
+  Future<void> _retireNativeSource(
+    VeilMediaEngine? engine,
+    Future<void> Function() stop,
+  ) {
+    if (engine == null) return Future<void>.sync(stop);
+    final completion = Completer<void>();
+    final pending = _nativeRetirements.putIfAbsent(
+      engine,
+      Set<Future<void>>.identity,
+    );
+    pending.add(completion.future);
+    // Register BEFORE invoking stop: clearing the native preview can notify a
+    // synchronous listener which tears down this engine inside the call.
+    unawaited(
+      Future<void>.sync(stop).then<void>(
+        (_) => completion.complete(),
+        onError: (Object error, StackTrace stack) =>
+            completion.completeError(error, stack),
+      ),
+    );
+    void forget() {
+      pending.remove(completion.future);
+      if (pending.isEmpty && identical(_nativeRetirements[engine], pending)) {
+        _nativeRetirements.remove(engine);
+      }
+    }
+
+    unawaited(
+      completion.future.then<void>(
+        (_) => forget(),
+        onError: (Object _, StackTrace _) => forget(),
+      ),
+    );
+    return completion.future;
+  }
+
+  Future<void> _joinNativeRetirements(VeilMediaEngine engine) async {
+    for (;;) {
+      final pending = _nativeRetirements[engine];
+      if (pending == null || pending.isEmpty) return;
+      // The command's own caller retains its error contract. Engine teardown
+      // joins all known replies with the existing best-effort stop policy.
+      await Future.wait(
+        pending.toList().map((stopped) => stopped.catchError((Object _) {})),
+      );
+    }
+  }
+
   Future<void> _stopSession({
     required bool clearActiveCall,
     bool clearMicrophoneState = true,
@@ -2634,8 +2685,10 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     }
     final nativeClosing = <Future<void>>[
-      if (videoRenderer != null) settle(videoRenderer.stop),
-      if (nativeCam != null) settle(nativeCam.stop),
+      if (videoRenderer != null)
+        settle(() => _retireNativeSource(e, videoRenderer.stop)),
+      if (nativeCam != null)
+        settle(() => _retireNativeSource(e, nativeCam.stop)),
     ];
     final closing = <Future<void>>[
       if (cam != null) settle(cam.stop),
@@ -2655,6 +2708,9 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     }
     if (nativeClosing.isNotEmpty) await Future.wait(nativeClosing);
+    if (e != null && (_nativeRetirements[e]?.isNotEmpty ?? false)) {
+      await _joinNativeRetirements(e);
+    }
     if (e != null) {
       try {
         e.stopVideo();
@@ -3132,7 +3188,7 @@ class VeilCallMediaController implements CallMediaController {
       if (!current()) return false;
       final native = _androidNativeCam;
       _androidNativeCam = null;
-      if (native != null) await native.stop();
+      if (native != null) await _retireNativeSource(engine, native.stop);
       // New intent may already own a source in these fields. Check BEFORE
       // reading/detaching it, not only before starting another camera.
       if (!current()) return false;
@@ -3272,7 +3328,7 @@ class VeilCallMediaController implements CallMediaController {
         _androidNativeCam = null;
         if (nativeCam != null) {
           try {
-            await nativeCam.stop();
+            await _retireNativeSource(engine, nativeCam.stop);
           } catch (_) {}
         }
         if (!current()) return;
@@ -3340,7 +3396,9 @@ class VeilCallMediaController implements CallMediaController {
             _androidNativeCam != null || _androidCam != null;
         final nativeCam = _androidNativeCam;
         _androidNativeCam = null;
-        if (nativeCam != null) await nativeCam.stop();
+        if (nativeCam != null) {
+          await _retireNativeSource(engine, nativeCam.stop);
+        }
         final cam = _androidCam;
         _androidCam = null;
         if (cam != null) await cam.stop();
@@ -3497,13 +3555,13 @@ class VeilCallMediaController implements CallMediaController {
     if (existing?.isRunning ?? false) return;
     if (existing != null) {
       _androidVideoRenderer = null;
-      await existing.stop();
+      await _retireNativeSource(engine, existing.stop);
     }
     final renderer = AndroidNativeCallVideoRenderer();
     _androidVideoRenderer = renderer;
     final ok = await renderer.start(engineAddress: engine.nativeAddress);
     if (_engine != engine || _androidVideoRenderer != renderer) {
-      if (ok) await renderer.stop();
+      if (ok) await _retireNativeSource(engine, renderer.stop);
       return;
     }
     if (!ok) {
@@ -3537,7 +3595,7 @@ class VeilCallMediaController implements CallMediaController {
     if (existingNative?.isRunning ?? false) return;
     if (existingNative != null) {
       _androidNativeCam = null;
-      await existingNative.stop();
+      await _retireNativeSource(engine, existingNative.stop);
     }
     if (!mayCapture()) return;
     if (_androidCam != null) return;
@@ -3552,7 +3610,7 @@ class VeilCallMediaController implements CallMediaController {
       cameraId: _selectedCameraId,
     );
     if (!mayCapture() || _androidNativeCam != nativeCam) {
-      if (nativeOk) await nativeCam.stop();
+      if (nativeOk) await _retireNativeSource(engine, nativeCam.stop);
       if (_androidNativeCam == nativeCam) _androidNativeCam = null;
       return;
     }

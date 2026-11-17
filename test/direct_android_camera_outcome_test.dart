@@ -126,6 +126,7 @@ class _NativeCamera extends AndroidNativeCallCamera {
   int stops = 0;
   Completer<void>? stopGate;
   Completer<void>? stopEntered;
+  void Function()? onStop;
   String? requestedId;
   @override
   Future<List<AndroidNativeCameraDevice>> listDevices() async => const [
@@ -158,15 +159,19 @@ class _NativeCamera extends AndroidNativeCallCamera {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop() {
     stops++;
     running = false;
     final gate = stopGate;
     stopGate = null;
+    final listener = onStop;
+    onStop = null;
+    listener?.call();
     if (gate != null) {
       stopEntered!.complete();
-      await gate.future;
+      return gate.future;
     }
+    return Future<void>.value();
   }
 }
 
@@ -289,6 +294,201 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final operation in ['select', 'off']) {
+    for (final successor in ['none', 'native', 'plugin']) {
+      test(
+        'detached camera $operation fences its engine successor=$successor',
+        () async {
+          final wire = _Wire(), transport = _Transport();
+          final firstEngine = _Engine(), nextEngine = _Engine();
+          final engines = Queue<_Engine>.of([firstEngine, nextEngine]);
+          final old = _NativeCamera(true),
+              next = _NativeCamera(successor == 'native');
+          final cameras = Queue<_NativeCamera>.of([old, next]);
+          final fallback = _PluginCamera(Future.value(true));
+          final controller = VeilCallMediaController(
+            transport,
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engines.removeFirst(),
+            androidCameraCapture: true,
+            nativeCameraFactory: cameras.removeFirst,
+            cameraCaptureFactory: (_, _) => fallback,
+          );
+          final service = CallService(wire, media: controller)..start();
+          final release = Completer<void>();
+          Future<Object?>? changing;
+          Future<void>? ending;
+          Future<void>? endingNext;
+          try {
+            await _connect(service, wire);
+            await old.entered.future;
+            await pumpEventQueue();
+            final first = service.current!;
+            old.stopGate = release;
+            old.stopEntered = Completer<void>();
+            changing = operation == 'select'
+                ? service.selectCamera('back-fixture')
+                : service.setCameraEnabled(false);
+            await old.stopEntered!.future;
+            var completed = false;
+            ending = controller.stop().then((_) {
+              completed = true;
+            });
+            await pumpEventQueue();
+            final oldDisposedWhileHeld = firstEngine.disposed;
+            final oldCompletedWhileHeld = completed;
+            if (successor != 'none') {
+              final nextCall = Call(
+                callId: 'detached-camera-successor',
+                peer: first.peer,
+                direction: first.direction,
+                media: first.media,
+                status: first.status,
+                localPosture: first.localPosture,
+                peerPosture: first.peerPosture,
+                transport: first.transport,
+                startedAt: first.startedAt,
+                localMediaKey: first.localMediaKey,
+                peerMediaKey: first.peerMediaKey,
+              );
+              expect(await controller.start(nextCall), isTrue);
+              await pumpEventQueue();
+              var nextCompleted = false;
+              endingNext = controller.stop().then((_) {
+                nextCompleted = true;
+              });
+              await pumpEventQueue();
+              expect(
+                nextEngine.disposed,
+                isTrue,
+                reason: 'only the first engine owns the held fence',
+              );
+              expect(
+                nextCompleted,
+                isTrue,
+                reason: 'another engine must not wait for unrelated retirement',
+              );
+            }
+            expect(
+              {
+                'disposed_while_native_stop_held': oldDisposedWhileHeld,
+                'stop_completed_while_native_stop_held': oldCompletedWhileHeld,
+                'audio_stopped': firstEngine.audioStops > 0,
+              },
+              {
+                'disposed_while_native_stop_held': false,
+                'stop_completed_while_native_stop_held': false,
+                'audio_stopped': true,
+              },
+            );
+            release.complete();
+            await changing;
+            await ending;
+            await endingNext;
+            expect(firstEngine.disposals, 1);
+            expect(firstEngine.disposed, isTrue);
+            expect(nextEngine.disposals, successor == 'none' ? 0 : 1);
+          } finally {
+            if (!release.isCompleted) release.complete();
+            await changing;
+            await ending;
+            await endingNext;
+            service.dispose();
+            await controller.stop();
+          }
+        },
+      );
+    }
+
+    test(
+      'reentrant $operation stop registers its fence before callback',
+      () async {
+        final wire = _Wire(), engine = _Engine(), old = _NativeCamera(true);
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          androidCameraCapture: true,
+          nativeCameraFactory: () => old,
+        );
+        final service = CallService(wire, media: controller)..start();
+        final release = Completer<void>();
+        Future<Object?>? changing;
+        Future<void>? ending;
+        try {
+          await _connect(service, wire);
+          await old.entered.future;
+          await pumpEventQueue();
+          old.stopGate = release;
+          old.stopEntered = Completer<void>();
+          old.onStop = () {
+            ending = controller.stop();
+          };
+          changing = operation == 'select'
+              ? service.selectCamera('back-fixture')
+              : service.setCameraEnabled(false);
+          await old.stopEntered!.future;
+          expect(ending, isNotNull);
+          await pumpEventQueue();
+          expect(
+            engine.disposed,
+            isFalse,
+            reason: 'reentrant teardown must see the just-entered retirement',
+          );
+          release.complete();
+          await changing;
+          await ending;
+          expect(engine.disposals, 1);
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await changing;
+          await ending;
+          service.dispose();
+          await controller.stop();
+        }
+      },
+    );
+  }
+
+  test(
+    'synchronous native stop failure is observed and releases retirement',
+    () async {
+      final wire = _Wire(), engine = _Engine(), old = _NativeCamera(true);
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+        androidCameraCapture: true,
+        nativeCameraFactory: () => old,
+      );
+      final service = CallService(wire, media: controller)..start();
+      Future<void>? ending;
+      try {
+        await _connect(service, wire);
+        await old.entered.future;
+        await pumpEventQueue();
+        old.onStop = () {
+          ending = controller.stop();
+          throw StateError('synthetic synchronous stop refusal');
+        };
+        await expectLater(
+          service.selectCamera('back-fixture'),
+          throwsStateError,
+        );
+        await ending;
+        expect(engine.disposals, 1);
+        await controller.stop();
+        expect(engine.disposals, 1);
+      } finally {
+        await ending;
+        service.dispose();
+        await controller.stop();
+      }
+    },
+  );
 
   for (final successor in ['none', 'native', 'plugin']) {
     for (final sameCall in [true, if (successor != 'none') false]) {
@@ -577,7 +777,7 @@ void main() {
 
   for (final nativeReplacement in [true, false]) {
     test(
-      'old camera selection cannot stop rebuilt source native=$nativeReplacement',
+      'camera retirement is joined before rebuild native=$nativeReplacement',
       () async {
         final wire = _Wire();
         final old = _NativeCamera(true);
@@ -602,6 +802,7 @@ void main() {
         final service = CallService(wire, media: controller)..start();
         final release = Completer<void>();
         Future<bool>? selecting;
+        Future<bool>? rebuilding;
         try {
           await _connect(service, wire);
           await old.entered.future;
@@ -610,7 +811,17 @@ void main() {
           old.stopEntered = Completer<void>();
           selecting = service.selectCamera('back-fixture');
           await old.stopEntered!.future;
-          expect(await controller.start(service.current!), isTrue);
+          rebuilding = controller.start(service.current!);
+          await pumpEventQueue();
+          expect(
+            oldEngine.disposed,
+            isFalse,
+            reason: 'the old engine still owns the pending native stop',
+          );
+          expect(newEngine.videoStarts, 0);
+          release.complete();
+          expect(await selecting, isFalse);
+          expect(await rebuilding, isTrue);
           await pumpEventQueue();
           expect(oldEngine.disposed, isTrue);
           expect(newEngine.disposed, isFalse);
@@ -620,8 +831,6 @@ void main() {
           } else {
             expect(fallback.entered.isCompleted, isTrue);
           }
-          release.complete();
-          expect(await selecting, isFalse);
           expect(
             fallback.stops,
             0,
@@ -632,6 +841,7 @@ void main() {
         } finally {
           if (!release.isCompleted) release.complete();
           await selecting;
+          await rebuilding;
           service.dispose();
           await controller.stop();
         }
