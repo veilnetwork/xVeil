@@ -1422,14 +1422,35 @@ class CallService {
   Future<void> setScreenShareEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive || !c.media.video || c.screenOn == on) return;
-    if (on) {
-      final ok = await _media?.setScreenShareEnabled(true) ?? false;
-      if (!ok) return; // no backend / capture failed — state stays camera
-      _set(c.copyWith(screenOn: true, media: c.media.copyWith(screen: true)));
-    } else {
-      await _media?.setScreenShareEnabled(false);
-      _set(c.copyWith(screenOn: false, media: c.media.copyWith(screen: false)));
-      if (c.cameraOn) await _media?.setCameraEnabled(true);
+    final ok = await _media?.setScreenShareEnabled(on) ?? false;
+    if (!ok) return; // A refused start/stop cannot claim a source transition.
+    // Capture can wait on an OS prompt or source teardown. Its old snapshot
+    // must not restore an ended/replaced call or override newer capture intent.
+    final current = _current;
+    if (_disposed ||
+        current == null ||
+        !current.isLive ||
+        current.callId != c.callId) {
+      return;
+    }
+    _set(
+      current.copyWith(
+        screenOn: on,
+        media: current.media.copyWith(screen: on),
+      ),
+    );
+    if (!on && current.cameraOn) {
+      // Use the normal camera result/operation guard: a failed hand-back is
+      // camera unavailable, and a newer OFF must win while capture is opening.
+      final operation = ++_cameraOperationEpoch;
+      await _applyCameraIntent(c.callId, true, operation);
+    }
+    final afterCamera = _current;
+    if (_disposed ||
+        afterCamera == null ||
+        !afterCamera.isLive ||
+        afterCamera.callId != c.callId) {
+      return;
     }
     await _announceMediaSet();
   }
