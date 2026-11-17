@@ -65,9 +65,14 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private var previousCallVolumeStream: Int? = null
     private var documentExport: DocumentExport? = null
     private var quickUnlock: NativeQuickUnlock? = null
+    private var defaultNetworkObserver: DefaultNetworkObserver? = null
+    private var defaultNetworkEngine: FlutterEngine? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        defaultNetworkObserver?.dispose()
+        defaultNetworkObserver = DefaultNetworkObserver(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+        defaultNetworkEngine = flutterEngine
         quickUnlock?.dispose()
         quickUnlock = NativeQuickUnlock(this, flutterEngine.dartExecutor.binaryMessenger)
         CallScreenActivity.attachHost(this)
@@ -870,6 +875,11 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (defaultNetworkEngine === flutterEngine) {
+            defaultNetworkObserver?.dispose()
+            defaultNetworkObserver = null
+            defaultNetworkEngine = null
+        }
         if (callNetworkEngine === flutterEngine) {
             callNetworkOwner?.retire()
             callNetworkOwner = null

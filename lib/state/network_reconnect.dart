@@ -7,41 +7,39 @@ import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/diagnostic_background.dart';
 import '../data/transport/veil_transport.dart';
+import 'network_observation.dart';
 import 'providers.dart';
 
-NetworkAttachment networkAttachmentOf(List<ConnectivityResult> results) {
-  if (results.isEmpty || results.every((r) => r == ConnectivityResult.none)) {
-    return NetworkAttachment.offline;
-  }
-  if (results.contains(ConnectivityResult.wifi)) return NetworkAttachment.wifi;
-  if (results.contains(ConnectivityResult.ethernet)) {
-    return NetworkAttachment.ethernet;
-  }
-  if (results.contains(ConnectivityResult.mobile)) {
-    return NetworkAttachment.cellular;
-  }
-  return NetworkAttachment.unknown;
-}
+export 'network_observation.dart'
+    show networkAttachmentOf, networkConnectivityProvider;
 
 /// Serialized, bounded handover notifications. Duplicate OS observations do
 /// not repeatedly tear down sessions; a new state during an IPC await is kept
 /// as the next observation, rather than launching overlapping reconnects.
 class NetworkReconnect {
   NetworkReconnect({
+    required Future<List<ConnectivityResult>> Function() current,
+    required Stream<List<ConnectivityResult>> changes,
+    required this.notify,
+    this.onAttachmentChanged,
+  }) : current = (() async => NetworkObservation.types(await current())),
+       changes = changes.map(NetworkObservation.types);
+
+  NetworkReconnect.observations({
     required this.current,
     required this.changes,
     required this.notify,
     this.onAttachmentChanged,
   });
 
-  final Future<List<ConnectivityResult>> Function() current;
-  final Stream<List<ConnectivityResult>> changes;
+  final Future<NetworkObservation> Function() current;
+  final Stream<NetworkObservation> changes;
   // Generation distinguishes wifi -> cellular -> wifi from a retry of the
   // same observation. Fanout uses it to retry only failed identity nodes.
   final Future<void> Function(NetworkAttachment, int generation) notify;
   final void Function()? onAttachmentChanged;
-  StreamSubscription<List<ConnectivityResult>>? _subscription;
-  NetworkAttachment? _desired;
+  StreamSubscription<NetworkObservation>? _subscription;
+  NetworkObservation? _desired;
   int _desiredGeneration = 0;
   int _appliedGeneration = 0;
   bool _busy = false;
@@ -64,12 +62,12 @@ class NetworkReconnect {
     }
   }
 
-  void _observe(List<ConnectivityResult> results) {
+  void _observe(NetworkObservation observation) {
     if (_disposed) return;
     _observations++;
-    final attachment = networkAttachmentOf(results);
-    if (attachment != _desired) {
-      _desired = attachment;
+    if (observation.attachment != _desired?.attachment ||
+        observation.revision != _desired?.revision) {
+      _desired = observation;
       _desiredGeneration++;
       _retrySeconds = 1;
       try {
@@ -96,7 +94,7 @@ class NetworkReconnect {
     _busy = true;
     try {
       while (!_disposed && _desiredGeneration != _appliedGeneration) {
-        final next = _desired!;
+        final next = _desired!.attachment;
         final generation = _desiredGeneration;
         final timing = Stopwatch()..start();
         var success = false;
@@ -138,36 +136,32 @@ class NetworkReconnect {
   }
 }
 
-final networkConnectivityProvider = Provider<Connectivity>(
-  (_) => Connectivity(),
-);
-
 final networkReconnectProvider = Provider<void>((ref) {
-  final connectivity = ref.watch(networkConnectivityProvider);
+  final source = ref.watch(networkObservationSourceProvider);
   final diagnostics = DiagnosticBackgroundSampler();
-  final observations = StreamController<List<ConnectivityResult>>.broadcast(
+  final observations = StreamController<NetworkObservation>.broadcast(
     sync: true,
   );
   final observers = Map<NetworkChangeTransport, NetworkReconnect>.identity();
   final notifying = Set<NetworkChangeTransport>.identity();
-  List<ConnectivityResult>? latest;
-  Future<List<ConnectivityResult>>? initialQuery;
+  NetworkObservation? latest;
+  Future<NetworkObservation>? initialQuery;
   NetworkAttachment? diagnosticAttachment;
   var disposed = false;
 
-  void remember(List<ConnectivityResult> results) {
-    latest = List<ConnectivityResult>.unmodifiable(results);
-    final attachment = networkAttachmentOf(results);
+  void remember(NetworkObservation observation) {
+    latest = observation;
+    final attachment = observation.attachment;
     if (attachment != diagnosticAttachment) {
       diagnosticAttachment = attachment;
       diagnostics.request();
     }
   }
 
-  Future<List<ConnectivityResult>> current() async {
+  Future<NetworkObservation> current() async {
     final observed = latest;
     if (observed != null) return observed;
-    final pending = initialQuery ??= connectivity.checkConnectivity();
+    final pending = initialQuery ??= source.current();
     try {
       final results = await pending;
       // An event received during the platform query is newer. New identity
@@ -207,7 +201,7 @@ final networkReconnectProvider = Provider<void>((ref) {
       // Reuse the same OS subscription/snapshot and deduplicate an active node
       // that also appears in the all-online session by object identity.
       late final NetworkReconnect observer;
-      observer = NetworkReconnect(
+      observer = NetworkReconnect.observations(
         current: current,
         changes: observations.stream,
         notify: (attachment, _) async {
@@ -229,7 +223,7 @@ final networkReconnectProvider = Provider<void>((ref) {
     }
   }
 
-  final subscription = connectivity.onConnectivityChanged.listen((results) {
+  final subscription = source.changes.listen((results) {
     if (disposed) return;
     remember(results);
     // Keep the original fresh target lookup even if a session updated its

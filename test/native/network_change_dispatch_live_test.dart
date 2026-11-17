@@ -69,6 +69,10 @@ void main() {
           }
           final expected = <(veil.NetworkKind, String)>[
             (veil.NetworkKind.wifi, 'Wifi'),
+            // Different default networks can have the same attachment kind.
+            // Each explicit notification must reach the daemon before close.
+            (veil.NetworkKind.wifi, 'Wifi'),
+            (veil.NetworkKind.cellular, 'Cellular'),
             (veil.NetworkKind.cellular, 'Cellular'),
             (veil.NetworkKind.offline, 'Offline'),
             (veil.NetworkKind.ethernet, 'Ethernet'),

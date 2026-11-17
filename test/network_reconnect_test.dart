@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:xveil/core/diagnostic_background.dart';
@@ -14,10 +14,15 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/state/multi_identity_session.dart';
 import 'package:xveil/state/network_reconnect.dart';
+import 'package:xveil/state/network_observation.dart';
 import 'package:xveil/state/providers.dart';
 
 class _Connectivity implements Connectivity {
-  final changes = StreamController<List<ConnectivityResult>>(sync: true);
+  _Connectivity({bool broadcast = false})
+    : changes = broadcast
+          ? StreamController<List<ConnectivityResult>>.broadcast(sync: true)
+          : StreamController<List<ConnectivityResult>>(sync: true);
+  final StreamController<List<ConnectivityResult>> changes;
   int currentReads = 0;
   Completer<List<ConnectivityResult>>? currentGate;
   @override
@@ -67,6 +72,79 @@ Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'Android replaces a default Wi-Fi network even when its type is unchanged',
+    () async {
+      const channel = 'xveil/default_network';
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(const MethodChannel(channel), (
+        call,
+      ) async {
+        return {'kind': 'wifi', 'revision': 1};
+      });
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('$channel/events'),
+        (_) async => null,
+      );
+      final connectivity = _Connectivity(broadcast: true);
+      final transport = _Transport();
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          networkObservationSourceProvider.overrideWith((ref) {
+            final source = NetworkObservationSource(
+              connectivity,
+              isAndroid: true,
+            );
+            ref.onDispose(() => unawaited(source.dispose()));
+            return source;
+          }),
+          realStackProvider.overrideWith((_) => _stack(transport)),
+        ],
+      );
+      Future<void> event(int revision) async {
+        await messenger.handlePlatformMessage(
+          '$channel/events',
+          const StandardMethodCodec().encodeSuccessEnvelope({
+            'kind': 'wifi',
+            'revision': revision,
+          }),
+          (_) {},
+        );
+        await _flush();
+      }
+
+      try {
+        container.read(networkReconnectProvider);
+        await _flush();
+        await event(1);
+        expect(transport.observed, [NetworkAttachment.wifi]);
+        await event(2);
+        expect(
+          transport.observed,
+          [NetworkAttachment.wifi, NetworkAttachment.wifi],
+          reason: 'new Android Network must invalidate the old sessions',
+        );
+        await event(2);
+        expect(
+          transport.observed,
+          hasLength(2),
+          reason: 'capability repeats are not handovers',
+        );
+      } finally {
+        container.dispose();
+        await _flush();
+        await connectivity.changes.close();
+        messenger.setMockMethodCallHandler(const MethodChannel(channel), null);
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('$channel/events'),
+          null,
+        );
+      }
+    },
+  );
 
   test(
     'pending diagnostic read never holds handover or its next generation',
