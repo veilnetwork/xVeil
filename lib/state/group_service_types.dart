@@ -4,6 +4,24 @@
 // classes below stay private exactly as before.
 part of 'group_service.dart';
 
+/// A short-lived authorization read under the group mutation lane. [key]
+/// borrows the bundle's validated material; never retained in the send plan.
+typedef _GroupCallAuthorization = ({
+  int membershipEpoch,
+  int? channelEpoch,
+  String keyCommitment,
+  Uint8List key,
+  Set<NodeId> recipients,
+});
+
+/// Ciphertext and local signal metadata only; no clear buffer or epoch key.
+typedef _PreparedGroupCall = ({
+  GroupCallSignal signal,
+  String frameJson,
+  String keyCommitment,
+  List<NodeId> recipients,
+});
+
 /// A protected-channel revision prepared entirely in memory. The caller owns
 /// [transientKey] and must wipe it after the containing bundle is committed or
 /// abandoned; [bundle] keeps its own copy for deniable local persistence.

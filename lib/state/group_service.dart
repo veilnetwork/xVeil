@@ -3758,6 +3758,7 @@ class GroupService implements ArchiveGroups {
   ) => _abuseReports.receiveSpaceAbuseReportDecision(peer, decisionJson);
 
   final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
+  final Map<String, Future<void>> _groupCallSendTails = <String, Future<void>>{};
 
   // Overlay deltas are flooded transitively across each node's sparse XOR
   // links. This bounded RAM set makes the flood exactly-once per live process;
@@ -3778,11 +3779,18 @@ class GroupService implements ArchiveGroups {
   /// Serialize every read-modify-write of one group. Wire ingest and local UI
   /// actions share this gate, so a concurrently arriving delta cannot restore
   /// an older bundle and erase a freshly persisted message/epoch key.
-  Future<T> _serialized<T>(NodeId groupId, Future<T> Function() action) async {
+  Future<T> _serialized<T>(NodeId groupId, Future<T> Function() action) =>
+      _serializedOn(_mutationTails, groupId, action);
+
+  Future<T> _serializedOn<T>(
+    Map<String, Future<void>> tails,
+    NodeId groupId,
+    Future<T> Function() action,
+  ) async {
     final id = groupId.hex;
-    final previous = _mutationTails[id] ?? Future<void>.value();
+    final previous = tails[id] ?? Future<void>.value();
     final gate = Completer<void>();
-    _mutationTails[id] = gate.future;
+    tails[id] = gate.future;
     try {
       try {
         await previous;
@@ -3792,8 +3800,8 @@ class GroupService implements ArchiveGroups {
       return await action();
     } finally {
       gate.complete();
-      if (identical(_mutationTails[id], gate.future)) {
-        _mutationTails.remove(id);
+      if (identical(tails[id], gate.future)) {
+        tails.remove(id);
       }
     }
   }
@@ -4027,10 +4035,71 @@ class GroupService implements ArchiveGroups {
     required GroupCallSignalType type,
     CallMedia? media,
     CallEndReason? reason,
-  }) => _serialized(groupId, () async {
+  }) {
     final sender = sendGroupCallFrame;
+    if (_disposed || sender == null) return Future.value(null);
+    // Keep outgoing FIFO and one active fanout per group, while incoming
+    // validation and local control changes retain their independent lane.
+    return _serializedOn(_groupCallSendTails, groupId, () async {
+      if (_disposed) return null;
+      final prepared = await _serialized(
+        groupId,
+        () => _prepareGroupCallSignal(
+          groupId,
+          channelId: channelId,
+          callId: callId,
+          type: type,
+          media: media,
+          reason: reason,
+        ),
+      );
+      if (_disposed || prepared == null) return null;
+      try {
+        for (final recipient in prepared.recipients) {
+          Future<bool>? delivery;
+          final admitted = await _serialized(groupId, () async {
+            final current = await _authorizeGroupCall(groupId, channelId);
+            final allowed =
+                current != null &&
+                current.membershipEpoch == prepared.signal.membershipEpoch &&
+                current.channelEpoch == prepared.signal.channelEpoch &&
+                current.keyCommitment == prepared.keyCommitment &&
+                current.recipients.contains(recipient);
+            if (!allowed) return false;
+            // Start the callback under the authorization turn, but never join
+            // its transport future there. Observe failure immediately so an
+            // early rejected future cannot become an unhandled async error.
+            try {
+              delivery = sender(recipient, prepared.signal, prepared.frameJson)
+                  .then<bool>(
+                    (_) => true,
+                    onError: (Object _, StackTrace _) => false,
+                  );
+            } catch (_) {
+              return false;
+            }
+            return true;
+          });
+          if (!admitted) return null;
+          // Already admitted sends are not retractable. Their completion does
+          // not hold incoming validation or subsequent control mutations.
+          if (!await delivery!) return null;
+        }
+        return prepared.signal;
+      } catch (_) {
+        return null;
+      }
+    });
+  }
+
+  /// Caller holds the mutation lane. No transport callback is invoked here.
+  Future<_GroupCallAuthorization?> _authorizeGroupCall(
+    NodeId groupId,
+    NodeId? channelId,
+  ) async {
+    if (_disposed) return null;
     final bundle = await load(groupId);
-    if (sender == null || bundle == null || bundle.manifest.isSovereignDevice) {
+    if (_disposed || bundle == null || bundle.manifest.isSovereignDevice) {
       return null;
     }
     final state = foldControlLog(
@@ -4107,13 +4176,49 @@ class GroupService implements ArchiveGroups {
         return null;
       }
     }
+    final recipients = protectedChannel == null
+        ? state.members.values.map((member) => member.nodeId)
+        : protectedChannel.recipients.where(
+            (recipient) =>
+                state.isMember(recipient) &&
+                acl.allows(recipient, SpacePermission.view) &&
+                acl.allows(
+                  recipient,
+                  SpacePermission.enterVoice,
+                  channelId: channelId,
+                ),
+          );
+    if (_disposed) return null;
+    final descriptor =
+        protectedEnvelope?.keyDescriptor ?? state.epochDescriptor!;
+    return (
+      membershipEpoch: state.epoch,
+      channelEpoch: protectedEnvelope?.channelEpoch,
+      keyCommitment: descriptor.keyCommitment,
+      key: key,
+      recipients: Set<NodeId>.unmodifiable(
+        recipients.where((recipient) => recipient != _signer.selfId),
+      ),
+    );
+  }
+
+  Future<_PreparedGroupCall?> _prepareGroupCallSignal(
+    NodeId groupId, {
+    NodeId? channelId,
+    required String callId,
+    required GroupCallSignalType type,
+    CallMedia? media,
+    CallEndReason? reason,
+  }) async {
+    final authorization = await _authorizeGroupCall(groupId, channelId);
+    if (authorization == null) return null;
     final unsigned = GroupCallSignal(
       groupId: groupId,
       channelId: channelId,
-      channelEpoch: protectedEnvelope?.channelEpoch,
+      channelEpoch: authorization.channelEpoch,
       callId: callId,
       author: _signer.selfId,
-      membershipEpoch: state.epoch,
+      membershipEpoch: authorization.membershipEpoch,
       type: type,
       media: media,
       reason: reason,
@@ -4121,7 +4226,7 @@ class GroupService implements ArchiveGroups {
       nonce: _freshGroupCallNonce(),
       signature: Uint8List(0),
       authorPubKey: Uint8List(0),
-      protocolVersion: protectedEnvelope != null
+      protocolVersion: authorization.channelEpoch != null
           ? kProtectedSpaceVoiceSessionProtocolVersion
           : channelId == null
           ? kGroupCallProtocolVersion
@@ -4136,59 +4241,48 @@ class GroupService implements ArchiveGroups {
     try {
       late final GroupEncryptedPayload encrypted;
       late final GroupCallWireFrame frame;
-      if (protectedEnvelope != null) {
+      if (authorization.channelEpoch != null) {
         encrypted = await encryptSpaceChannelCallPayload(
           spaceId: groupId,
           channelId: channelId!,
-          channelEpoch: protectedEnvelope.channelEpoch,
+          channelEpoch: authorization.channelEpoch!,
           author: _signer.selfId,
           clearText: clear,
-          channelKey: key,
+          channelKey: authorization.key,
         );
         frame = GroupCallWireFrame(
           groupId: groupId,
           channelId: channelId,
-          channelEpoch: protectedEnvelope.channelEpoch,
+          channelEpoch: authorization.channelEpoch!,
           payload: encrypted,
         );
       } else {
         encrypted = await encryptGroupCallPayload(
           groupId: groupId,
-          membershipEpoch: state.epoch,
+          membershipEpoch: authorization.membershipEpoch,
           author: _signer.selfId,
           clearText: clear,
-          epochKey: key,
+          epochKey: authorization.key,
         );
         frame = GroupCallWireFrame(
           groupId: groupId,
-          membershipEpoch: state.epoch,
+          membershipEpoch: authorization.membershipEpoch,
           payload: encrypted,
         );
       }
       final frameJson = frame.encode();
-      final recipients = protectedChannel == null
-          ? state.members.values.map((member) => member.nodeId)
-          : protectedChannel.recipients.where(
-              (recipient) =>
-                  state.isMember(recipient) &&
-                  acl.allows(recipient, SpacePermission.view) &&
-                  acl.allows(
-                    recipient,
-                    SpacePermission.enterVoice,
-                    channelId: channelId,
-                  ),
-            );
-      for (final recipient in recipients) {
-        if (recipient == _signer.selfId) continue;
-        await sender(recipient, signed, frameJson);
-      }
-      return signed;
+      return (
+        signal: signed,
+        frameJson: frameJson,
+        keyCommitment: authorization.keyCommitment,
+        recipients: List<NodeId>.unmodifiable(authorization.recipients),
+      );
     } catch (_) {
       return null;
     } finally {
       clear.fillRange(0, clear.length, 0);
     }
-  });
+  }
 
   /// Authenticate and decrypt an inbound group-call frame. Every refusal is a
   /// silent false: callers must not learn whether a gid, member or epoch exists.
@@ -23058,6 +23152,7 @@ class GroupService implements ArchiveGroups {
         // not unfinished work and may belong to a caller's scheduling zone.
         ?_devicePublicationPending,
         ..._mutationTails.values,
+        ..._groupCallSendTails.values,
         ..._bundleWrites.values,
         _backgroundTasks.close(),
       ]);
