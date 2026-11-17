@@ -300,3 +300,28 @@ and retains all four payloads after process reopen. Read-only opens preserve
 the container digest; wrong passwords are refused. This component check does
 not substitute for the new application APK or its installation.
 [Operations, provenance and limits](../android-storage-version-transition-2026-11-17/README.md).
+
+All nine desktop archives are now available from the same tagged Actions run:
+normal/debug Linux x64 and ARM64, Linux x64 musl, and normal/debug Windows x64
+and ARM64. Independent downloads match the Actions archive digests. Checks of
+decompressed payloads and archive metadata pass the local literal/regex policy,
+including UTF-16 strings and source-home URIs. Packaged media bytes match the
+current source-verified engine pins. The four diagnostic snapshots contain the
+enabled-report markers and omit the raw log filename; normal snapshots omit
+the enabled marker. Native architectures and the normal SDK/storage exports
+also pass. These observations do not qualify the still-building Android APKs
+or establish that future published assets have identical bytes.
+
+The actual packaged Linux x64 SDK and storage libraries also load on a Linux
+x64 host with **glibc 2.39**. All 50 storage checksum calls, contract version 30
+and the SDK contract hash match. No application or node is started, no container
+is opened and no service is changed. The owned temporary directory is removed
+before the probe exits. This control does not establish runtime compatibility
+with every older glibc or qualify Windows 10 camera behavior. Windows archive
+checks on the Mac are explicitly static, not Windows execution.
+
+An initial extra-desktop checker invocation precedes one unfinished download
+and fails for missing input metadata. It is not a package failure or a pass.
+After all five transfers complete, the full checker passes all five extra
+archives without relaxing a guard. The complete release and Android install
+qualification remain pending.
