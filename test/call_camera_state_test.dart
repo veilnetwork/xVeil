@@ -4,6 +4,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_camera_state.dart';
 
 void main() {
+  for (final cancellation in ['none', 'off', 'end', 'engine', 'call']) {
+    test('camera denial feedback respects $cancellation', () async {
+      final state = CallCameraState()..beginCall('call', enabled: true);
+      final permission = Completer<bool>();
+      var current = true, starts = 0, denials = 0;
+      final pending = state.startWhenGranted(
+        callId: 'call',
+        permission: permission.future,
+        isCurrent: () => current,
+        start: () async => starts++,
+        onDenied: () => denials++,
+      );
+      switch (cancellation) {
+        case 'off':
+          state.setEnabled(false);
+        case 'end':
+          state.clear();
+        case 'engine':
+          current = false;
+        case 'call':
+          state.beginCall('other', enabled: true);
+      }
+      permission.complete(false);
+      await pending;
+      expect(starts, 0);
+      expect(denials, cancellation == 'none' ? 1 : 0);
+    });
+  }
+
   test('late permission starts capture only after the actual grant', () async {
     final state = CallCameraState()..beginCall('call', enabled: true);
     final permission = Completer<bool>();

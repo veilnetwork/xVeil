@@ -423,15 +423,28 @@ class VeilCallMediaController implements CallMediaController {
     CallMediaEngineFactory? engineFactory,
     Future<void>? audioProcessingReady,
     CallMicrophonePermission? Function(Future<bool>)? microphonePermissionFactory,
+    @visibleForTesting bool? androidCameraCapture,
+    @visibleForTesting
+    AndroidNativeCallCamera Function()? nativeCameraFactory,
+    @visibleForTesting
+    AndroidCameraCapture Function(bool highQuality, String? cameraId)?
+    cameraCaptureFactory,
   }) : // Public constructor parameter, private stored readiness gate.
        // ignore: prefer_initializing_formals
        _audioProcessingReady = audioProcessingReady,
        _engineFactory = engineFactory ?? VeilMediaEngine.create,
+       _androidCameraCapture = androidCameraCapture ?? Platform.isAndroid,
+       _nativeCameraFactory = nativeCameraFactory ?? AndroidNativeCallCamera.new,
+       _injectedCameraFactory = cameraCaptureFactory,
        _microphonePermissionFactory =
            microphonePermissionFactory ?? _platformMicrophonePermission;
 
   final CallMediaEngineFactory _engineFactory;
   final Future<void>? _audioProcessingReady;
+  final bool _androidCameraCapture;
+  final AndroidNativeCallCamera Function() _nativeCameraFactory;
+  final AndroidCameraCapture Function(bool highQuality, String? cameraId)?
+  _injectedCameraFactory;
   final CallMicrophonePermission? Function(Future<bool>)
   _microphonePermissionFactory;
 
@@ -2188,7 +2201,7 @@ class VeilCallMediaController implements CallMediaController {
           shouldStartInitialCallCamera(
             call.copyWith(cameraOn: _cameraState.enabledForCall(call.callId)),
           )) {
-        if (Platform.isAndroid) {
+        if (_androidCameraCapture) {
           // Do not hold the call FSM in `connecting` while camera permission or
           // device opening completes; the receive pipeline is already mounted.
           unawaited(_cameraState.startWhenGranted(
@@ -2196,7 +2209,21 @@ class VeilCallMediaController implements CallMediaController {
             permission: cameraPermission ?? Future<bool>.value(false),
             isCurrent: () => _mediaEpoch == epoch && _engine == engine &&
                 _activeCall?.callId == call.callId,
-            start: () => _startAndroidCam(engine, highQuality: highQuality),
+            onDenied: () {
+              // The old permission result cannot reject a newer capture that
+              // the person has already started through the live controls.
+              if (_androidNativeCam != null || _androidCam != null) return;
+              diagnosticJournal.recordCameraStart(
+                success: false,
+                origin: CameraStartOrigin.callStart,
+              );
+              _reportCameraStartOutcome(engine, false);
+            },
+            start: () => _startAndroidCam(
+              engine,
+              highQuality: highQuality,
+              origin: CameraStartOrigin.callStart,
+            ),
           ));
         } else {
           _startDesktopCamera(
@@ -2787,8 +2814,8 @@ class VeilCallMediaController implements CallMediaController {
   Future<List<CallMediaDevice>> listCameras() async {
     final engine = _engine;
     if (engine == null) return const [];
-    if (Platform.isAndroid) {
-      final bridge = _androidNativeCam ?? AndroidNativeCallCamera();
+    if (_androidCameraCapture) {
+      final bridge = _androidNativeCam ?? _nativeCameraFactory();
       final devices = await bridge.listDevices();
       final selected =
           _androidNativeCam?.cameraId ??
@@ -3022,7 +3049,7 @@ class VeilCallMediaController implements CallMediaController {
         _activeCall?.screenOn != true &&
         !_screenSharing &&
         _screenStarting == null;
-    if (!Platform.isAndroid && captureNow) {
+    if (!_androidCameraCapture && captureNow) {
       final previous = _selectedCameraId;
       var started = false;
       try {
@@ -3056,7 +3083,7 @@ class VeilCallMediaController implements CallMediaController {
     // A screen share owns the video source; remember the choice and apply it
     // when sharing ends. Likewise an off camera needs no eager hardware open.
     if (!captureNow) return true;
-    if (Platform.isAndroid) {
+    if (_androidCameraCapture) {
       if (_mediaEpoch != epoch ||
           _engine != engine ||
           _activeCall?.callId != call.callId) {
@@ -3068,7 +3095,11 @@ class VeilCallMediaController implements CallMediaController {
       final fallback = _androidCam;
       _androidCam = null;
       if (fallback != null) await fallback.stop();
-      await _startAndroidCam(engine, highQuality: _highQualityRoute);
+      await _startAndroidCam(
+        engine,
+        highQuality: _highQualityRoute,
+        origin: CameraStartOrigin.deviceSelection,
+      );
       return _androidNativeCam?.cameraId == id || _androidCam?.cameraId == id;
     }
     return true;
@@ -3116,7 +3147,7 @@ class VeilCallMediaController implements CallMediaController {
     // timeout: paused encoding and a slow network do not mean capture failed.
     final capture = stats['camera_capturing'];
     final call = _activeCall;
-    if (Platform.isAndroid ||
+    if (_androidCameraCapture ||
         _engine != engine ||
         call == null ||
         _startedWithoutCamera ||
@@ -3174,7 +3205,7 @@ class VeilCallMediaController implements CallMediaController {
         return;
       }
     }
-    if (Platform.isAndroid) {
+    if (_androidCameraCapture) {
       if (enabled) {
         await _startAndroidCam(engine, highQuality: _highQualityRoute);
       } else {
@@ -3290,6 +3321,7 @@ class VeilCallMediaController implements CallMediaController {
             engine,
             highQuality: _highQualityRoute,
             restoringAfterScreenFailure: true,
+            origin: CameraStartOrigin.recovery,
           );
         }
         return started;
@@ -3430,6 +3462,7 @@ class VeilCallMediaController implements CallMediaController {
     VeilMediaEngine engine, {
     required bool highQuality,
     bool restoringAfterScreenFailure = false,
+    CameraStartOrigin origin = CameraStartOrigin.toggle,
   }) async {
     bool mayCapture() =>
         _engine == engine &&
@@ -3448,7 +3481,7 @@ class VeilCallMediaController implements CallMediaController {
     if (!mayCapture()) return;
     if (_androidCam != null) return;
     final profile = highQuality ? _directVideoProfile : _anonymousVideoProfile;
-    final nativeCam = AndroidNativeCallCamera();
+    final nativeCam = _nativeCameraFactory();
     _androidNativeCam = nativeCam;
     final nativeOk = await nativeCam.start(
       engineAddress: engine.nativeAddress,
@@ -3464,6 +3497,8 @@ class VeilCallMediaController implements CallMediaController {
     }
     if (nativeOk) {
       _selectedCameraId = nativeCam.cameraId;
+      diagnosticJournal.recordCameraStart(success: true, origin: origin);
+      _reportCameraStartOutcome(engine, true);
       devLog(
         () =>
             'xVeil[call-media]: native Camera2 started '
@@ -3473,45 +3508,62 @@ class VeilCallMediaController implements CallMediaController {
     }
     _androidNativeCam = null;
     devLog(() => 'xVeil[call-media]: native Camera2 failed; plugin fallback');
-    final cam = AndroidCameraCapture(
-      captureLifetime: _cameraLifetime,
-      highQuality: highQuality,
-      requestedCameraId: _selectedCameraId,
-    );
-    _androidCam = cam;
-    final ok = await cam.startAndroid420((
-      y,
-      u,
-      v,
-      w,
-      h,
-      yStride,
-      uStride,
-      vStride,
-      uvPixelStride,
-      rotation,
-    ) {
-      if (!mayCapture() || _androidCam != cam) return false;
-      try {
-        return engine.pushAndroid420Frame(
-          y,
-          u,
-          v,
-          w,
-          h,
-          yStride: yStride,
-          uStride: uStride,
-          vStride: vStride,
-          uvPixelStride: uvPixelStride,
-          rotation: rotation,
+    final cam =
+        _injectedCameraFactory?.call(highQuality, _selectedCameraId) ??
+        AndroidCameraCapture(
+          captureLifetime: _cameraLifetime,
+          highQuality: highQuality,
+          requestedCameraId: _selectedCameraId,
         );
-      } catch (_) {
-        return false;
-      }
-    });
-    if (!ok || !mayCapture() || _androidCam != cam) {
-      if (ok) await cam.stop();
+    _androidCam = cam;
+    var ok = false;
+    try {
+      ok = await cam.startAndroid420((
+        y,
+        u,
+        v,
+        w,
+        h,
+        yStride,
+        uStride,
+        vStride,
+        uvPixelStride,
+        rotation,
+      ) {
+        if (!mayCapture() || _androidCam != cam) return false;
+        try {
+          return engine.pushAndroid420Frame(
+            y,
+            u,
+            v,
+            w,
+            h,
+            yStride: yStride,
+            uStride: uStride,
+            vStride: vStride,
+            uvPixelStride: uvPixelStride,
+            rotation: rotation,
+          );
+        } catch (_) {
+          return false;
+        }
+      });
+    } catch (_) {
+      // A failed teardown during source startup can surface as an exception.
+      // Retain receive/audio and report only while this source still owns ON.
+    }
+    final owned = mayCapture() && _androidCam == cam;
+    if (owned) {
+      diagnosticJournal.recordCameraStart(success: ok, origin: origin);
+      _reportCameraStartOutcome(engine, ok);
+    }
+    if (!ok || !owned) {
       if (_androidCam == cam) _androidCam = null;
+      try {
+        await cam.stop();
+      } catch (_) {
+        // The source lifetime retains any failed backend retirement.
+      }
     } else {
       _selectedCameraId = cam.cameraId;
       _startFramePump(engine);
