@@ -325,3 +325,14 @@ and fails for missing input metadata. It is not a package failure or a pass.
 After all five transfers complete, the full checker passes all five extra
 archives without relaxing a guard. The complete release and Android install
 qualification remain pending.
+
+Normal Android artifact `14367820307` is subsequently downloaded and verified:
+all three APK signers/versions, exact packaged media bytes and privacy checks
+pass. A key-header regex match is classified as the exact upstream Tika MIME
+resource, independently compared with Maven and GitHub; no APK or private
+policy bytes change. The exact ARM64 APK passes official 0.13.101 update and
+clean installation on Android 14. All **13** actual installed native hashes,
+50 storage method checksums, contract 30 and the SDK hash match in both cases.
+Cold AOT processes stop; the owned emulator/ADB exit, ports close and the
+private temporary image/AVD are removed. Diagnostic APKs are still building.
+[Actual APK digests, exception scope and installation limits](../android-release-apk-0.13.102-2026-11-17/README.md).
