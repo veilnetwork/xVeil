@@ -2161,6 +2161,10 @@ class VeilCallMediaController implements CallMediaController {
       _microphoneState.setMuted(true);
       _activeCall = call.copyWith(micOn: false);
       _startedWithoutMicrophone = true;
+      // Initial startup reads the flag, but an active call can also reach this
+      // branch during a rebuild. Report it through the same scoped feedback as
+      // a later capture refusal so the FSM and peer stop advertising audio.
+      _microphoneUnavailable.add(call.callId);
       devLog(
         () =>
             'xVeil[call-media]: capture unavailable; receiving audio with mic off',
