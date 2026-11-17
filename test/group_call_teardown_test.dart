@@ -115,7 +115,18 @@ class _FakeGroups implements GroupService {
 /// A media engine whose screen-share switch can be held open, so the window
 /// between the native call and the state publish is observable.
 class _GatedMedia extends GroupCallMediaController {
+  _GatedMedia() {
+    addTearDown(screenStops.close);
+  }
+  final screenStops = StreamController<void>.broadcast();
+  @override
+  Stream<void> get screenShareStopped => screenStops.stream;
+
   Completer<void>? shareGate;
+  Completer<void>? shareEntered;
+  bool shareOk = true;
+  final cameras = <bool>[];
+  Future<void> Function(bool)? cameraOperation;
 
   /// How many times media was actually asked to start.
   int starts = 0;
@@ -125,6 +136,7 @@ class _GatedMedia extends GroupCallMediaController {
     starts++;
     return true;
   }
+
   @override
   Future<void> update(GroupCall call) async {}
   @override
@@ -132,8 +144,16 @@ class _GatedMedia extends GroupCallMediaController {
 
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
+    final entered = shareEntered;
+    if (entered != null && !entered.isCompleted) entered.complete();
     await shareGate?.future;
-    return true;
+    return shareOk;
+  }
+
+  @override
+  Future<void> setCameraEnabled(bool enabled) async {
+    cameras.add(enabled);
+    await cameraOperation?.call(enabled);
   }
 }
 
@@ -146,6 +166,306 @@ void main() {
     expect(ok, isTrue);
     expect(svc.current?.isLive, isTrue);
     return svc;
+  }
+
+  Future<(GroupCallService, _FakeGroups, _GatedMedia)> videoRoom({
+    bool camera = true,
+  }) async {
+    final groups = _FakeGroups(NodeId.fromHex('a' * 64));
+    final media = _GatedMedia();
+    final service = GroupCallService(groups, media: media)..start();
+    addTearDown(() async {
+      if (media.shareGate?.isCompleted == false) media.shareGate!.complete();
+      await service.dispose();
+      await groups.close();
+    });
+    final active = service.changes.firstWhere(
+      (call) => call?.status == GroupCallStatus.active,
+    );
+    expect(
+      await service.startCall(
+        groupId,
+        const CallMedia(audio: true, video: true),
+      ),
+      isTrue,
+    );
+    await active;
+    expect(service.current?.status, GroupCallStatus.active);
+    await service.setScreenShareEnabled(true);
+    if (!camera) await service.setCameraEnabled(false);
+    expect(service.current?.screenOn, isTrue);
+    media.cameras.clear();
+    return (service, groups, media);
+  }
+
+  for (final terminal in ['leave', 'replacement', 'dispose']) {
+    test('group share stop cannot enable a camera after $terminal', () async {
+      final (service, groups, media) = await videoRoom();
+      media.shareGate = Completer<void>();
+      media.shareEntered = Completer<void>();
+      final stopping = service.setScreenShareEnabled(false);
+      await media.shareEntered!.future;
+      try {
+        if (terminal == 'dispose') {
+          await service.dispose();
+        } else {
+          await service.leave();
+          expect(service.current?.status, GroupCallStatus.ended);
+          if (terminal == 'replacement') {
+            final active = service.changes.firstWhere(
+              (call) => call?.status == GroupCallStatus.active,
+            );
+            expect(
+              await service.startCall(
+                groupId,
+                const CallMedia(audio: true, video: true),
+              ),
+              isTrue,
+            );
+            await active;
+            expect(service.current?.status, GroupCallStatus.active);
+          }
+        }
+        final before = service.current;
+        media.cameras.clear();
+        groups.sent.clear();
+        media.shareGate!.complete();
+        await stopping;
+        expect(service.current, same(before));
+        expect(
+          media.cameras,
+          isEmpty,
+          reason:
+              'old source completion cannot enable capture in a retired or replacement room',
+        );
+        expect(
+          groups.sent.where((t) => t == GroupCallSignalType.renegotiate),
+          isEmpty,
+        );
+      } finally {
+        if (!media.shareGate!.isCompleted) media.shareGate!.complete();
+        await stopping;
+      }
+    });
+  }
+
+  for (final camera in [false, true]) {
+    test(
+      'group share stop uses camera intent changed to $camera during wait',
+      () async {
+        final (service, _, media) = await videoRoom(camera: !camera);
+        media.shareGate = Completer<void>();
+        media.shareEntered = Completer<void>();
+        final stopping = service.setScreenShareEnabled(false);
+        await media.shareEntered!.future;
+        try {
+          await service.setCameraEnabled(camera);
+          media.cameras.clear();
+          media.shareGate!.complete();
+          await stopping;
+          expect(service.current?.cameraOn, camera);
+          expect(service.current?.screenOn, isFalse);
+          expect(media.cameras, camera ? [true] : isEmpty);
+          expect(
+            service
+                .current!
+                .participants[service.current!.initiator.hex]
+                ?.media
+                .video,
+            camera,
+          );
+        } finally {
+          if (!media.shareGate!.isCompleted) media.shareGate!.complete();
+          await stopping;
+        }
+      },
+    );
+  }
+
+  test(
+    'refused group share stop keeps screen intent and does not enable camera',
+    () async {
+      final (service, groups, media) = await videoRoom();
+      media.shareOk = false;
+      groups.sent.clear();
+      await service.setScreenShareEnabled(false);
+      expect(service.current?.screenOn, isTrue);
+      expect(media.cameras, isEmpty);
+      expect(
+        groups.sent.where((t) => t == GroupCallSignalType.renegotiate),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'an observed group OS stop survives a refused redundant cleanup',
+    () async {
+      final (service, groups, media) = await videoRoom();
+      final stopped = service.changes.firstWhere(
+        (call) => call?.screenOn == false,
+      );
+      media.shareOk = false;
+      media.screenStops.add(null);
+      await stopped;
+      await pumpEventQueue();
+      expect(service.current?.screenOn, isFalse);
+      expect(media.cameras, [true]);
+      expect(
+        service.current!.participants[groups.selfId.hex]?.media.screen,
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'an observed stop cannot authorize capture in a replacement room',
+    () async {
+      final (service, groups, media) = await videoRoom();
+      media.shareGate = Completer<void>();
+      media.shareEntered = Completer<void>();
+      media.shareOk = false;
+      media.screenStops.add(null);
+      await media.shareEntered!.future;
+      try {
+        await service.leave();
+        final active = service.changes.firstWhere(
+          (call) => call?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            groupId,
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await active;
+        final before = service.current;
+        groups.sent.clear();
+        media.cameras.clear();
+        media.shareGate!.complete();
+        await pumpEventQueue();
+        expect(service.current, same(before));
+        expect(media.cameras, isEmpty);
+        expect(
+          groups.sent.where((t) => t == GroupCallSignalType.renegotiate),
+          isEmpty,
+        );
+      } finally {
+        if (!media.shareGate!.isCompleted) media.shareGate!.complete();
+        await pumpEventQueue();
+      }
+    },
+  );
+
+  for (final camera in [false, true]) {
+    test(
+      'unchanged group camera intent $camera survives share hand-back',
+      () async {
+        final (service, _, media) = await videoRoom(camera: camera);
+        await service.setScreenShareEnabled(false);
+        expect(service.current?.isLive, isTrue);
+        expect(service.current?.screenOn, isFalse);
+        expect(service.current?.cameraOn, camera);
+        expect(media.cameras, camera ? [true] : isEmpty);
+      },
+    );
+  }
+
+  test(
+    'group share hand-back preserves concurrent mic and channel epoch updates',
+    () async {
+      final (service, groups, media) = await videoRoom();
+      media.shareGate = Completer<void>();
+      media.shareEntered = Completer<void>();
+      final stopping = service.setScreenShareEnabled(false);
+      await media.shareEntered!.future;
+      try {
+        await service.setMicEnabled(false);
+        final reconciled = service.changes.firstWhere(
+          (call) => call?.channelEpoch == 7,
+        );
+        groups.channelEpoch = 7;
+        groups.changes.value++;
+        await reconciled;
+        media.shareGate!.complete();
+        await stopping;
+        expect(service.current?.micOn, isFalse);
+        expect(service.current?.channelEpoch, 7);
+        expect(service.current?.screenOn, isFalse);
+        expect(
+          service.current!.participants[groups.selfId.hex]?.media.audio,
+          isFalse,
+        );
+        expect(media.cameras, [true]);
+      } finally {
+        if (!media.shareGate!.isCompleted) media.shareGate!.complete();
+        await stopping;
+      }
+    },
+  );
+
+  for (final change in ['leave', 'replacement', 'camera off']) {
+    test('group camera hand-back completion respects $change', () async {
+      final (service, groups, media) = await videoRoom();
+      final cameraEntered = Completer<void>(),
+          cameraRelease = Completer<void>();
+      media.cameraOperation = (enabled) async {
+        if (enabled) {
+          cameraEntered.complete();
+          await cameraRelease.future;
+        }
+      };
+      final stopping = service.setScreenShareEnabled(false);
+      await cameraEntered.future;
+      try {
+        expect(service.current?.screenOn, isFalse);
+        if (change == 'camera off') {
+          await service.setCameraEnabled(false);
+        } else {
+          await service.leave();
+          if (change == 'replacement') {
+            final active = service.changes.firstWhere(
+              (call) => call?.status == GroupCallStatus.active,
+            );
+            expect(
+              await service.startCall(
+                groupId,
+                const CallMedia(audio: true, video: true),
+              ),
+              isTrue,
+            );
+            await active;
+          }
+        }
+        final before = service.current;
+        groups.sent.clear();
+        media.cameras.clear();
+        cameraRelease.complete();
+        await stopping;
+        expect(media.cameras, isEmpty);
+        if (change == 'camera off') {
+          expect(service.current?.cameraOn, isFalse);
+          expect(
+            service.current!.participants[groups.selfId.hex]?.media.video,
+            isFalse,
+          );
+          expect(
+            groups.sent.where((t) => t == GroupCallSignalType.renegotiate),
+            hasLength(1),
+          );
+        } else {
+          expect(service.current, same(before));
+          expect(
+            groups.sent.where((t) => t == GroupCallSignalType.renegotiate),
+            isEmpty,
+          );
+        }
+      } finally {
+        if (!cameraRelease.isCompleted) cameraRelease.complete();
+        await stopping;
+      }
+    });
   }
 
   test(
