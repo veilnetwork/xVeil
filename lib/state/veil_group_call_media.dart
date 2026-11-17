@@ -955,6 +955,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
     }
     _latestNativeStats = Map.unmodifiable(stats);
+    _observeCameraCapture(expected, stats);
     diagnosticJournal.recordMediaStats(stats);
     unawaited(
       diagnosticAudioOutput.sample(
@@ -1510,6 +1511,33 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     );
     _startedWithoutCamera = !started;
     if (!started) _cameraFailures.add(owner);
+  }
+
+  void _observeCameraCapture(
+    GroupAudioEngine engine,
+    Map<String, dynamic> stats,
+  ) {
+    // Only the owned desktop capturer can establish terminal capture here.
+    // Android feeds its camera outside the native group engine; absent stats,
+    // paused encoding and sparse frames do not prove a source failure.
+    final owner = _cameraOwner;
+    final capturing = stats['camera_capturing'];
+    if (_androidCapture ||
+        _engine != engine ||
+        _engineRequest != _sessionRequestEpoch ||
+        !_videoRunning ||
+        !_cameraEnabled ||
+        _startedWithoutCamera ||
+        _screenSharing ||
+        _screenStarting != null ||
+        owner == null ||
+        capturing is! int ||
+        capturing != 0) {
+      return;
+    }
+    diagnosticJournal.recordCameraStopped(stats);
+    _startedWithoutCamera = true;
+    _cameraFailures.add(owner);
   }
 
   @override
