@@ -28,6 +28,7 @@ class CallAudioRouter {
   final DiagnosticJournal _diagnostics;
   final bool _hasNativePhoneRoute;
   bool _routeEstablished = false;
+  int _operationEpoch = 0;
   final ValueNotifier<CallAudioRoute> route = ValueNotifier(
     CallAudioRoute.earpiece,
   );
@@ -50,55 +51,61 @@ class CallAudioRouter {
     CallAudioRoute next, {
     bool preferExternal = false,
   }) async {
+    final operation = ++_operationEpoch;
+    bool current() => operation == _operationEpoch;
     var success = false;
     var code = 0;
     try {
+      CallAudioRoute? effective;
       if (!_hasNativePhoneRoute) {
-        route.value = next;
-        _routeEstablished = true;
-        success = true;
-        return true;
-      }
-      try {
-        final result = await _channel.invokeMethod<Object?>('setRoute', {
-          'speaker': next == CallAudioRoute.speaker,
-          if (preferExternal) 'preferExternal': true,
-        });
-        // Android reports the effective route; iOS and older hosts return bool.
-        if (result is String) {
-          for (final candidate in CallAudioRoute.values) {
-            if (candidate.name == result) {
-              route.value = candidate;
-              _routeEstablished = true;
-              success = true;
-              return true;
+        effective = next;
+      } else {
+        try {
+          final result = await _channel.invokeMethod<Object?>('setRoute', {
+            'speaker': next == CallAudioRoute.speaker,
+            if (preferExternal) 'preferExternal': true,
+          });
+          if (!current()) return false;
+          // Android reports the effective route; iOS and older hosts return bool.
+          if (result is String) {
+            for (final candidate in CallAudioRoute.values) {
+              if (candidate.name == result) {
+                effective = candidate;
+                break;
+              }
             }
+          } else if (result == true) {
+            effective = next;
           }
+        } on PlatformException {
+          code = 1;
+          return false;
+        } on MissingPluginException {
+          code = 2;
           return false;
         }
-        if (result == true) {
-          route.value = next;
-          _routeEstablished = true;
-          success = true;
-        }
-        return result == true;
-      } on PlatformException {
-        code = 1;
-        return false;
-      } on MissingPluginException {
-        code = 2;
-        return false;
       }
+      if (effective == null) return false;
+      // Listeners may synchronously request a default or release this route.
+      // Publish the established flag first; never restore it after callbacks.
+      _routeEstablished = true;
+      route.value = effective;
+      if (!current()) return false;
+      success = true;
+      return true;
     } finally {
-      _diagnostics.record(
-        DiagnosticEvent.audioRoute,
-        values: {
-          DiagnosticMetric.supported: _hasNativePhoneRoute ? 1 : 0,
-          DiagnosticMetric.success: success ? 1 : 0,
-          DiagnosticMetric.state: route.value.index,
-          DiagnosticMetric.code: code,
-        },
-      );
+      // A retired result must not overwrite the current diagnostic outcome.
+      if (current()) {
+        _diagnostics.record(
+          DiagnosticEvent.audioRoute,
+          values: {
+            DiagnosticMetric.supported: _hasNativePhoneRoute ? 1 : 0,
+            DiagnosticMetric.success: success ? 1 : 0,
+            DiagnosticMetric.state: route.value.index,
+            DiagnosticMetric.code: code,
+          },
+        );
+      }
     }
   }
 
@@ -110,17 +117,24 @@ class CallAudioRouter {
   );
 
   Future<void> release() async {
-    if (_hasNativePhoneRoute) {
+    final operation = ++_operationEpoch;
+    _routeEstablished = false;
+    // Enqueue native release BEFORE notifying listeners: a reentrant setup
+    // must be ordered after it on the shared platform channel.
+    final stopped = _hasNativePhoneRoute
+        ? Future<void>.sync(() => _channel.invokeMethod<void>('release'))
+        : null;
+    if (operation == _operationEpoch) route.value = CallAudioRoute.earpiece;
+    if (stopped != null) {
       try {
-        await _channel.invokeMethod<void>('release');
+        await stopped;
       } on PlatformException {
         // Route cleanup is best-effort during media teardown.
       } on MissingPluginException {
         // Older builds do not expose the route channel.
       }
     }
-    _routeEstablished = false;
-    route.value = CallAudioRoute.earpiece;
+    // New setup may already own the route; this reply changes no local state.
   }
 }
 
