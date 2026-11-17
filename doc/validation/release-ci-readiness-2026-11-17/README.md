@@ -64,18 +64,33 @@ that no hosted runner was acquired and noted arm64 capacity constraints. The
 retry is qualified; the original cancellations are not passes.
 
 Candidate versions are Veil **0.11.53** (`6f54938c`), hidden-volume **2.8.0**
-(`16871fe`) and xVeil **0.13.102+121**. hidden-volume's minor bump follows its
+(`16871fe`, followed by the model review `8f8fc35`) and xVeil **0.13.102+121**.
+hidden-volume's minor bump follows its
 public-API addition policy. Matching in-repository constraints, locked metadata,
 format documentation and the API snapshot pass. The format remains generation 3.
 The 53 Veil manifests and the 53/46 owned entries in the main/fuzz locks change
 only package versions; normalized lock comparison preserves every other field.
 
 Final dependency source CI runs are Veil `44129668207` and hidden-volume
-`44129254979`. The prior Veil run passed hygiene before the final-version run
+`44130909593`. The prior Veil run passed hygiene before the final-version run
 superseded it. A new application run must use the versioned pointers; the older
 `44126361318` run is superseded rather than counted as a complete qualification.
 Final tags, dependency releases, application packages and seed deployment are
 not created by this preparation.
+
+The 2.8 metadata run `44129254979` rejected the threat-model currency marker in
+Linux stable/beta and all-features tests. The three completed logs name only
+that failing case: the documents still claimed v2.7.x. Both models were reviewed
+for persisted padding, known-key proof and worker-local prepared ownership,
+then updated. They now state that None does not obscure file growth, visible
+host catalogs are outside single-container deniability, and the known-key proof
+still uses an exclusive read/write open without a freshness guarantee.
+All seven existing documentation agreement tests pass on the actual Rust core;
+144 source/config/model inputs retain their hashes during the mount-monitored
+run. No guard was weakened. The old run was superseded after the failure was
+identified. `16871fe..8f8fc35` changes exactly the two model documents, so the
+application source CI `44130170796` on xVeil `3cd2473e` retains identical runtime
+SDK/HV inputs; tagged artifact checks still run on the final pointer.
 
 The application version smoke passes 43 selected tests and the analyzer remains
 clean. All seven published engine binaries and producer records also verify
