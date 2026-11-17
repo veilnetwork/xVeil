@@ -7,8 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart'
     show CameraPlatform;
 import 'package:xveil/state/call_slot.dart';
+import 'package:xveil/state/call_service.dart'
+    show CallMediaDevice, CallMediaDeviceKind;
 import 'support/camera_retirement_platform.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:clock/clock.dart' as test_clock;
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
@@ -3290,6 +3293,263 @@ void main() {
     }
   }
 
+  for (final change in [
+    'current',
+    'hangup',
+    'next-call',
+    'same-call-engine',
+    'new-selection',
+    'profile',
+    'share-ended',
+  ]) {
+    test(
+      'group screen selection discovery respects $change owner',
+      () async {
+        final stand = _GroupScreenStand();
+        final list = Completer<List<CallMediaDevice>>();
+        Future<bool>? selecting;
+        try {
+          await stand.start();
+          stand.controller.nextList = list;
+          selecting = stand.service.selectScreen('window-2');
+          await stand.controller.listEntered.future;
+          if (change == 'hangup' || change == 'next-call') {
+            await stand.service.leave();
+            await pumpEventQueue();
+            expect(stand.engines.first.disposed, isTrue);
+            if (change == 'next-call') await stand.start();
+          } else if (change == 'same-call-engine') {
+            expect(
+              await stand.controller.start(stand.service.current!),
+              isTrue,
+            );
+            expect(stand.engines.first.disposed, isTrue);
+          } else if (change == 'share-ended') {
+            await stand.service.setScreenShareEnabled(false);
+            expect(stand.service.current?.screenOn, isFalse);
+          } else if (change == 'profile') {
+            SharedPreferences.setMockInitialValues({'fixture': 'replacement'});
+          }
+          if ([
+            'next-call',
+            'same-call-engine',
+            'new-selection',
+          ].contains(change)) {
+            expect(await stand.service.selectScreen('display-3'), isTrue);
+            expect(stand.engines.last.activeScreen, 'display-3');
+          }
+          final before = [
+            for (final e in stand.engines)
+              {'starts': List.of(e.screenChoices), 'stops': e.screenStopped},
+          ];
+          list.complete(_GroupScreenController.screens);
+          expect(
+            await selecting,
+            change == 'current' || change == 'share-ended',
+          );
+          if (change == 'current') {
+            expect(stand.engines.last.activeScreen, 'window-2');
+          } else {
+            expect([
+              for (final e in stand.engines)
+                {'starts': e.screenChoices, 'stops': e.screenStopped},
+            ], before);
+          }
+          expect([for (final e in stand.engines) ...e.retiredCalls], isEmpty);
+          if (change == 'share-ended') {
+            await stand.service.setScreenShareEnabled(true);
+            expect(stand.engines.last.activeScreen, 'window-2');
+          }
+        } finally {
+          if (!list.isCompleted) list.complete(_GroupScreenController.screens);
+          await selecting;
+          await stand.close();
+          SharedPreferences.setMockInitialValues({});
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS group screen selection' : false,
+    );
+  }
+
+  for (final refusal in [
+    'stop',
+    'stop-throws',
+    'new',
+    'new-throws',
+    'both',
+    'restore-throws',
+  ]) {
+    test(
+      'group screen selection preserves actual source on $refusal refusal',
+      () async {
+        final stand = _GroupScreenStand();
+        try {
+          await stand.start();
+          final engine = stand.engines.single;
+          engine.screenChoices.clear();
+          engine.acceptStop = refusal != 'stop';
+          engine.throwStop = refusal == 'stop-throws';
+          if (refusal == 'new-throws') engine.throwing.add('window-2');
+          if (['new', 'both', 'restore-throws'].contains(refusal)) {
+            engine.refused.add('window-2');
+          }
+          if (refusal == 'both') engine.refused.add('display-1');
+          if (refusal == 'restore-throws') engine.throwing.add('display-1');
+          expect(await stand.service.selectScreen('window-2'), isFalse);
+          await pumpEventQueue();
+          final stopped = refusal == 'both' || refusal == 'restore-throws';
+          expect(stand.service.current?.status, GroupCallStatus.active);
+          expect(stand.service.current?.screenOn, !stopped);
+          expect(stand.service.current?.cameraOn, isFalse);
+          expect(engine.activeScreen, stopped ? null : 'display-1');
+          expect(
+            engine.screenChoices,
+            refusal.startsWith('stop') ? isEmpty : ['window-2', 'display-1'],
+          );
+          expect(engine.disposed, isFalse);
+          if (stopped) {
+            expect(
+              stand.groups.sent
+                  .lastWhere((s) => s.type == GroupCallSignalType.renegotiate)
+                  .media
+                  ?.screen,
+              isFalse,
+            );
+          }
+        } finally {
+          await stand.close();
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS group screen selection' : false,
+    );
+  }
+
+  test(
+    'group screen selection stop callback cannot restart an ended call',
+    () async {
+      final stand = _GroupScreenStand();
+      Future<void>? leaving;
+      try {
+        await stand.start();
+        final engine = stand.engines.single;
+        engine.screenChoices.clear();
+        engine.onScreenStop = () {
+          leaving = stand.service.leave();
+        };
+        expect(await stand.service.selectScreen('window-2'), isFalse);
+        await leaving;
+        await pumpEventQueue();
+        expect(stand.service.current?.status, GroupCallStatus.ended);
+        expect(engine.screenChoices, isEmpty);
+        expect(engine.retiredCalls, isEmpty);
+      } finally {
+        await leaving;
+        await stand.close();
+      }
+    },
+    skip: !Platform.isMacOS ? 'macOS group screen selection' : false,
+  );
+
+  for (final rebuild in [false, true]) {
+    test(
+      'group screen selection stop event ignores recovery rebuild=$rebuild',
+      () async {
+        final stand = _GroupScreenStand();
+        var delayedStops = 0;
+        final delayed = stand.controller.screenShareStopped.listen(
+          (_) => delayedStops++,
+        )..pause();
+        try {
+          await stand.start();
+          stand.engines.last.refused.addAll(['display-1', 'window-2']);
+          expect(await stand.service.selectScreen('window-2'), isFalse);
+          await pumpEventQueue();
+          expect(stand.service.current?.screenOn, isFalse);
+          stand.engines.last.refused.clear();
+          await stand.service.setScreenShareEnabled(true);
+          if (rebuild) {
+            expect(
+              await stand.controller.start(stand.service.current!),
+              isTrue,
+            );
+          }
+          expect(stand.service.current?.screenOn, isTrue);
+          expect(stand.engines.last.activeScreen, 'display-1');
+          delayed.resume();
+          await pumpEventQueue();
+          expect(delayedStops, 0);
+          expect(stand.service.current?.screenOn, isTrue);
+          expect(stand.engines.last.activeScreen, 'display-1');
+        } finally {
+          await delayed.cancel();
+          await stand.close();
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS group screen selection' : false,
+    );
+  }
+
+  test(
+    'group screen stop observer retains current Android source ownership',
+    () async {
+      final callbacks = <void Function()>[];
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(_id(1)),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => _FakeEngine(),
+        androidCapture: true,
+        screenCaptureFactory: (stopped) {
+          callbacks.add(stopped);
+          return _IntentScreen()..result.complete(true);
+        },
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      var observed = 0, delayed = 0;
+      final listener = controller.screenShareStopped.listen((_) => observed++);
+      final paused = controller.screenShareStopped.listen((_) => delayed++)
+        ..pause();
+      try {
+        expect(
+          await controller.start(
+            _call(_id(1), [], video: true).copyWith(cameraOn: false),
+          ),
+          isTrue,
+        );
+        expect(await controller.setScreenShareEnabled(true), isTrue);
+        callbacks.single();
+        await pumpEventQueue();
+        expect(
+          observed,
+          1,
+          reason: 'the current source stop still reaches observers',
+        );
+        expect(controller.audioRunning, isTrue);
+        expect(await controller.setScreenShareEnabled(true), isTrue);
+        expect(callbacks, hasLength(2));
+        paused.resume();
+        callbacks.first();
+        await pumpEventQueue();
+        expect(
+          delayed,
+          0,
+          reason: 'a retained stop no longer describes the recovered source',
+        );
+        expect(
+          observed,
+          1,
+          reason: 'an old source cannot stop its replacement',
+        );
+      } finally {
+        await listener.cancel();
+        await paused.cancel();
+        await controller.stop();
+        await pumpEventQueue();
+      }
+    },
+  );
+
   for (final outcome in [
     'success',
     'refused',
@@ -4995,6 +5255,127 @@ class _BlockedGroupPeerOpen extends _FakeTransport {
     entered.complete();
     await release.future;
     return channel;
+  }
+}
+
+class _GroupScreenStand {
+  final groups = _CameraOutcomeGroups(_id(1));
+  final engines = <_GroupScreenEngine>[];
+  late final controller = _GroupScreenController((_) {
+    final engine = _GroupScreenEngine();
+    engines.add(engine);
+    return engine;
+  });
+  late final service = GroupCallService(groups, media: controller)..start();
+
+  Future<void> start() async {
+    final active = service.changes.firstWhere(
+      (call) => call?.status == GroupCallStatus.active,
+    );
+    expect(
+      await service.startCall(
+        _id(9),
+        const CallMedia(audio: true, video: true),
+      ),
+      isTrue,
+    );
+    await active;
+    await service.setCameraEnabled(false);
+    expect(await service.selectScreen('display-1'), isTrue);
+    await service.setScreenShareEnabled(true);
+    expect(service.current?.screenOn, isTrue);
+    expect(engines.last.activeScreen, 'display-1');
+  }
+
+  Future<void> close() async {
+    await service.dispose();
+    await groups.close();
+    await pumpEventQueue();
+  }
+}
+
+class _GroupScreenController extends VeilGroupCallMediaController {
+  _GroupScreenController(GroupAudioEngineFactory factory)
+    : super(
+        _FakeTransport(_id(1)),
+        roomMediaSecret: _room(),
+        engineFactory: factory,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        desktopScreenCaptureSupported: true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+  Completer<List<CallMediaDevice>>? nextList;
+  final listEntered = Completer<void>();
+  static const screens = [
+    CallMediaDevice(
+      id: 'display-1',
+      label: 'A display',
+      kind: CallMediaDeviceKind.screen,
+    ),
+    CallMediaDevice(
+      id: 'window-2',
+      label: 'A window',
+      kind: CallMediaDeviceKind.window,
+    ),
+    CallMediaDevice(
+      id: 'display-3',
+      label: 'Another display',
+      kind: CallMediaDeviceKind.screen,
+    ),
+  ];
+  @override
+  Future<List<CallMediaDevice>> listScreens() {
+    final held = nextList;
+    nextList = null;
+    if (held == null) return Future.value(screens);
+    listEntered.complete();
+    return held.future;
+  }
+}
+
+class _GroupScreenEngine extends _HeldGroupEngine {
+  final screenChoices = <String?>[], retiredCalls = <String>[];
+  final refused = <String>{}, throwing = <String>{};
+  bool disposed = false, acceptStop = true, throwStop = false;
+  void Function()? onScreenStop;
+  String? activeScreen;
+  @override
+  bool startScreen({String? sourceId}) {
+    screenChoices.add(sourceId);
+    if (disposed) {
+      retiredCalls.add('start');
+      throw StateError('retired synthetic engine');
+    }
+    if (throwing.contains(sourceId)) {
+      throw StateError('synthetic source failure');
+    }
+    if (refused.contains(sourceId)) return false;
+    activeScreen = sourceId;
+    return super.startScreen(sourceId: sourceId);
+  }
+
+  @override
+  bool stopScreen() {
+    super.stopScreen();
+    if (disposed) {
+      retiredCalls.add('stop');
+      throw StateError('retired synthetic engine');
+    }
+    if (throwStop) throw StateError('synthetic stop failure');
+    if (!acceptStop) return false;
+    activeScreen = null;
+    final callback = onScreenStop;
+    onScreenStop = null;
+    callback?.call();
+    return true;
+  }
+
+  @override
+  void dispose() {
+    disposed = true;
+    activeScreen = null;
+    super.dispose();
   }
 }
 

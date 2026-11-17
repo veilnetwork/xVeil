@@ -13,6 +13,7 @@ import '../core/capture_resource_lifetime.dart';
 import '../core/diagnostic_audio_output.dart';
 import '../core/diagnostic_journal.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/storage/profile_preferences.dart';
 import '../domain/group_call.dart';
 import '../domain/call_signal.dart';
 import 'android_call_foreground.dart';
@@ -467,7 +468,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final _cameraLifetime = CaptureResourceLifetime.current();
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
-  final StreamController<void> _screenShareStops = StreamController.broadcast();
+  final _screenShareStops =
+      StreamController<
+        ({GroupAudioEngine engine, int request, int epoch})
+      >.broadcast();
   final _cameraFailures = StreamController<GroupCallCameraFailure>.broadcast();
   GroupCallCameraFailure? _cameraOwner;
   bool _startedWithoutCamera = false;
@@ -484,6 +488,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   CallBitrateAdapter? _bitrateAdapter;
   bool _screenSharing = false;
   String? _selectedScreenId;
+  int _screenSelectionEpoch = 0;
   Future<void> _tail = Future<void>.value();
   int _sessionRequestEpoch = 0;
 
@@ -516,7 +521,33 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
-  Stream<void> get screenShareStopped => _screenShareStops.stream;
+  // Revalidate on delivery: subscribers may pause while another source or
+  // room takes over. Keep the public stream compatible with other controllers.
+  Stream<void> get screenShareStopped => _screenShareStops.stream
+      .where(
+        (event) =>
+            identical(_engine, event.engine) &&
+            _engineRequest == event.request &&
+            _sessionRequestEpoch == event.request &&
+            _mediaEpoch == event.epoch &&
+            !_screenSharing &&
+            _androidScreen == null,
+      )
+      .map<void>((_) {});
+
+  void _reportScreenShareStopped(
+    GroupAudioEngine engine,
+    int request,
+    int epoch,
+  ) {
+    if (!identical(_engine, engine) ||
+        _engineRequest != request ||
+        _sessionRequestEpoch != request ||
+        _mediaEpoch != epoch) {
+      return;
+    }
+    _screenShareStops.add((engine: engine, request: request, epoch: epoch));
+  }
 
   // Guarded for the same reason as the 1:1 controller's pair: read from the
   // overlay outside any catch, and meaningless without an engine anyway.
@@ -1659,22 +1690,57 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<bool> selectScreen(String id) async {
     final engine = _engine;
-    if (engine == null || !Platform.isMacOS) return false;
-    final devices = await listScreens();
-    if (!devices.any((device) => device.id == id)) return false;
-    final previous = _selectedScreenId;
-    _selectedScreenId = id;
-    if (!_screenSharing) return true;
-    try {
-      engine.stopScreen();
-      if (engine.startScreen(sourceId: id)) return true;
-      _selectedScreenId = previous;
-      engine.startScreen(sourceId: previous);
-      return false;
-    } catch (_) {
-      _selectedScreenId = previous;
+    final request = _sessionRequestEpoch;
+    final epoch = _mediaEpoch;
+    if (engine == null || _engineRequest != request || !Platform.isMacOS) {
       return false;
     }
+    final operation = ++_screenSelectionEpoch;
+    final preferencesOwner = ProfilePreferencesLifetime.current();
+    bool current() =>
+        identical(_engine, engine) &&
+        _engineRequest == request &&
+        _sessionRequestEpoch == request &&
+        _mediaEpoch == epoch &&
+        operation == _screenSelectionEpoch &&
+        preferencesOwner.isCurrent;
+    final devices = await listScreens();
+    if (!current()) return false;
+    if (!devices.any((device) => device.id == id)) return false;
+    final previous = _selectedScreenId;
+    if (!_screenSharing) {
+      _selectedScreenId = id;
+      return true;
+    }
+    try {
+      if (!engine.stopScreen()) return false;
+    } catch (_) {
+      return false;
+    }
+    bool start(String? sourceId) {
+      if (!current()) return false;
+      try {
+        return engine.startScreen(sourceId: sourceId);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (start(id)) {
+      if (!current()) return false;
+      _selectedScreenId = id;
+      return true;
+    }
+    if (!current()) return false;
+    if (!start(previous) && current()) {
+      // Capture stopped and neither source restarted. Keep audio/video receive
+      // alive, but stop advertising a screen that is no longer being captured.
+      _screenSharing = false;
+      _selectScreenSource(false);
+      localVideoFrame.value = null;
+      _reportScreenShareStopped(engine, request, epoch);
+    }
+    return false;
   }
 
   @override
@@ -1952,6 +2018,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   Future<bool> _startAndroidScreen(GroupAudioEngine engine) async {
+    final request = _sessionRequestEpoch;
+    final epoch = _mediaEpoch;
     _androidScreenPushLogged = false;
     late final AndroidScreenCaptureSource screen;
     screen = _screenCaptureFactory(() {
@@ -1960,7 +2028,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       if (_engine == engine) _selectScreenSource(false);
       _screenSharing = false;
       localVideoFrame.value = null;
-      _screenShareStops.add(null);
+      _reportScreenShareStopped(engine, request, epoch);
     });
     _androidScreen = screen;
     final started = await screen.start((y, u, v, width, height) {
