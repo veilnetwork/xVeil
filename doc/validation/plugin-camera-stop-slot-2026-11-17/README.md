@@ -79,6 +79,10 @@ release.
 
 ## Separate confirmed group case, still open
 
+**Subsequent update:** this was the status at the end of the direct-call cycle.
+The [separate group fix and qualification](../group-camera-stop-slot-2026-11-17/README.md)
+now close this mechanism locally. The observations below retain its baseline.
+
 An isolated probe using the current GroupCallService and
 VeilGroupCallMediaController confirms the analogous detached Android-camera
 stop gap in the group path. With OFF's source-stop gate held, leave completes
@@ -86,6 +90,7 @@ and the actual CallSlot admits a direct-call lease. The probe has one assertion
 failure, releases its gate, joins the command and disposes its services. Its
 source/result remain private; it is not included among the passing tests above.
 
-Group media uses a serialized lifecycle lane, so its repair needs separate
-qualification. It must retain the known camera stop while keeping audio stop
-prompt. No group fix or physical group-camera failure is claimed in this cycle.
+Group media uses a serialized lifecycle lane, so its repair was left for separate
+qualification. That later cycle retains known camera stops and issues audio
+stop before capture waits. No physical group-camera failure is established by
+either cycle.

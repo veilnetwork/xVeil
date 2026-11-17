@@ -4,6 +4,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart'
+    show CameraPlatform;
+import 'package:xveil/state/call_slot.dart';
+import 'support/camera_retirement_platform.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:clock/clock.dart' as test_clock;
 import 'package:veil_media/veil_media.dart';
@@ -126,6 +130,7 @@ class _CancelledStartEngine extends _FakeEngine {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   for (final stage in [
     'permission',
     'identity',
@@ -3285,6 +3290,365 @@ void main() {
     }
   }
 
+  for (final operation in ['off', 'screen', 'attached']) {
+    for (final ending in ['ordinary', 'reentrant', 'dispose', 'failure']) {
+      test('group camera stop holds slot: $operation/$ending', () async {
+        final groups = _CameraOutcomeGroups(_id(1)), slot = CallSlot();
+        final engine = _HeldGroupEngine(), camera = _HeldGroupCamera();
+        var screens = 0;
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(_id(1)),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          androidCapture: true,
+          cameraCaptureFactory: () => camera,
+          screenCaptureFactory: (_) {
+            screens++;
+            return _IntentScreen()..result.complete(false);
+          },
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        );
+        final service = GroupCallService(
+          groups,
+          media: controller,
+          callSlot: slot,
+        )..start();
+        Future<void>? command, disposing;
+        Object? commandError;
+        try {
+          final active = service.changes.firstWhere(
+            (c) => c?.status == GroupCallStatus.active,
+          );
+          expect(
+            await service.startCall(
+              _id(9),
+              const CallMedia(audio: true, video: true),
+            ),
+            isTrue,
+          );
+          await active;
+          await camera.opened.future;
+          await pumpEventQueue();
+          expect(slot.owner, CallSlotOwner.group);
+          if (ending == 'reentrant') {
+            camera.onStop = () {
+              disposing = service.dispose();
+            };
+          }
+          final changing = operation == 'off'
+              ? service.setCameraEnabled(false)
+              : operation == 'screen'
+              ? service.setScreenShareEnabled(true)
+              : Future<void>.value();
+          command = changing.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) {
+              commandError = error;
+            },
+          );
+          if (operation != 'attached') await camera.stopping.future;
+          await service.leave();
+          await camera.stopping.future;
+          if (ending == 'dispose') disposing = service.dispose();
+          await pumpEventQueue();
+          expect(
+            engine.audioStops,
+            greaterThan(0),
+            reason: 'leave must stop audio before the camera close reply',
+          );
+          final pushed = engine.videoPushed;
+          camera.frame();
+          expect(
+            engine.videoPushed,
+            pushed,
+            reason: 'retiring source cannot feed the ended room',
+          );
+          if (ending != 'failure') {
+            final competing = slot.acquire(CallSlotOwner.direct);
+            if (competing != null) slot.release(competing);
+            expect(
+              competing,
+              isNull,
+              reason: 'pending camera stop still owns the group lease',
+            );
+          }
+          if (ending == 'failure') {
+            camera.release.completeError(
+              StateError('synthetic group stop refusal'),
+            );
+          } else {
+            camera.release.complete();
+          }
+          await command;
+          await disposing;
+          await pumpEventQueue();
+          expect(
+            commandError,
+            ending == 'failure' && operation == 'screen'
+                ? isA<StateError>()
+                : isNull,
+          );
+          expect(slot.owner, isNull);
+          expect(engine.disposals, 1);
+          expect(
+            screens,
+            0,
+            reason: 'old handoff must not open a screen after leave',
+          );
+        } finally {
+          if (!camera.release.isCompleted) camera.release.complete();
+          await command;
+          await disposing;
+          await service.dispose();
+          await groups.close();
+          await pumpEventQueue();
+          expect(slot.owner, isNull);
+        }
+      });
+    }
+  }
+
+  for (final reentrant in [false, true]) {
+    test('group startup camera cleanup holds slot: $reentrant', () async {
+      final groups = _CameraOutcomeGroups(_id(1)),
+          slot = CallSlot(),
+          engine = _HeldGroupEngine();
+      final camera = _HeldGroupCamera(
+        opening: Completer<bool>(),
+        failStart: true,
+      );
+      // Keep startup pending until the room is active, then fail its source port.
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(_id(1)),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        androidCapture: true,
+        cameraCaptureFactory: () => camera,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      final service = GroupCallService(
+        groups,
+        media: controller,
+        callSlot: slot,
+      )..start();
+      Future<void>? disposing;
+      try {
+        final active = service.changes.firstWhere(
+          (c) => c?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await active;
+        await camera.opened.future;
+        if (reentrant) {
+          camera.onStop = () {
+            disposing = service.dispose();
+          };
+        }
+        camera.opening!.complete(true);
+        await camera.stopping.future;
+        await service.leave();
+        await pumpEventQueue();
+        expect(engine.audioStops, greaterThan(0));
+        final competing = slot.acquire(CallSlotOwner.direct);
+        if (competing != null) slot.release(competing);
+        expect(
+          competing,
+          isNull,
+          reason: 'startup cleanup still waits for its source stop',
+        );
+        camera.release.complete();
+        await disposing;
+        await pumpEventQueue();
+        expect(slot.owner, isNull);
+        expect(engine.disposals, 1);
+      } finally {
+        if (!camera.opening!.isCompleted) camera.opening!.complete(true);
+        if (!camera.release.isCompleted) camera.release.complete();
+        await disposing;
+        await service.dispose();
+        await groups.close();
+        await pumpEventQueue();
+        expect(slot.owner, isNull);
+      }
+    });
+  }
+
+  for (final operation in ['off', 'screen', 'attached']) {
+    test('group platform camera stop holds slot: $operation', () async {
+      final previous = CameraPlatform.instance;
+      final platform = RetirementCameraPlatform()
+        ..disposeGate = Completer<void>();
+      CameraPlatform.instance = platform;
+      final groups = _CameraOutcomeGroups(_id(1)),
+          engine = _HeldGroupEngine(),
+          slot = CallSlot();
+      final exited = Completer<void>();
+      final camera = _ObservedGroupPlugin(exited);
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(_id(1)),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        androidCapture: true,
+        cameraCaptureFactory: () => camera,
+        screenCaptureFactory: (_) => _IntentScreen()..result.complete(false),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+      );
+      final service = GroupCallService(
+        groups,
+        media: controller,
+        callSlot: slot,
+      )..start();
+      Future<void>? command;
+      Object? commandError;
+      try {
+        final active = service.changes.firstWhere(
+          (c) => c?.status == GroupCallStatus.active,
+        );
+        expect(
+          await service.startCall(
+            _id(9),
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await active;
+        expect(await camera.opened.future, isTrue);
+        await pumpEventQueue();
+        expect(
+          androidCallCameraPreviewController.value?.value.isStreamingImages,
+          isTrue,
+        );
+        final changing = operation == 'off'
+            ? service.setCameraEnabled(false)
+            : operation == 'screen'
+            ? service.setScreenShareEnabled(true)
+            : Future<void>.value();
+        command = changing.then<void>(
+          (_) {},
+          onError: (Object error, StackTrace _) {
+            commandError = error;
+          },
+        );
+        if (operation != 'attached') await platform.disposeEntered.future;
+        await service.leave();
+        await platform.disposeEntered.future;
+        await pumpEventQueue();
+        expect(
+          engine.audioStops,
+          greaterThan(0),
+          reason: 'audio must not wait for CameraPlatform.dispose',
+        );
+        final competing = slot.acquire(CallSlotOwner.direct);
+        if (competing != null) slot.release(competing);
+        expect(
+          competing,
+          isNull,
+          reason: 'real plugin adapter still owns camera/worker retirement',
+        );
+        platform.disposeGate!.complete();
+        await command;
+        await pumpEventQueue();
+        expect(commandError, isNull);
+        expect(slot.owner, isNull);
+        expect(engine.disposals, 1);
+        expect(exited.isCompleted, isTrue);
+      } finally {
+        if (!platform.disposeGate!.isCompleted) {
+          platform.disposeGate!.complete();
+        }
+        await command;
+        await service.dispose();
+        await camera.stop();
+        await groups.close();
+        await pumpEventQueue();
+        CameraPlatform.instance = previous;
+        expect(platform.errors, isEmpty);
+        expect(androidCallCameraPreviewController.value, isNull);
+        expect(slot.owner, isNull);
+      }
+    });
+  }
+
+  for (final failedReply in [false, true]) {
+    test(
+      'group old cleanup cannot hold newer audio engine: fail=$failedReply',
+      () async {
+        final old = _HeldGroupEngine(), next = _HeldGroupEngine();
+        final camera = _RetryGroupCamera();
+        var engines = 0;
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(_id(1)),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engines++ == 0 ? old : next,
+          androidCapture: true,
+          cameraCaptureFactory: () => camera,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        );
+        Future<void>? stopping;
+        try {
+          expect(
+            await controller.start(
+              _call(_id(1), [], video: true, callId: 'old-capture'),
+            ),
+            isTrue,
+          );
+          await camera.opened.future;
+          // The existing best-effort policy can finish after a returned error;
+          // the old startup continuation later makes its own cleanup attempt.
+          await controller.stop();
+          expect(old.disposals, 1);
+          expect(
+            await controller.start(_call(_id(1), [], callId: 'new-audio')),
+            isTrue,
+          );
+          camera.opening.complete(false);
+          await camera.retrying.future;
+          var stopped = false;
+          stopping = controller.stop().then((_) {
+            stopped = true;
+          });
+          await pumpEventQueue();
+          expect(
+            stopped,
+            isTrue,
+            reason: 'another engine must not join old cleanup',
+          );
+          expect(next.audioStops, 1);
+          expect(next.disposals, 1);
+          if (failedReply) {
+            camera.release.completeError(
+              StateError('synthetic retry close failure'),
+            );
+          } else {
+            camera.release.complete();
+          }
+          await stopping;
+          await pumpEventQueue();
+        } finally {
+          if (!camera.opening.isCompleted) camera.opening.complete(false);
+          if (!camera.release.isCompleted) camera.release.complete();
+          await stopping;
+          await controller.stop();
+          await pumpEventQueue();
+        }
+      },
+    );
+  }
+
   for (final capture in [0, 1, -1, null, '0']) {
     test(
       'group observes explicit capture termination: ${capture.runtimeType}:$capture',
@@ -4472,6 +4836,86 @@ class _CameraIntentGroups implements GroupService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _HeldGroupEngine extends _FakeEngine {
+  int audioStops = 0, disposals = 0;
+  @override
+  bool stopAudio() {
+    audioStops++;
+    return super.stopAudio();
+  }
+
+  @override
+  void dispose() {
+    disposals++;
+    super.dispose();
+  }
+}
+
+class _HeldGroupCamera extends _IntentCamera {
+  _HeldGroupCamera({this.opening, this.failStart = false});
+  final Completer<bool>? opening;
+  final bool failStart;
+  final opened = Completer<void>(),
+      stopping = Completer<void>(),
+      release = Completer<void>();
+  Future<void>? _closing;
+  void Function()? onStop;
+  @override
+  Future<bool> start(I420FrameSink sink) async {
+    await super.start(sink);
+    opened.complete();
+    final ok = opening == null ? true : await opening!.future;
+    if (failStart) throw StateError('synthetic group startup cleanup failure');
+    return ok;
+  }
+
+  @override
+  Future<void> stop() {
+    final pending = _closing;
+    if (pending != null) return pending;
+    stops++;
+    _closing = release.future;
+    stopping.complete();
+    final callback = onStop;
+    onStop = null;
+    callback?.call();
+    return release.future;
+  }
+}
+
+class _RetryGroupCamera extends _IntentCamera {
+  final opening = Completer<bool>(), opened = Completer<void>();
+  final retrying = Completer<void>(), release = Completer<void>();
+  @override
+  Future<bool> start(I420FrameSink sink) async {
+    await super.start(sink);
+    opened.complete();
+    return opening.future;
+  }
+
+  @override
+  Future<void> stop() {
+    stops++;
+    if (stops == 1) {
+      return Future.error(StateError('synthetic first close failure'));
+    }
+    if (!retrying.isCompleted) retrying.complete();
+    return release.future;
+  }
+}
+
+class _ObservedGroupPlugin extends AndroidCameraCapture {
+  _ObservedGroupPlugin(Completer<void> exited)
+    : super(onWorkerExit: exited.complete);
+  final opened = Completer<bool>();
+  @override
+  Future<bool> start(I420FrameSink sink) async {
+    final ok = await super.start(sink);
+    opened.complete(ok);
+    return ok;
+  }
 }
 
 class _IntentCamera extends AndroidCameraCapture {
