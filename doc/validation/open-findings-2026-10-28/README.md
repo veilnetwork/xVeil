@@ -255,6 +255,10 @@ SHA и 50 storage checksums. Неполная matrix и исходные жал�
   Физический handover и устранение исходной паузы этим не подтверждены;
   нового push/релиза нет.
   [Механизм, baseline-red и границы](../android-default-network-replacement-2026-11-18/README.md).
+  Native-порт затем проверен на Android 11 под QA application UID без окон:
+  реальные offline/Wi-Fi/offline, method snapshot и удаление системной
+  подписки ещё до выхода процесса прошли. Wi-Fi восстановлен, фокус не изменился;
+  на телефоне нет SIM, поэтому исходный cellular handover остаётся непроверенным.
   В 0.13.100 опубликовано исправление отдельного app-барьера: одна онлайн-личность
   с незавершённым IPC больше не задерживает следующую смену сети остальных.
   24 network / 358 related passed, без skips; исходный single-identity случай
