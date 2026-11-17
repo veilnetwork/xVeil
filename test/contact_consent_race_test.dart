@@ -27,6 +27,7 @@ class _Held extends HiddenVolumeStorage {
   bool holdOutbox = false, holdRead = false;
   bool holdInsideBlock = false, _holdBlockRead = false;
   bool holdRemoteAccept = false;
+  bool holdBlockReply = false;
   final remoteAcceptEntered = Completer<void>();
   String? writeFault;
   int reads = 0;
@@ -75,6 +76,11 @@ class _Held extends HiddenVolumeStorage {
       throw StateError('injected write reply loss');
     }
     await super.setContactStatus(peer, status);
+    if (status == ContactStatus.blocked && holdBlockReply) {
+      holdBlockReply = false;
+      entered.complete();
+      await release.future;
+    }
   }
 
   @override
@@ -658,6 +664,59 @@ void main() {
       skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
     );
 
+    for (final samePeer in [true, false]) {
+      test(
+        'late block reply publishes current status native=$native samePeer=$samePeer',
+        () async {
+          final f = await _fixture(native), p = id(2);
+          await f.storage.upsertContact(
+            Contact(nodeId: p, status: ContactStatus.pendingIncoming),
+          );
+          final notifications = <ContactStatus>[];
+          final localPublications = <ContactStatus>[];
+          final subscription = f.service.contactStatusChanges.listen((change) {
+            if (change.peer == p) notifications.add(change.status);
+          });
+          addTearDown(subscription.cancel);
+          f.service.onContactStatusChanged = (peer, status) {
+            if (peer == p) localPublications.add(status);
+          };
+          f.storage.holdBlockReply = true;
+          final blocking = f.service.blockContact(p);
+          await f.storage.entered.future;
+          expect(
+            (await f.storage.getContact(p))?.status,
+            ContactStatus.blocked,
+          );
+          await f.service.unblockContact(samePeer ? p : id(3));
+          await pumpEventQueue();
+          notifications.clear();
+          localPublications.clear();
+          f.storage.release.complete();
+          await blocking;
+          await pumpEventQueue();
+          final expected = samePeer
+              ? ContactStatus.accepted
+              : ContactStatus.blocked;
+          expect((await f.storage.getContact(p))?.status, expected);
+          expect(
+            {'notifications': notifications, 'local': localPublications},
+            {
+              'notifications': samePeer ? <ContactStatus>[] : [expected],
+              'local': samePeer ? <ContactStatus>[] : [expected],
+            },
+            reason: 'a completed unblock supersedes the earlier block reply',
+          );
+          await _verifyOffer(f, allowed: samePeer);
+          await f.service.dispose();
+          await f.storage.close();
+          expect(await f.storage.open(password: 'fixture'), isTrue);
+          expect((await f.storage.getContact(p))?.status, expected);
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
+
     for (final mode in ['primary', 'mirror', 'unblock', 'other-peer']) {
       test(
         'late acceptance cannot undo a completed block native=$native mode=$mode',
@@ -672,6 +731,15 @@ void main() {
                   : ContactStatus.pendingIncoming,
             ),
           );
+          final notifications = <ContactStatus>[];
+          final localPublications = <ContactStatus>[];
+          final subscription = f.service.contactStatusChanges.listen((change) {
+            if (change.peer == p) notifications.add(change.status);
+          });
+          addTearDown(subscription.cancel);
+          f.service.onContactStatusChanged = (peer, status) {
+            if (peer == p) localPublications.add(status);
+          };
           s.holdOutbox = true;
           final accepting = switch (mode) {
             'mirror' => f.service.applyMirroredContactStatus(
@@ -690,8 +758,24 @@ void main() {
                 ? ContactStatus.accepted
                 : ContactStatus.blocked,
           );
+          await pumpEventQueue();
+          notifications.clear();
+          localPublications.clear();
           s.release.complete();
           await accepting;
+          await pumpEventQueue();
+          expect(
+            {'notifications': notifications, 'local': localPublications},
+            {
+              'notifications': mode == 'other-peer'
+                  ? [ContactStatus.accepted]
+                  : <ContactStatus>[],
+              'local': mode == 'other-peer'
+                  ? [ContactStatus.accepted]
+                  : <ContactStatus>[],
+            },
+            reason: 'late cleanup must not publish obsolete accepted consent',
+          );
           await _verifyOffer(f, allowed: mode == 'other-peer');
         },
         skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,

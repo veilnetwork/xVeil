@@ -106,8 +106,25 @@ class _MessagingContacts {
       await _owner._outbox.retireRequests(peer);
       if (_owner._disposed) return;
     }
+    await _publishSavedStatus(peer, status, local: true);
+  }
+
+  Future<void> _publishSavedStatus(
+    NodeId peer,
+    ContactStatus status, {
+    required bool local,
+  }) async {
+    // Cleanup/storage waits can outlive another consent decision. A status
+    // event describes the current durable relationship, not the operation
+    // that happened to finish last. The read also checks consent revisions
+    // so a decision committed during the read cannot publish its old snapshot.
+    final current = await _owner._realtimeControl._readContactConsent(peer);
+    if (current?.contact?.status != status ||
+        !_owner._realtimeControl._consentCurrent(peer, current?.epoch)) {
+      return;
+    }
     _owner._contactStatusChanges.add((peer: peer, status: status));
-    _owner.onContactStatusChanged?.call(peer, status);
+    if (local) _owner.onContactStatusChanged?.call(peer, status);
   }
 
   /// Apply a relationship status mirrored from ANOTHER of my devices. Unlike
@@ -173,7 +190,7 @@ class _MessagingContacts {
       await _owner._outbox.retireRequests(peer);
     }
     if (_owner._disposed) return false;
-    _owner._contactStatusChanges.add((peer: peer, status: status));
+    await _publishSavedStatus(peer, status, local: false);
     _owner._signal();
     return true;
   }
