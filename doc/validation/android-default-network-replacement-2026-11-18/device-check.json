@@ -1,0 +1,64 @@
+{
+  "schema": "xveil-default-network-device-check/1",
+  "androidApi": 30,
+  "standaloneProcessUnderQaApplicationUid": true,
+  "applicationContextProbeAttributionCorrected": true,
+  "originalAppActivityLaunched": false,
+  "apkInstalled": false,
+  "sourceSha256": {
+    "android/app/src/main/kotlin/network/veil/xveil/DefaultNetworkState.kt": "c462e669a5970be6488b35e0a57418c595561db64790b78898795d25d3815464",
+    "android/app/src/main/kotlin/network/veil/xveil/DefaultNetworkObserver.kt": "dbde060c1ffb47e24f0f5743d21e220e492678163bb9786cae415983d5d7b30c"
+  },
+  "dexJarSha256": "9bd086b8af40c66fbf08c910f7e7cbd5ba309c1bfe49c388c925dbd79e7ff9dc",
+  "events": [
+    {
+      "event": "observation",
+      "kind": "offline",
+      "revision": 0,
+      "ordinal": 1
+    },
+    {
+      "event": "snapshot",
+      "kind": "offline",
+      "revision": 0
+    },
+    {
+      "event": "observation",
+      "kind": "wifi",
+      "revision": 1,
+      "ordinal": 2
+    },
+    {
+      "event": "observation",
+      "kind": "offline",
+      "revision": 2,
+      "ordinal": 3
+    },
+    {
+      "event": "retired",
+      "observations": 3
+    },
+    {
+      "event": "finished",
+      "observations": 3,
+      "errors": 0,
+      "retired": true,
+      "handlersCleared": true
+    }
+  ],
+  "activeRequestsForOwnedProcess": {
+    "before": 0,
+    "during": 1,
+    "retired": 0,
+    "after": 0
+  },
+  "retirementObservedWhileProcessAlive": true,
+  "focusUnchanged": true,
+  "wifiRestored": true,
+  "probeProcessGone": true,
+  "privateDirectoryGone": true,
+  "sameKindReplacementWithoutOfflinePhysicallyTested": false,
+  "cellularHandoverTested": false,
+  "fullApplicationCallTested": false,
+  "hostTestCompleted": true
+}
