@@ -152,6 +152,15 @@
   Четыре baseline assertion-red, 176 related passed без skips; окна и ввод
   не затрагивались. Это локальный механизм, а не атрибуция Windows 10 жалобы.
   [Воспроизведение и границы](../windows-hidden-call-fallback-2026-11-17/README.md).
+  Исправлен также controlled fault-путь очистки: устаревший post с ответом
+  false/exception не вызывал cancel, хотя такой ответ не доказывает отсутствие
+  эффекта ОС. Cleanup теперь выполняется в finally и остаётся внутри очереди
+  того же OS ID; действующий ticket и другие ID не отменяются. Восемь baseline
+  assertion-red и три контроля, включая настоящий wrapper и identity-switch
+  в NotificationBinder. 209 related и 115 с диагностикой прошли без skips,
+  анализатор чист. Реальный Windows partial failure не наблюдался; исходный
+  пропуск баннера этим не атрибутирован, исправление ещё не выпущено.
+  [Fault-модель, проверки и границы](../notification-uncertain-post-2026-11-17/README.md).
 - **ЖАЛОБА: установка 0.13.100 на Android 14 / HyperOS 1.** Установщик
   сообщает `Failed to extract native libraries, res=-18`; причина в проекте
   не установлена. На том же телефоне 0.13.99 ставится, 0.13.100 — нет,
