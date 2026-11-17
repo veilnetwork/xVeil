@@ -365,6 +365,16 @@
   Два прежних rebuild-теста теперь проверяют ожидание своего fence перед новым
   захватом. Это controlled lifetime qualification, не физический Windows-звонок;
   не выпущено. [Проверки и границы](../detached-native-retirement-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: старые audio-route ответы не сбрасывают новую настройку.**
+  Поздние setRoute/release могли заменить новый выбор и его cached-флаг;
+  notifier публиковался до established-state, а старый error затирал диагностику.
+  Операции теперь проверяют актуальность, release допускает новый setup сразу,
+  native-команда идёт до notification, established-state — до публикации route.
+  Шестнадцать baseline assertion-red, четыре обычных controls; 825 related и
+  235 с диагностикой прошли без skips, анализатор чист. Два deliberate mutants
+  дали два и четыре отказа. Это helper qualification через controlled channel,
+  не доказанная причина тишины Windows/телефона; не выпущено.
+  [Проверки и границы](../audio-route-lifetime-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие
