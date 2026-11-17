@@ -298,6 +298,24 @@ abstract interface class Storage {
   /// sender reads the returned seq to put it on the wire.
   Future<Message> appendMessage(Message message);
 
+  /// Persist a pre-consent introduction only while the latest contact remains
+  /// pending. The contact write turn also excludes accept/block during append.
+  /// [isCurrent] is a pure synchronous owner/consent lease check; no I/O.
+  /// Null declines without appending. Storage faults still throw.
+  Future<Message?> appendPendingContactIntroduction(
+    Message message, {
+    required bool Function() isCurrent,
+  });
+
+  /// Apply a discovered intro-cap eviction only to a still-pending contact.
+  /// Logical deletion holds the contact write turn; its required scrub then
+  /// finishes outside that lane before return. No async callbacks/network I/O.
+  Future<bool> trimPendingContactIntroductions(
+    NodeId peer,
+    List<String> messageIds, {
+    required bool Function() isCurrent,
+  });
+
   /// Adopt authenticated device-journal ordering for a provisional outgoing
   /// echo, only while its raw (author, seq) still matches the supplied pair.
   /// Metadata only: never inserts a post or replaces body/status/attachments,

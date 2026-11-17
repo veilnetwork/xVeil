@@ -2092,8 +2092,9 @@ class MessagingService {
   Future<bool> saveFileNoteRef(Message m, {String? forwardedFrom}) =>
       _localChat.saveFileNoteRef(m, forwardedFrom: forwardedFrom);
 
-  /// Null means the committed row expired/was erased while append waited.
-  /// Its durable deletion completes before callers suppress network/notices.
+  /// Null means the row expired/was erased or pre-consent admission declined.
+  /// If an appended row expires/is erased, durable deletion finishes before
+  /// callers suppress network/notices.
   Future<Message?> _store(
     NodeId peer,
     MessageDirection dir,
@@ -2116,46 +2117,53 @@ class MessagingService {
     // the PEER's stream — which fills an old gap and sorts the marker into
     // the MIDDLE of the chat (caught in device-verify: idx 21/66 twice).
     bool selfAuthored = false,
+    // Only inbound intros: a pure owner/consent lease for guarded persistence.
+    bool Function()? pendingIntroduction,
   }) async {
     final msgId = id ?? _uuid.v4();
     // Keep an already-installed owner across the async write: its shutdown
     // must refuse required work, rather than a detached null tap implying success.
     final publisher = onMessageStored;
     return _deviceMirror.withStoredWrite(peer, msgId, () async {
-      final stored = await _storage.appendMessage(
-        Message(
-          id: msgId,
-          conversationId: peer.hex,
-          direction: dir,
-          replyToId: replyToId,
-          forwardedFrom: forwardedFrom,
-          thumb: thumb,
-          customEmoji: customEmoji,
-          body: body,
-          // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
-          // conversation orders by send-order, not the scrambled arrival order.
-          timestamp: timestamp ?? DateTime.now(),
-          status: status,
-          fileId: fileId,
-          fileName: fileName,
-          fileSize: fileSize,
-          fileContentId: fileContentId,
-          // Event-log author (R1): the message originator's node id, bound to the
-          // AUTHENTICATED side — our own for an outgoing message, the peer (the
-          // server-authenticated conversation id) for an incoming one. Never
-          // inferred from an in-band wire field.
-          author: selfAuthored || dir == MessageDirection.outgoing
-              ? await _selfHex()
-              : peer.hex,
-          // The SENDER's seq when this is a wire-delivered incoming event (keeps
-          // the log convergent, R4); null for our own outgoing message → storage
-          // allocates the next gap-free value, which the caller puts on the wire.
-          seq: seq,
-          positionVerified: selfAuthored || dir == MessageDirection.outgoing
-              ? true
-              : null,
-        ),
+      final message = Message(
+        id: msgId,
+        conversationId: peer.hex,
+        direction: dir,
+        replyToId: replyToId,
+        forwardedFrom: forwardedFrom,
+        thumb: thumb,
+        customEmoji: customEmoji,
+        body: body,
+        // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
+        // conversation orders by send-order, not the scrambled arrival order.
+        timestamp: timestamp ?? DateTime.now(),
+        status: status,
+        fileId: fileId,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileContentId: fileContentId,
+        // Event-log author (R1): the message originator's node id, bound to the
+        // AUTHENTICATED side — our own for an outgoing message, the peer (the
+        // server-authenticated conversation id) for an incoming one. Never
+        // inferred from an in-band wire field.
+        author: selfAuthored || dir == MessageDirection.outgoing
+            ? await _selfHex()
+            : peer.hex,
+        // The SENDER's seq when this is a wire-delivered incoming event (keeps
+        // the log convergent, R4); null for our own outgoing message → storage
+        // allocates the next gap-free value, which the caller puts on the wire.
+        seq: seq,
+        positionVerified: selfAuthored || dir == MessageDirection.outgoing
+            ? true
+            : null,
       );
+      final stored = pendingIntroduction == null
+          ? await _storage.appendMessage(message)
+          : await _storage.appendPendingContactIntroduction(
+              message,
+              isCurrent: pendingIntroduction,
+            );
+      if (stored == null) return null;
       if (await _inboundExpiry.refuseStored(peer, stored)) return null;
       // Multi-device mirror tap: after the single write path persists a 1:1 row,
       // let the device-sync bridge mirror it to my other devices. [_store] is the
