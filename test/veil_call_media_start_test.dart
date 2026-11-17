@@ -299,6 +299,82 @@ class _CaptureStateEngine extends _CameraChoiceEngine {
   }
 }
 
+class _ScreenChoiceEngine extends _CameraChoiceEngine {
+  final screenStarts = <String?>[];
+  final retiredScreenCalls = <String>[];
+  final refusedScreens = <String>{};
+  final throwingScreens = <String>{};
+  bool screenStopAccepted = true, throwScreenStop = false;
+  int screenStops = 0;
+  String? activeScreen;
+
+  @override
+  bool startScreen({int width = 640, int fps = 15, String? sourceId}) {
+    screenStarts.add(sourceId);
+    if (disposed) {
+      retiredScreenCalls.add('start');
+      throw StateError('retired fixture engine');
+    }
+    if (throwingScreens.contains(sourceId)) {
+      throw StateError('source unavailable');
+    }
+    if (refusedScreens.contains(sourceId)) return false;
+    activeScreen = sourceId;
+    return true;
+  }
+
+  @override
+  bool stopScreen() {
+    screenStops++;
+    if (disposed) {
+      retiredScreenCalls.add('stop');
+      throw StateError('retired fixture engine');
+    }
+    if (throwScreenStop) throw StateError('source cleanup refused');
+    if (!screenStopAccepted) return false;
+    activeScreen = null;
+    return true;
+  }
+
+  @override
+  void dispose() {
+    activeScreen = null;
+    super.dispose();
+  }
+}
+
+class _ScreenChoiceController extends VeilCallMediaController {
+  _ScreenChoiceController(super.transport, {super.engineFactory});
+  Completer<List<CallMediaDevice>>? nextList;
+  final listEntered = Completer<void>();
+  static const screens = [
+    CallMediaDevice(
+      id: 'display-1',
+      label: 'First display',
+      kind: CallMediaDeviceKind.screen,
+    ),
+    CallMediaDevice(
+      id: 'window-2',
+      label: 'A window',
+      kind: CallMediaDeviceKind.window,
+    ),
+    CallMediaDevice(
+      id: 'display-3',
+      label: 'Another display',
+      kind: CallMediaDeviceKind.screen,
+    ),
+  ];
+
+  @override
+  Future<List<CallMediaDevice>> listScreens() {
+    final held = nextList;
+    nextList = null;
+    if (held == null) return Future.value(screens);
+    listEntered.complete();
+    return held.future;
+  }
+}
+
 class _PreviewReadEngine extends _CaptureStateEngine {
   _PreviewReadEngine({required this.remoteFails, required this.localFails});
   bool remoteFails;
@@ -1128,6 +1204,235 @@ void main() {
         }
       },
       skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
+    );
+  }
+
+  for (final change in [
+    'current',
+    'hangup',
+    'next-call',
+    'same-call-engine',
+    'new-selection',
+    'share-ended',
+    'profile',
+  ]) {
+    test(
+      'screen selection discovery respects $change owner',
+      () async {
+        final wire = _CameraCallWire(), engines = <_ScreenChoiceEngine>[];
+        final controller = _ScreenChoiceController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) {
+                final engine = _ScreenChoiceEngine();
+                engines.add(engine);
+                return engine;
+              },
+        );
+        final service = CallService(wire, media: controller)..start();
+        final list = Completer<List<CallMediaDevice>>();
+        Future<bool>? selecting;
+        try {
+          await _connectCameraCall(service, wire);
+          await service.setCameraEnabled(false);
+          expect(await service.selectScreen('display-1'), isTrue);
+          await service.setScreenShareEnabled(true);
+          expect(service.current?.screenOn, isTrue);
+          expect(engines.single.activeScreen, 'display-1');
+          controller.nextList = list;
+          selecting = service.selectScreen('window-2');
+          await controller.listEntered.future;
+          if (change == 'hangup' || change == 'next-call') {
+            await service.hangup();
+            await pumpEventQueue();
+            expect(engines.first.disposed, isTrue);
+            if (change == 'next-call') {
+              await _connectCameraCall(service, wire);
+              await service.setCameraEnabled(false);
+            }
+          } else if (change == 'same-call-engine') {
+            expect(await controller.start(service.current!), isTrue);
+            expect(engines.first.disposed, isTrue);
+          } else if (change == 'share-ended') {
+            await service.setScreenShareEnabled(false);
+            expect(service.current?.screenOn, isFalse);
+          } else if (change == 'profile') {
+            SharedPreferences.setMockInitialValues({
+              'profile-fixture': 'replacement',
+            });
+          }
+          if ([
+            'next-call',
+            'same-call-engine',
+            'new-selection',
+          ].contains(change)) {
+            expect(await service.selectScreen('display-3'), isTrue);
+            if (change == 'next-call') {
+              await service.setScreenShareEnabled(true);
+            }
+            expect(engines.last.activeScreen, 'display-3');
+          }
+          final before = [
+            for (final e in engines)
+              {'starts': List.of(e.screenStarts), 'stops': e.screenStops},
+          ];
+          list.complete(_ScreenChoiceController.screens);
+          final result = await selecting;
+          await pumpEventQueue();
+          final allowed = change == 'current' || change == 'share-ended';
+          expect(result, allowed);
+          if (change == 'current') {
+            expect(engines.last.activeScreen, 'window-2');
+          } else {
+            expect([
+              for (final e in engines)
+                {'starts': e.screenStarts, 'stops': e.screenStops},
+            ], before);
+          }
+          expect([for (final e in engines) ...e.retiredScreenCalls], isEmpty);
+          if (change == 'share-ended') {
+            await service.setScreenShareEnabled(true);
+            expect(
+              engines.last.activeScreen,
+              'window-2',
+              reason: 'selection with sharing off is a valid future choice',
+            );
+          }
+          if ([
+            'next-call',
+            'same-call-engine',
+            'new-selection',
+          ].contains(change)) {
+            expect(service.current?.screenOn, isTrue);
+            expect(engines.last.activeScreen, 'display-3');
+          }
+        } finally {
+          if (!list.isCompleted) list.complete(_ScreenChoiceController.screens);
+          await selecting;
+          service.dispose();
+          await controller.stop();
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS screen-source controller path' : false,
+    );
+  }
+
+  for (final refusal in [
+    'stop',
+    'stop-throws',
+    'new',
+    'new-throws',
+    'both',
+    'restore-throws',
+  ]) {
+    test(
+      'screen selection preserves actual source on $refusal refusal',
+      () async {
+        final wire = _CameraCallWire(), engine = _ScreenChoiceEngine();
+        final controller = _ScreenChoiceController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+        );
+        final service = CallService(wire, media: controller)..start();
+        try {
+          await _connectCameraCall(service, wire);
+          await service.setCameraEnabled(false);
+          expect(await service.selectScreen('display-1'), isTrue);
+          await service.setScreenShareEnabled(true);
+          expect(service.current?.screenOn, isTrue);
+          engine.screenStarts.clear();
+          engine.screenStopAccepted = refusal != 'stop';
+          engine.throwScreenStop = refusal == 'stop-throws';
+          if (refusal == 'new-throws') engine.throwingScreens.add('window-2');
+          if (['new', 'both', 'restore-throws'].contains(refusal)) {
+            engine.refusedScreens.add('window-2');
+          }
+          if (refusal == 'both') engine.refusedScreens.add('display-1');
+          if (refusal == 'restore-throws') {
+            engine.throwingScreens.add('display-1');
+          }
+          expect(await service.selectScreen('window-2'), isFalse);
+          await pumpEventQueue();
+          final stopped = refusal == 'both' || refusal == 'restore-throws';
+          expect(service.current?.status, CallStatus.active);
+          expect(service.current?.screenOn, !stopped);
+          expect(service.current?.cameraOn, isFalse);
+          expect(engine.activeScreen, stopped ? null : 'display-1');
+          expect(
+            engine.screenStarts,
+            refusal.startsWith('stop') ? isEmpty : ['window-2', 'display-1'],
+          );
+          expect(engine.disposed, isFalse);
+          if (stopped) {
+            expect(
+              wire.sent
+                  .lastWhere((s) => s.type == CallSignalType.renegotiate)
+                  .media
+                  ?.screen,
+              isFalse,
+            );
+          }
+        } finally {
+          service.dispose();
+          await controller.stop();
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS screen-source controller path' : false,
+    );
+  }
+
+  for (final rebuild in [false, true]) {
+    test(
+      'screen selection stopped event ignores recovered source rebuild=$rebuild',
+      () async {
+        final wire = _CameraCallWire(), engines = <_ScreenChoiceEngine>[];
+        final controller = _ScreenChoiceController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) {
+                final engine = _ScreenChoiceEngine();
+                engines.add(engine);
+                return engine;
+              },
+        );
+        final service = CallService(wire, media: controller)..start();
+        var delayedStops = 0;
+        final delayed = controller.screenShareStopped.listen(
+          (_) => delayedStops++,
+        );
+        delayed.pause();
+        try {
+          await _connectCameraCall(service, wire);
+          await service.setCameraEnabled(false);
+          expect(await service.selectScreen('display-1'), isTrue);
+          await service.setScreenShareEnabled(true);
+          engines.last.refusedScreens.addAll(['window-2', 'display-1']);
+          expect(await service.selectScreen('window-2'), isFalse);
+          await pumpEventQueue();
+          expect(service.current?.screenOn, isFalse);
+          engines.last.refusedScreens.clear();
+          await service.setScreenShareEnabled(true);
+          if (rebuild) expect(await controller.start(service.current!), isTrue);
+          expect(service.current?.screenOn, isTrue);
+          expect(engines.last.activeScreen, 'display-1');
+          delayed.resume();
+          await pumpEventQueue();
+          expect(
+            delayedStops,
+            0,
+            reason: 'retained stop must not describe the recovered source',
+          );
+          expect(service.current?.screenOn, isTrue);
+          expect(engines.last.activeScreen, 'display-1');
+        } finally {
+          await delayed.cancel();
+          service.dispose();
+          await controller.stop();
+        }
+      },
+      skip: !Platform.isMacOS ? 'macOS screen-source controller path' : false,
     );
   }
 
