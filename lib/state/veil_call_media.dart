@@ -422,6 +422,7 @@ class VeilCallMediaController implements CallMediaController {
     this._transport, {
     CallMediaEngineFactory? engineFactory,
     Future<void>? audioProcessingReady,
+    Future<bool> Function()? requestCamera,
     CallMicrophonePermission? Function(Future<bool>)? microphonePermissionFactory,
     @visibleForTesting bool? androidCameraCapture,
     @visibleForTesting
@@ -433,6 +434,7 @@ class VeilCallMediaController implements CallMediaController {
        // ignore: prefer_initializing_formals
        _audioProcessingReady = audioProcessingReady,
        _engineFactory = engineFactory ?? VeilMediaEngine.create,
+       _requestCamera = requestCamera ?? MacMediaPermissions.requestCamera,
        _androidCameraCapture = androidCameraCapture ?? Platform.isAndroid,
        _nativeCameraFactory = nativeCameraFactory ?? AndroidNativeCallCamera.new,
        _injectedCameraFactory = cameraCaptureFactory,
@@ -440,6 +442,7 @@ class VeilCallMediaController implements CallMediaController {
            microphonePermissionFactory ?? _platformMicrophonePermission;
 
   final CallMediaEngineFactory _engineFactory;
+  final Future<bool> Function() _requestCamera;
   final Future<void>? _audioProcessingReady;
   final bool _androidCameraCapture;
   final AndroidNativeCallCamera Function() _nativeCameraFactory;
@@ -1626,7 +1629,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     if (call.media.video) {
       diagnosticJournal.recordMediaPermission(video: true);
-      cameraPermission = MacMediaPermissions.requestCamera().then((granted) {
+      cameraPermission = _requestCamera().then((granted) {
         devLog(() => 'xVeil[call-media]: camera permission=$granted');
         diagnosticJournal.recordMediaPermission(video: true, granted: granted);
         return granted;
@@ -2515,7 +2518,7 @@ class VeilCallMediaController implements CallMediaController {
         _activeCall?.mediaIdentity == call.mediaIdentity;
     // Same bounded Apple TCC pre-prompt as a video call's start(): never let
     // the permission sheet hold the route-repair queue of the running call.
-    final granted = await MacMediaPermissions.requestCamera().timeout(
+    final granted = await _requestCamera().timeout(
       const Duration(seconds: 5),
       onTimeout: () => false,
     );

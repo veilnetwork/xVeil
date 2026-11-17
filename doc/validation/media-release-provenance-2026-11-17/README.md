@@ -99,12 +99,29 @@ are separate from the unit-test totals and do not exercise capture or sound.
 
 ## Remaining release work
 
-Build and qualify a fresh immutable set for three Android ABIs, two Linux
-architectures and two Windows architectures. Then update all three release pins
-and build final application packages. macOS requires its corresponding final
-package qualification; its private current component is not a published pin.
-The original Windows 10 camera complaint is not attributed by these checks.
+The follow-up below completes the seven replacement engines. Final application
+packages and macOS package qualification remain; a component prerelease is not
+an application release. The original Windows 10 camera complaint is not
+attributed by these checks.
 
 No GUI window, focus change, OS input, physical capture, user container or seed
 is changed. Owned test/build supervisors exit and the existing user app remains
 running. Privacy checks pass for the staged changes. No push or release.
+
+## Follow-up: seven replacement engines published
+
+The final producer source is xVeil `2f6658a2` / Veil `5b2a31c7`, with the same
+native source digest printed above. Linux/Android run `44107427387` and Windows
+run `44107439146` completed all seven compilation jobs. Each library passed its
+107-export gate; downloaded producer and workflow records agree on source and
+binary SHA. ELF/PE machine types were independently checked for all targets.
+
+The fourteen assets in [engine-2026.11.17.1](https://github.com/veilnetwork/xVeil/releases/tag/engine-2026.11.17.1)
+were first uploaded as a draft, downloaded again, and compared byte-for-byte
+by SHA with the qualified inputs and GitHub asset digests. The tag resolves to
+the intended source commit. The prerelease is published without changing the
+latest application release. All three application workflow pins select it.
+Subsequent Rust/HV-only changes do not alter the C++ media source digest.
+
+This qualifies compilation, provenance, exports and publication. It does not
+claim a user-visible Windows 10 camera fix or a new physical call test.

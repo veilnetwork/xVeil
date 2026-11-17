@@ -114,17 +114,20 @@ void main() {
       expect(screen.secured, isTrue);
     });
 
-    test('once applied, further holds do not call the platform again', () async {
-      // The positive control for the retry: without it, "retries" could mean
-      // "calls the platform on every hold forever", which is a channel round
-      // trip per screen for nothing.
-      answerWith((_) => null);
-      final screen = SecureScreen();
-      await screen.hold('a');
-      await screen.hold('b');
-      await screen.hold('c');
-      expect(secureCalls, [true]);
-    });
+    test(
+      'once applied, further holds do not call the platform again',
+      () async {
+        // The positive control for the retry: without it, "retries" could mean
+        // "calls the platform on every hold forever", which is a channel round
+        // trip per screen for nothing.
+        answerWith((_) => null);
+        final screen = SecureScreen();
+        await screen.hold('a');
+        await screen.hold('b');
+        await screen.hold('c');
+        expect(secureCalls, [true]);
+      },
+    );
 
     test('a platform with no answer at all is not retried', () async {
       // Windows and Linux. There is nothing to apply and nothing will ever
@@ -154,8 +157,9 @@ void main() {
 
   // Shaped like the real app root (lib/app.dart): the shield wraps everything,
   // so a "just make it global" implementation would show up here.
-  Widget host(Widget child) =>
-      MaterialApp(home: TaskSwitcherShield(child: Scaffold(body: child)));
+  Widget host(Widget child) => MaterialApp(
+    home: TaskSwitcherShield(child: Scaffold(body: child)),
+  );
 
   group('a route that carries a secret', () {
     testWidgets('takes the flag while it is on screen and gives it back', (
@@ -191,14 +195,14 @@ void main() {
       expect(secureScreen.holderCount, 2);
 
       await tester.pumpWidget(
-        host(const Column(children: [SecureScreenGuard(child: Text('phrase'))])),
+        host(
+          const Column(children: [SecureScreenGuard(child: Text('phrase'))]),
+        ),
       );
       await tester.pumpAndSettle();
-      expect(
-        secureCalls,
-        [true],
-        reason: 'the phrase is still on screen — the flag must stay',
-      );
+      expect(secureCalls, [
+        true,
+      ], reason: 'the phrase is still on screen — the flag must stay');
 
       await tester.pumpWidget(host(const Text('chats')));
       await tester.pumpAndSettle();
@@ -235,7 +239,8 @@ void main() {
       expect(
         secureCalls,
         isEmpty,
-        reason: 'nothing may be secured app-wide: the window would go black '
+        reason:
+            'nothing may be secured app-wide: the window would go black '
             'inside this app\'s own MediaProjection',
       );
       expect(secureScreen.engaged, isFalse);
@@ -250,10 +255,14 @@ void main() {
       const captureChannel = MethodChannel('xveil/screen_capture');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(
-        captureChannel,
-        (call) async => call.method == 'start' ? true : null,
-      );
+      Object? session;
+      messenger.setMockMethodCallHandler(captureChannel, (call) async {
+        if (call.method == 'start') {
+          session = (call.arguments as Map)['session'];
+          return true;
+        }
+        return null;
+      });
       addTearDown(
         () => messenger.setMockMethodCallHandler(captureChannel, null),
       );
@@ -276,7 +285,7 @@ void main() {
       await messenger.handlePlatformMessage(
         'xveil/screen_capture',
         const StandardMethodCodec().encodeMethodCall(
-          MethodCall('frame', payload),
+          MethodCall('frame', {'session': session, 'frame': payload}),
         ),
         (_) {},
       );
@@ -443,8 +452,9 @@ void main() {
     // GroupService, so pumping it needs more scaffolding than the claim is
     // worth. What matters is that the guard encloses BOTH the display and the
     // copy buttons, which is what the ordering assertion below checks.
-    final source =
-        await File('lib/features/settings/devices_screen.dart').readAsString();
+    final source = await File(
+      'lib/features/settings/devices_screen.dart',
+    ).readAsString();
 
     final guard = source.indexOf('return SecureScreenGuard(');
     expect(
@@ -485,8 +495,9 @@ void main() {
     // anyway — carries the whole capability to adopt a device into this
     // identity's group. The sheet also takes the recovery code or phrase in
     // its first branch, which is the same secret the guarded sheet protects.
-    final source =
-        await File('lib/features/settings/devices_screen.dart').readAsString();
+    final source = await File(
+      'lib/features/settings/devices_screen.dart',
+    ).readAsString();
 
     final sheet = source.indexOf('class _SourceLinkSheetState');
     expect(sheet, isNonNegative, reason: 'the adoption sheet was renamed');
@@ -499,7 +510,8 @@ void main() {
     expect(
       body.contains('SecureScreenGuard('),
       isTrue,
-      reason: 'the sheet that shows the adoption token, as a QR and as text, '
+      reason:
+          'the sheet that shows the adoption token, as a QR and as text, '
           'can be screenshotted and screen-recorded',
     );
     expectBefore(

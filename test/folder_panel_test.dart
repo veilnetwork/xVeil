@@ -45,6 +45,10 @@ Widget _host(
 );
 
 void main() {
+  // Every panel can read preferences, including the default drawer. Leaving
+  // the first tests on an unanswered host plugin can strand the next profile's
+  // preference handover even after its own mock is installed.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   final folders = [
     const ChatFolder(
       id: 'f1',
@@ -130,16 +134,19 @@ void main() {
   testWidgets('switching from right to top changes an open empty chat screen', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
     final container = ProviderContainer(
       overrides: [
         conversationsProvider.overrideWith((ref) => Stream.value(const [])),
         chatFoldersProvider.overrideWith((ref) => Stream.value(const [])),
       ],
     );
-    await container
-        .read(folderPanelPositionProvider.notifier)
-        .set(FolderPanelPosition.right);
+    addTearDown(container.dispose);
+    // Preference refresh must run outside the widget's virtual clock.
+    await tester.runAsync(
+      () => container
+          .read(folderPanelPositionProvider.notifier)
+          .set(FolderPanelPosition.right),
+    );
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -154,13 +161,14 @@ void main() {
     expect(find.byType(ChoiceChip), findsNothing);
     expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNotNull);
 
-    await container
-        .read(folderPanelPositionProvider.notifier)
-        .set(FolderPanelPosition.top);
+    await tester.runAsync(
+      () => container
+          .read(folderPanelPositionProvider.notifier)
+          .set(FolderPanelPosition.top),
+    );
     await tester.pump();
     expect(find.byType(ChoiceChip), findsOneWidget);
     expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNull);
     await tester.pumpWidget(const SizedBox.shrink());
-    container.dispose();
   });
 }

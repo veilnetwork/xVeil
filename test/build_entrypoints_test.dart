@@ -504,9 +504,13 @@ except RuntimeError as error:
       Directory('${temp.path}/$runner').createSync(recursive: true);
       final probe = File('${temp.path}/probe.py')
         ..writeAsStringSync('''
-import sys, os
+import sys, os, importlib.util
 sys.path.insert(0, ${_pyStr(Directory.current.path)})
 import builder
+spec = importlib.util.spec_from_file_location(
+    "provenance", os.path.join(builder.ROOT, "scripts", "verify-media-provenance.py"))
+media = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(media)
 builder.ROOT = ${_pyStr(temp.path)}
 runner = ${_pyStr(runner)}
 try:
@@ -514,9 +518,23 @@ try:
     print("ACCEPTED-EMPTY")
 except RuntimeError as error:
     print("REFUSED " + str(error).splitlines()[0])
-# ...and it accepts the bundle once the engine is there, so the check is a
-# check and not a wall.
-open(os.path.join(builder.ROOT, runner, "veil_media.dll"), "w").close()
+# A present but unverified DLL remains refused. Only a bundle matching the
+# source-current staged engine and its producer record may pass.
+from pathlib import Path
+binary = Path(builder.ROOT, runner, "veil_media.dll")
+binary.write_bytes(b"fixture call engine")
+try:
+    builder._check_windows_engine(runner)
+    print("ACCEPTED-UNVERIFIED")
+except RuntimeError:
+    print("REFUSED-UNVERIFIED")
+source = Path(builder.ROOT, "third_party/veil/flutter/veil_media/src")
+source.mkdir(parents=True)
+(source / "engine.cc").write_text("int engine() { return 0; }\\n")
+staged = Path(builder.ROOT, builder._WINDOWS_ENGINE_STAGE)
+staged.parent.mkdir(parents=True, exist_ok=True)
+staged.write_bytes(binary.read_bytes())
+media._native.record_build(source, staged, media.source_digest(source))
 try:
     builder._check_windows_engine(runner)
     print("ACCEPTED-WITH-ENGINE")
@@ -527,6 +545,8 @@ except RuntimeError as error:
       expect(result.exitCode, 0, reason: result.stderr.toString());
       final out = result.stdout.toString();
       expect(out, contains('REFUSED MISSING veil_media.dll'));
+      expect(out, contains('REFUSED-UNVERIFIED'));
+      expect(out, isNot(contains('ACCEPTED-UNVERIFIED')));
       expect(out, contains('ACCEPTED-WITH-ENGINE'));
     });
 

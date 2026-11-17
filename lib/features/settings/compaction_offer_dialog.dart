@@ -408,9 +408,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
             } catch (_, stack) {
               errorJournal.record(
                 kind: 'storage-compaction-recovery',
-                error: StateError(
-                  'could not restore refused compaction collection',
-                ),
+                error: StateError('compaction-recovery-failed'),
                 stack: stack,
                 atMs: DateTime.now().millisecondsSinceEpoch,
               );

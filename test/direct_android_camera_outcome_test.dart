@@ -19,6 +19,7 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/android_camera_capture.dart';
 import 'package:xveil/state/android_native_call_camera.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/call_network_activity.dart';
 import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
@@ -976,6 +977,9 @@ void main() {
       engineFactory: ({required veilChan, required localId, required peerId}) =>
           engine,
       androidCameraCapture: true,
+      requestCamera: () async =>
+          await permissions.invokeMethod<bool>('request', {'type': 'video'}) ??
+          false,
       nativeCameraFactory: () {
         opens++;
         return camera;
@@ -1464,6 +1468,17 @@ void main() {
             network,
             (call) async => (call.arguments as Map)['active'],
           );
+          // Exercise Android resource ownership on every host. A Linux host's
+          // unsupported platform response is not a failed Android acquire.
+          CallNetworkActivity.debugSetActiveOverride = (active) async =>
+              await network.invokeMethod<bool>('setActive', {
+                'active': active,
+              }) ??
+              false;
+          addTearDown(() {
+            CallNetworkActivity.debugReset();
+            messenger.setMockMethodCallHandler(network, null);
+          });
           final wire = _Wire(), transport = _Transport();
           final oldEngine = _Engine(), newEngine = _Engine();
           final engines = Queue<_Engine>.of([oldEngine, newEngine]);

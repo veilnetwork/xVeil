@@ -182,9 +182,16 @@ void _screenShareIsBoundToItsSession(String file) {
   final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), ' ');
 
   final tookEpoch = body.indexOf('final epoch = _mediaEpoch;');
-  final stopsCamera = body.indexOf('.stop();');
-  final createsSource = body.indexOf('_startAndroidScreen(engine');
-  final checksEpoch = body.indexOf('if (epoch != _mediaEpoch) return false;');
+  // Group capture now retires the owned camera through a drain helper; the
+  // session predicate includes both engine ownership and the media epoch.
+  final grouped = file.endsWith('veil_group_call_media.dart');
+  final stopsCamera = body.indexOf(
+    grouped ? 'await _retireCamera(engine, camera);' : '.stop();',
+  );
+  final createsSource = body.indexOf(RegExp(r'_startAndroidScreen\(\s*engine'));
+  final checksEpoch = grouped
+      ? body.indexOf('if (!current()) return false;', stopsCamera)
+      : body.indexOf('if (epoch != _mediaEpoch) return false;');
   // The SHAPE, not the identifier: a check for the name alone stayed green
   // when the guard around it was deleted and the field left behind, which is
   // the same "contains means present" mistake this file is here to catch.
@@ -221,4 +228,9 @@ void _screenShareIsBoundToItsSession(String file) {
         '$file: the screen source is created before anything asks whether '
         'the call is still the one that asked for it',
   );
+  if (grouped) {
+    expect(body, contains('_mediaEpoch == epoch'));
+    expect(stopsCamera, greaterThan(tookEpoch));
+    expect(checksEpoch, greaterThan(stopsCamera));
+  }
 }
