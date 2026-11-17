@@ -127,6 +127,8 @@ class _GatedMedia extends GroupCallMediaController {
   bool shareOk = true;
   final cameras = <bool>[];
   Future<void> Function(bool)? cameraOperation;
+  Completer<bool>? videoGate;
+  final videoEntered = Completer<void>();
 
   /// How many times media was actually asked to start.
   int starts = 0;
@@ -154,6 +156,12 @@ class _GatedMedia extends GroupCallMediaController {
   Future<void> setCameraEnabled(bool enabled) async {
     cameras.add(enabled);
     await cameraOperation?.call(enabled);
+  }
+
+  @override
+  Future<bool> setVideoEnabled(bool enabled) async {
+    if (!videoEntered.isCompleted) videoEntered.complete();
+    return videoGate?.future ?? false;
   }
 }
 
@@ -196,6 +204,48 @@ void main() {
     expect(service.current?.screenOn, isTrue);
     media.cameras.clear();
     return (service, groups, media);
+  }
+
+  for (final choice in ['keep on', 'off', 'off then on']) {
+    test('pending group video upgrade respects $choice', () async {
+      final groups = _FakeGroups(NodeId.fromHex('a' * 64)),
+          media = _GatedMedia();
+      final service = GroupCallService(groups, media: media)..start();
+      addTearDown(() async {
+        if (media.videoGate?.isCompleted == false) {
+          media.videoGate!.complete(false);
+        }
+        await service.dispose();
+        await groups.close();
+      });
+      final active = service.changes.firstWhere(
+        (call) => call?.status == GroupCallStatus.active,
+      );
+      expect(
+        await service.startCall(groupId, const CallMedia(audio: true)),
+        isTrue,
+      );
+      await active;
+      media.videoGate = Completer<bool>();
+      final enabling = service.setCameraEnabled(true);
+      await media.videoEntered.future;
+      Future<void>? newer;
+      try {
+        if (choice != 'keep on') await service.setCameraEnabled(false);
+        if (choice == 'off then on') newer = service.setCameraEnabled(true);
+        media.videoGate!.complete(true);
+        await enabling;
+        await newer;
+        final on = choice != 'off';
+        expect(service.current?.cameraOn, on);
+        expect(service.current?.media.video, on);
+        expect(media.cameras, on ? [true] : isEmpty);
+      } finally {
+        if (!media.videoGate!.isCompleted) media.videoGate!.complete(false);
+        await enabling;
+        await newer;
+      }
+    });
   }
 
   for (final terminal in ['leave', 'replacement', 'dispose']) {

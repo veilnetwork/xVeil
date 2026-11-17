@@ -73,6 +73,7 @@ abstract class GroupCallMediaController {
   Future<void> stop();
   Future<void> setMicMuted(bool muted) async {}
   Future<void> setCameraEnabled(bool enabled) async {}
+
   /// Remember the camera choice while the screen owns the source, without
   /// starting/stopping capture or interrupting the active screen projection.
   void updateCameraIntent(bool enabled) {}
@@ -136,6 +137,7 @@ class GroupCallService {
 
   StreamSubscription<GroupCallSignal>? _subscription;
   StreamSubscription<void>? _screenShareStoppedSubscription;
+  int _cameraOperationEpoch = 0;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   Timer? _reannounceTimer;
@@ -510,12 +512,18 @@ class GroupCallService {
   Future<void> setCameraEnabled(bool enabled) async {
     final call = _current;
     if (call == null || !call.isLive) return;
+    if (call.media.video && call.cameraOn == enabled) return;
+    final operation = ++_cameraOperationEpoch;
     if (!call.media.video) {
-      if (!enabled || !(await _media?.setVideoEnabled(true) ?? false)) return;
-      final current = _current;
-      if (current == null || !current.isLive || current.callId != call.callId) {
+      if (!enabled) {
+        _media?.updateCameraIntent(false);
         return;
       }
+      final ready = await _media?.setVideoEnabled(true) ?? false;
+      if (!ready || !_stillOn(call) || operation != _cameraOperationEpoch) {
+        return;
+      }
+      final current = _current!;
       _set(
         current.copyWith(
           media: current.media.copyWith(video: true),
@@ -524,13 +532,14 @@ class GroupCallService {
       );
       _media?.updateCameraIntent(true);
       await _media?.setCameraEnabled(true);
+      if (!_stillOn(call)) return;
       await _announceMedia();
       return;
     }
-    if (call.cameraOn == enabled) return;
     _set(call.copyWith(cameraOn: enabled));
     _media?.updateCameraIntent(enabled);
     if (!call.screenOn) await _media?.setCameraEnabled(enabled);
+    if (!_stillOn(call)) return;
     await _announceMedia();
   }
 
