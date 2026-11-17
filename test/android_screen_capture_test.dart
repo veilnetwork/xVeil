@@ -143,9 +143,9 @@ void main() {
   });
 
   test('enabling screen share cannot outlive the media session', () {
-    // A structural check, because the behavioural one is out of reach here:
-    // the whole branch is `Platform.isAndroid`, the capture factory is a final
-    // field, and a real MediaProjection is not something a unit test starts.
+    // Host structural coverage for both controllers' Platform.isAndroid branch.
+    // The direct controller also has behavioural qualification in the separate
+    // android_media_lifetime_headless probe, without a real MediaProjection.
     //
     // What it asserts is the ordering the defect was made of. Enabling share
     // stops the camera FIRST: it nulls `_androidNativeCam` and `_androidCam`
@@ -183,7 +183,7 @@ void _screenShareIsBoundToItsSession(String file) {
 
   final tookEpoch = body.indexOf('final epoch = _mediaEpoch;');
   final stopsCamera = body.indexOf('.stop();');
-  final createsSource = body.indexOf('_startAndroidScreen(engine)');
+  final createsSource = body.indexOf('_startAndroidScreen(engine');
   final checksEpoch = body.indexOf('if (epoch != _mediaEpoch) return false;');
   // The SHAPE, not the identifier: a check for the name alone stayed green
   // when the guard around it was deleted and the field left behind, which is

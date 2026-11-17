@@ -443,6 +443,20 @@
   skips. Это controlled macOS selector/feedback, не причина Windows 10 камеры
   и не физическая MediaProjection-квалификация; не выпущено.
   [Проверки и границы](../screen-selection-owner-2026-11-17/README.md).
+- **ИСПРАВЛЕНО ЛОКАЛЬНО: запуск демонстрации Android не блокирует следующий звонок.**
+  После hangup мог оставаться pending screen-start от прежней медиасессии:
+  следующий звонок становился active, но камера не запускалась. Teardown теперь
+  отсоединяет этот запрос; его продолжение использует только собственные
+  camera/screen owners. Остановка отсоединённой fallback-камеры также удерживает
+  engine/CallSlot до её завершения. Native fence остаётся у прежнего engine, а уже работающая
+  демонстрация сохраняется при внутреннем rebuild того же звонка.
+  На настоящем Android без Activity и физических media: шесть baseline
+  assertion-red и три controls; два случая используют настоящий CallService и
+  CallSlot. Финальные девять сценариев, 895 host и 293 diagnostics-enabled
+  проверок прошли; три deliberate mutants дали один, один и два ожидаемых отказа.
+  Это Android control flow над synthetic adapters, не камера Windows 10;
+  пользовательские приложения/контейнеры не заменялись, не выпущено.
+  [Воспроизведение и границы](../android-screen-start-owner-2026-11-17/README.md).
 - **ИСПРАВЛЕНО ЛОКАЛЬНО: групповой call-control больше не держит mutation lane
   во время ожидания отправки.** Два baseline assertion-red: блокировка входящего
   кадра и встречные callback-отправки, ждущие противоположный ingress. Исходящие

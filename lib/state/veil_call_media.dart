@@ -597,6 +597,8 @@ class VeilCallMediaController implements CallMediaController {
   int _cameraOperationEpoch = 0;
   // Sources can be detached by a toggle/selection while native stop is still
   // pending. Their engine must retain those JNI fences after the field is null.
+  // Screen handoff also tracks the plugin camera's platform stop here so the
+  // call slot cannot release over that detached capture's teardown.
   final _nativeRetirements = Map<VeilMediaEngine, Set<Future<void>>>.identity();
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
@@ -2664,6 +2666,11 @@ class VeilCallMediaController implements CallMediaController {
         _screenSharing &&
         _screenStarting == null &&
         _androidScreen != null;
+    // A pending share belongs to the retiring media session. Its camera stop
+    // or consent reply may still be outstanding after this teardown completes;
+    // it must not suppress capture or answer a share request in the successor.
+    // The request's finally clears only its own future.
+    _screenStarting = null;
     _androidScreen?.rebindFrameSink(null);
     if (clearActiveCall) {
       _routeHandovers = 0;
@@ -3482,12 +3489,15 @@ class VeilCallMediaController implements CallMediaController {
             _androidNativeCam != null || _androidCam != null;
         final nativeCam = _androidNativeCam;
         _androidNativeCam = null;
+        final cam = _androidCam;
+        _androidCam = null;
         if (nativeCam != null) {
           await _retireNativeSource(engine, nativeCam.stop);
         }
-        final cam = _androidCam;
-        _androidCam = null;
-        if (cam != null) await cam.stop();
+        // This source is no longer visible to teardown. Retain its platform
+        // stop with the engine so hangup cannot release the call slot while
+        // the fallback camera is still retiring.
+        if (cam != null) await _retireNativeSource(engine, cam.stop);
         if (epoch != _mediaEpoch) return false;
         if (_chan != chan ||
             _transport.setMediaScreenSharing(chan, true) != 0) {
@@ -3495,28 +3505,16 @@ class VeilCallMediaController implements CallMediaController {
         }
         final bool started;
         try {
-          started = await _startAndroidScreen(engine);
+          started = await _startAndroidScreen(engine, epoch: epoch);
         } catch (_) {
           if (epoch == _mediaEpoch && _chan == chan) {
             _transport.setMediaScreenSharing(chan, false);
           }
           rethrow;
         }
-        // And again on the way out: `_startAndroidScreen` publishes the source
-        // before it awaits `start`, so a teardown landing THERE stops a source
-        // that has not started yet and the start then succeeds behind it —
-        // capture running with nobody holding it.
-        if (epoch != _mediaEpoch) {
-          final orphan = _androidScreen;
-          _androidScreen = null;
-          _screenSharing = false;
-          if (orphan != null) {
-            try {
-              await orphan.stop();
-            } catch (_) {}
-          }
-          return false;
-        }
+        // The helper retires only the source this request created. Never read
+        // the successor's shared source or reset its sharing state here.
+        if (epoch != _mediaEpoch) return false;
         if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
         if (started) _rememberScreenSharing(true);
@@ -3615,7 +3613,10 @@ class VeilCallMediaController implements CallMediaController {
     };
   }
 
-  Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
+  Future<bool> _startAndroidScreen(
+    VeilMediaEngine engine, {
+    required int epoch,
+  }) async {
     final callId = _activeCall?.callId;
     if (callId == null || _engine != engine) return false;
     _androidScreenPushLogged = false;
@@ -3636,6 +3637,15 @@ class VeilCallMediaController implements CallMediaController {
     });
     _androidScreen = screen;
     final started = await screen.start(_androidScreenSink(engine, screen));
+    if (_mediaEpoch != epoch ||
+        _engine != engine ||
+        _androidScreen != screen) {
+      if (_androidScreen == screen) _androidScreen = null;
+      try {
+        await screen.stop();
+      } catch (_) {}
+      return false;
+    }
     if (!started && _androidScreen == screen) _androidScreen = null;
     return started;
   }
