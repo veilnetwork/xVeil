@@ -336,3 +336,20 @@ clean installation on Android 14. All **13** actual installed native hashes,
 Cold AOT processes stop; the owned emulator/ADB exit, ports close and the
 private temporary image/AVD are removed. Diagnostic APKs are still building.
 [Actual APK digests, exception scope and installation limits](../android-release-apk-0.13.102-2026-11-17/README.md).
+
+## Publication completed
+
+The three diagnostic Android APKs subsequently pass the same signer, version,
+media-byte and privacy gates, with enabled structured reports and no raw log
+filename. Release run `44151584778` completes **all ten jobs successfully**.
+All **17 public files** are downloaded and independently verified, including
+15 archives / 3156 payload members. Every public APK and desktop archive matches
+the previously qualified Actions bytes; the published ARM64 normal APK is the
+exact one which passed update/fresh installation. Short Russian release notes
+retain the original changelog and pass read-back comparison.
+
+Post-qualification cleanup preserves all public files, the previous stable APK
+and 21 qualified paths via verified hard links. Eleven outer Actions ZIPs and
+four static-ABI-copy directories are removed, reducing unique allocated blocks
+by 1319555072 bytes in the owned proof directory. No global cache or Git GC is
+affected. [Final release report and known limits](../release-0.13.102-2026-11-17/README.md).

@@ -73,6 +73,10 @@ This is actual tagged normal-APK packaging and ARM64 installation qualification,
 including an AOT process smoke check, not full onboarding, calls, every historical
 migration, the affected HyperOS phone or the complete multi-device matrix.
 The other two ABIs receive package checks rather than emulator execution.
-Diagnostic APKs, the remaining release workflow and comparison against actual
-published files are still pending at this checkpoint. No Windows 10 camera or
-ongoing-call network-handover complaint is declared fixed by these results.
+The three diagnostic APKs subsequently pass signer/version/native/privacy
+checks, enabled-report markers and absence of a raw log filename. All six
+published APKs match the independently qualified Actions files, including
+the exact installed ARM64 bytes. All ten release jobs pass.
+[Final publication qualification](../release-0.13.102-2026-11-17/README.md).
+No Windows 10 camera or ongoing-call network-handover complaint is declared
+fixed by these results.
