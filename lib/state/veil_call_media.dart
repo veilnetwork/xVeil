@@ -595,10 +595,9 @@ class VeilCallMediaController implements CallMediaController {
   // A choice or ON/OFF intent can supersede a stop fence within the same call.
   // Its late continuation owns no newer source.
   int _cameraOperationEpoch = 0;
-  // Sources can be detached by a toggle/selection while native stop is still
-  // pending. Their engine must retain those JNI fences after the field is null.
-  // Screen handoff also tracks the plugin camera's platform stop here so the
-  // call slot cannot release over that detached capture's teardown.
+  // Sources can be detached by a toggle/selection while their stop is pending.
+  // Retain Camera2/JNI and plugin platform-stop replies under the engine after
+  // the field is null, so session teardown cannot release the call slot early.
   final _nativeRetirements = Map<VeilMediaEngine, Set<Future<void>>>.identity();
   final _microphoneForeground = AndroidCallForegroundService.bind();
   final _cameraLifetime = CaptureResourceLifetime.current();
@@ -3283,7 +3282,7 @@ class VeilCallMediaController implements CallMediaController {
         if (!current()) return false;
         final fallback = _androidCam;
         _androidCam = null;
-        if (fallback != null) await fallback.stop();
+        if (fallback != null) await _retireNativeSource(engine, fallback.stop);
         return current();
       }
 
@@ -3461,7 +3460,7 @@ class VeilCallMediaController implements CallMediaController {
         _androidCam = null;
         if (cam != null) {
           try {
-            await cam.stop();
+            await _retireNativeSource(engine, cam.stop);
           } catch (_) {}
         }
         if (!current()) return;
@@ -3816,7 +3815,7 @@ class VeilCallMediaController implements CallMediaController {
     if (!ok || !owned) {
       if (_androidCam == cam) _androidCam = null;
       try {
-        await cam.stop();
+        await _retireNativeSource(engine, cam.stop);
       } catch (_) {
         // The source lifetime retains any failed backend retirement.
       }

@@ -3209,14 +3209,34 @@ class CallService {
     _end(CallEndReason.error, origin: CallEndOrigin.mediaStartFailure);
   }
 
-  Future<void> _stopMediaAndReleaseSlot() async {
-    try {
-      await _media?.stop();
-    } catch (_) {
-      // Teardown is best-effort, but the global slot must never leak.
-    } finally {
-      _releaseSlot();
+  ({String? callId, Future<void> stopped})? _mediaStop;
+
+  Future<void> _stopMediaAndReleaseSlot({String? callId}) {
+    final targetCallId = callId ?? _current?.callId;
+    final pending = _mediaStop;
+    if (pending != null &&
+        (targetCallId == null || targetCallId == pending.callId)) {
+      return pending.stopped;
     }
+    final completion = Completer<void>();
+    final stopping = (callId: targetCallId, stopped: completion.future);
+    final lease = _slotLease;
+    // Publish before entering the port: a preview listener can dispose the
+    // service synchronously from stop. A second stop may already see a detached
+    // engine and return while the first still owns capture teardown.
+    _mediaStop = stopping;
+    unawaited(() async {
+      try {
+        await _media?.stop();
+      } catch (_) {
+        // Teardown is best-effort, but the global slot must never leak.
+      } finally {
+        if (identical(_slotLease, lease)) _releaseSlot();
+        if (_mediaStop == stopping) _mediaStop = null;
+        completion.complete();
+      }
+    }());
+    return completion.future;
   }
 
   void _end(
@@ -3328,6 +3348,7 @@ class CallService {
   }
 
   void dispose() {
+    final disposedCallId = _current?.callId;
     _disposed = true;
     _resetLateP2P();
     // Cleared here, not left behind: it is what those post-await checks read.
@@ -3353,7 +3374,7 @@ class CallService {
     if (_media == null) {
       _releaseSlot();
     } else {
-      unawaited(_stopMediaAndReleaseSlot());
+      unawaited(_stopMediaAndReleaseSlot(callId: disposedCallId));
     }
     _changes.close();
   }
