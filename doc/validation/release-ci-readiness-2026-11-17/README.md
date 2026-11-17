@@ -103,6 +103,23 @@ cancellations are not counted as passes. A separate ordinary macOS ARM64 AOT
 package now passes source/native/ABI/signature/privacy checks without opening
 the application; [qualification and limits](../macos-release-candidate-2026-11-17/README.md).
 
+## Storage tag and artifact pipeline
+
+After the complete 24-job source gate, hidden-volume main was fast-forwarded
+to the tested `8f8fc35103a2457f53a2bfb042b3fa39ff70b6a6`. The unsigned annotated
+tag `v2.8.0` names that exact commit; its tagger uses the project pseudonym and
+the allowed zeroil email. No protection setting or existing tag was changed.
+The release (`44137568737`), tagged CI (`44137568992`) and Flutter native-build
+(`44137568864`) workflows started. This records a pushed tag and started builds,
+not verified published assets.
+
+Before tagging, the refreshed audit over all reachable refs, paths, commit/tag
+metadata and text objects passed in all three repositories with the private
+literal/regex rules. Git binary objects are excluded from that text audit and
+require separate artifact checks, as performed for the private macOS package.
+Unreachable objects and reflogs are not garbage-collected, following the owner's
+explicit instruction to defer that cleanup.
+
 ## Application and test preparation
 
 - The chat loading scaffold now exposes RootedBackButton, including entry with
