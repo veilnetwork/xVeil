@@ -609,7 +609,8 @@ class VeilCallMediaController implements CallMediaController {
     onUnexpectedStop,
     captureLifetime: _cameraLifetime,
   );
-  final StreamController<void> _screenShareStops = StreamController.broadcast();
+  final _screenShareStops =
+      StreamController<({String callId, int epoch})>.broadcast();
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   final _mediaReceiveActivity = CallMediaReceiveActivity();
   int _lastRxPkts = 0;
@@ -647,6 +648,7 @@ class VeilCallMediaController implements CallMediaController {
   String? _selectedCameraId;
   String? _selectedMicrophoneId;
   String? _selectedScreenId;
+  int _screenSelectionEpoch = 0;
   String? _preferredMicrophoneLabel;
   String? _selectedSpeakerId;
   String? _preferredSpeakerLabel;
@@ -1467,7 +1469,22 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
-  Stream<void> get screenShareStopped => _screenShareStops.stream;
+  // A paused subscriber can receive this after capture has recovered or the
+  // engine changed. Validate on delivery, while keeping the public void stream.
+  Stream<void> get screenShareStopped => _screenShareStops.stream
+      .where(
+        (event) =>
+            event.callId == _activeCall?.callId &&
+            event.epoch == _mediaEpoch &&
+            !_screenSharing &&
+            _androidScreen == null,
+      )
+      .map<void>((_) {});
+
+  void _reportScreenShareStopped(String callId, int epoch) {
+    if (_activeCall?.callId != callId || _mediaEpoch != epoch) return;
+    _screenShareStops.add((callId: callId, epoch: epoch));
+  }
 
   // Both of these reach the engine, and both are read from the call overlay's
   // build/tap paths — OUTSIDE the blanket catch that wraps _startMedia. On a
@@ -2311,12 +2328,12 @@ class VeilCallMediaController implements CallMediaController {
         if (!restored) {
           // An expired grant must not silently start another projection.
           await setScreenShareEnabled(false);
-          _screenShareStops.add(null);
+          _reportScreenShareStopped(call.callId, epoch);
         }
       } else if (Platform.isMacOS) {
         if (!await setScreenShareEnabled(true)) {
           _rememberScreenSharing(false);
-          _screenShareStops.add(null);
+          _reportScreenShareStopped(call.callId, epoch);
         }
       }
     }
@@ -3144,31 +3161,57 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<bool> selectScreen(String id) async {
     final engine = _engine;
-    if (engine == null || !Platform.isMacOS) return false;
+    final call = _activeCall;
+    final epoch = _mediaEpoch;
+    if (engine == null || call == null || !Platform.isMacOS) return false;
+    final operation = ++_screenSelectionEpoch;
+    final preferencesOwner = ProfilePreferencesLifetime.current();
+    bool current() =>
+        _engine == engine &&
+        _mediaEpoch == epoch &&
+        _activeCall?.callId == call.callId &&
+        operation == _screenSelectionEpoch &&
+        preferencesOwner.isCurrent;
     final devices = await listScreens();
+    if (!current()) return false;
     if (!devices.any((device) => device.id == id)) return false;
     final previous = _selectedScreenId;
-    _selectedScreenId = id;
-    if (!_screenSharing) return true;
+    if (!_screenSharing) {
+      _selectedScreenId = id;
+      return true;
+    }
     try {
-      engine.stopScreen();
-      final started = engine.startScreen(
-        width: _highQualityRoute ? 960 : 640,
-        fps: _highQualityRoute ? 15 : 10,
-        sourceId: id,
-      );
-      if (started) return true;
-      _selectedScreenId = previous;
-      engine.startScreen(
-        width: _highQualityRoute ? 960 : 640,
-        fps: _highQualityRoute ? 15 : 10,
-        sourceId: previous,
-      );
-      return false;
+      if (!engine.stopScreen()) return false;
     } catch (_) {
-      _selectedScreenId = previous;
       return false;
     }
+    bool start(String? sourceId) {
+      if (!current()) return false;
+      try {
+        return engine.startScreen(
+          width: _highQualityRoute ? 960 : 640,
+          fps: _highQualityRoute ? 15 : 10,
+          sourceId: sourceId,
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (start(id)) {
+      if (!current()) return false;
+      _selectedScreenId = id;
+      return true;
+    }
+    if (!current()) return false;
+    if (!start(previous) && current()) {
+      // Stop succeeded and neither source could restart. Keep the call alive,
+      // but report the actual loss so the FSM/peer stop advertising a share.
+      _screenSharing = false;
+      _rememberScreenSharing(false);
+      _reportScreenShareStopped(call.callId, epoch);
+    }
+    return false;
   }
 
   @override
@@ -3573,10 +3616,14 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
+    final callId = _activeCall?.callId;
+    if (callId == null || _engine != engine) return false;
     _androidScreenPushLogged = false;
     late final AndroidScreenCaptureSource screen;
     screen = _screenCaptureFactory(() {
-      if (_androidScreen != screen) return;
+      // The same consented source can rebind to a replacement engine during
+      // this call. Its identity, not its original engine/epoch, owns OS stop.
+      if (_androidScreen != screen || _activeCall?.callId != callId) return;
       _androidScreen = null;
       final chan = _chan;
       if (chan != null) {
@@ -3585,7 +3632,7 @@ class VeilCallMediaController implements CallMediaController {
       _screenSharing = false;
       _rememberScreenSharing(false);
       localVideoFrame.value = null;
-      _screenShareStops.add(null);
+      _reportScreenShareStopped(callId, _mediaEpoch);
     });
     _androidScreen = screen;
     final started = await screen.start(_androidScreenSink(engine, screen));
