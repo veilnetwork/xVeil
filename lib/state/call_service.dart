@@ -81,6 +81,9 @@ const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 /// again. Every relay fallback requires a fresh mutual readiness exchange.
 const Duration kCallP2PCandidateRetry = Duration(seconds: 10);
 
+/// Retry a relay candidate whose end-to-end delivery could not be confirmed.
+const Duration kCallRelayCandidateRetry = Duration(seconds: 5);
+
 /// …and if NOTHING is heard from the peer for this long, the call is torn down
 /// with [CallEndReason.timeout] — the peer vanished (crash, kill, network drop)
 /// without a graceful `end`, so the UI must not hang on "in call" forever.
@@ -2163,15 +2166,14 @@ class CallService {
       // A candidate can be locally admitted while its peer echo is late or
       // absent. The old engine still owns its route. Keep it alive and bound
       // retries instead of ending a call on an unproven replacement path.
-      const delay = Duration(seconds: 5);
       _relayCandidateRetry = (
         callId: callId,
-        until: _now().add(delay),
+        until: _now().add(kCallRelayCandidateRetry),
       );
       // Inbound media may stay fresh while our outbound P2P path is dead.
       // A cooldown alone never retries in that asymmetric state: silence
       // detection will not fire and the peer may already be sending relay.
-      _armRelayCandidateRetry(cur.peer, cur.callId, delay);
+      _armRelayCandidateRetry(cur.peer, cur.callId, kCallRelayCandidateRetry);
       _lateP2PLocalReady = true;
       devLog(() => 'xVeil[call-media]: relay candidate deferred; kept direct');
       return;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -216,7 +217,9 @@ class _HandoverTransport extends _RepairingTransport {
   final qualifying = Completer<int>();
   final echo = Completer<bool>();
   final opened = <int>[];
+  final probeRequests = <int>[];
   bool failRelayOpen = false;
+  bool? proofAvailable;
 
   @override
   Future<int> openMediaChannel(
@@ -244,6 +247,9 @@ class _HandoverTransport extends _RepairingTransport {
 
   @override
   Future<bool> qualifyMediaRoute(int channel) {
+    probeRequests.add(channel);
+    final proven = proofAvailable;
+    if (proven != null) return Future.value(proven);
     qualifying.complete(channel);
     return echo.future;
   }
@@ -254,6 +260,7 @@ class _HandoverEngine extends _Engine {
 
   int received = 0;
   bool stalled = false;
+  final rebound = <int>[];
 
   @override
   Map<String, dynamic> getStats() => {
@@ -266,6 +273,15 @@ class _HandoverEngine extends _Engine {
 
   @override
   bool get supportsChannelRebind => true;
+
+  @override
+  bool get supportsReceiveChannelOverlap => false;
+
+  @override
+  bool rebindChannel(int channel, {bool retainPreviousReceiver = false}) {
+    rebound.add(channel);
+    return true;
+  }
 
   @override
   bool setMaxRtpPacketSize(int bytes) => true;
@@ -2064,6 +2080,105 @@ void main() {
       );
     }
   }
+
+  for (final retrySucceeds in [false, true]) {
+    test('relay retry reuses one opened candidate: $retrySucceeds', () async {
+      final transport = _HandoverTransport()..proofAvailable = false;
+      final engine = _HandoverEngine();
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      try {
+        expect(await controller.start(_call(direct: true)), isTrue);
+        expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
+        expect(transport.opened, [42, 43]);
+        expect(transport.probeRequests, [43, 43, 43]);
+        expect(controller.activeTransport, CallTransportKind.p2p);
+        expect(engine.rebound, isEmpty);
+
+        transport.proofAvailable = retrySucceeds;
+        expect(
+          await controller.switchRoute(CallTransportKind.relay),
+          retrySucceeds,
+        );
+        expect(transport.opened, [42, 43]);
+        if (retrySucceeds) {
+          expect(transport.probeRequests, [43, 43, 43, 43]);
+          expect(transport.closed, isNot(contains(43)));
+          expect(engine.rebound, [43]);
+          expect(controller.activeTransport, CallTransportKind.relay);
+        } else {
+          expect(transport.probeRequests, List.filled(6, 43));
+          expect(transport.closed, [43]);
+          expect(engine.rebound, isEmpty);
+          transport.proofAvailable = true;
+          expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+          expect(transport.opened, [42, 43, 44]);
+          expect(transport.probeRequests.last, 44);
+          expect(engine.rebound, [44]);
+        }
+      } finally {
+        await controller.stop();
+      }
+    });
+  }
+
+  test('an unused relay candidate expires after the retry window', () async {
+    final transport = _HandoverTransport()..proofAvailable = false;
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory:
+          ({required veilChan, required localId, required peerId}) =>
+              _HandoverEngine(),
+    );
+    try {
+      expect(await controller.start(_call(direct: true)), isTrue);
+      fakeAsync((async) {
+        bool? result;
+        unawaited(controller.switchRoute(CallTransportKind.relay).then((ok) {
+          result = ok;
+        }));
+        async.flushMicrotasks();
+        expect(result, isFalse);
+        async.elapse(kCallRelayCandidateRetry);
+        expect(transport.closed, isEmpty);
+        async.elapse(const Duration(seconds: 2));
+        expect(transport.closed, [43]);
+      });
+      expect(controller.activeTransport, CallTransportKind.p2p);
+    } finally {
+      await controller.stop();
+    }
+  });
+
+  test('hangup closes a retained relay candidate before another call', () async {
+    final transport = _HandoverTransport()..proofAvailable = false;
+    final engines = [_HandoverEngine(), _HandoverEngine()];
+    var created = 0;
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory:
+          ({required veilChan, required localId, required peerId}) =>
+              engines[created++],
+    );
+    try {
+      expect(await controller.start(_call(direct: true)), isTrue);
+      expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
+      expect(transport.closed, isEmpty);
+      await controller.stop();
+      expect(transport.closed, unorderedEquals([42, 43]));
+
+      expect(await controller.start(_call(direct: true, peer: _id(3))), isTrue);
+      transport.proofAvailable = true;
+      expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+      expect(transport.opened, [42, 43, 44, 45]);
+      expect(engines.last.rebound, [45]);
+    } finally {
+      await controller.stop();
+    }
+  });
 
   test('an agreed relay can be reopened after a failed media rebuild', () async {
     final transport = _HandoverTransport();
