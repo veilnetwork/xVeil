@@ -1,0 +1,317 @@
+{
+  "schema": "xveil-netcall-qualification/1",
+  "applicationSource": "927d8e94b227bbbcec9f7c5836268917b2300f00",
+  "androidNative": "published-0.13.102",
+  "macNativeCommit": "53fbbe34",
+  "newNativeBuilds": 0,
+  "audioDirection": "android-to-mac-receive-only",
+  "qaOnly": true,
+  "peerRestriction": "local-manual-bans-for-single-core-cases",
+  "serverChanges": false,
+  "relayCalls": [
+    {
+      "case": "three-cores-first",
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 3928,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 396,
+          "samples": 51
+        },
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1638,
+          "firstFreshAfterObservedDefaultMs": 1197,
+          "maxNativeAudioAgeMs": 1903,
+          "samples": 47
+        }
+      ]
+    },
+    {
+      "case": "three-cores-repeat",
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2495,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 1001,
+          "samples": 50,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 3,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 3
+            },
+            "mac": {
+              "beforeSessions": 3,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        },
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 855,
+          "firstFreshAfterObservedDefaultMs": 1103,
+          "maxNativeAudioAgeMs": 1472,
+          "samples": 46,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 3,
+              "afterSessions": 2,
+              "commonPeers": 2,
+              "peersWithReplacedLink": 2
+            },
+            "mac": {
+              "beforeSessions": 3,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "case": "different-single-cores",
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2473,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 413,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 1,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 1
+            },
+            "mac": {
+              "beforeSessions": 1,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 0
+            }
+          }
+        },
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1211,
+          "firstFreshAfterObservedDefaultMs": 528,
+          "maxNativeAudioAgeMs": 1208,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 1,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 1
+            },
+            "mac": {
+              "beforeSessions": 1,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "dialImmediatelyAfterWifiOff": [
+    {
+      "dialAfterCommandReturnedMs": 0,
+      "firstIncomingRingFromDialMs": 171,
+      "bothActiveFromDialMs": 7085,
+      "firstFreshNativeAudioFromDialMs": 7357,
+      "firstFreshNativeAudioAfterAcceptMs": 7170,
+      "sameCallAtBothEnds": true,
+      "phoneNativeAfterDialCount": 1
+    },
+    {
+      "dialAfterCommandReturnedMs": 0,
+      "firstIncomingRingFromDialMs": 440,
+      "bothActiveFromDialMs": 5112,
+      "firstFreshNativeAudioFromDialMs": 11061,
+      "firstFreshNativeAudioAfterAcceptMs": 10606,
+      "sameCallAtBothEnds": true,
+      "phoneNativeAfterDialCount": 1
+    }
+  ],
+  "p2pHandover": [
+    {
+      "case": "different-single-cores-first",
+      "sameCallThroughout": false,
+      "lastNativeAudioAgeBeforeTerminalMs": 24011,
+      "firstNullMacCallAtCaptureMs": 29473,
+      "terminalOrigin": "liveness-timeout",
+      "operatorHangupDuringCapture": false,
+      "reverseDirectionNotExecuted": true,
+      "traceEnabled": false
+    },
+    {
+      "case": "different-single-cores-traced-repeat",
+      "sameCallThroughout": false,
+      "lastNativeAudioAgeBeforeTerminalMs": 23212,
+      "firstNullMacCallAtCaptureMs": 28350,
+      "terminalOrigin": "liveness-timeout",
+      "operatorHangupDuringCapture": false,
+      "reverseDirectionNotExecuted": true,
+      "traceEnabled": true
+    },
+    {
+      "case": "three-cores",
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1283,
+          "firstFreshAfterObservedDefaultMs": 4615,
+          "maxNativeAudioAgeMs": 5213,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 4
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 1
+            }
+          }
+        },
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2358,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 660,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 4
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "case": "one-common-core",
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1320,
+          "firstFreshAfterObservedDefaultMs": 23620,
+          "maxNativeAudioAgeMs": 21658,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 2,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 1
+            },
+            "mac": {
+              "beforeSessions": 2,
+              "afterSessions": 1,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 0
+            }
+          }
+        },
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2357,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 1354,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 1,
+              "afterSessions": 2,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 1
+            },
+            "mac": {
+              "beforeSessions": 1,
+              "afterSessions": 2,
+              "commonPeers": 1,
+              "peersWithReplacedLink": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "stableWifiRelayRecovery": {
+    "sameCallPreserved": true,
+    "diagnosticRequestElapsedMs": 360,
+    "freshMacNativeAudioAfterSwitch": true,
+    "networkChangeExecuted": false
+  },
+  "cleanup": {
+    "schema": "xveil-netcall-cleanup/1",
+    "traceDisabledBoth": true,
+    "qaContactP2PRestoredBoth": true,
+    "qaBansRestoredExactlyBoth": true,
+    "appsLockedBoth": true,
+    "phoneQaStopped": true,
+    "phoneQaNoServices": true,
+    "qaOnlyPermissionsRevoked": true,
+    "phoneNetworkSettingsRestored": true,
+    "mainPhoneApkHashesUnchanged": true,
+    "macOwnedProcessExitedNormally": true,
+    "macOwnedPortsReleased": 2,
+    "ownedAdbForwardRemoved": true,
+    "phoneQaRetainedStoppedWithSyntheticProfile": true,
+    "macFocusNeverRequested": true,
+    "serversReadOnly": true
+  },
+  "independentCleanupAudit": {
+    "ownedMacProcessesRemaining": 0,
+    "phoneQaProcessesRemaining": 0,
+    "knownOwnedPortsFree": 2,
+    "originalMainApkHashesVerified": true
+  }
+}
