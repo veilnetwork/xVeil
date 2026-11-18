@@ -74,13 +74,21 @@ class _EditStore extends HiddenVolumeStorage {
 class _Link extends LoopbackTransport {
   _Link() : super(localNodeId: _id(1));
   final sent = <WireEnvelope>[];
+  final ownEchoAsked = Completer<void>();
+
   @override
   Future<void> send(
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
   }) async {
-    sent.add(WireEnvelope.decode(payload));
+    final envelope = WireEnvelope.decode(payload);
+    sent.add(envelope);
+    if (!ownEchoAsked.isCompleted &&
+        envelope.kind == WireKind.sync &&
+        (jsonDecode(envelope.body) as Map)['ow'] is List) {
+      ownEchoAsked.complete();
+    }
   }
 }
 
@@ -190,16 +198,11 @@ void main() {
           if (shape == 'reflected') {
             service.myOtherDevices = () async => [_id(3)];
             await service.flushOutbox();
-            await pumpEventQueue();
-            expect(
-              link.sent.where(
-                (e) =>
-                    e.kind == WireKind.sync &&
-                    (jsonDecode(e.body) as Map)['ow'] is List,
+            await link.ownEchoAsked.future.timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => fail(
+                'a reflected edit requires a real outstanding own-echo ask',
               ),
-              isNotEmpty,
-              reason:
-                  'a reflected edit requires a real outstanding own-echo ask',
             );
             reflected = service.deliverInbound(
               InboundMessage(
