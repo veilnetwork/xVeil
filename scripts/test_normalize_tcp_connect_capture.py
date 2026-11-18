@@ -85,6 +85,14 @@ def manifest(root):
 
 
 class NativeParseTests(unittest.TestCase):
+    def test_physical_connect_clock_is_parsed_with_truncated_microsecond_precision(self):
+        lines = native()
+        lines[1] += ' tcp_connect_started_us=Some(2500)'
+        _, starts = parse_native(lines)
+        self.assertEqual(starts[0]['dial_start_ns'], 2_500_000)
+        lines[1] = lines[1].replace('Some(2500)', 'Some(bad)')
+        with self.assertRaises(EvidenceError): parse_native(lines)
+
     def test_real_hex_peer_slot_and_client_start_are_parsed_not_later_link_rows(self):
         contexts, starts = parse_native(native())
         self.assertEqual(contexts[0]['slot'], 9)

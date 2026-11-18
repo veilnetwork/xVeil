@@ -81,6 +81,34 @@ class ClockTests(unittest.TestCase):
 
 
 class CandidateTests(unittest.TestCase):
+    def test_physical_dial_clock_separates_auxiliary_from_older_parent_origin(self):
+        f = fixture()
+        f['connections'][0]['dial_start_ns'] = 2000
+        f['connections'].append({'id': 301, 'context': 200,
+                                 'dial_start_ns': 4000, 'start_ns': 5000})
+        f['flows'].append(dict(f['flows'][0], id=401, syn_ns=3100, synack_ns=3200))
+        result = analyze(f)
+        self.assertEqual(result['mutually_unique_temporal_candidates'], 2)
+        self.assertEqual(result['connections_with_physical_dial_clock'], 2)
+
+    def test_physical_clock_can_bracket_a_child_with_an_older_parent(self):
+        f = fixture();f['contexts'][0]['start_ns'] = 1
+        f['connections'][0]['dial_start_ns'] = 2000
+        self.assertEqual(analyze(f)['mutually_unique_temporal_candidates'], 1)
+
+    def test_unscoped_socket_physical_clock_keeps_only_causal_competitors(self):
+        f = fixture()
+        f['connections'].append({'id': 301, 'context': None,
+                                 'dial_start_ns': 4000, 'start_ns': 5000})
+        r = analyze(f)
+        self.assertEqual(r['mutually_unique_temporal_candidates'], 1)
+        self.assertEqual(r['unscoped_connections_with_possible_flows'], 0)
+
+    def test_invalid_physical_dial_clock_is_rejected(self):
+        for start in (1999, 3001, True):
+            f = fixture();f['connections'][0]['dial_start_ns'] = start
+            with self.subTest(start=start), self.assertRaises(EvidenceError): analyze(f)
+
     def test_unique_expected_target_temporal_candidate_is_not_delivery_proof(self):
         result = analyze(fixture())
         self.assertEqual(result['mutually_unique_temporal_candidates'], 1)

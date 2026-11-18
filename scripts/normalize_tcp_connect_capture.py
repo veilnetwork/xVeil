@@ -67,6 +67,12 @@ def parse_native(lines):
                 raise EvidenceError('Duplicate TCP start in process scope')
             starts[key] = {'id': key, 'context': context_id,
                            'start_ns': decimal(f.get('monotonic_us')) * 1000}
+            physical = f.get('tcp_connect_started_us', 'None')
+            if physical != 'None':
+                match = re.fullmatch(r'Some\(([0-9]+)\)', physical)
+                if not match:
+                    raise EvidenceError('Unsupported physical connect clock')
+                starts[key]['dial_start_ns'] = int(match[1]) * 1000
     return list(contexts.values()), list(starts.values())
 
 
