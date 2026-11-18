@@ -505,6 +505,7 @@ class CallService {
   int? _lastPeerHealthAtMs;
   int? _lastAppliedPeerRepairAtMs;
   DateTime? _peerAudioExpectedSince;
+  DateTime? _peerMediaResumedAt;
   bool _peerConfirmedAfterConnect = false;
   bool _started = false;
 
@@ -1822,6 +1823,11 @@ class CallService {
       }
       return; // unchanged — every heartbeat must not churn the UI
     }
+    if (capture.isEmpty) {
+      _peerMediaResumedAt = null;
+    } else if (c.peerCapture?.isEmpty == true) {
+      _peerMediaResumedAt = _now();
+    }
     _media?.observePeerAudioCapture(capture.audio);
     _set(c.copyWith(peerCapture: capture, peerCaptureAtMs: at));
   }
@@ -2205,7 +2211,11 @@ class CallService {
       call.localPosture == CallPosture.direct &&
       call.peerPosture == CallPosture.direct &&
       _relayFallbackFlight == null &&
-      _mediaReceiveNeedsRepair(call, after: kCallDirectSessionSilence);
+      _mediaReceiveNeedsRepair(
+        call,
+        after: kCallDirectSessionSilence,
+        ignoreCapturePosture: true,
+      );
 
   bool _establishedAudioReceiveStalled(Call call, {DateTime? latestRxAt}) {
     final media = _media;
@@ -3029,14 +3039,21 @@ class CallService {
   bool _mediaReceiveNeedsRepair(
     Call call, {
     Duration after = kCallMediaRepairAfter,
+    bool ignoreCapturePosture = false,
   }) {
     final media = _media;
     if (media?.isRepairingReceiveSession == true) return false;
+    // A receive-only peer can still hear us and send authenticated control.
+    // Lack of media alone then cannot request a rebuild or a route change.
+    // The direct-session query still runs and can confirm actual closure.
+    if (!ignoreCapturePosture && call.peerCapture?.isEmpty == true) return false;
     var since = call.connectedAt ?? call.startedAt;
     final sessionStart = media?.receiveSessionStartedAt;
     if (sessionStart != null && sessionStart.isAfter(since)) {
       since = sessionStart;
     }
+    final resumedAt = _peerMediaResumedAt;
+    if (resumedAt != null && resumedAt.isAfter(since)) since = resumedAt;
     final anyRx = media?.lastMediaRxAt;
     final aggregateSince = anyRx != null && anyRx.isAfter(since)
         ? anyRx
@@ -3066,6 +3083,7 @@ class CallService {
     if (_current?.callId != call.callId) {
       _resetLateP2P();
       _peerAudioExpectedSince = null;
+      _peerMediaResumedAt = null;
       _lastPeerHealthAtMs = null;
       _lastAppliedPeerRepairAtMs = null;
       _lastRenegotiateAtMs = 0;
