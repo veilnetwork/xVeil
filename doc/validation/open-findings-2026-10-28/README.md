@@ -269,6 +269,13 @@ SHA и 50 storage checksums. Неполная matrix и исходные жал�
   наблюдалось сохранение процесса после SIGTERM при уже остановленном SDK;
   это требует native-проверки сигналов и не объясняет аудиопаузу.
   [Подготовка, границы и cleanup](../netcall-background-stand-2026-11-18/README.md).
+  Последующий отдельный native-контроль подтвердил и исправил перехват
+  SIGINT/SIGTERM/SIGHUP встроенным SDK. Два baseline assertion-red; финальные
+  config/deferred и три CLI-контроля прошли. 1201 Rust passed, 13 ignored,
+  Clippy чист. Тот же скрытый Mac App AOT после замены SDK завершился обычным
+  SIGTERM, без SIGKILL. Это локальное lifetime-исправление после 0.13.102,
+  не устранение NETCALL-01.
+  [Воспроизведение и границы](../embedded-host-signals-2026-11-18/README.md).
   В 0.13.100 опубликовано исправление отдельного app-барьера: одна онлайн-личность
   с незавершённым IPC больше не задерживает следующую смену сети остальных.
   24 network / 358 related passed, без skips; исходный single-identity случай
