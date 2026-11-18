@@ -2122,6 +2122,74 @@ void main() {
       },
     );
 
+    for (final (counts, retryResult) in [
+      (<int>[], null),
+      ([3], null),
+      ([0, 1], true),
+      ([1, 2], true),
+      ([1, 2], false),
+    ]) {
+      test('failed relay rebuild after overlay changes $counts: $retryResult', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..repairSucceeds = false
+            ..relayGate = Completer<bool>();
+          final sessions = StreamController<int>();
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            overlaySessions: sessions.stream,
+          )..start();
+          const callId = 'relay-repair-reconnect';
+          sessions.add(2);
+          fake.onCallSignal!(peer, offer(callId));
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          media.rxAt = clock.now();
+          async.elapse(kCallMediaRepairAfter);
+          expect(media.repairs, 1);
+          expect(media.activeTransport, isNull);
+
+          for (final count in counts) {
+            sessions.add(count);
+          }
+          async.flushMicrotasks();
+          expect(media.switches, isEmpty);
+          media.cameraStopped.complete();
+          async.flushMicrotasks();
+          if (retryResult != null) {
+            expect(svc.current?.status, CallStatus.active);
+            expect(media.switches, [CallTransportKind.relay]);
+            // A second reconnect cannot turn a failed retry into a loop.
+            sessions.add(0);
+            sessions.add(2);
+            async.flushMicrotasks();
+            media.relayGate!.complete(retryResult);
+            async.flushMicrotasks();
+          }
+          final ended = fake.sent.where((s) => s.type == CallSignalType.end);
+          if (retryResult == true) {
+            expect(svc.current?.callId, callId);
+            expect(svc.current?.status, CallStatus.active);
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(ended, isEmpty);
+          } else {
+            expect(svc.current, isNull);
+            expect(ended.single.reason, CallEndReason.error);
+          }
+          expect(media.repairs, 1);
+          expect(media.switches.length, retryResult == null ? 0 : 1);
+          svc.dispose();
+          sessions.close();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('silent relay repairs locally without a peer heartbeat', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

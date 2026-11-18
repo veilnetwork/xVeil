@@ -1895,6 +1895,7 @@ class CallService {
     // A handover claims a new epoch before its native work can leave the
     // repair queue. An obsolete repair failure must not kill that successor.
     final epoch = _mediaOperationEpoch;
+    final connections = _relayConnectionGeneration;
     var repaired = false;
     try {
       repaired = await media.repairRoute();
@@ -1925,6 +1926,16 @@ class CallService {
       _rearmP2PAfterRelay();
       _set(cur.copyWith(transport: CallTransportKind.relay));
       _announceCallRoute(cur, CallTransportKind.relay);
+      return;
+    }
+    if (!repaired &&
+        actual == null &&
+        cur.transport == CallTransportKind.relay &&
+        connections != _relayConnectionGeneration) {
+      // The failed rebuild left no channel, so repairRoute cannot retry it.
+      // Reopen the same negotiated route once after the observed reconnect.
+      devLog(() => 'xVeil[call-media]: retrying relay rebuild after reconnect');
+      await _followRelayFallback(peer, callId);
       return;
     }
     // Fail closed. A broken route must not silently become onion (or any other
@@ -2136,7 +2147,12 @@ class CallService {
     unawaited(
       _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
     );
-    _end(CallEndReason.error, origin: CallEndOrigin.routeHandoverFailure);
+    _end(
+      CallEndReason.error,
+      origin: before.transport == CallTransportKind.relay
+          ? CallEndOrigin.mediaRepairFailure
+          : CallEndOrigin.routeHandoverFailure,
+    );
   }
 
   /// Exercise the existing direct-to-relay recovery on an authenticated stand.
