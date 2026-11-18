@@ -123,17 +123,26 @@ void main() {
       ])).trim();
       final before = await _document(a, gate.veilCli!, key);
       expect(before, isNotNull);
-      expect(
-        (await _checkpoint(
-          a,
-          ai,
-          oldDevice,
-          before!,
-          ownDeviceRouting: true,
-        ))['ownRoutingIncludesDevice'],
-        isTrue,
-        reason: 'a currently delegated sibling must remain addressable',
+      final beforeCheckpoint = await _checkpoint(
+        a,
+        ai,
+        oldDevice,
+        before!,
+        ownDeviceRouting: true,
       );
+      for (final key in [
+        'ownRoutingIncludesDevice',
+        'ownMembershipAdmitsDevice',
+        'ownIngressAdmitsDevice',
+        'messagingIngressAdmitsDevice',
+        'callRelayIngressAdmitsDevice',
+      ]) {
+        expect(
+          beforeCheckpoint[key],
+          isTrue,
+          reason: 'currently delegated sibling must pass the wired $key',
+        );
+      }
       await b.stop();
       await c.stop();
 
@@ -239,6 +248,13 @@ void main() {
               ownRouting['ownRosterIncludesDevice'],
           'outgoingOwnRoutingContainsRevokedDevice':
               ownRouting['ownRoutingIncludesDevice'],
+          'ownMembershipAdmitsRevokedDevice':
+              ownRouting['ownMembershipAdmitsDevice'],
+          'ownIngressAdmitsRevokedDevice': ownRouting['ownIngressAdmitsDevice'],
+          'messagingIngressAdmitsRevokedDevice':
+              ownRouting['messagingIngressAdmitsDevice'],
+          'callRelayIngressAdmitsRevokedDevice':
+              ownRouting['callRelayIngressAdmitsDevice'],
         }),
       );
       expect(
@@ -246,6 +262,18 @@ void main() {
         isFalse,
         reason: 'the current signed revocation must fence a stale group roster',
       );
+      expect(
+        ownRouting['ownMembershipAdmitsDevice'],
+        isFalse,
+        reason: 'a revoked sibling must not retain application membership',
+      );
+      expect(
+        ownRouting['ownIngressAdmitsDevice'],
+        isFalse,
+        reason: 'the common own-device ingress gate must apply the revoke',
+      );
+      expect(ownRouting['messagingIngressAdmitsDevice'], isFalse);
+      expect(ownRouting['callRelayIngressAdmitsDevice'], isFalse);
 
       await c.start();
       await base.join(a, c);

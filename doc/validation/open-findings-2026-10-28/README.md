@@ -325,6 +325,12 @@ SHA и 50 storage checksums. Неполная matrix и исходные жал�
   адресации без переписывания истории. Baseline assertion-red, полный A/B/C
   candidate и 546 group tests прошли; это не новое доказательство утечки и
   не вся matrix. [Проверка и границы](../own-device-revocation-routing-2026-11-18/README.md).
+  Затем тот же crash выявил оставшийся положительный app-admission cache:
+  `isMyDevice`/`isMyDeviceOrMaster` ещё допускали отозванный physical device.
+  Общая проверка tombstone теперь применяется и к члену группы, и к старому
+  объявлению главного устройства. Два unit-red и OS-process red подтверждены;
+  candidate, реальные messaging/call callbacks и 550 group tests прошли без
+  skips. Native transport bypass не доказан. [Допуск и границы](../own-device-admission-revoke-2026-11-18/README.md).
   Дополнительно прошли две точные точки receive/decrypt/DB/ACK: остановка
   перед реальным append и после его завершения, до продолжения обработчика.
   Cold-read даёт соответственно ноль/одну целевую строку; обычный повтор

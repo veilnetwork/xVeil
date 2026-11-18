@@ -20571,6 +20571,44 @@ class GroupService implements ArchiveGroups {
   bool Function(Uint8List document, NodeId identity, NodeId device)?
   ownDeviceRevocationCheck;
 
+  Future<Uint8List?> _readOwnRevocationDocument() async {
+    final raw = await material.readSovereignMaterial(_storage, strict: true);
+    if (raw == null || raw.isEmpty) return null;
+    final document = material.decodeSovereignIdentity(raw)?[
+      material.kIdentityDocumentFile
+    ];
+    if (document == null || document.isEmpty) {
+      throw StateError('Own-device revocation document unavailable');
+    }
+    return document;
+  }
+
+  bool _documentRevokesOwnDevice(
+    Uint8List document,
+    NodeId identity,
+    NodeId device,
+  ) {
+    final check = ownDeviceRevocationCheck;
+    return check != null
+        ? check(document, identity, device)
+        : EmbeddedNode.identityDocumentDeviceRevoked(
+            document: document,
+            nodeId: identity.bytes,
+            deviceId: device.bytes,
+            lib: _signer is NativeGroupSigner ? _signer.lib : null,
+          );
+  }
+
+  Future<bool> _ownDeviceExplicitlyRevoked(
+    NodeId device,
+    NodeId? sovereignOwner,
+  ) async {
+    if (sovereignOwner == null) return false;
+    final document = await _readOwnRevocationDocument();
+    return document != null &&
+        _documentRevokesOwnDevice(document, sovereignOwner, device);
+  }
+
   Future<List<NodeId>> _readOwnDeviceAddresses(NodeId? me, String hex) async {
     final b = await load(NodeId.fromHex(hex));
     if (b == null) return const [];
@@ -20660,23 +20698,10 @@ class GroupService implements ArchiveGroups {
     // Missing material preserves legacy group routing; read/verification
     // failures propagate instead of pretending that no tombstone exists.
     if (ids.isNotEmpty && b.manifest.isSovereignDevice) {
-      final raw = await material.readSovereignMaterial(_storage, strict: true);
-      if (raw != null && raw.isNotEmpty) {
-        final document = material.decodeSovereignIdentity(raw)?[
-          material.kIdentityDocumentFile
-        ];
-        if (document == null || document.isEmpty) {
-          throw StateError('Own-device revocation document unavailable');
-        }
-        final check = ownDeviceRevocationCheck;
-        ids.removeWhere((device) => check != null
-            ? check(document, b.manifest.owner, device)
-            : EmbeddedNode.identityDocumentDeviceRevoked(
-                document: document,
-                nodeId: b.manifest.owner.bytes,
-                deviceId: device.bytes,
-                lib: _signer is NativeGroupSigner ? _signer.lib : null,
-              ));
+      final document = await _readOwnRevocationDocument();
+      if (document != null) {
+        ids.removeWhere((device) =>
+            _documentRevokesOwnDevice(document, b.manifest.owner, device));
       }
     }
     return ids;
@@ -21799,17 +21824,31 @@ class GroupService implements ArchiveGroups {
     // never fires, and the master was left unable to admit anything its linked
     // device sent: measured as `out endpoints to=258fc11e` leaving one side and
     // nothing arriving at the other.
-    if (peer == _signer.selfId) return true;
-    if (await isMyDevice(peer)) return true;
-    if (await _deviceGroupOwnerIfLinked() == peer) return true;
-    // AND THE DEVICE MY MASTER ANNOUNCED, which is the name this device dials
-    // it by ([masterDeviceId]). A name we dial and then refuse is a session
-    // that never forms: measured on the stand 2026-09-23 as `policy denies
-    // 1372fa11 … known=false` on the linked device, no endpoint answer, and
-    // every frame between the two — group keys included — left to the
-    // mailbox. Asked last: it reads the device journal.
-    final master = await _masterDeviceForAdmission();
-    return master != null && master == peer;
+    while (!_disposed) {
+      final epoch = _deviceAddressReadEpoch;
+      if (peer == _signer.selfId) return true;
+      final member = await isMyDevice(peer);
+      if (_disposed) return false;
+      if (epoch != _deviceAddressReadEpoch) continue;
+      if (member) return true;
+      final owner = await _deviceGroupOwnerIfLinked();
+      if (_disposed) return false;
+      if (epoch != _deviceAddressReadEpoch) continue;
+      if (owner == peer) return true; // Logical identity, not a physical device.
+      // The announced master is not in the member set. Its stale announcement
+      // must not reopen admission after an explicit signed device revoke.
+      final master = await _masterDeviceForAdmission();
+      if (_disposed) return false;
+      if (epoch != _deviceAddressReadEpoch) continue;
+      if (master == null || master != peer) return false;
+      final revoked = await _ownDeviceExplicitlyRevoked(
+        peer, _deviceMembersSovereignOwner,
+      );
+      if (_disposed) return false;
+      if (epoch != _deviceAddressReadEpoch) continue;
+      return !revoked;
+    }
+    return false;
   }
 
   /// [masterDeviceId] behind a short cache, for the admission question alone.
@@ -21841,51 +21880,60 @@ class GroupService implements ArchiveGroups {
   int? _masterDeviceCachedAtMs;
 
   Future<bool> isMyDevice(NodeId peer) async {
-    while (true) {
-      // A membership mutation may land while load() is awaiting storage. Its
-      // generation invalidation must win over that stale read; otherwise the
-      // old member set gets re-published for another 30 seconds after revoke.
+    while (!_disposed) {
+      // Cache only the group membership, never the revocation decision. A
+      // durable identity revoke can precede the separate group-control write.
       final generation = _deviceMembersCacheGeneration;
       final hex = await deviceGroupIdHex();
+      if (_disposed) return false;
       if (generation != _deviceMembersCacheGeneration) continue;
       if (hex == null) return false;
-      // Looking up admission must not allocate a signed-mutation timestamp.
-      // A burst of reads otherwise spends the cache lease without elapsed
-      // wall time and shifts subsequent signed entries into the future.
       final now = _clockNowMs();
-      final cached = _deviceMembersCache;
-      if (cached != null &&
-          now >= _deviceMembersCacheAtMs &&
-          now - _deviceMembersCacheAtMs <= 30000) {
-        return cached.contains(peer.hex);
+      var members = _deviceMembersCache;
+      if (members == null ||
+          now < _deviceMembersCacheAtMs ||
+          now - _deviceMembersCacheAtMs > 30000) {
+        final bundle = await load(NodeId.fromHex(hex));
+        final state = bundle == null
+            ? null
+            : foldControlLog(
+                owner: bundle.manifest.owner,
+                entries: bundle.control,
+                verify: (e) => _validControlFor(bundle.manifest, e),
+                initialName: bundle.manifest.name,
+              ).state;
+        final loaded = {
+          for (final member in state?.members.values ?? const <GroupMember>[])
+            if (member.nodeId != bundle?.manifest.owner) member.nodeId.hex,
+        };
+        if (_disposed) return false;
+        if (generation != _deviceMembersCacheGeneration) continue;
+        _deviceMembersCache = members = loaded;
+        _deviceMembersCacheAtMs = now;
+        _deviceMembersSovereignOwner = bundle?.manifest.isSovereignDevice == true
+            ? NodeId(bundle!.manifest.owner.bytes)
+            : null;
       }
-      final bundle = await load(NodeId.fromHex(hex));
-      final state = bundle == null
-          ? null
-          : foldControlLog(
-              owner: bundle.manifest.owner,
-              entries: bundle.control,
-              verify: (e) => _validControlFor(bundle.manifest, e),
-              initialName: bundle.manifest.name,
-            ).state;
-      final loaded = {
-        for (final member in state?.members.values ?? const <GroupMember>[])
-          if (member.nodeId != bundle?.manifest.owner) member.nodeId.hex,
-      };
+      if (!members.contains(peer.hex)) return false;
+      final revoked = await _ownDeviceExplicitlyRevoked(
+        peer, _deviceMembersSovereignOwner,
+      );
+      if (_disposed) return false;
       if (generation != _deviceMembersCacheGeneration) continue;
-      _deviceMembersCache = loaded;
-      _deviceMembersCacheAtMs = now;
-      return loaded.contains(peer.hex);
+      return !revoked;
     }
+    return false;
   }
 
   Set<String>? _deviceMembersCache;
+  NodeId? _deviceMembersSovereignOwner;
   int _deviceMembersCacheAtMs = 0;
   int _deviceMembersCacheGeneration = 0;
 
   void _invalidateDeviceMembersCache() {
     _invalidateDeviceAddressRead();
     _deviceMembersCache = null;
+    _deviceMembersSovereignOwner = null;
     _deviceMembersCacheGeneration++;
     _deviceOwnerCachedAtMs = null;
   }
@@ -21898,6 +21946,9 @@ class GroupService implements ArchiveGroups {
       for (final member in state.members.values)
         if (member.nodeId != manifest.owner) member.nodeId.hex,
     };
+    _deviceMembersSovereignOwner = manifest.isSovereignDevice
+        ? NodeId(manifest.owner.bytes)
+        : null;
     _deviceMembersCacheAtMs = _clockNowMs();
   }
 
