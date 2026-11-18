@@ -312,6 +312,7 @@ class CallService {
     String? Function(NodeId peer)? p2pFallbackReason,
     Future<List<CallLogEntry>> Function()? loadFinishedCalls,
     Stream<int>? overlaySessions,
+    Stream<void>? networkHandovers,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -328,10 +329,15 @@ class CallService {
        // ignore: prefer_initializing_formals — public callback → private field.
        _loadFinishedCalls = loadFinishedCalls,
        // ignore: prefer_initializing_formals — public stream → private field.
-       _overlaySessions = overlaySessions;
+       _overlaySessions = overlaySessions,
+       // ignore: prefer_initializing_formals — public stream → private field.
+       _networkHandovers = networkHandovers;
 
   final Stream<int>? _overlaySessions;
   StreamSubscription<int>? _overlaySessionsSub;
+  final Stream<void>? _networkHandovers;
+  StreamSubscription<void>? _networkHandoversSub;
+  DateTime? _directNetworkHandoverAt;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
   bool _overlaySessionGrowthObserved = false;
@@ -814,6 +820,12 @@ class CallService {
       _observeOverlaySessions,
       onError: (Object _) {},
     );
+    _networkHandoversSub = _networkHandovers?.listen((_) {
+      final call = _current;
+      if (call == null || !_canInspectDirectSession(call)) return;
+      _directNetworkHandoverAt = _now();
+      unawaited(_checkLostDirectSession(call));
+    }, onError: (Object _) {});
     if (_loadFinishedCalls == null) {
       _attachWireHandler();
     } else {
@@ -2080,7 +2092,11 @@ class CallService {
     unawaited(_followRelayFallback(peer, callId));
   }
 
-  Future<void> _followRelayFallback(NodeId peer, String callId) {
+  Future<void> _followRelayFallback(
+    NodeId peer,
+    String callId, {
+    DateTime? retryBy,
+  }) {
     final call = _current;
     if (_disposed ||
         call == null ||
@@ -2100,21 +2116,27 @@ class CallService {
     final connections = _relayConnectionGeneration;
     _cancelRelayCandidateRetry();
     late final Future<void> future;
-    future = _applyRelayFallback(peer, callId).whenComplete(() {
-      if (identical(_relayFallbackFlight?.future, future)) {
-        _relayFallbackFlight = null;
-        // Keep hints that arrived while the old candidate was qualifying.
-        if (connections != _relayConnectionGeneration ||
-            _peerRelayWake == _PeerRelayWake.requested) {
-          _wakeDeferredRelay(peer, callId);
+    future = _applyRelayFallback(peer, callId, retryBy: retryBy).whenComplete(
+      () {
+        if (identical(_relayFallbackFlight?.future, future)) {
+          _relayFallbackFlight = null;
+          // Keep hints that arrived while the old candidate was qualifying.
+          if (connections != _relayConnectionGeneration ||
+              _peerRelayWake == _PeerRelayWake.requested) {
+            _wakeDeferredRelay(peer, callId);
+          }
         }
-      }
-    });
+      },
+    );
     _relayFallbackFlight = (peer: peer, callId: callId, future: future);
     return future;
   }
 
-  Future<void> _applyRelayFallback(NodeId peer, String callId) async {
+  Future<void> _applyRelayFallback(
+    NodeId peer,
+    String callId, {
+    DateTime? retryBy,
+  }) async {
     final media = _media;
     final before = _current;
     if (_disposed ||
@@ -2166,14 +2188,20 @@ class CallService {
       // A candidate can be locally admitted while its peer echo is late or
       // absent. The old engine still owns its route. Keep it alive and bound
       // retries instead of ending a call on an unproven replacement path.
-      _relayCandidateRetry = (
-        callId: callId,
-        until: _now().add(kCallRelayCandidateRetry),
-      );
+      final now = _now();
+      // An observation started before the silence grace can lose its echo
+      // while the replacement network is still coming up. Keep the ordinary
+      // recovery opportunity once, then return to the normal retry cadence.
+      final delay = switch (retryBy?.difference(now)) {
+        final remaining? when remaining.isNegative => Duration.zero,
+        final remaining? when remaining < kCallRelayCandidateRetry => remaining,
+        _ => kCallRelayCandidateRetry,
+      };
+      _relayCandidateRetry = (callId: callId, until: now.add(delay));
       // Inbound media may stay fresh while our outbound P2P path is dead.
       // A cooldown alone never retries in that asymmetric state: silence
       // detection will not fire and the peer may already be sending relay.
-      _armRelayCandidateRetry(cur.peer, cur.callId, kCallRelayCandidateRetry);
+      _armRelayCandidateRetry(cur.peer, cur.callId, delay);
       _lateP2PLocalReady = true;
       devLog(() => 'xVeil[call-media]: relay candidate deferred; kept direct');
       return;
@@ -2215,7 +2243,7 @@ class CallService {
   /// for the peer's repair request then cannot recover this endpoint. After
   /// the existing receive grace, use the already permitted direct-posture
   /// relay and announce it on the durable live lanes.
-  Future<void> _recoverSilentDirect(Call call) async {
+  Future<void> _recoverSilentDirect(Call call, {DateTime? retryBy}) async {
     if (_relayFallbackFlight != null ||
         (_relayCandidateRetry?.callId == call.callId &&
             _now().isBefore(_relayCandidateRetry!.until)) ||
@@ -2229,21 +2257,23 @@ class CallService {
           'xVeil[call-media]: silent direct path — relay recovery '
           'call=${call.callId}',
     );
-    await _followRelayFallback(call.peer, call.callId);
+    await _followRelayFallback(call.peer, call.callId, retryBy: retryBy);
   }
 
-  bool _canCheckLostDirectSession(Call call) =>
+  bool _canInspectDirectSession(Call call) =>
       !_disposed &&
       call.status == CallStatus.active &&
       call.transport == CallTransportKind.p2p &&
       call.localPosture == CallPosture.direct &&
       call.peerPosture == CallPosture.direct &&
       _relayFallbackFlight == null &&
-      _mediaReceiveNeedsRepair(
-        call,
-        after: kCallDirectSessionSilence,
-        ignoreCapturePosture: true,
-      );
+      _media?.isRepairingReceiveSession == false;
+
+  bool _directSessionSilent(Call call) => _mediaReceiveNeedsRepair(
+    call,
+    after: kCallDirectSessionSilence,
+    ignoreCapturePosture: true,
+  );
 
   bool _establishedAudioReceiveStalled(Call call, {DateTime? latestRxAt}) {
     final media = _media;
@@ -2271,11 +2301,23 @@ class CallService {
 
   Future<void> _checkLostDirectSession(Call call) async {
     final media = _media;
-    if (media == null || !_canCheckLostDirectSession(call)) {
+    if (media == null ||
+        _directAdmissionCheckBusy ||
+        !_canInspectDirectSession(call)) {
       return;
     }
+    final networkChangedAt = _directNetworkHandoverAt;
+    bool recentNetworkChange() =>
+        networkChangedAt != null &&
+        networkChangedAt == _directNetworkHandoverAt &&
+        _now().difference(networkChangedAt) < kCallDirectSessionSilence &&
+        !(media.lastMediaRxAt?.isAfter(networkChangedAt) ?? false);
+
+    // A local network change can retire the direct session before the normal
+    // silence interval has elapsed. Use it only to ask for current admission.
+    final early = !_directSessionSilent(call);
+    if (early && !recentNetworkChange()) return;
     if (_establishedAudioReceiveStalled(call)) {
-      if (_directAdmissionCheckBusy) return;
       _directAdmissionCheckBusy = true;
       DateTime? latestRxAt;
       try {
@@ -2293,7 +2335,8 @@ class CallService {
           current.callId != call.callId ||
           current.peer != call.peer ||
           current.peerDevice != call.peerDevice ||
-          !_canCheckLostDirectSession(current)) {
+          !_canInspectDirectSession(current) ||
+          !_directSessionSilent(current)) {
         return;
       }
       if (latestRxAt != null) {
@@ -2322,12 +2365,21 @@ class CallService {
     }
     if (_directAdmissionCheckBusy) return;
     final connectionGeneration = _relayConnectionGeneration;
+    final mediaEpoch = _mediaOperationEpoch;
     _directAdmissionCheckBusy = true;
     bool? admitted;
+    DateTime? latestRxAt;
     try {
       admitted = await media
           .currentDirectPeerAdmission(call)
           .timeout(const Duration(seconds: 2), onTimeout: () => null);
+      if (early && admitted == false && recentNetworkChange()) {
+        // A cached counter can lag the live engine. Before bypassing silence
+        // grace, protect media received on the new network during the probe.
+        latestRxAt = await media.readLatestMediaRxAt().timeout(
+          const Duration(seconds: 2),
+        );
+      }
     } catch (_) {
       // A failed query is not proof of a closed session.
       admitted = null;
@@ -2339,18 +2391,29 @@ class CallService {
     // current session before starting relay recovery.
     if (admitted != false ||
         connectionGeneration != _relayConnectionGeneration ||
+        mediaEpoch != _mediaOperationEpoch ||
         current == null ||
         current.callId != call.callId ||
         current.peer != call.peer ||
         current.peerDevice != call.peerDevice ||
-        !_canCheckLostDirectSession(current)) {
+        !_canInspectDirectSession(current) ||
+        (early
+            ? !recentNetworkChange() ||
+                  (latestRxAt?.isAfter(networkChangedAt!) ?? false)
+            : !_directSessionSilent(current))) {
       return;
     }
     devLog(
-      () =>
-          'xVeil[call-media]: silent direct session closed — early relay recovery call=${call.callId}',
+      () => early
+          ? 'xVeil[call-media]: direct session closed after local handover — '
+                'early relay recovery call=${call.callId}'
+          : 'xVeil[call-media]: silent direct session closed — '
+                'early relay recovery call=${call.callId}',
     );
-    await _recoverSilentDirect(current);
+    await _recoverSilentDirect(
+      current,
+      retryBy: early ? networkChangedAt?.add(kCallDirectSessionSilence) : null,
+    );
   }
 
   void _announceCallRoute(Call call, CallTransportKind route) {
@@ -3052,6 +3115,7 @@ class CallService {
 
   void _cancelHeartbeat() {
     _livenessProbeToken = null;
+    _directNetworkHandoverAt = null;
     _directAdmissionTimer?.cancel();
     _directAdmissionTimer = null;
     _heartbeatTimer?.cancel();
@@ -3110,6 +3174,7 @@ class CallService {
     }
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
+      _directNetworkHandoverAt = null;
     }
     if (_current?.callId != call.callId) {
       _resetLateP2P();
@@ -3480,6 +3545,8 @@ class CallService {
     _peerHealthSub = null;
     unawaited(_overlaySessionsSub?.cancel());
     _overlaySessionsSub = null;
+    unawaited(_networkHandoversSub?.cancel());
+    _networkHandoversSub = null;
     if (_media == null) {
       _releaseSlot();
     } else {
@@ -3530,6 +3597,9 @@ final callServiceProvider = Provider<CallService>((ref) {
     callSlot: ref.read(callSlotProvider),
     loadFinishedCalls: ref.read(storageProvider).callLogEntries,
     overlaySessions: transport.sessionCount(),
+    networkHandovers: transport is VeilFlutterTransport
+        ? transport.networkHandovers
+        : null,
     // Calls start UNMUTED on every platform. Android used to pass
     // `Platform.isAndroid` here, so every call on a phone connected with the
     // microphone off: the person answering said hello into a muted mic and the

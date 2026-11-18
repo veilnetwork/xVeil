@@ -226,6 +226,11 @@ class VeilFlutterTransport
   final VeilClient _realtimeClient;
   final VeilClient _mediaClient;
   final VeilClient _mailboxClient;
+  final _networkHandovers = StreamController<void>.broadcast();
+  bool _notifiedInitialNetwork = false;
+
+  /// Subsequent usable network observations submitted to this node.
+  Stream<void> get networkHandovers => _networkHandovers.stream;
 
   @override
   Future<void> networkChanged(NetworkAttachment attachment) async {
@@ -246,6 +251,13 @@ class VeilFlutterTransport
     } finally {
       await client.close();
     }
+    if (_disposing) return;
+    if (_notifiedInitialNetwork &&
+        attachment != NetworkAttachment.offline &&
+        attachment != NetworkAttachment.unknown) {
+      _networkHandovers.add(null);
+    }
+    _notifiedInitialNetwork = true;
   }
   final AppHandle _app;
   // Sender-only binding with the same chat app identity. A file's remote
@@ -1635,6 +1647,7 @@ class VeilFlutterTransport
   @override
   Future<void> dispose() async {
     _disposing = true;
+    unawaited(_networkHandovers.close());
     _configuredControlChannels.clear();
     for (final pending in [
       ..._callControlSenders.values,
