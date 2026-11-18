@@ -641,7 +641,7 @@ class VeilCallMediaController implements CallMediaController {
   CallBitrateAdapter? _bitrateAdapter; // sender-side video quality ladder
   DateTime? _lastRepairAt;
   Call? _activeCall;
-  final _routeOperations = CallMediaRouteOperations();
+  var _routeOperations = CallMediaRouteOperations();
   bool get _routeRepairing => _routeOperations.busy;
   final _networkActivityOwner = Object();
   int _mediaEpoch = 0;
@@ -1056,12 +1056,15 @@ class VeilCallMediaController implements CallMediaController {
     }
     // A peer can announce relay while a health-triggered repair is awaiting
     // camera teardown. Queue behind it instead of returning a fatal failure.
-    return _routeOperations.runForCall(
+    final operations = _routeOperations;
+    return operations.runForCall(
       call.callId,
       () => _activeCall?.callId,
       () async {
         if (canCommit != null && !await canCommit()) return false;
-        if (_activeCall?.callId != call.callId) return false;
+        if (operations.retired || _activeCall?.callId != call.callId) {
+          return false;
+        }
         if (activeTransport == transport) return true;
         final engine = _engine;
         if (engine != null &&
@@ -2513,7 +2516,9 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     if (call.media.video || call.media.screen) return true; // already mounted
+    final operations = _routeOperations;
     bool sameCall() =>
+        !operations.retired &&
         _activeCall?.callId == call.callId &&
         _activeCall?.mediaIdentity == call.mediaIdentity;
     // Same bounded Apple TCC pre-prompt as a video call's start(): never let
@@ -2524,7 +2529,7 @@ class VeilCallMediaController implements CallMediaController {
     );
     if (!sameCall()) return false;
     devLog(() => 'xVeil[call-media]: mid-call camera permission=$granted');
-    return _routeOperations.runForCall(
+    return operations.runForCall(
       call.callId,
       () => _activeCall?.callId,
       () async {
@@ -2675,6 +2680,10 @@ class VeilCallMediaController implements CallMediaController {
     _screenStarting = null;
     _androidScreen?.rebindFrameSink(null);
     if (clearActiveCall) {
+      // A candidate can still be waiting for its echo. Its cleanup is scoped
+      // to its captured channel and must not block the successor call.
+      _routeOperations.retire();
+      _routeOperations = CallMediaRouteOperations();
       _routeHandovers = 0;
       _startedWithoutMicrophone = false;
       _startedWithoutCamera = false;
