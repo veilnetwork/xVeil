@@ -12,10 +12,13 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
 import android.util.Rational
 import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import com.veil.veil_flutter.CallScreenActivity
@@ -67,6 +70,43 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private var quickUnlock: NativeQuickUnlock? = null
     private var defaultNetworkObserver: DefaultNetworkObserver? = null
     private var defaultNetworkEngine: FlutterEngine? = null
+
+    private val forwardBackToFlutter = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            this@MainActivity.onBackPressed()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Flutter's own callback can be disabled when it has no predictive
+        // back transition. Still let Dart handle the Back action in that case.
+        onBackPressedDispatcher.addCallback(this, forwardBackToFlutter)
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun createFlutterFragment(): FlutterFragment {
+        val defaults = super.createFlutterFragment()
+        return BackFlutterFragment().apply { arguments = defaults.arguments }
+    }
+
+    class BackFlutterFragment : FlutterFragment() {
+        override fun popSystemNavigator(): Boolean {
+            val host = activity as? MainActivity ?: return super.popSystemNavigator()
+            // Dart has already handled nested routes and dialogs. Preserve its
+            // container owner at the root by using Android's background lifecycle.
+            if (host.isTaskRoot && host.moveTaskToBack(false)) return true
+
+            // Flutter's default exit calls the Android dispatcher again.
+            val forward = host.forwardBackToFlutter
+            val enabled = forward.isEnabled
+            forward.isEnabled = false
+            return try {
+                super.popSystemNavigator()
+            } finally {
+                forward.isEnabled = enabled
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
