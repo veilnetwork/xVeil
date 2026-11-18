@@ -17559,6 +17559,93 @@ void main() {
     expect(checks, greaterThanOrEqualTo(5));
   });
 
+  test('own-device admission checks durable tombstones after a cached positive', () async {
+    final store = _HeldGroupHeaderStorage();
+    await store.open(password: 'fixture', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async { await service.dispose(); await store.close(); });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    service.ownDeviceRevocationCheck = (document, identity, device) {
+      expect(identity, sovereign.nodeId);
+      expect(device, bob);
+      if (document.single == 3) throw StateError('unverifiable fixture');
+      return document.single == 2;
+    };
+    Future<void> put(int version) => material.writeSovereignMaterial(store,
+        material.encodeSovereignIdentity({
+          material.kIdentityDocumentFile: Uint8List.fromList([version]),
+        }));
+    expect(await service.isMyDeviceOrMaster(bob), isTrue);
+    await put(1);
+    expect(await service.isMyDevice(bob), isTrue);
+    expect(await service.isMyDeviceOrMaster(bob), isTrue);
+    await put(2); // Crash window: membership journal/cache still admits B.
+    expect(await service.otherDeviceIds(), [bob]);
+    expect(await service.isMyDevice(bob), isFalse);
+    expect(await service.isMyDeviceOrMaster(bob), isFalse);
+    await put(3);
+    await expectLater(service.isMyDevice(bob), throwsStateError);
+    await expectLater(service.isMyDeviceOrMaster(bob), throwsStateError);
+    await put(1);
+    store.heldKey = material.kSovereignIdentitySetting;
+    store.failRead = true;
+    await expectLater(service.isMyDeviceOrMaster(bob), throwsStateError);
+    store.failRead = false;
+    expect(await service.isMyDeviceOrMaster(bob), isTrue);
+  });
+
+  test('own-device admission fences an explicitly revoked announced master', () async {
+    final f = await hiddenDeviceJournal();
+    final service = f.linked;
+    expect(await service.isMyDevice(f.master), isFalse);
+    expect(await service.isMyDeviceOrMaster(f.master), isTrue);
+    service.ownDeviceRevocationCheck = (document, identity, device) {
+      expect(identity, sovereign.nodeId);
+      expect(device, f.master);
+      return document.single == 2;
+    };
+    await material.writeSovereignMaterial(f.store,
+        material.encodeSovereignIdentity({
+          material.kIdentityDocumentFile: Uint8List.fromList([2]),
+        }));
+    expect(await service.masterDeviceId(), f.master,
+        reason: 'the historical master announcement is intentionally unchanged');
+    expect(await service.isMyDeviceOrMaster(f.master), isFalse);
+    expect(await service.isMyDeviceOrMaster(sovereign.nodeId), isTrue,
+        reason: 'the identity alias is not a physical device tombstone');
+  });
+
+  for (final boundary in ['group revoke', 'shutdown']) {
+    test('own-device admission rechecks $boundary after document read', () async {
+      final store = _HeldGroupHeaderStorage();
+      await store.open(password: 'fixture', createIfMissing: true);
+      final service = GroupService(store, _FakeSigner(owner));
+      addTearDown(() async { await service.dispose(); await store.close(); });
+      expect(await service.linkDevice(bob, sovereign: sovereign,
+          broadcastSnapshot: false), isTrue);
+      service.ownDeviceRevocationCheck = (_, _, _) => false;
+      await material.writeSovereignMaterial(store,
+          material.encodeSovereignIdentity({
+            material.kIdentityDocumentFile: Uint8List.fromList([1]),
+          }));
+      expect(await service.isMyDeviceOrMaster(bob), isTrue);
+      store.heldKey = material.kSovereignIdentitySetting;
+      store.captured = Completer<void>();
+      store.release = Completer<void>();
+      final checking = service.isMyDeviceOrMaster(bob);
+      await store.captured!.future;
+      if (boundary == 'shutdown') {
+        service.beginShutdown();
+      } else {
+        expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+      }
+      store.release!.complete();
+      expect(await checking, isFalse);
+      expect(await service.isMyDeviceOrMaster(bob), isFalse);
+    });
+  }
+
   test('shutdown while reading own tombstones cannot return stale targets', () async {
     final store = _HeldGroupHeaderStorage();
     await store.open(password: 'fixture', createIfMissing: true);

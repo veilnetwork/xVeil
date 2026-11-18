@@ -1,0 +1,47 @@
+{
+  "schema": "xveil-validation/1",
+  "nativeSource": "26c0a8a59ef692bdbbd33437bc55cb3fe03775ac",
+  "nativeSourceChanged": false,
+  "nativeTestsReexecuted": false,
+  "qualifiedSdkAndStorageReused": true,
+  "baseline": {
+    "staleGroupRosterContainsRevokedDevice": true,
+    "outgoingOwnRoutingContainsRevokedDevice": false,
+    "ownMembershipAdmitsRevokedDevice": true,
+    "ownIngressAdmitsRevokedDevice": true
+  },
+  "candidate": {
+    "staleGroupRosterContainsRevokedDevice": true,
+    "outgoingOwnRoutingContainsRevokedDevice": false,
+    "ownMembershipAdmitsRevokedDevice": false,
+    "ownIngressAdmitsRevokedDevice": false,
+    "messagingIngressAdmitsRevokedDevice": false,
+    "callRelayIngressAdmitsRevokedDevice": false
+  },
+  "checks": {
+    "beforeRevokeRoutingAndFourAdmissionGatesAllowedDevice": true,
+    "unitAssertionRed": 2,
+    "unitBoundaryChecksPassed": 4,
+    "groupTestsPassed": 550,
+    "groupTestsSkipped": 0,
+    "fullAuthorCrashE2ePassed": 1,
+    "authorizedMessagesAndCallPreserved": true,
+    "focusedAnalyzeClean": true,
+    "sourceAndNativeBytesStableDuringE2e": true,
+    "ownedProcessesTracked": 40,
+    "ownedProcessesRemaining": 0,
+    "portsReleased": 28,
+    "independentProcessAuditPassed": true
+  },
+  "limits": {
+    "newPacketLevelAttackOrPlaintextLeakProven": false,
+    "fullDeviceMatrixQualified": false,
+    "androidAotQualified": false,
+    "netcallResolved": false,
+    "phoneQaInstalled": false,
+    "phoneNetworkChanged": false,
+    "desktopGuiLaunched": false,
+    "productionChanged": false,
+    "pushedOrReleased": false
+  }
+}

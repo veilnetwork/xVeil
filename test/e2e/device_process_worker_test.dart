@@ -622,6 +622,21 @@ void main() {
                       (await device!.groups!.otherDeviceIds()).contains(
                         physical,
                       );
+                  authorization['ownMembershipAdmitsDevice'] = await device!
+                      .groups!
+                      .isMyDevice(physical);
+                  authorization['ownIngressAdmitsDevice'] = await device!
+                      .groups!
+                      .isMyDeviceOrMaster(physical);
+                  final messagingGate = device!.messaging.isOwnDevice;
+                  final callRelayGate = device!.calls.isOwnDevice;
+                  if (messagingGate == null || callRelayGate == null) {
+                    throw StateError('Own-device application gates not wired');
+                  }
+                  authorization['messagingIngressAdmitsDevice'] =
+                      await messagingGate(physical);
+                  authorization['callRelayIngressAdmitsDevice'] =
+                      await callRelayGate(physical);
                 }
                 final stored = await device!.storage.loadPeerAuthorization();
                 authorization['storedPeers'] = [
