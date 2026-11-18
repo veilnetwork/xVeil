@@ -123,6 +123,7 @@ abstract interface class CallMediaChannelOpener {
     required Uint8List rxKey,
     bool direct,
     bool relay,
+    bool primaryOnlyPreparation,
   });
 }
 
@@ -789,6 +790,7 @@ class VeilFlutterTransport
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     if (direct && relay) {
       throw ArgumentError('media channel cannot be both direct and relay');
@@ -851,6 +853,7 @@ class VeilFlutterTransport
         dstEndpointId: veilMediaEndpointId,
         txKey: txKey,
         rxKey: rxKey,
+        primaryOnlyPreparation: primaryOnlyPreparation,
       );
       return _attachCallControl(
         channel,

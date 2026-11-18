@@ -19,6 +19,7 @@ class _Open {
     required this.rxKey,
     required this.direct,
     required this.relay,
+    required this.primaryOnlyPreparation,
   });
 
   final Uint8List dstNode;
@@ -26,6 +27,7 @@ class _Open {
   final Uint8List rxKey;
   final bool direct;
   final bool relay;
+  final bool primaryOnlyPreparation;
 }
 
 /// Records exactly what the media plane asked native to open. Every buffer is
@@ -52,6 +54,7 @@ class _RecordingOpener implements CallMediaChannelOpener {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     opens.add(
       _Open(
@@ -60,6 +63,7 @@ class _RecordingOpener implements CallMediaChannelOpener {
         rxKey: Uint8List.fromList(rxKey),
         direct: direct,
         relay: relay,
+        primaryOnlyPreparation: primaryOnlyPreparation,
       ),
     );
     if (direct) {
@@ -104,6 +108,39 @@ Call _call({
 );
 
 void main() {
+  test('only audio-only relay opens skip visual preparation', () async {
+    for (final media in [
+      const CallMedia(audio: true),
+      const CallMedia(audio: true, video: true),
+      const CallMedia(audio: true, screen: true),
+    ]) {
+      for (final route in [CallTransportKind.relay, CallTransportKind.p2p]) {
+        final call = _call(
+          route: route,
+          localMediaKey: generateCallMediaKeyContribution(),
+          peerMediaKey: generateCallMediaKeyContribution(),
+        ).copyWith(media: media);
+        final opener = _RecordingOpener(
+          directFailure: 'direct media session is not active',
+        );
+        await openSealedCallMediaChannel(
+          call: call,
+          opener: opener,
+          localNodeId: _self.bytes,
+          retryInactiveDirect: false,
+        );
+        expect(opener.opens.last.relay, isTrue);
+        expect(
+          opener.opens.last.primaryOnlyPreparation,
+          !media.video && !media.screen,
+        );
+        if (route == CallTransportKind.p2p) {
+          expect(opener.opens.first.primaryOnlyPreparation, isFalse);
+        }
+      }
+    }
+  });
+
   group('warm session media attribution', () {
     final device = _node(0xD2);
     Call warmCall(CallTransportKind route) => _call(

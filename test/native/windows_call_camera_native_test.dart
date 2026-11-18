@@ -29,6 +29,7 @@ class _LoopbackChannel implements VeilFlutterTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async => 42;
   @override
   bool get supportsCallControl => false;
