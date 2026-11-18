@@ -583,6 +583,8 @@ class VeilCallMediaController implements CallMediaController {
   CallTransportKind? _chanTransport;
   bool _handoverPacketSizeReady = false;
   final Map<int, Timer> _retiringChannels = {};
+  ({int channel, int previous, NodeId peer, Timer expiry})?
+  _retainedRelayCandidate;
   // Incoming and outgoing routes are independent. Keep one authenticated
   // receive binding per older physical peer until that peer is replaced or
   // the call ends, even when our outgoing route has already changed.
@@ -1147,6 +1149,33 @@ class VeilCallMediaController implements CallMediaController {
             : activeTransport != null);
   }
 
+  void _closeRetainedRelayCandidate() {
+    final retained = _retainedRelayCandidate;
+    if (retained == null) return;
+    _retainedRelayCandidate = null;
+    retained.expiry.cancel();
+    try {
+      _transport.closeMediaChannel(retained.channel);
+    } catch (_) {}
+  }
+
+  void _retainRelayCandidate(int channel, int previous, NodeId peer) {
+    // Allow the normal five-second recovery timer to reuse this prepared
+    // channel once. The candidate has no engine and still needs a fresh echo.
+    final lifetime = kCallRelayCandidateRetry + const Duration(seconds: 2);
+    final expiry = Timer(lifetime, () {
+      if (_retainedRelayCandidate?.channel == channel) {
+        _closeRetainedRelayCandidate();
+      }
+    });
+    _retainedRelayCandidate = (
+      channel: channel,
+      previous: previous,
+      peer: peer,
+      expiry: expiry,
+    );
+  }
+
   Future<bool> _switchRoutePreservingEngine(
     Call call,
     CallTransportKind target,
@@ -1176,17 +1205,37 @@ class VeilCallMediaController implements CallMediaController {
           mediaRoutePeer: callMediaRoutePeer(next, sessionAdmitted: admitted),
         );
       }
-      final opened = await openSealedCallMediaChannel(
-        call: next,
-        opener: _transport,
-        localNodeId: (await _transport.peerFacingNodeId()).bytes,
-        resolveDirectPeerOnRetry: () async {
-          final admitted = (await _transport.peerPnetStatus(
-            (next.peerDevice ?? next.peer).bytes,
-          )).admitted;
-          return callMediaRoutePeer(next, sessionAdmitted: admitted);
-        },
-      );
+      final retained = _retainedRelayCandidate;
+      final reused =
+          retained != null &&
+          target == CallTransportKind.relay &&
+          retained.previous == previous &&
+          retained.peer == (next.peerDevice ?? next.peer);
+      if (reused) {
+        _retainedRelayCandidate = null;
+        retained.expiry.cancel();
+        devLog(() => 'xVeil[call-media]: reusing prepared relay candidate');
+      } else {
+        _closeRetainedRelayCandidate();
+      }
+      final opened = reused
+          ? (
+              channel: retained.channel,
+              peer: retained.peer,
+              transport: CallTransportKind.relay,
+              fallbackReason: null,
+            )
+          : await openSealedCallMediaChannel(
+              call: next,
+              opener: _transport,
+              localNodeId: (await _transport.peerFacingNodeId()).bytes,
+              resolveDirectPeerOnRetry: () async {
+                final admitted = (await _transport.peerPnetStatus(
+                  (next.peerDevice ?? next.peer).bytes,
+                )).admitted;
+                return callMediaRoutePeer(next, sessionAdmitted: admitted);
+              },
+            );
       if (opened == null) return false;
       candidate = opened.channel;
       bool stillOwned() =>
@@ -1197,38 +1246,42 @@ class VeilCallMediaController implements CallMediaController {
           _activeCall?.callId == call.callId &&
           _activeCall?.mediaIdentity == next.mediaIdentity &&
           _activeCall?.peerDevice == next.peerDevice;
+      if (opened.transport != target || !stillOwned()) return false;
+      if (!reused &&
+          !await _configureRouteProbes(candidate, next, opened.transport)) {
+        return false;
+      }
       var observations = 0;
       // Keep the old sender/receiver alive until the candidate has carried a
       // sealed peer echo in both directions. Local open/admission is not a
       // delivery observation. The echo's route stays inside the call AEAD.
-      if (!await _configureRouteProbes(candidate, next, opened.transport) ||
-          !await qualifyCallMediaHandover(
-            from: previousTransport,
-            to: target,
-            stillOwned: stillOwned,
-            qualify: () {
-              observations++;
-              devLog(
-                () =>
-                    'xVeil[call-media]: ${target.name} candidate '
-                    'delivery observation=$observations',
-              );
-              return _transport.qualifyMediaRoute(opened.channel);
-            },
-          )) {
+      if (!await qualifyCallMediaHandover(
+        from: previousTransport,
+        to: target,
+        stillOwned: stillOwned,
+        qualify: () {
+          observations++;
+          devLog(
+            () =>
+                'xVeil[call-media]: ${target.name} candidate '
+                'delivery observation=$observations',
+          );
+          return _transport.qualifyMediaRoute(opened.channel);
+        },
+      )) {
         devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
+        if (!reused &&
+            previousTransport == CallTransportKind.p2p &&
+            target == CallTransportKind.relay &&
+            stillOwned()) {
+          _retainRelayCandidate(candidate, previous, opened.peer);
+          candidate = null;
+        }
         return false;
       }
       if (canCommit != null && !await canCommit()) return false;
       final current = _activeCall;
-      if (_engine != engine ||
-          epoch != _mediaEpoch ||
-          current?.callId != call.callId ||
-          current?.mediaIdentity != next.mediaIdentity ||
-          current?.peerDevice != next.peerDevice ||
-          opened.transport != target) {
-        return false;
-      }
+      if (!stillOwned()) return false;
       final relay = target == CallTransportKind.relay;
       if (relay &&
           _transport.setRelayMediaBatching(candidate, true, compact: true) !=
@@ -2641,6 +2694,7 @@ class VeilCallMediaController implements CallMediaController {
   }) async {
     if (startingRequest == null) ++_startOperationEpoch;
     final epoch = ++_mediaEpoch;
+    _closeRetainedRelayCandidate();
     _audioMirrorLease.stop();
     for (final channel in _diagnosticRouteChannels) {
       try {
