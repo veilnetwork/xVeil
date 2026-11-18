@@ -243,7 +243,7 @@ abstract class CallMediaController {
 
   /// Recheck accepted audio RTP at the engine before abandoning a direct path.
   /// A periodic cached hint cannot confirm an outage after packets resume.
-  /// Unavailable/older engines return null and retain the ordinary grace.
+  /// A null result leaves the separate direct-session admission check in charge.
   Future<DateTime?> readLatestAudioRxAt() async => null;
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
@@ -2239,33 +2239,36 @@ class CallService {
         _directAdmissionCheckBusy = false;
       }
       final current = _current;
-      if (latestRxAt == null ||
-          current == null ||
+      if (current == null ||
           current.callId != call.callId ||
           current.peer != call.peer ||
           current.peerDevice != call.peerDevice ||
           !_canCheckLostDirectSession(current)) {
         return;
       }
-      if (!_establishedAudioReceiveStalled(current, latestRxAt: latestRxAt)) {
+      if (latestRxAt != null) {
+        if (!_establishedAudioReceiveStalled(current, latestRxAt: latestRxAt)) {
+          devLog(
+            () =>
+                'xVeil[call-media]: fresh audio cancels cached direct outage '
+                'call=${call.callId}',
+          );
+          return;
+        }
+        // Primary QUIC can stop delivering while parent admission, RTCP or video
+        // still works. Recover on permitted live relay lanes; do not wait for a
+        // negative parent query or a peer repair message on the stalled path.
         devLog(
           () =>
-              'xVeil[call-media]: fresh audio cancels cached direct outage '
-              'call=${call.callId}',
+              'xVeil[call-media]: established direct audio stalled — '
+              'early relay recovery call=${call.callId} '
+              'native_age=${_now().difference(latestRxAt!).inMilliseconds}ms',
         );
+        await _recoverSilentDirect(current);
         return;
       }
-      // Primary QUIC can stop delivering while parent admission, RTCP or video
-      // still works. Recover on permitted live relay lanes; do not wait for a
-      // negative parent query or a peer repair message on the stalled path.
-      devLog(
-        () =>
-            'xVeil[call-media]: established direct audio stalled — '
-            'early relay recovery call=${call.callId} '
-            'native_age=${_now().difference(latestRxAt!).inMilliseconds}ms',
-      );
-      await _recoverSilentDirect(current);
-      return;
+      // Missing audio telemetry cannot confirm an audio outage. A current
+      // negative admission can still independently confirm session loss.
     }
     if (_directAdmissionCheckBusy) return;
     _directAdmissionCheckBusy = true;

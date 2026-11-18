@@ -2688,18 +2688,23 @@ void main() {
       },
     );
 
-    for (final outcome in [
-      'resumed',
-      'unavailable',
-      'failed',
-      'timeout',
-      'stopped',
+    for (final (outcome, admission) in <(String, bool?)>[
+      ('resumed', true),
+      ('resumed', false),
+      ('unavailable', true),
+      ('unavailable', null),
+      ('unavailable', false),
+      ('failed', true),
+      ('failed', false),
+      ('timeout', true),
+      ('timeout', false),
+      ('stopped', true),
     ]) {
-      test('cached direct outage rechecks native audio: $outcome', () {
+      test('cached direct outage: $outcome / $admission', () {
         fakeAsync((async) {
           final fake = _FakeMessaging();
           final media = _FakeMedia()
-            ..liveDirectAdmission = true
+            ..liveDirectAdmission = admission
             ..audioTelemetry = true;
           final pending = Completer<DateTime?>();
           final svc = CallService(
@@ -2740,33 +2745,48 @@ void main() {
           );
           fake.sent.clear();
           for (var i = 0; i < 8; i++) {
-            media.rxAt = clock.now(); // Other ingress and the parent stay live.
+            media.rxAt = clock.now(); // For example, video or RTCP.
             async.elapse(const Duration(milliseconds: 500));
             async.flushMicrotasks();
           }
-          expect(
-            media.switches,
-            outcome == 'stopped' ? [CallTransportKind.relay] : isEmpty,
-            reason: 'only a confirmed current audio outage abandons P2P',
-          );
+          if (outcome == 'timeout') {
+            expect(media.liveAdmissionChecks, isEmpty);
+            expect(media.switches, isEmpty);
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          final missingAudio = outcome != 'resumed' && outcome != 'stopped';
+          final recover =
+              outcome == 'stopped' || (missingAudio && admission == false);
+          expect(media.switches, recover ? [CallTransportKind.relay] : isEmpty);
           expect(
             svc.current?.transport,
-            outcome == 'stopped'
-                ? CallTransportKind.relay
-                : CallTransportKind.p2p,
+            recover ? CallTransportKind.relay : CallTransportKind.p2p,
           );
+          expect(svc.current?.callId, 'cached-audio-outage');
+          expect(svc.current?.status, CallStatus.active);
           expect(media.latestAudioReads, greaterThan(0));
-          if (outcome != 'stopped') {
+          expect(
+            media.liveAdmissionChecks.toSet(),
+            missingAudio ? {peer} : isEmpty,
+          );
+          if (!recover) {
             expect(
               fake.sent.where((s) => s.type == CallSignalType.transportInfo),
               isEmpty,
             );
           }
+          expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
           svc.dispose();
           if (outcome == 'timeout') {
+            final switches = media.switches.length;
             pending.complete(media.audioRxAt);
             async.flushMicrotasks();
-            expect(media.switches, isEmpty, reason: 'late read after disposal');
+            expect(
+              media.switches,
+              hasLength(switches),
+              reason: 'late read after disposal',
+            );
           }
           async.flushMicrotasks();
         });
