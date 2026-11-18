@@ -2324,8 +2324,7 @@ class CallService {
     bool recentNetworkChange() =>
         networkChangedAt != null &&
         networkChangedAt == _directNetworkHandoverAt &&
-        _now().difference(networkChangedAt) < kCallDirectSessionSilence &&
-        !(media.lastMediaRxAt?.isAfter(networkChangedAt) ?? false);
+        _now().difference(networkChangedAt) < kCallDirectSessionSilence;
 
     // A local network change can retire the direct session before the normal
     // silence interval has elapsed. Use it only to ask for current admission.
@@ -2381,18 +2380,28 @@ class CallService {
     final connectionGeneration = _relayConnectionGeneration;
     final mediaEpoch = _mediaOperationEpoch;
     _directAdmissionCheckBusy = true;
+    Future<bool?> readAdmission() => media
+        .currentDirectPeerAdmission(call)
+        .timeout(const Duration(seconds: 2), onTimeout: () => null);
     bool? admitted;
-    DateTime? latestRxAt;
     try {
-      admitted = await media
-          .currentDirectPeerAdmission(call)
-          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+      admitted = await readAdmission();
       if (early && admitted == false && recentNetworkChange()) {
-        // A cached counter can lag the live engine. Before bypassing silence
-        // grace, protect media received on the new network during the probe.
-        latestRxAt = await media.readLatestMediaRxAt().timeout(
+        final latestRxAt = await media.readLatestMediaRxAt().timeout(
           const Duration(seconds: 2),
         );
+        if (recentNetworkChange() &&
+            ((latestRxAt ?? media.lastMediaRxAt)?.isAfter(networkChangedAt!) ??
+                false)) {
+          // Inbound activity can be buffered traffic from the old path or a
+          // sign of a replacement. Recheck the sender after the observation.
+          // A receipt alone cannot restore a missing outbound session.
+          admitted = await readAdmission();
+          devLog(
+            () => 'xVeil[call-media]: handover admission rechecked after '
+                'inbound media result=${admitted ?? 'unknown'}',
+          );
+        }
       }
     } catch (_) {
       // A failed query is not proof of a closed session.
@@ -2411,10 +2420,7 @@ class CallService {
         current.peer != call.peer ||
         current.peerDevice != call.peerDevice ||
         !_canInspectDirectSession(current) ||
-        (early
-            ? !recentNetworkChange() ||
-                  (latestRxAt?.isAfter(networkChangedAt!) ?? false)
-            : !_directSessionSilent(current))) {
+        (early ? !recentNetworkChange() : !_directSessionSilent(current))) {
       return;
     }
     devLog(
