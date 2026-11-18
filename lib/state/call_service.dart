@@ -538,6 +538,7 @@ class CallService {
   DateTime? _lateP2PRetryAt;
   DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
+  Object? _pendingDirectReadiness;
 
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
@@ -550,6 +551,7 @@ class CallService {
     _lastPeerRouteHealthAtMs = 0;
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
+    _pendingDirectReadiness = null;
     _lateP2PRetryAt = null;
     _lateP2PActivatedAt = null;
   }
@@ -562,6 +564,7 @@ class CallService {
     _lateP2PNeedsDatedReadiness = true;
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
+    _pendingDirectReadiness = null;
     _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
@@ -572,6 +575,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PLocalReady = false;
     _lateP2PPeerReady = false;
+    _pendingDirectReadiness = null;
     _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
     // A concurrent peer fallback agrees with our surviving relay. There is
     // no committed direct route to undo and no reason to revoke mutual consent.
@@ -670,18 +674,7 @@ class CallService {
         return;
       }
       _lateP2PLocalReady = true;
-      await _sendCallSignal(
-        c.peer,
-        CallSignal(
-          callId: c.callId,
-          type: CallSignalType.transportInfo,
-          transport: const CallTransportProposal(CallTransportKind.p2p),
-          // Contact lookup or durable enqueue can outlast this route. Date the
-          // readiness here so a late send cannot supersede a newer relay report.
-          sentAtMs: _now().millisecondsSinceEpoch,
-          protocolVersion: _signalProtocolVersion,
-        ),
-      );
+      _announceCallRoute(c, CallTransportKind.p2p);
       if (!stillCurrent() ||
           !_lateP2PPeerReady ||
           _lateP2PAttempted ||
@@ -726,7 +719,7 @@ class CallService {
           // An unconfirmed candidate leaves the old engine/channel untouched.
           // A transient loss or newly admitted route can recover later.
           _deferLateP2PCandidate(cur);
-          await _announceRelayFallback(cur);
+          _announceCallRoute(cur, CallTransportKind.relay);
         } else {
           _lateP2PConsent = false;
           _lateP2PLocalReady = false;
@@ -754,13 +747,15 @@ class CallService {
       if (stillCurrent() && _lateP2PAttempted) {
         if (media.activeTransport == CallTransportKind.relay) {
           _deferLateP2PCandidate(_current!);
-          await _announceRelayFallback(_current!);
+          _announceCallRoute(_current!, CallTransportKind.relay);
         } else {
           _lateP2PConsent = false;
           _lateP2PLocalReady = false;
           // A lost old channel still needs the guarded recovery path.
           await _followRelayFallback(c.peer, c.callId);
-          if (stillCurrent()) await _announceRelayFallback(_current!);
+          if (stillCurrent()) {
+            _announceCallRoute(_current!, CallTransportKind.relay);
+          }
         }
       }
     } finally {
@@ -1928,7 +1923,7 @@ class CallService {
         cur.peerPosture == CallPosture.direct) {
       _rearmP2PAfterRelay();
       _set(cur.copyWith(transport: CallTransportKind.relay));
-      await _announceRelayFallback(cur);
+      _announceCallRoute(cur, CallTransportKind.relay);
       return;
     }
     // Fail closed. A broken route must not silently become onion (or any other
@@ -2113,11 +2108,7 @@ class CallService {
       _set(settled);
       // Announce the surviving relay while preserving original consent.
       // A later return still needs fresh readiness and delivery qualification.
-      try {
-        await _announceRelayFallback(settled);
-      } catch (error) {
-        devLog(() => 'xVeil[call-media]: relay settlement send failed: $error');
-      }
+      _announceCallRoute(settled, CallTransportKind.relay);
       return;
     }
     if (!ok &&
@@ -2306,16 +2297,34 @@ class CallService {
     await _recoverSilentDirect(current);
   }
 
-  Future<void> _announceRelayFallback(Call call) => _sendCallSignal(
-    call.peer,
-    CallSignal(
+  void _announceCallRoute(Call call, CallTransportKind route) {
+    final direct = route == CallTransportKind.p2p;
+    if (direct && _pendingDirectReadiness != null) return;
+    final readiness = direct ? Object() : null;
+    if (readiness != null) _pendingDirectReadiness = readiness;
+    // Signal over the durable lanes, but let the media route queue run while
+    // the outbox is busy. The native candidate still needs sealed peer proof.
+    // Date the announcement before contact lookup or storage can delay it.
+    final signal = CallSignal(
       callId: call.callId,
       type: CallSignalType.transportInfo,
-      transport: const CallTransportProposal(CallTransportKind.relay),
-      p2pUpgradeAllowed: _lateP2PConsent,
+      transport: CallTransportProposal(route),
+      p2pUpgradeAllowed: direct ? null : _lateP2PConsent,
+      sentAtMs: _now().millisecondsSinceEpoch,
       protocolVersion: _signalProtocolVersion,
-    ),
-  );
+    );
+    unawaited(() async {
+      try {
+        await _sendCallSignal(call.peer, signal);
+      } catch (error) {
+        devLog(() => 'xVeil[call-media]: ${route.name} route send failed: $error');
+      } finally {
+        if (readiness != null && identical(_pendingDirectReadiness, readiness)) {
+          _pendingDirectReadiness = null;
+        }
+      }
+    }());
+  }
 
   void _onOffer(NodeId peer, CallSignal sig) {
     if (_isFinished(peer, sig.callId)) {
@@ -3204,7 +3213,7 @@ class CallService {
               media.startedWithoutCamera) {
             unawaited(_announceCapture());
           }
-          unawaited(_announceRelayFallback(relayed));
+          _announceCallRoute(relayed, CallTransportKind.relay);
           unawaited(_checkLateP2P());
           return;
         }
