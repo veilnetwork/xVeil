@@ -3477,6 +3477,67 @@ void main() {
       });
     });
 
+    for (final admitted in [true, false]) {
+      test('direct admission after overlay recovery: $admitted', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final pending = Completer<bool?>();
+          final media = _FakeMedia()..liveAdmissionGate = pending;
+          final counts = StreamController<int>();
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            overlaySessions: counts.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          counts.add(2);
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'probe-reconnect',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          media.rxAt = clock.now();
+          counts.add(1);
+          async.flushMicrotasks();
+          async.elapse(kCallDirectSessionSilence);
+          expect(media.liveAdmissionChecks, [peer]);
+
+          // The negative result describes a snapshot before reconnect. Keep
+          // media silent so cached receive activity cannot mask the race.
+          counts.add(2);
+          async.flushMicrotasks();
+          media.liveAdmissionGate = null;
+          media.liveDirectAdmission = admitted;
+          pending.complete(false);
+          async.flushMicrotasks();
+          expect(media.switches, isEmpty, reason: 'the old result is stale');
+          expect(media.liveAdmissionChecks, [peer]);
+
+          async.elapse(const Duration(seconds: 1));
+          expect(media.liveAdmissionChecks, [peer, peer]);
+          expect(
+            media.switches,
+            admitted ? isEmpty : [CallTransportKind.relay],
+          );
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.callId, 'probe-reconnect');
+          svc.dispose();
+          counts.close();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('a closed-session reply after hangup cannot restart media', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

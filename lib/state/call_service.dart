@@ -2271,6 +2271,7 @@ class CallService {
       // negative admission can still independently confirm session loss.
     }
     if (_directAdmissionCheckBusy) return;
+    final connectionGeneration = _relayConnectionGeneration;
     _directAdmissionCheckBusy = true;
     bool? admitted;
     try {
@@ -2284,7 +2285,10 @@ class CallService {
       _directAdmissionCheckBusy = false;
     }
     final current = _current;
+    // If the overlay recovered during the probe, let the next tick sample the
+    // current session before starting relay recovery.
     if (admitted != false ||
+        connectionGeneration != _relayConnectionGeneration ||
         current == null ||
         current.callId != call.callId ||
         current.peer != call.peer ||
