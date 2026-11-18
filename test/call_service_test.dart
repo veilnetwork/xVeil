@@ -3582,6 +3582,8 @@ void main() {
       'still admitted',
       'unknown',
       'fresh media',
+      'fresh ingress but no sender',
+      'cached ingress while direct closes',
       'superseded handover',
     ]) {
       test('checks P2P early after a network handover ($mode)', () {
@@ -3619,13 +3621,17 @@ void main() {
           expect(svc.current?.transport, CallTransportKind.p2p);
           media.rxAt = clock.now();
           media.liveDirectAdmission = switch (mode) {
-            'unknown' || 'closes on the next tick' => null,
+            'unknown' ||
+            'closes on the next tick' ||
+            'cached ingress while direct closes' => null,
             'still admitted' => true,
             _ => false,
           };
+          final freshIngress =
+              mode == 'fresh media' || mode == 'fresh ingress but no sender';
           final fresh = Completer<DateTime?>();
           final admission = Completer<bool?>();
-          if (mode == 'fresh media') media.readSnapshot = () => fresh.future;
+          if (freshIngress) media.readSnapshot = () => fresh.future;
           if (mode == 'superseded handover') media.liveAdmissionGate = admission;
           network.add(null);
           async.flushMicrotasks();
@@ -3634,8 +3640,15 @@ void main() {
             case 'closes on the next tick':
               media.liveDirectAdmission = false;
               async.elapse(const Duration(seconds: 1));
-            case 'fresh media':
+            case 'cached ingress while direct closes':
               async.elapse(const Duration(milliseconds: 10));
+              media.rxAt = clock.now();
+              media.liveDirectAdmission = false;
+              async.elapse(const Duration(milliseconds: 990));
+            case 'fresh media':
+            case 'fresh ingress but no sender':
+              async.elapse(const Duration(milliseconds: 10));
+              media.liveDirectAdmission = mode == 'fresh media';
               fresh.complete(clock.now());
             case 'superseded handover':
               async.elapse(const Duration(milliseconds: 10));
@@ -3643,13 +3656,23 @@ void main() {
               admission.complete(false);
           }
           async.flushMicrotasks();
-          final switched = mode == 'closed' || mode == 'closes on the next tick';
+          final switched = const {
+            'closed',
+            'closes on the next tick',
+            'cached ingress while direct closes',
+            'fresh ingress but no sender',
+          }.contains(mode);
+          expect(media.switches, switched ? [CallTransportKind.relay] : isEmpty);
           expect(
             media.liveAdmissionChecks,
-            mode == 'closes on the next tick' ? [device, device] : [device],
+            mode == 'closes on the next tick' ||
+                    freshIngress
+                ? [device, device]
+                : mode == 'cached ingress while direct closes'
+                ? [device, device, device]
+                : [device],
           );
-          expect(media.snapshotReads, switched || mode == 'fresh media' ? 1 : 0);
-          expect(media.switches, switched ? [CallTransportKind.relay] : isEmpty);
+          expect(media.snapshotReads, switched || freshIngress ? 1 : 0);
           expect(svc.current?.status, CallStatus.active);
           svc.dispose();
           network.close();
