@@ -4908,6 +4908,83 @@ void main() {
       });
     }
 
+    for (final trigger in [
+      null,
+      CallSignalType.transportInfo,
+      CallSignalType.health,
+    ]) {
+      test('direct recovery during a pending readiness send: $trigger', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const callId = 'recovery-during-readiness';
+          offer(fake, callId);
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(peer, ready(callId));
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+
+          final pendingSend = Completer<void>();
+          final admissionChecks = media.admissionChecks.length;
+          fake.sendGate = pendingSend;
+          async.elapse(kCallHeartbeatInterval - const Duration(seconds: 1));
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+          final readyAt = clock.now().millisecondsSinceEpoch;
+          expect(media.admissionChecks.length, admissionChecks + 1);
+          expect(media.switches, [CallTransportKind.p2p]);
+
+          if (trigger == null) {
+            media.liveAdmissionChecks.clear();
+            media.liveDirectAdmission = false;
+            async.elapse(kCallDirectSessionSilence);
+          } else {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: callId,
+                type: trigger,
+                transport: const CallTransportProposal(CallTransportKind.relay),
+                p2pUpgradeAllowed: trigger != CallSignalType.health,
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+            async.flushMicrotasks();
+          }
+          expect(pendingSend.isCompleted, isFalse);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          if (trigger == null) expect(media.liveAdmissionChecks, [peer]);
+          fake.sendGate = null;
+          async.elapse(const Duration(milliseconds: 1));
+          pendingSend.complete();
+          async.flushMicrotasks();
+          final repeatedReadiness = fake.sent.lastWhere(
+            (s) =>
+                s.type == CallSignalType.transportInfo &&
+                s.transport?.kind == CallTransportKind.p2p,
+          );
+          expect(repeatedReadiness.sentAtMs, readyAt);
+          expect(media.switches, [
+            CallTransportKind.p2p,
+            CallTransportKind.relay,
+          ]);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.callId, callId);
+          expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('failed return trial preserves relay and can retry', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
