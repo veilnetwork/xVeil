@@ -216,6 +216,7 @@ class _HandoverTransport extends _RepairingTransport {
   final qualifying = Completer<int>();
   final echo = Completer<bool>();
   final opened = <int>[];
+  bool failRelayOpen = false;
 
   @override
   Future<int> openMediaChannel(
@@ -225,6 +226,7 @@ class _HandoverTransport extends _RepairingTransport {
     bool direct = false,
     bool relay = false,
   }) async {
+    if (relay && failRelayOpen) throw StateError('relay open unavailable');
     final channel = opened.length + 42;
     opened.add(channel);
     return channel;
@@ -236,6 +238,9 @@ class _HandoverTransport extends _RepairingTransport {
     required NodeId directPeer,
     required NodeId relayPeer,
   }) async => true;
+
+  @override
+  int setRelayMediaBatching(int channel, bool on, {bool compact = false}) => 0;
 
   @override
   Future<bool> qualifyMediaRoute(int channel) {
@@ -2059,6 +2064,37 @@ void main() {
       );
     }
   }
+
+  test('an agreed relay can be reopened after a failed media rebuild', () async {
+    final transport = _HandoverTransport();
+    final engines = [_HandoverEngine(), _HandoverEngine()];
+    var created = 0;
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory:
+          ({required veilChan, required localId, required peerId}) =>
+              engines[created++],
+    );
+    try {
+      final call = _call(direct: true).copyWith(
+        transport: CallTransportKind.relay,
+      );
+      expect(await controller.start(call), isTrue);
+      transport.failRelayOpen = true;
+      expect(await controller.repairRoute(), isFalse);
+      expect(controller.activeTransport, isNull);
+      expect(engines.first.disposed, isTrue);
+
+      transport.failRelayOpen = false;
+      expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+      expect(controller.activeTransport, CallTransportKind.relay);
+      expect(transport.opened, [42, 43]);
+      expect(transport.closed, [42]);
+      expect(engines.last.disposed, isFalse);
+    } finally {
+      await controller.stop();
+    }
+  });
 
   for (final audio in [false, true]) {
     test(
