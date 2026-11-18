@@ -43,6 +43,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
                 "'tcp_handshake_trace': 'PRIVATE_CANARY', 'tcp_trace': 'PRIVATE_CANARY', "
+                "'tcp_connect_context': 'PRIVATE_CANARY', 'connect_context': 310000001, "
+                "'peer_slot': 310000002, "
+                "'transport_connect_context': 'transport.connect.context context=310000001 peer_slot=310000002', "
                 "'ordered_tcp_binding': 'tcp_ordered_binding PRIVATE_CANARY', "
                 "'record_sha256': 'PRIVATE_CANARY', 'child_local': 314159265, "
                 "'ordered_record_trace': 'transport.ordered_record PRIVATE_CANARY', "
@@ -94,6 +97,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
                     self.assertNotIn('314159265', json.dumps(report))
                     for forbidden in ['tcp_handshake_trace', 'tcp_trace', 'connection',
+                                      'tcp_connect_context', 'connect_context', 'peer_slot',
+                                      'transport.connect.context', '310000001', '310000002',
                                       'ordered_tcp_binding', 'tcp_ordered_binding',
                                       'record_sha256', 'child_local', 'ordered_record',
                                       'opaque_record_link',

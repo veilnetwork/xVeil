@@ -287,6 +287,15 @@ SHA и 50 storage checksums. Неполная matrix и исходные жал�
   квалификация и не устранение NETCALL. TCP timestamp на Poco читается, но
   не принят как уникальный socket discriminator по локальному контролю.
   [Проверка auxiliary resume и границы](../ordered-auxiliary-resume-2026-11-18/README.md).
+  Добавлен operator-gated dial context: он связывает ожидаемый локальный peer
+  slot с obfs4 primary/backup и auxiliary TCP sockets без меток на wire.
+  Выключенный trace очищает inherited context; новые dials получают разные
+  номера. 192 transport, 8 runtime и 25 Dart проверок прошли; также проверены
+  два host AOT режима анонимного экспорта. Android diagnostic-only QA APK
+  подготовлен с прежним frontend/media/storage и совпадающим signing certificate.
+  Установки не было: Poco отсутствовал в ADB/USB. Индивидуальный mobile-захват
+  и устранение NETCALL остаются открытыми.
+  [Реализация, проверки и готовый probe](../tcp-dial-context-2026-11-18/README.md).
   После 0.13.102 локально устранён отдельный пробел Android-наблюдения:
   замена default Network при прежнем типе Wi-Fi теперь создаёт новое поколение
   уведомления; повторы capabilities не вызывают лишнего teardown. 314 related
