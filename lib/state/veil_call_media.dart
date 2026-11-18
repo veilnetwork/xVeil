@@ -820,8 +820,10 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<DateTime?> readLatestMediaRxAt() async {
+    // Qualification can hold the route queue while the original engine
+    // receives. Teardown detaches that engine before any asynchronous cleanup.
     final engine = _engine;
-    if (engine == null || _routeRepairing) return null;
+    if (engine == null) return null;
     return _mediaReceiveActivity.observe(engine.getStats(), DateTime.now());
   }
 
@@ -834,7 +836,7 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<DateTime?> readLatestAudioRxAt() async {
     final engine = _engine;
-    if (engine == null || _routeRepairing) return null;
+    if (engine == null) return null;
     final stats = engine.getStats();
     return CallAudioReceiveActivity.nativeLastRxAt(stats, DateTime.now());
   }

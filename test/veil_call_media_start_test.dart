@@ -247,6 +247,18 @@ class _HandoverTransport extends _RepairingTransport {
 class _HandoverEngine extends _Engine {
   _HandoverEngine() : super(nativeStarted: true, capture: 1);
 
+  int received = 0;
+  bool stalled = false;
+
+  @override
+  Map<String, dynamic> getStats() => {
+    ...super.getStats(),
+    'rx_pkts': received,
+    'audio_rx_pkts': received,
+    'audio_rx_native_age_ms': 40,
+    'worker_stalled': stalled ? 1 : 0,
+  };
+
   @override
   bool get supportsChannelRebind => true;
 
@@ -2046,6 +2058,49 @@ void main() {
             : false,
       );
     }
+  }
+
+  for (final audio in [false, true]) {
+    test(
+      'reads live receive stats during relay qualification, audio=$audio',
+      () async {
+        final transport = _HandoverTransport();
+        final engine = _HandoverEngine();
+        final controller = VeilCallMediaController(
+          transport,
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) => engine,
+        );
+        final read = audio
+            ? controller.readLatestAudioRxAt
+            : controller.readLatestMediaRxAt;
+        Future<bool>? switching;
+        try {
+          expect(await controller.start(_call(direct: true)), isTrue);
+          expect(await read(), isNull);
+          switching = controller.switchRoute(CallTransportKind.relay);
+          await transport.qualifying.future.timeout(const Duration(seconds: 5));
+          expect(controller.isRepairingReceiveSession, isTrue);
+          expect(controller.activeTransport, CallTransportKind.p2p);
+
+          engine.received = 1;
+          engine.stalled = true;
+          expect(await read(), isNull);
+          engine.stalled = false;
+          final receivedAt = await read();
+          expect(receivedAt, isNotNull, reason: 'the original engine is alive');
+          if (!audio) expect(await read(), receivedAt);
+          expect(transport.echo.isCompleted, isFalse);
+
+          await controller.stop();
+          expect(await read(), isNull);
+        } finally {
+          await controller.stop();
+          transport.echo.complete(false);
+          await switching;
+        }
+      },
+    );
   }
 
   test(
