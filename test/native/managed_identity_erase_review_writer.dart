@@ -24,9 +24,9 @@ class _HoldAfterUnknown extends ManagedFsPlatform {
         .length;
     if (left != 2) return;
     armed = false;
-    File(
-      '$fixture/ready',
-    ).writeAsStringSync('$pid:unknownRemoved', flush: true);
+    final marker = File('$fixture/ready.tmp');
+    marker.writeAsStringSync('$pid:unknownRemoved', flush: true);
+    marker.renameSync('$fixture/ready');
     stdin.readLineSync(); // Parent SIGKILLs the witnessed process group here.
     throw StateError('fixture must be killed, not resumed');
   }

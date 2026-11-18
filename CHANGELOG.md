@@ -19,6 +19,8 @@ bumps may change behaviour a user notices.
   Retry call recovery when a usable connection returns after a partial outage.
 - Apply verified device revocations to cached routes and recheck group and
   call recipients against current authorization before sending.
+- Remove the embedded node's Unix application IPC socket reliably on shutdown
+  with Veil 0.11.55.
 
 Mobile network changes can still interrupt audio during an active call.
 
