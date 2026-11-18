@@ -1,0 +1,119 @@
+# NETCALL-01: повторный мобильный захват и исправление USB-проверки
+
+**Повторный захват на Poco получен.** Собственное время начала TCP-connect
+сузило отбор с 0 до 9 взаимно единственных временных кандидатов. В двух таких
+парах client first-flight bytes учтены телефоном, но не видны в серверном
+header capture. Это существенно точнее прежних агрегатов, но всё ещё временные
+кандидаты, а не доказательство сетевой identity или причины паузы звонка.
+Звонок/микрофон в этом цикле не запускались; устранение NETCALL-01 не заявляется.
+
+## Исправление прежнего вывода о телефоне
+
+Ранние заявления «Poco исчез из USB» **отозваны**. На данном Mac список
+`system_profiler -listDataTypes` содержит `SPUSBHostDataType`, а старый запрос
+`SPUSBDataType -json` возвращает exit 0 с пустым разделом `SPUSBDataType` даже
+при подключённом телефоне. Такой результат не доказывает отсутствия устройства.
+Факты прежних отказов `adb -s <private-target> get-state` остаются действительными;
+причину всех исторических отказов задним числом не устанавливаем.
+
+В этом цикле IORegistry показал именно выбранный USB serial и интерфейс ADB;
+обычный ADB-сервер при этом не находил transport. Отдельный сервер на другом
+локальном порту сразу дал `device`, без новой авторизации. Использованы те же
+client/server binary и ключи; основной сервер не перезапускался. Это локальная
+проверка обхода проблемы доступа, не диагноз её внутренней причины.
+
+Добавлен read-only [probe_android_usb.py](../../../scripts/probe_android_usb.py).
+Он требует explicit private serial snapshot, выбирает поддерживаемый profiler
+раздел и проверяет точный serial в IORegistry. Пустой/повреждённый/неподдерживаемый
+результат остаётся unknown. В stdout нет serial, USB inventory, путей и текстов
+ошибок; ADB, приложения, USB configuration и разрешения не меняются.
+**7 unit/CLI-проверок passed**, включая legacy/current profiler names, неизвестный
+probe, точное совпадение target, ADB interface, malformed XML и приватные ошибки.
+На настоящем подключённом Poco helper вернул present/present при одновременно
+пустом результате старого profiler запроса. Марка устройства отдельно подтверждена
+через getprop выбранного ADB transport; raw properties остались приватными.
+
+## Что и на какой сборке проверено
+
+Использован отдельный диагностический APK из
+[предыдущего раунда](../physical-tcp-dial-clock-2026-11-18/README.md): immutable
+SDK baseline `53fbbe34` плюс пять diagnostic-only файлов, с per-socket clock.
+Это не запуск всего текущего native HEAD/frontend. Frozen AOT, Flutter, media,
+storage и assets сохранены побайтно. APK/SDK SHA, signing certificate, 217 C
+exports, PT_LOAD/zipalign, loader dependencies и privacy проверены ранее;
+перед установкой проверены исходный APK и текущий отдельный QA.
+
+Коллекторы logcat/PCAP готовы до включения trace; PID сохранялся весь тест.
+Телефон переведён Wi-Fi → cellular, после переключения наблюдался 32 с.
+Каждые часы калибровались до и после окна: по шесть CLOCK_MONOTONIC проб телефона
+и CLOCK_REALTIME проб каждого Core относительно одних host monotonic clocks.
+На Core использованы готовые read-only SSH каналы. PCAP — immediate-mode,
+header-only snaplen 96; после trace-off оставлен guard перед остановкой.
+
+| Наблюдение | Результат |
+|---|---:|
+| Native logical contexts | 11 |
+| Client starts с physical connect clock | 112 / 112 |
+| Session snapshots | 71 |
+| Стабильные slot → target пары | 3 |
+| First obfs4 groups selected/complete и direct-success | 5 / 5 |
+| Успешный NAT/SOCKS fallback | 0 / 0 |
+| Complete server flows по Core | 64 / 40 / 11 |
+| Из них без client payload bytes | 45 / 21 / 3 |
+| Отдельные incomplete tuple groups | 35 / 37 / 32 |
+| Взаимно единственные временные пары | **9** |
+| Неоднозначные client starts | **103** |
+| Из единственных кандидатов без server client payload | **2** |
+
+Captured/received-by-filter равны 1056/1056, 820/820, 687/687; reported kernel
+drops — нули. Сами эти счётчики не являются доказательством полноты всего
+сетевого трафика. Три complete server flows не получили native candidate.
+Неизвестные и неоднозначные наблюдения не удалялись ради единственности.
+
+Контроль на **тех же данных** без physical clocks снова дал 0 единственных
+кандидатов; с ними — 9. Это доказательство полезности нового измерения в отборе,
+не A/B скорости приложения и не криптографический join через NAT.
+
+## Две first-flight ситуации имеют разные последствия
+
+| Native first flight | Native read | Kernel sent / retransmitted / acked | Server client payload | Исход той же transport attempt |
+|---:|---:|---:|---:|---|
+| 133 Б | 0 | 399 / 266 / 1 Б | 0 | Backup incomplete; sibling тоже не selected/complete |
+| 153 Б | 0 | 153 / 0 / 1 Б | 0 | Primary incomplete; sibling backup selected/complete |
+
+Данные не сведены к «двум отказам звонка»: вторая ситуация уже компенсирована
+существующей backup race. У первой TCP backup connect занял около 59 мс,
+незавершённый socket прожил около 1261 мс после начала connect. У второй
+primary connect занял около 807 мс и был отменён примерно через 1938 мс после
+начала; это не ten-second transport timeout. Привязка к целому warm attempt
+важнее подсчёта отдельно отменённых сокетов.
+
+В исходниках следующий участок проверки локализован: `ordered_lanes` оборачивает
+connect + obfs4 + exporter proof в общий 3-с warm budget, потом применяет retry
+backoff. Отсутствующая самостоятельная source lane по дизайну не получает
+произвольный canonical media fallback. Совпадение cancellation с этой областью
+**не объявлено найденной причиной**; увеличивать deadline или снимать изоляцию
+без воспроизведения нельзя. Следующий содержательный контроль — задержанные
+первые flights и готовность целого ordered pool, затем реальный звонок с
+корреляцией source readiness/полученного RTData. Новый TCP capture остаётся idle.
+
+Готовый `/media_open` debug probe отдельно проверен по исходникам: он открывает
+анонимный circuit и использует публично выводимые synthetic keys. Это не
+обычный direct/relay маршрут звонка и не его аутентификация. Поэтому обещанный
+более низкий RT-контроль в этом цикле **не запускался** и в квалификацию звонка
+не включён; Mac-приложение не открывалось. Для следующего контроля нужен тот
+же route/source path, а не удобный иной транспорт.
+
+## Восстановление и границы
+
+Через тот же отдельный ADB-сервер QA заблокирован/остановлен, возвращён точный
+прежний QA APK. Main APK SHA совпал до/после; основной xVeil не заменялся.
+Wi-Fi восстановлен в исходное выключенное состояние, mobile остался включён.
+Clock helper и owned forward удалены. Остановка QA подтверждена через pidof.
+Три tcpdump и три SSH clock процесса завершены/reaped; конфиги/бинарники/сервисы
+Core не менялись. Временный ADB-сервер остановлен после проверки PID/start
+identity, его listener закрыт. Mac-приложения и окна не запускались.
+
+Raw captures, serials, IP/ports, source identifiers, process IDs и calibration
+samples не добавлены в репозиторий. Исходники SDK/HV/media и wire-протокол в этом цикле не
+менялись; диагностическая SDK заменялась только в QA и затем была возвращена. Следующая работа остаётся NETCALL-01; push/релиза нет.
