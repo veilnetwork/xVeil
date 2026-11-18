@@ -2190,6 +2190,119 @@ void main() {
       });
     }
 
+    for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
+      test('a receive-only peer does not trigger silence repair on $route', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()
+            ..openedTransport = route
+            ..liveDirectAdmission = true;
+          final svc = CallService(
+            wire,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const callId = 'receive-only-peer';
+          wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.offer,
+              posture: CallPosture.direct,
+              media: const CallMedia(audio: true),
+              transport: CallTransportProposal(route),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, route);
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: CallMedia(),
+            ),
+          );
+          async.elapse(kCallMediaRepairAfter + kCallHeartbeatInterval);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, route);
+          expect(media.switches, isEmpty);
+          expect(media.repairs, 0);
+          expect(wire.sent.where((s) => s.mediaRepairRequested), isEmpty);
+
+          if (route == CallTransportKind.p2p) {
+            media.liveDirectAdmission = false;
+            async.elapse(const Duration(seconds: 1));
+            expect(media.switches, [CallTransportKind.relay]);
+          } else {
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: callId,
+                type: CallSignalType.health,
+                mediaRepairRequested: true,
+              ),
+            );
+            async.flushMicrotasks();
+            expect(media.repairs, 1);
+          }
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    for (final capture in [
+      const CallMedia(audio: true),
+      const CallMedia(video: true),
+    ]) {
+      test('resumed capture has receive grace, audio=${capture.audio}', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final svc = CallService(wire, now: () => clock.now(), media: media)
+            ..start();
+          const callId = 'resumed-capture';
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.offer,
+              posture: CallPosture.direct,
+              media: CallMedia(audio: true, video: true),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          void report(CallMedia capture) => wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: capture,
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          report(const CallMedia());
+          async.elapse(const Duration(seconds: 12));
+          final repairs = media.repairs;
+          report(capture);
+          async.elapse(const Duration(seconds: 4));
+          report(capture); // duplicate state cannot renew the grace
+          async.elapse(const Duration(seconds: 5));
+          expect(media.repairs, repairs);
+          async.elapse(const Duration(seconds: 4));
+          expect(media.repairs, repairs + 1);
+          expect(svc.current?.status, CallStatus.active);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('silent relay repairs locally without a peer heartbeat', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
