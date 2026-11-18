@@ -479,13 +479,13 @@ class VeilCallMediaController implements CallMediaController {
       : kCallIndependentTransportFeedbackMinVersion - 1;
 
   final VeilFlutterTransport _transport;
-  final _peerHealth = StreamController<CallSignal>.broadcast();
+  final _peerCallControl = StreamController<CallSignal>.broadcast();
   final _microphoneUnavailable = StreamController<String>.broadcast();
   final _cameraUnavailable = StreamController<String>.broadcast();
   Timer? _controlPollTimer;
 
   @override
-  Stream<CallSignal> get peerHealth => _peerHealth.stream;
+  Stream<CallSignal> get peerCallControl => _peerCallControl.stream;
 
   @override
   Stream<String> get microphoneUnavailable => _microphoneUnavailable.stream;
@@ -498,20 +498,23 @@ class VeilCallMediaController implements CallMediaController {
       _engine != null && _chan != null && _transport.hasCallControl(_chan!);
 
   @override
-  bool sendEphemeralHealth(CallSignal signal) {
+  bool sendEphemeralCallControl(CallSignal signal) {
     final call = _activeCall;
     final channel = _chan;
     final lastRx = _mediaReceiveActivity.lastRxAt;
     if (call == null ||
         channel == null ||
         signal.callId != call.callId ||
-        signal.type != CallSignalType.health ||
-        signal.onBehalfOf != null ||
+        !signal.isEphemeralCallControl ||
         signal.mediaRepairRequested ||
         (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion ||
         _chanTransport == CallTransportKind.onion ||
-        _routeRepairing ||
-        lastRx == null ||
+        _routeRepairing) {
+      return false;
+    }
+    if (signal.type == CallSignalType.transportInfo) {
+      if (_chanTransport != CallTransportKind.relay) return false;
+    } else if (lastRx == null ||
         DateTime.now().difference(lastRx) >= kCallMediaRepairAfter) {
       return false;
     }
@@ -545,12 +548,8 @@ class VeilCallMediaController implements CallMediaController {
           } catch (_) {}
           if (signal != null &&
               signal.callId == call.callId &&
-              signal.type == CallSignalType.health &&
-              signal.onBehalfOf == null &&
-              signal.mediaKey == null &&
-              signal.reason == null &&
-              signal.protocolVersion >= kCallCompactHealthMinVersion) {
-            _peerHealth.add(signal);
+              signal.isEphemeralCallControl) {
+            _peerCallControl.add(signal);
           }
         }
       }
