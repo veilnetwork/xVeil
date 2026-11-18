@@ -8,6 +8,20 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.103] - 2026-11-18
+
+### Fixed
+
+- On Android, pressing Back from the main screen now backgrounds the app
+  without leaving its container locked by an earlier instance. This fixes
+  a case where reopening the app rejected the correct password.
+- Detect Android network changes even between networks of the same type.
+  Retry call recovery when a usable connection returns after a partial outage.
+- Apply verified device revocations to cached routes and recheck group and
+  call recipients against current authorization before sending.
+
+Mobile network changes can still interrupt audio during an active call.
+
 ## [0.13.102] - 2026-11-17
 
 ### Added
