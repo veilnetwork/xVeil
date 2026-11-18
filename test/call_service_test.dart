@@ -4985,6 +4985,107 @@ void main() {
       });
     }
 
+    test('direct qualification proceeds while readiness is being saved', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _GatedSwitchMedia()
+          ..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        const callId = 'readiness-storage';
+        offer(fake, callId);
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        final pending = Completer<void>();
+        fake.sendGate = pending;
+        for (var i = 0; i < 3; i++) {
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+        }
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.switches, isEmpty);
+
+        fake.onCallSignal!(peer, ready(callId));
+        async.flushMicrotasks();
+        expect(pending.isCompleted, isFalse);
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        media.switchGate.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.p2p);
+
+        fake.sendGate = null;
+        pending.complete();
+        async.flushMicrotasks();
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.transportInfo),
+          hasLength(1),
+          reason: 'coalesce readiness while its previous send is outstanding',
+        );
+        expect(svc.current?.status, CallStatus.active);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('a pending relay settlement cannot block return to direct', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        const callId = 'settlement-storage';
+        offer(fake, callId);
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        final pending = Completer<void>();
+        fake.sendGate = pending;
+        svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        final settledAt = clock.now().millisecondsSinceEpoch;
+        for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+        }
+        fake.onCallSignal!(
+          peer,
+          ready(callId).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+        );
+        async.flushMicrotasks();
+        expect(pending.isCompleted, isFalse);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        expect(media.switches, [CallTransportKind.relay, CallTransportKind.p2p]);
+
+        fake.sendGate = null;
+        pending.complete();
+        async.flushMicrotasks();
+        final settlement = fake.sent.singleWhere(
+          (s) =>
+              s.type == CallSignalType.transportInfo &&
+              s.transport?.kind == CallTransportKind.relay,
+        );
+        expect(settlement.sentAtMs, settledAt);
+        expect(settlement.p2pUpgradeAllowed, isTrue);
+        expect(svc.current?.status, CallStatus.active);
+        expect(svc.current?.callId, callId);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test('failed return trial preserves relay and can retry', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
