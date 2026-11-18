@@ -3576,6 +3576,133 @@ void main() {
       );
     }
 
+    for (final mode in [
+      'closed',
+      'closes on the next tick',
+      'still admitted',
+      'unknown',
+      'fresh media',
+      'superseded handover',
+    ]) {
+      test('checks P2P early after a network handover ($mode)', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final fake = _FakeMessaging();
+          final media = _SnapshotMedia()
+            ..openedTransport = CallTransportKind.p2p;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+            networkHandovers: network.stream,
+          )..start();
+          network.add(null);
+          async.flushMicrotasks();
+          expect(media.liveAdmissionChecks, isEmpty);
+
+          final device = NodeId.fromHex('b' * 64);
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'local-network-handover',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+              replyDevice: device.hex,
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          media.rxAt = clock.now();
+          media.liveDirectAdmission = switch (mode) {
+            'unknown' || 'closes on the next tick' => null,
+            'still admitted' => true,
+            _ => false,
+          };
+          final fresh = Completer<DateTime?>();
+          final admission = Completer<bool?>();
+          if (mode == 'fresh media') media.readSnapshot = () => fresh.future;
+          if (mode == 'superseded handover') media.liveAdmissionGate = admission;
+          network.add(null);
+          async.flushMicrotasks();
+          expect(media.liveAdmissionChecks, [device]);
+          switch (mode) {
+            case 'closes on the next tick':
+              media.liveDirectAdmission = false;
+              async.elapse(const Duration(seconds: 1));
+            case 'fresh media':
+              async.elapse(const Duration(milliseconds: 10));
+              fresh.complete(clock.now());
+            case 'superseded handover':
+              async.elapse(const Duration(milliseconds: 10));
+              network.add(null);
+              admission.complete(false);
+          }
+          async.flushMicrotasks();
+          final switched = mode == 'closed' || mode == 'closes on the next tick';
+          expect(
+            media.liveAdmissionChecks,
+            mode == 'closes on the next tick' ? [device, device] : [device],
+          );
+          expect(media.snapshotReads, switched || mode == 'fresh media' ? 1 : 0);
+          expect(media.switches, switched ? [CallTransportKind.relay] : isEmpty);
+          expect(svc.current?.status, CallStatus.active);
+          svc.dispose();
+          network.close();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('unproven early relay keeps the ordinary recovery opportunity', () {
+      fakeAsync((async) {
+        final network = StreamController<void>(sync: true);
+        final fake = _FakeMessaging();
+        final media = _ReconnectRelayMedia()..liveDirectAdmission = false;
+        final svc = CallService(
+          fake,
+          now: () => clock.now(),
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+          networkHandovers: network.stream,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'relay-not-yet-ready',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.rxAt = clock.now();
+        network.add(null);
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        media.proven = true;
+        async.elapse(kCallDirectSessionSilence);
+        async.flushMicrotasks();
+        expect(media.switches, [
+          CallTransportKind.relay,
+          CallTransportKind.relay,
+        ]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.current?.status, CallStatus.active);
+        svc.dispose();
+        network.close();
+        async.flushMicrotasks();
+      });
+    });
+
     test('healthy and unknown direct admission retain the normal grace', () {
       for (final verdict in [true, null]) {
         fakeAsync((async) {
