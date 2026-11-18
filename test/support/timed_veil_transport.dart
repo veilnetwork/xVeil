@@ -123,12 +123,14 @@ class TimedVeilTransport
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) => inner.openMediaChannel(
     dstNode,
     txKey: txKey,
     rxKey: rxKey,
     direct: direct,
     relay: relay,
+    primaryOnlyPreparation: primaryOnlyPreparation,
   );
 }
 

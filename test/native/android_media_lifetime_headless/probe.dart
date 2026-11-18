@@ -36,6 +36,7 @@ class _Transport implements VeilFlutterTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     final channel = 42 + opened.length;
     opened.add(channel);

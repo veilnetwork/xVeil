@@ -5600,6 +5600,7 @@ class _LinkedSdkTransport implements VeilFlutterTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     final peer = NodeId(dstNode);
     opened.add(peer);

@@ -244,6 +244,8 @@ _openCallMediaChannel({
   Duration directRetryDelay = const Duration(milliseconds: 300),
   Future<NodeId> Function()? resolveDirectPeerOnRetry,
 }) async {
+  final primaryOnlyPreparation =
+      call.media.audio && !call.media.video && !call.media.screen;
   if (call.transport == CallTransportKind.p2p) {
     var directPeer = call.mediaPeer;
     // A cold negotiated session may register just after a not-active reply;
@@ -312,6 +314,7 @@ _openCallMediaChannel({
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
+      primaryOnlyPreparation: primaryOnlyPreparation,
     );
     return (
       channel: channel,
@@ -330,6 +333,7 @@ _openCallMediaChannel({
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
+      primaryOnlyPreparation: primaryOnlyPreparation,
     );
     return (
       channel: channel,

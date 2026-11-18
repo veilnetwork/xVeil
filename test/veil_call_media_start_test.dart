@@ -36,6 +36,7 @@ class _Transport implements VeilFlutterTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async => 42;
   @override
   bool get supportsCallControl => false;
@@ -57,6 +58,7 @@ class _OpeningTransport extends _Transport {
   Future<int> openMediaChannel(Uint8List peer, {
     required Uint8List txKey, required Uint8List rxKey,
     bool direct = false, bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     opened.complete();
     return 42;
@@ -232,6 +234,7 @@ class _HandoverTransport extends _RepairingTransport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     if (direct) {
       directOpenAttempts++;
@@ -724,6 +727,7 @@ class _PreflightTransport extends _Transport {
     required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
+    bool primaryOnlyPreparation = false,
   }) async {
     final channel = 200 + openedChannels.length;
     openedChannels.add(channel);
