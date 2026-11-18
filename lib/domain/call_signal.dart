@@ -534,6 +534,32 @@ class CallSignal {
   /// Sender wall-clock (Unix ms) — for ring-timeout / stale-signal handling.
   final int? sentAtMs;
 
+  /// Types accepted from the call-key-authenticated media control lane.
+  /// A relay settlement carries only the committed route and upgrade consent.
+  bool get isEphemeralCallControl {
+    if (protocolVersion < kCallCompactHealthMinVersion ||
+        onBehalfOf != null ||
+        mediaKey != null ||
+        reason != null) {
+      return false;
+    }
+    if (type == CallSignalType.health) return true;
+    return type == CallSignalType.transportInfo &&
+        transport?.kind == CallTransportKind.relay &&
+        transport?.relayNodeId == null &&
+        transport?.p2pEndpoints == null &&
+        sentAtMs != null &&
+        p2pUpgradeAllowed != null &&
+        media == null &&
+        posture == null &&
+        selectedEndpoint == null &&
+        capture == null &&
+        !mediaRepairRequested &&
+        audioPlayout == null &&
+        compactHealthReady == null &&
+        replyDevice == null;
+  }
+
   bool get wantsAudio => media?.audio ?? false;
   bool get wantsVideo => media?.video ?? false;
   bool get wantsScreen => media?.screen ?? false;

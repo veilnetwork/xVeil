@@ -253,8 +253,8 @@ abstract class CallMediaController {
 
   /// Call-key-authenticated state from this controller's current call only.
   /// Setup and terminal commands never use this optional, lossy carrier.
-  Stream<CallSignal> get peerHealth => const Stream<CallSignal>.empty();
-  bool sendEphemeralHealth(CallSignal signal) => false;
+  Stream<CallSignal> get peerCallControl => const Stream<CallSignal>.empty();
+  bool sendEphemeralCallControl(CallSignal signal) => false;
   bool get canReceiveEphemeralHealth => false;
 
   CallAudioPlayoutFeedback? get audioPlayoutFeedback => null;
@@ -508,7 +508,7 @@ class CallService {
   int _microphoneOperationEpoch = 0;
   StreamSubscription<String>? _cameraUnavailableSub;
   int _cameraOperationEpoch = 0;
-  StreamSubscription<CallSignal>? _peerHealthSub;
+  StreamSubscription<CallSignal>? _peerCallControlSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
   int? _lastPeerCompactHealthAtMs;
@@ -834,19 +834,22 @@ class CallService {
       // loaded. Messaging keeps early copies available for durable retry.
       _historyReady = _restoreHistoryAndAttach();
     }
-    _peerHealthSub = _media?.peerHealth.listen((signal) {
+    _peerCallControlSub = _media?.peerCallControl.listen((signal) {
       final call = _current;
       if (_disposed ||
           call == null ||
           !call.isLive ||
           call.callId != signal.callId ||
-          signal.type != CallSignalType.health ||
-          signal.onBehalfOf != null ||
-          signal.mediaKey != null ||
-          signal.reason != null ||
-          signal.protocolVersion < kCallCompactHealthMinVersion ||
+          !signal.isEphemeralCallControl ||
+          (signal.type == CallSignalType.transportInfo &&
+              (call.status != CallStatus.active ||
+                  call.localPosture != CallPosture.direct ||
+                  call.peerPosture != CallPosture.direct)) ||
           (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion) {
         return;
+      }
+      if (signal.type == CallSignalType.transportInfo) {
+        devLog(() => 'xVeil[call-media]: relay settlement received on media');
       }
       _onSignal(call.peer, signal);
     });
@@ -2188,7 +2191,13 @@ class CallService {
       _set(settled);
       // Announce the surviving relay while preserving original consent.
       // A later return still needs fresh readiness and delivery qualification.
-      _announceCallRoute(settled, CallTransportKind.relay);
+      _announceCallRoute(
+        settled,
+        CallTransportKind.relay,
+        mirrorOnMedia:
+            before.status == CallStatus.active &&
+            before.transport == CallTransportKind.p2p,
+      );
       return;
     }
     if (!ok &&
@@ -2436,7 +2445,11 @@ class CallService {
     );
   }
 
-  void _announceCallRoute(Call call, CallTransportKind route) {
+  void _announceCallRoute(
+    Call call,
+    CallTransportKind route, {
+    bool mirrorOnMedia = false,
+  }) {
     final direct = route == CallTransportKind.p2p;
     if (direct && _pendingDirectReadiness != null) return;
     final readiness = direct ? Object() : null;
@@ -2452,6 +2465,21 @@ class CallService {
       sentAtMs: _now().millisecondsSinceEpoch,
       protocolVersion: _signalProtocolVersion,
     );
+    if (mirrorOnMedia &&
+        !_disposed &&
+        _current?.callId == call.callId &&
+        signal.isEphemeralCallControl &&
+        (call.peerProtocolVersion ?? 1) >= kCallCompactHealthMinVersion) {
+      // The qualified relay can already carry this call while ratchet or
+      // mailbox traffic is stalled. Keep the durable copy below as a backstop.
+      try {
+        if (_media?.sendEphemeralCallControl(signal) == true) {
+          devLog(() => 'xVeil[call-media]: relay settlement queued on media');
+        }
+      } catch (_) {
+        devLog(() => 'xVeil[call-media]: relay settlement media queue failed');
+      }
+    }
     unawaited(() async {
       try {
         await _sendCallSignal(call.peer, signal);
@@ -2901,7 +2929,7 @@ class CallService {
         _lastRegularHealthAt != null &&
         _now().difference(_lastRegularHealthAt!) <
             const Duration(seconds: 30) &&
-        (_media?.sendEphemeralHealth(signal) ?? false)) {
+        (_media?.sendEphemeralCallControl(signal) ?? false)) {
       return Future<void>.value();
     }
     if (call != null &&
@@ -3561,8 +3589,8 @@ class CallService {
     _microphoneUnavailableSub = null;
     unawaited(_cameraUnavailableSub?.cancel());
     _cameraUnavailableSub = null;
-    unawaited(_peerHealthSub?.cancel());
-    _peerHealthSub = null;
+    unawaited(_peerCallControlSub?.cancel());
+    _peerCallControlSub = null;
     unawaited(_overlaySessionsSub?.cancel());
     _overlaySessionsSub = null;
     unawaited(_networkHandoversSub?.cancel());

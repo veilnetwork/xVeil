@@ -1865,6 +1865,99 @@ void main() {
       });
     });
 
+    test('committed relay can notify a direct peer while messaging is stalled',
+        () {
+      fakeAsync((async) {
+        final phoneMedia = _CompactHealthMedia();
+        final macMedia = _CompactHealthMedia();
+        final phoneWire = _FakeMessaging();
+        final macWire = _FakeMessaging();
+        CallService start(_FakeMessaging wire, _CompactHealthMedia media) {
+          final service = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'committed-relay',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          service.accept();
+          return service;
+        }
+
+        final phone = start(phoneWire, phoneMedia);
+        final mac = start(macWire, macMedia);
+        async.flushMicrotasks();
+        expect(phone.current?.transport, CallTransportKind.p2p);
+        expect(mac.current?.transport, CallTransportKind.p2p);
+        phoneWire.sent.clear();
+        macWire.sent.clear();
+        const relay = CallTransportProposal(CallTransportKind.relay);
+        final now = clock.now().millisecondsSinceEpoch;
+        for (final invalid in [
+          const CallSignal(
+            callId: 'committed-relay',
+            type: CallSignalType.end,
+          ),
+          const CallSignal(
+            callId: 'committed-relay',
+            type: CallSignalType.transportInfo,
+            transport: relay,
+            p2pUpgradeAllowed: true,
+          ),
+          CallSignal(
+            callId: 'other-call',
+            type: CallSignalType.transportInfo,
+            transport: relay,
+            p2pUpgradeAllowed: true,
+            sentAtMs: now,
+          ),
+          CallSignal(
+            callId: 'committed-relay',
+            type: CallSignalType.transportInfo,
+            transport: relay,
+            capture: const CallMedia(audio: false),
+            p2pUpgradeAllowed: true,
+            sentAtMs: now,
+          ),
+        ]) {
+          macMedia.health.add(invalid);
+          async.flushMicrotasks();
+          expect(mac.current?.transport, CallTransportKind.p2p);
+          expect(macMedia.switches, isEmpty);
+        }
+        // The messaging copies are recorded but never delivered. Only the
+        // call-key-authenticated carrier reaches the remote service.
+        phoneMedia.onCompact = macMedia.health.add;
+        phone.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        expect(phone.current?.transport, CallTransportKind.relay);
+        expect(mac.current?.transport, CallTransportKind.relay);
+        expect(phoneMedia.compact.single.type, CallSignalType.transportInfo);
+        expect(phoneWire.sent.single.type, CallSignalType.transportInfo);
+        expect(macMedia.switches, [CallTransportKind.relay]);
+
+        // A later durable copy of the same timestamp cannot retrigger a move.
+        macWire.onCallSignal!(peer, phoneWire.sent.single);
+        async.flushMicrotasks();
+        expect(macMedia.switches, [CallTransportKind.relay]);
+        phone.dispose();
+        mac.dispose();
+        phoneMedia.health.close();
+        macMedia.health.close();
+        async.flushMicrotasks();
+      });
+    });
+
     test('compact receiver readiness must be fresh and can be withdrawn', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -8713,13 +8806,13 @@ class _CompactHealthMedia extends _FakeMedia {
   void Function(CallSignal)? onCompact;
 
   @override
-  Stream<CallSignal> get peerHealth => health.stream;
+  Stream<CallSignal> get peerCallControl => health.stream;
 
   @override
   bool get canReceiveEphemeralHealth => true;
 
   @override
-  bool sendEphemeralHealth(CallSignal signal) {
+  bool sendEphemeralCallControl(CallSignal signal) {
     if (!admit) return false;
     compact.add(signal);
     onCompact?.call(signal);
