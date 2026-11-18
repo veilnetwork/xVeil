@@ -278,6 +278,15 @@ SHA и 50 storage checksums. Неполная matrix и исходные жал�
   пути в этом контроле нет. Auxiliary lanes, NAT и mobile first flight он
   не квалифицирует; NETCALL остаётся активным, нового product-фикса нет.
   [Условия и ограничения контроля](../resumed-canonical-data-2026-11-18/README.md).
+  Следующий контроль использует два настоящих NodeRuntime и auxiliary
+  obfs4/TCP lanes: при заблокированном canonical stream свежая RTData проходит
+  в обе стороны до native NetworkChanged/resume, при удержанном завершении
+  предшественника и после него. Проверены ровно два canonical подключения и
+  неизменный владелец новой сессии на обоих концах. Один новый и шесть related
+  тестов прошли, Clippy чистый; нового product-фикса нет. Это не mobile/NAT
+  квалификация и не устранение NETCALL. TCP timestamp на Poco читается, но
+  не принят как уникальный socket discriminator по локальному контролю.
+  [Проверка auxiliary resume и границы](../ordered-auxiliary-resume-2026-11-18/README.md).
   После 0.13.102 локально устранён отдельный пробел Android-наблюдения:
   замена default Network при прежнем типе Wi-Fi теперь создаёт новое поколение
   уведомления; повторы capabilities не вызывают лишнего teardown. 314 related

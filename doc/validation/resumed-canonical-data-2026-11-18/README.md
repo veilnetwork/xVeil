@@ -82,3 +82,8 @@ Clippy release/tests с `-D warnings`, форматирование и пров�
 Следующий участок — вспомогательные каналы при смене parent и безопасная
 атрибуция mobile first flight к socket/flow. NETCALL-01 остаётся активным.
 Без push и релиза.
+
+Последующий [контроль с двумя настоящими runtime](../ordered-auxiliary-resume-2026-11-18/README.md)
+проверил auxiliary RTData при заблокированном основном потоке, включая native
+NetworkChanged/resume и поздний старый teardown. На loopback он прошёл;
+физическая mobile-атрибуция по-прежнему открыта.
