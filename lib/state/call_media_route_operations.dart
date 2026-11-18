@@ -1,11 +1,16 @@
 import 'dart:async';
 
-/// Keep a route change behind an unfinished native session teardown/rebuild.
-/// A pending repair must finish before its successor can open another route.
+/// Serialize route changes and native session rebuilds within one call.
 class CallMediaRouteOperations {
   Future<void>? _pending;
+  bool _retired = false;
 
   bool get busy => _pending != null;
+  bool get retired => _retired;
+
+  /// The running operation still owns its cleanup. Queued operations cannot
+  /// act on a new call, even if it reuses the call ID.
+  void retire() => _retired = true;
 
   /// Recheck ownership after waiting: hangup can retire the old call while a
   /// camera teardown is still pending, and a new call may already exist.
@@ -14,7 +19,7 @@ class CallMediaRouteOperations {
     String? Function() activeCallId,
     Future<bool> Function() operation,
   ) => run(() async {
-    if (activeCallId() != callId) return false;
+    if (retired || activeCallId() != callId) return false;
     return operation();
   });
 

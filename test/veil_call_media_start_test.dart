@@ -157,15 +157,16 @@ Call _call({
   bool video = false,
   String callId = 'receive-only-start',
   NodeId? peer,
+  bool direct = false,
 }) => Call(
   callId: callId,
   peer: peer ?? _id(2),
   direction: CallDirection.incoming,
   media: CallMedia(audio: true, video: video),
   status: CallStatus.connecting,
-  localPosture: CallPosture.anonymous,
-  peerPosture: CallPosture.anonymous,
-  transport: CallTransportKind.onion,
+  localPosture: direct ? CallPosture.direct : CallPosture.anonymous,
+  peerPosture: direct ? CallPosture.direct : CallPosture.anonymous,
+  transport: direct ? CallTransportKind.p2p : CallTransportKind.onion,
   startedAt: DateTime(2026, 11, 1),
   localMediaKey: generateCallMediaKeyContribution(),
   peerMediaKey: generateCallMediaKeyContribution(),
@@ -209,6 +210,48 @@ class _RepairingTransport extends _Transport {
     repairs++;
     return 0;
   }
+}
+
+class _HandoverTransport extends _RepairingTransport {
+  final qualifying = Completer<int>();
+  final echo = Completer<bool>();
+  final opened = <int>[];
+
+  @override
+  Future<int> openMediaChannel(
+    Uint8List peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+    bool direct = false,
+    bool relay = false,
+  }) async {
+    final channel = opened.length + 42;
+    opened.add(channel);
+    return channel;
+  }
+
+  @override
+  Future<bool> configureMediaRouteProbes(
+    int channel, {
+    required NodeId directPeer,
+    required NodeId relayPeer,
+  }) async => true;
+
+  @override
+  Future<bool> qualifyMediaRoute(int channel) {
+    qualifying.complete(channel);
+    return echo.future;
+  }
+}
+
+class _HandoverEngine extends _Engine {
+  _HandoverEngine() : super(nativeStarted: true, capture: 1);
+
+  @override
+  bool get supportsChannelRebind => true;
+
+  @override
+  bool setMaxRtpPacketSize(int bytes) => true;
 }
 
 class _CameraChoiceEngine extends _UpgradeEngine {
@@ -2004,6 +2047,50 @@ void main() {
       );
     }
   }
+
+  test(
+    'retired relay qualification cannot block repair in the next call',
+    () async {
+      final transport = _HandoverTransport();
+      final original = _HandoverEngine();
+      final successor = _Engine(nativeStarted: true, capture: 1);
+      var engines = 0;
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory: ({required veilChan, required localId, required peerId}) =>
+            engines++ == 0 ? original : successor,
+      );
+      Future<bool>? retiring, queued;
+      try {
+        expect(await controller.start(_call(direct: true)), isTrue);
+        retiring = controller.switchRoute(CallTransportKind.relay);
+        final candidate = await transport.qualifying.future.timeout(
+          const Duration(seconds: 5),
+        );
+        // Also place a second command behind the retiring qualification. A
+        // reused call ID must not let that command reach a different peer.
+        queued = controller.switchRoute(CallTransportKind.relay);
+        await controller.stop();
+        expect(await controller.start(_call(peer: _id(3))), isTrue);
+        expect(original.disposed, isTrue);
+        expect(await controller.repairRoute(), isTrue);
+        expect(transport.repairs, 1);
+        expect(controller.isRepairingReceiveSession, isFalse);
+
+        transport.echo.complete(true);
+        expect(await retiring, isFalse);
+        expect(await queued, isFalse);
+        expect(transport.closed, [transport.opened.first, candidate]);
+        expect(controller.activeTransport, CallTransportKind.onion);
+        expect(successor.disposed, isFalse);
+      } finally {
+        await controller.stop();
+        if (!transport.echo.isCompleted) transport.echo.complete(false);
+        await retiring;
+        await queued;
+      }
+    },
+  );
 
   for (final replacement in [false, true]) {
     test(

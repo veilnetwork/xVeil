@@ -542,6 +542,7 @@ class CallService {
 
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
+    _relayFallbackFlight = null;
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
@@ -2081,7 +2082,7 @@ class CallService {
     _rearmP2PAfterRelay();
     // Supersede an in-flight P2P start. Its eventual failure belongs to the
     // abandoned route and must not tear down the relay session opened below.
-    _mediaOperationEpoch++;
+    final epoch = ++_mediaOperationEpoch;
     var ok = false;
     try {
       ok = await media.switchRoute(CallTransportKind.relay);
@@ -2090,6 +2091,7 @@ class CallService {
     }
     final cur = _current;
     if (_disposed ||
+        epoch != _mediaOperationEpoch ||
         cur == null ||
         cur.callId != callId ||
         cur.peer != peer ||

@@ -4196,6 +4196,50 @@ void main() {
         });
       });
 
+      test('a retired relay attempt cannot delay the next call', () {
+        fakeAsync((async) {
+          final oldCandidate = Completer<bool>();
+          final t = fixture(async, gate: oldCandidate);
+          t.svc.hangup();
+          async.flushMicrotasks();
+          const nextCall = 'next-direct-call';
+          t.wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: nextCall,
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          t.svc.accept();
+          async.flushMicrotasks();
+          expect(t.svc.current?.status, CallStatus.active);
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+          t.media.rxAt = clock.now();
+          t.media.liveDirectAdmission = false;
+          t.media.proven = true;
+          async.elapse(kCallDirectSessionSilence);
+          expect(oldCandidate.isCompleted, isFalse);
+          expect(t.media.liveAdmissionChecks, [peer]);
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+
+          oldCandidate.complete(false);
+          async.flushMicrotasks();
+          expect(t.media.switches, [
+            CallTransportKind.relay,
+            CallTransportKind.relay,
+          ]);
+          expect(t.svc.current?.callId, nextCall);
+          expect(t.svc.current?.status, CallStatus.active);
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
       test('new connections alone cannot request a relay handover', () {
         fakeAsync((async) {
           final t = fixture(async, defer: false);
