@@ -130,6 +130,7 @@ def analyze(evidence):
     candidates = {}
     unscoped = {}
     excluded = Counter()
+    physical_clocks = 0
 
     def compatible(beginning, connected, target=None):
         edges = set()
@@ -147,16 +148,26 @@ def analyze(evidence):
     for cid, row in connections.items():
         start = integer(row['start_ns'])
         connected = phone.at(start)
+        dial_start = row.get('dial_start_ns')
+        physical_beginning = None
+        if dial_start is not None:
+            dial_start = integer(dial_start)
+            if dial_start > start:
+                raise EvidenceError('Physical connect begins after its observer')
+            physical_beginning = phone.at(dial_start)
+            physical_clocks += 1
         context_id = row.get('context')
         context = contexts.get(integer(context_id)) if context_id is not None else None
         if context is None:
             excluded['missing_context'] += 1
-            unscoped[cid] = compatible(None, connected)
+            unscoped[cid] = compatible(physical_beginning, connected)
             continue
         origin = integer(context['start_ns'])
         if origin > start:
             raise EvidenceError('Connection precedes its logical context')
-        beginning = phone.at(origin)
+        if dial_start is not None and dial_start < origin:
+            raise EvidenceError('Physical connect precedes its logical context')
+        beginning = physical_beginning if physical_beginning is not None else phone.at(origin)
         slot = integer(context['slot'])
         mapped = targets[slot]
         if len(mapped) != 1:
@@ -189,6 +200,7 @@ def analyze(evidence):
         'phone_connections': len(connections),
         'server_flows': len(flows),
         'eligible_connections': len(candidates),
+        'connections_with_physical_dial_clock': physical_clocks,
         'excluded_connections': dict(sorted(excluded.items())),
         'unscoped_connections_with_possible_flows': sum(bool(v) for v in unscoped.values()),
         'without_temporal_candidate': sum(not edges for edges in candidates.values()),

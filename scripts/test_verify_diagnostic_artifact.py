@@ -44,7 +44,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
                 "'tcp_handshake_trace': 'PRIVATE_CANARY', 'tcp_trace': 'PRIVATE_CANARY', "
                 "'tcp_connect_context': 'PRIVATE_CANARY', 'connect_context': 310000001, "
-                "'peer_slot': 310000002, "
+                "'peer_slot': 310000002, 'tcp_connect_started_us': 310000003, "
                 "'transport_connect_context': 'transport.connect.context context=310000001 peer_slot=310000002', "
                 "'ordered_tcp_binding': 'tcp_ordered_binding PRIVATE_CANARY', "
                 "'record_sha256': 'PRIVATE_CANARY', 'child_local': 314159265, "
@@ -99,6 +99,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     for forbidden in ['tcp_handshake_trace', 'tcp_trace', 'connection',
                                       'tcp_connect_context', 'connect_context', 'peer_slot',
                                       'transport.connect.context', '310000001', '310000002',
+                                      'tcp_connect_started_us', '310000003',
                                       'ordered_tcp_binding', 'tcp_ordered_binding',
                                       'record_sha256', 'child_local', 'ordered_record',
                                       'opaque_record_link',

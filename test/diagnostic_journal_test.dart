@@ -522,6 +522,7 @@ void main() {
         'tcp_connect_context': _PrivateValue(),
         'connect_context': 310000001,
         'peer_slot': 310000002,
+        'tcp_connect_started_us': 310000003,
         'transport_connect_context':
             'transport.connect.context context=310000001 peer_slot=310000002',
         'attempt': 223606797,
@@ -585,6 +586,8 @@ void main() {
         'transport.connect.context',
         '310000001',
         '310000002',
+        'tcp_connect_started_us',
+        '310000003',
         'handshake_selection',
         '223606797',
         'tcp_trace',
