@@ -3901,6 +3901,132 @@ void main() {
       });
 
       test(
+        'a surviving session does not hide a restored relay opportunity',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async, seedOffline: false, defer: false);
+            t.counts.add(2);
+            async.flushMicrotasks();
+            t.svc.requestRelayRecoveryForDiagnostics();
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(1));
+            expect(t.svc.current?.transport, CallTransportKind.p2p);
+
+            // One old session remains visible throughout handover. Requiring
+            // a zero count loses the recovery opportunity of the new session.
+            t.counts.add(1);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(1));
+            t.media.proven = true;
+            t.counts.add(2);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.relay);
+            expect(t.svc.current?.status, CallStatus.active);
+            expect(
+              t.wire.sent.where((s) => s.type == CallSignalType.end),
+              isEmpty,
+            );
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test('replacement published before old session exit wakes once', () {
+        fakeAsync((async) {
+          final t = fixture(async, seedOffline: false, defer: false);
+          t.counts.add(2);
+          async.flushMicrotasks();
+          t.svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          t.media.proven = true;
+          t.counts.add(3);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          // Native registration may publish its successor before the old
+          // runner's teardown. This order never passes through zero either.
+          t.counts.add(2);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      for (final replacementFirst in [false, true]) {
+        test(
+          'partial reconnect during qualification retains wake, '
+          'replacement first=$replacementFirst',
+          () {
+            fakeAsync((async) {
+              final gate = Completer<bool>();
+              final t = fixture(
+                async,
+                seedOffline: false,
+                defer: false,
+                gate: gate,
+              );
+              t.counts.add(replacementFirst ? 2 : 3);
+              async.flushMicrotasks();
+              t.svc.requestRelayRecoveryForDiagnostics();
+              async.flushMicrotasks();
+              t.counts.add(replacementFirst ? 3 : 2);
+              t.counts.add(replacementFirst ? 2 : 3);
+              async.flushMicrotasks();
+              expect(
+                t.media.switches,
+                hasLength(1),
+                reason: 'no overlapping opens',
+              );
+              t.media.proven = true;
+              gate.complete(false);
+              async.flushMicrotasks();
+              expect(t.media.switches, hasLength(2));
+              expect(t.svc.current?.transport, CallTransportKind.relay);
+              t.svc.dispose();
+              t.counts.close();
+              async.flushMicrotasks();
+            });
+          },
+        );
+      }
+
+      test(
+        'partial recovery is a single wake hint, never a delivery proof',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async, seedOffline: false, defer: false);
+            t.counts.add(2);
+            async.flushMicrotasks();
+            t.svc.requestRelayRecoveryForDiagnostics();
+            async.flushMicrotasks();
+            t.counts.add(1);
+            t.counts.add(2);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.p2p);
+            for (final n in [2, 3, 3, 4]) {
+              t.counts.add(n);
+            }
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.status, CallStatus.active);
+            expect(
+              t.wire.sent.where((s) => s.type == CallSignalType.end),
+              isEmpty,
+            );
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
         'a count is only a wake hint and duplicate positives do not retry',
         () {
           fakeAsync((async) {

@@ -328,6 +328,8 @@ class CallService {
   final Stream<int>? _overlaySessions;
   StreamSubscription<int>? _overlaySessionsSub;
   int? _lastOverlaySessions;
+  bool _overlaySessionLossObserved = false;
+  bool _overlaySessionGrowthObserved = false;
   int _relayConnectionGeneration = 0;
 
   final Future<List<CallLogEntry>> Function()? _loadFinishedCalls;
@@ -1937,11 +1939,32 @@ class CallService {
     if (_disposed || count < 0) return;
     final previous = _lastOverlaySessions;
     _lastOverlaySessions = count;
-    if (previous != 0 || count == 0) return;
+    if (previous == null || count == 0 || count == previous) return;
+    if (count < previous) {
+      _overlaySessionLossObserved = true;
+    } else {
+      _overlaySessionGrowthObserved = true;
+    }
+    // A stale direct session or another Core can keep the count positive
+    // throughout reconnect. Pair loss and growth in either order: the new
+    // owner can register before the old runner exits. Consume one wake hint,
+    // not only at 0 -> positive. A snapshot, duplicate count, or movement in
+    // just one direction cannot bypass the normal retry delay.
+    // This is still only a hint: a pending handover must qualify its candidate.
+    if (previous != 0 &&
+        (!_overlaySessionLossObserved || !_overlaySessionGrowthObserved)) {
+      return;
+    }
+    _overlaySessionLossObserved = false;
+    _overlaySessionGrowthObserved = false;
     _relayConnectionGeneration++;
     final call = _current;
     if (call != null) {
-      devLog(() => 'xVeil[call-media]: overlay sessions restored');
+      devLog(
+        () => previous == 0
+            ? 'xVeil[call-media]: overlay sessions restored'
+            : 'xVeil[call-media]: overlay sessions restored after partial loss',
+      );
       _wakeDeferredRelay(call.peer, call.callId);
     }
   }
