@@ -533,7 +533,8 @@ class CallService {
   int _mediaOperationEpoch = 0;
   Object? _livenessProbeToken;
   ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
-  ({String callId, DateTime until})? _relayCandidateRetry;
+  ({String callId, DateTime until, DateTime? handoverRecoveryAt})?
+  _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
   var _peerRelayWake = _PeerRelayWake.available;
 
@@ -2051,7 +2052,8 @@ class CallService {
     String callId, {
     bool fromOverlay = true,
   }) {
-    if (_relayCandidateRetry?.callId != callId) return;
+    final retry = _relayCandidateRetry;
+    if (retry == null || retry.callId != callId) return;
     final call = _current;
     if (_disposed ||
         call == null ||
@@ -2078,6 +2080,14 @@ class CallService {
     }
     // A wake hint cannot authorize a route. The native candidate still needs
     // fresh sealed proof.
+    final handoverRecoveryAt = retry.handoverRecoveryAt;
+    // A reconnect can wake this attempt before the ordinary recovery point.
+    // Keep that opportunity if its probes also fail. An attempt that starts
+    // at or after the point consumes it and returns to the steady cadence.
+    final retryBy =
+        handoverRecoveryAt != null && _now().isBefore(handoverRecoveryAt)
+        ? handoverRecoveryAt
+        : null;
     _cancelRelayCandidateRetry();
     if (_peerRelayWake == _PeerRelayWake.requested) {
       _peerRelayWake = _PeerRelayWake.used;
@@ -2089,7 +2099,7 @@ class CallService {
             : 'xVeil[call-media]: deferred relay retry deadline reached',
       );
     }
-    unawaited(_followRelayFallback(peer, callId));
+    unawaited(_followRelayFallback(peer, callId, retryBy: retryBy));
   }
 
   Future<void> _followRelayFallback(
@@ -2197,7 +2207,11 @@ class CallService {
         final remaining? when remaining < kCallRelayCandidateRetry => remaining,
         _ => kCallRelayCandidateRetry,
       };
-      _relayCandidateRetry = (callId: callId, until: now.add(delay));
+      _relayCandidateRetry = (
+        callId: callId,
+        until: now.add(delay),
+        handoverRecoveryAt: retryBy,
+      );
       // Inbound media may stay fresh while our outbound P2P path is dead.
       // A cooldown alone never retries in that asymmetric state: silence
       // detection will not fire and the peer may already be sending relay.

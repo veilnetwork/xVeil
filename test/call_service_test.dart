@@ -3703,6 +3703,83 @@ void main() {
       });
     });
 
+    for (final readyDuringWake in [false, true]) {
+      test('an early reconnect wake preserves the handover deadline '
+          '(proved relay during wake: $readyDuringWake)', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final counts = StreamController<int>(sync: true);
+          final fake = _FakeMessaging();
+          final initialResult = Completer<bool>();
+          final media = _ReconnectRelayMedia()
+            ..liveDirectAdmission = false
+            ..firstAttempt = initialResult;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+            networkHandovers: network.stream,
+            overlaySessions: counts.stream,
+          )..start();
+          counts.add(0);
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'handover-retry-deadline',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          media.rxAt = clock.now();
+          network.add(null);
+          async.flushMicrotasks();
+          expect(media.switches, hasLength(1));
+
+          const wakeAt = Duration(seconds: 2);
+          async.elapse(const Duration(seconds: 1));
+          counts.add(1);
+          async.flushMicrotasks();
+          expect(media.switches, hasLength(1));
+          async.elapse(wakeAt - const Duration(seconds: 1));
+          final wakeResult = Completer<bool>();
+          media.nextAttempt = wakeResult;
+          initialResult.complete(false);
+          async.flushMicrotasks();
+          expect(media.switches, hasLength(2));
+          async.elapse(
+            kCallDirectSessionSilence -
+                wakeAt +
+                const Duration(milliseconds: 200),
+          );
+          expect(media.switches, hasLength(2), reason: 'no overlapping opens');
+
+          wakeResult.complete(readyDuringWake);
+          async.flushMicrotasks();
+          async.elapse(Duration.zero);
+          expect(media.switches, hasLength(readyDuringWake ? 2 : 3));
+          expect(svc.current?.status, CallStatus.active);
+          expect(
+            svc.current?.transport,
+            readyDuringWake ? CallTransportKind.relay : CallTransportKind.p2p,
+          );
+          async.elapse(
+            kCallRelayCandidateRetry - const Duration(milliseconds: 1),
+          );
+          expect(media.switches, hasLength(readyDuringWake ? 2 : 3));
+          svc.dispose();
+          network.close();
+          counts.close();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('healthy and unknown direct admission retain the normal grace', () {
       for (final verdict in [true, null]) {
         fakeAsync((async) {
@@ -9085,6 +9162,7 @@ class _ReconnectRelayMedia extends _FakeMedia {
     openedTransport = CallTransportKind.p2p;
   }
   Completer<bool>? firstAttempt;
+  Completer<bool>? nextAttempt;
   bool proven = false;
   @override
   Future<bool> switchRoute(
@@ -9092,9 +9170,9 @@ class _ReconnectRelayMedia extends _FakeMedia {
     Future<bool> Function()? canCommit,
   }) async {
     switches.add(transport);
-    final ok = switches.length == 1 && firstAttempt != null
-        ? await firstAttempt!.future
-        : proven;
+    final gate = switches.length == 1 ? firstAttempt : nextAttempt;
+    nextAttempt = null;
+    final ok = gate == null ? proven : await gate.future;
     if (canCommit != null && !await canCommit()) return false;
     if (ok) openedTransport = transport;
     return ok;
