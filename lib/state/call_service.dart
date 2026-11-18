@@ -658,9 +658,9 @@ class CallService {
       }
       // Admission can disappear between heartbeats while we await the peer.
       // Withdraw local readiness before announcing or opening a stale route.
-      if (!await media.isDirectPeerAdmitted(c) ||
-          !stillCurrent() ||
-          !_lateP2PConsent) {
+      final admitted = await media.isDirectPeerAdmitted(c);
+      if (!stillCurrent()) return;
+      if (!admitted || !_lateP2PConsent) {
         _lateP2PLocalReady = false;
         return;
       }
@@ -676,6 +676,9 @@ class CallService {
           callId: c.callId,
           type: CallSignalType.transportInfo,
           transport: const CallTransportProposal(CallTransportKind.p2p),
+          // Contact lookup or durable enqueue can outlast this route. Date the
+          // readiness here so a late send cannot supersede a newer relay report.
+          sentAtMs: _now().millisecondsSinceEpoch,
           protocolVersion: _signalProtocolVersion,
         ),
       );
@@ -1646,12 +1649,12 @@ class CallService {
               _lateP2PActivatedAt != null &&
               _now().difference(_lateP2PActivatedAt!) >= kCallP2PCandidateRetry;
           if (withdrawn || relayConfirmed) {
-            if (_lateP2PBusy && _lateP2PAttempted) {
+            if (live.transport == CallTransportKind.p2p) {
+              unawaited(_followRelayFallback(peer, sig.callId));
+            } else if (_lateP2PBusy && _lateP2PAttempted) {
               _pendingRelayCallId = sig.callId;
               _pendingRelayPeer = peer;
               _pendingRelayAtMs = at;
-            } else if (live.transport == CallTransportKind.p2p) {
-              unawaited(_followRelayFallback(peer, sig.callId));
             }
           }
         }
@@ -1727,15 +1730,16 @@ class CallService {
             requested == CallTransportKind.relay &&
             c.localPosture == CallPosture.direct &&
             c.peerPosture == CallPosture.direct) {
-          if (c.status == CallStatus.connecting || _lateP2PBusy) {
-            // The controller may still be resolving its device route and
-            // have no active session to switch. Finish that bounded start
-            // before following the peer's fallback; racing a stop here could
-            // cancel both the initial route and its replacement.
+          if (c.status == CallStatus.connecting ||
+              c.transport != CallTransportKind.p2p) {
+            // Let initial media setup or direct qualification settle before
+            // following the peer's fallback. The native route may be pending.
             _pendingRelayCallId = sig.callId;
             _pendingRelayPeer = peer;
             _pendingRelayAtMs = sig.sentAtMs;
           } else {
+            // A committed direct route can still be repeating readiness.
+            // Waiting for that send could strand recovery on the old path.
             unawaited(_followRelayFallback(peer, sig.callId));
           }
         }
@@ -2191,7 +2195,6 @@ class CallService {
       call.transport == CallTransportKind.p2p &&
       call.localPosture == CallPosture.direct &&
       call.peerPosture == CallPosture.direct &&
-      !_lateP2PBusy &&
       _relayFallbackFlight == null &&
       _mediaReceiveNeedsRepair(call, after: kCallDirectSessionSilence);
 
