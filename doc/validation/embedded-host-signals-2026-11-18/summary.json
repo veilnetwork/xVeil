@@ -1,0 +1,159 @@
+{
+  "schema": "xveil-embedded-signal-validation/1",
+  "date": "2026-11-18",
+  "nativeCommit": "53fbbe34bbd8af6b5eeff8b98dc97a92066ee6f4",
+  "baselineNativeCommit": "2cd892571ccbdaff3c8af7d7aeb2bc3350b9ca0c",
+  "baseline": {
+    "schema": "xveil-embedded-host-signals/1",
+    "cases": [
+      {
+        "mode": "config",
+        "passed": false,
+        "event": "result",
+        "stopResult": 0,
+        "runningPreserved": [
+          false,
+          false,
+          false
+        ],
+        "stoppedPreserved": [
+          false,
+          false,
+          false
+        ],
+        "hostReceivedAfterStop": false
+      },
+      {
+        "mode": "deferred",
+        "passed": false,
+        "event": "result",
+        "stopResult": 0,
+        "runningPreserved": [
+          false,
+          false,
+          false
+        ],
+        "stoppedPreserved": [
+          false,
+          false,
+          false
+        ],
+        "hostReceivedAfterStop": false
+      },
+      {
+        "mode": "cli-sigint",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": false,
+        "reloadObserved": false
+      },
+      {
+        "mode": "cli-sigterm",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": false,
+        "reloadObserved": false
+      },
+      {
+        "mode": "cli-hup-term",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": true,
+        "reloadObserved": true
+      }
+    ],
+    "passed": false,
+    "ownedFixturesAndProcessesClosed": true,
+    "librarySha256": "18a08be7a62c646c9240c92bac52d1b3da4afe7734b01f65504de7da424eb399",
+    "cliSha256": "4a875e401ad4661c24c9ce69969da08a11454fd85dd9648aad36686448d6a172"
+  },
+  "final": {
+    "schema": "xveil-embedded-host-signals/1",
+    "cases": [
+      {
+        "mode": "config",
+        "passed": true,
+        "event": "result",
+        "stopResult": 0,
+        "runningPreserved": [
+          true,
+          true,
+          true
+        ],
+        "stoppedPreserved": [
+          true,
+          true,
+          true
+        ],
+        "hostReceivedAfterStop": true
+      },
+      {
+        "mode": "deferred",
+        "passed": true,
+        "event": "result",
+        "stopResult": 0,
+        "runningPreserved": [
+          true,
+          true,
+          true
+        ],
+        "stoppedPreserved": [
+          true,
+          true,
+          true
+        ],
+        "hostReceivedAfterStop": true
+      },
+      {
+        "mode": "cli-sigint",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": false,
+        "reloadObserved": false
+      },
+      {
+        "mode": "cli-sigterm",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": false,
+        "reloadObserved": false
+      },
+      {
+        "mode": "cli-hup-term",
+        "passed": true,
+        "exit": 0,
+        "reloadRequested": true,
+        "reloadObserved": true
+      }
+    ],
+    "passed": true,
+    "ownedFixturesAndProcessesClosed": true,
+    "librarySha256": "529f98434a817bcf5d6f1fd93d2e820f4a340550ee9b51c748eda98f22b0cb28",
+    "cliSha256": "5e639268799dc3105f281b7735006d773331940568ad47f76dcfa219592f8b7d"
+  },
+  "relatedRust": {
+    "passed": 1201,
+    "ignored": 13,
+    "childSubprocessCountedSeparately": false
+  },
+  "clippyAllTargetsPassed": true,
+  "externalMountHeldForCargo": true,
+  "cleanSourceBuildProvenanceVerified": true,
+  "cppHostSourceSha256": "bcb4d7b74252be2582969141c898369df4ee0af0d2aa84c5c866e29458a9973e",
+  "runnerSourceSha256": "5940328644cd7c63cc6a547cae3a946c2d2af2b6818adceb3215ec3a0e49b5da",
+  "macHost": {
+    "schema": "xveil-embedded-host-signal-mac-check/1",
+    "nativeCommit": "53fbbe34bbd8af6b5eeff8b98dc97a92066ee6f4",
+    "sameAppAot": true,
+    "sameIsolatedProfile": true,
+    "actualNewSdkMapping": true,
+    "nativeStackReadyThenRetired": true,
+    "ordinarySigtermExited": true,
+    "forcedKillNeeded": false,
+    "knownPortsChecked": 4,
+    "knownPortsReleased": true,
+    "signatureVerified": true,
+    "callOrHandoverTested": false
+  },
+  "released": false
+}
