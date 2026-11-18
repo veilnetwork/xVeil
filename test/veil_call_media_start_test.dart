@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:veil_flutter/veil_flutter.dart' show VeilException;
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
@@ -217,6 +218,9 @@ class _HandoverTransport extends _RepairingTransport {
   final qualifying = Completer<int>();
   final echo = Completer<bool>();
   final opened = <int>[];
+  final directOpenFailures = <String>[];
+  int directOpenAttempts = 0;
+  int peerAdmissionChecks = 0;
   final probeRequests = <int>[];
   bool failRelayOpen = false;
   bool? proofAvailable;
@@ -229,10 +233,24 @@ class _HandoverTransport extends _RepairingTransport {
     bool direct = false,
     bool relay = false,
   }) async {
+    if (direct) {
+      directOpenAttempts++;
+      if (directOpenFailures.isNotEmpty) {
+        throw VeilException(
+          'direct media open failed: ${directOpenFailures.removeAt(0)}',
+        );
+      }
+    }
     if (relay && failRelayOpen) throw StateError('relay open unavailable');
     final channel = opened.length + 42;
     opened.add(channel);
     return channel;
+  }
+
+  @override
+  Future<({bool admitted, bool hasCert})> peerPnetStatus(Uint8List peer) async {
+    peerAdmissionChecks++;
+    return (admitted: true, hasCert: true);
   }
 
   @override
@@ -2179,6 +2197,66 @@ void main() {
       await controller.stop();
     }
   });
+
+  const inactiveDirectSession = 'direct media session is not active';
+
+  test(
+    'an initial media start retries a direct session still registering',
+    () async {
+      final transport = _HandoverTransport()
+        ..directOpenFailures.add(inactiveDirectSession);
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                _HandoverEngine(),
+      );
+      try {
+        expect(await controller.start(_call(direct: true)), isTrue);
+        expect(transport.directOpenAttempts, 2);
+        expect(transport.peerAdmissionChecks, 1);
+        expect(controller.activeTransport, CallTransportKind.p2p);
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
+
+  for (final error in [
+    inactiveDirectSession,
+    'direct session probe failed',
+    'direct session probe timed out',
+  ]) {
+    test('live media repair after $error', () async {
+      final transport = _HandoverTransport();
+      final engines = [_HandoverEngine(), _HandoverEngine()];
+      var created = 0;
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                engines[created++],
+      );
+      try {
+        expect(await controller.start(_call(direct: true)), isTrue);
+        transport.directOpenFailures.add(error);
+        expect(await controller.repairRoute(), isTrue);
+        final inactive = error == inactiveDirectSession;
+        expect(transport.directOpenAttempts, inactive ? 2 : 3);
+        expect(transport.peerAdmissionChecks, inactive ? 0 : 1);
+        expect(
+          controller.activeTransport,
+          inactive ? CallTransportKind.relay : CallTransportKind.p2p,
+        );
+        expect(transport.opened, [42, 43]);
+        expect(transport.closed, [42]);
+        expect(engines.first.disposed, isTrue);
+        expect(engines.last.disposed, isFalse);
+      } finally {
+        await controller.stop();
+      }
+    });
+  }
 
   test('an agreed relay can be reopened after a failed media rebuild', () async {
     final transport = _HandoverTransport();

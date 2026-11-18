@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
+import 'package:veil_flutter/veil_flutter.dart' show VeilException;
 
 import '../core/log.dart';
 import '../core/capture_resource_lifetime.dart';
@@ -239,6 +240,7 @@ _openCallMediaChannel({
   required CallMediaChannelOpener opener,
   required Uint8List txKey,
   required Uint8List rxKey,
+  required bool retryInactiveDirect,
   Duration directRetryDelay = const Duration(milliseconds: 300),
   Future<NodeId> Function()? resolveDirectPeerOnRetry,
 }) async {
@@ -279,6 +281,15 @@ _openCallMediaChannel({
               'for ${call.peer.short}: $e',
         );
         final error = '$e';
+        // A live rebuild can use its negotiated relay immediately when the
+        // SDK confirms that the old direct session is gone. A failed status
+        // probe is inconclusive, and an initial call may still be registering.
+        if (!retryInactiveDirect &&
+            e is VeilException &&
+            e.message ==
+                'direct media open failed: direct media session is not active') {
+          break;
+        }
         final transient =
             error.contains('timed out') ||
             error.contains('probe failed') ||
@@ -366,6 +377,7 @@ openSealedCallMediaChannel({
   required Call call,
   required CallMediaChannelOpener opener,
   required Uint8List localNodeId,
+  bool retryInactiveDirect = true,
   Duration directRetryDelay = const Duration(milliseconds: 300),
   Future<NodeId> Function()? resolveDirectPeerOnRetry,
 }) async {
@@ -386,6 +398,7 @@ openSealedCallMediaChannel({
       opener: opener,
       txKey: keys.txKey,
       rxKey: keys.rxKey,
+      retryInactiveDirect: retryInactiveDirect,
       directRetryDelay: directRetryDelay,
       resolveDirectPeerOnRetry: resolveDirectPeerOnRetry,
     );
@@ -1125,6 +1138,7 @@ class VeilCallMediaController implements CallMediaController {
       ok = await _startForRequest(
         _activeCall!.copyWith(transport: transport),
         startingRequest,
+        retryInactiveDirect: requireTarget,
       );
     } catch (_) {
       // An old lookup/engine failure must not end the newer working session.
@@ -1584,7 +1598,11 @@ class VeilCallMediaController implements CallMediaController {
   Future<bool> start(Call call) =>
       _startForRequest(call, ++_startOperationEpoch);
 
-  Future<bool> _startForRequest(Call call, int request) async {
+  Future<bool> _startForRequest(
+    Call call,
+    int request, {
+    bool retryInactiveDirect = true,
+  }) async {
     bool requested() => request == _startOperationEpoch;
     _startedWithoutCamera = false;
     final previousCall = _activeCall;
@@ -1729,6 +1747,7 @@ class VeilCallMediaController implements CallMediaController {
         call: call,
         opener: _transport,
         localNodeId: localId,
+        retryInactiveDirect: retryInactiveDirect,
         resolveDirectPeerOnRetry: () async {
           final admitted = (await _transport.peerPnetStatus(
             (call.peerDevice ?? call.peer).bytes,
