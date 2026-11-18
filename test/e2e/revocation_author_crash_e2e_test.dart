@@ -45,8 +45,9 @@ Future<Map> _checkpoint(
   ProcessDevice device,
   String identity,
   String physical,
-  String document,
-) async {
+  String document, {
+  bool ownDeviceRouting = false,
+}) async {
   final nonce = 'author-checkpoint-${++_probeNonce}';
   final request = File('${device.dir.path}/storage-inspect.new');
   await request.writeAsString(
@@ -55,6 +56,7 @@ Future<Map> _checkpoint(
       'peer': identity,
       'prefix': '',
       'authorizationOnly': true,
+      'ownDeviceRouting': ownDeviceRouting,
       'identity': identity,
       'physical': physical,
       'authorizationDocument': document,
@@ -121,6 +123,17 @@ void main() {
       ])).trim();
       final before = await _document(a, gate.veilCli!, key);
       expect(before, isNotNull);
+      expect(
+        (await _checkpoint(
+          a,
+          ai,
+          oldDevice,
+          before!,
+          ownDeviceRouting: true,
+        ))['ownRoutingIncludesDevice'],
+        isTrue,
+        reason: 'a currently delegated sibling must remain addressable',
+      );
       await b.stop();
       await c.stop();
 
@@ -173,7 +186,7 @@ void main() {
         // publication oracle rejects a restored old document. Never app code.
         if (Platform.environment['XVEIL_E2E_REVOKE_AUTHOR_ORACLE'] ==
             'old-document') {
-          material[kIdentityDocumentFile] = base64Decode(before!);
+          material[kIdentityDocumentFile] = base64Decode(before);
           await writeSovereignMaterial(cold, encodeSovereignIdentity(material));
         }
       } finally {
@@ -212,6 +225,26 @@ void main() {
         what:
             'cold author publishes its durable tombstone without a revoke retry',
         timeout: const Duration(seconds: 15),
+      );
+      final ownRouting = await _checkpoint(
+        a,
+        ai,
+        oldDevice,
+        saved,
+        ownDeviceRouting: true,
+      );
+      await File('$evidence/author-own-routing-check.json').writeAsString(
+        jsonEncode({
+          'staleGroupRosterContainsRevokedDevice':
+              ownRouting['ownRosterIncludesDevice'],
+          'outgoingOwnRoutingContainsRevokedDevice':
+              ownRouting['ownRoutingIncludesDevice'],
+        }),
+      );
+      expect(
+        ownRouting['ownRoutingIncludesDevice'],
+        isFalse,
+        reason: 'the current signed revocation must fence a stale group roster',
       );
 
       await c.start();

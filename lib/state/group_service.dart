@@ -20567,6 +20567,10 @@ class GroupService implements ArchiveGroups {
     _deviceAddressRead = null;
   }
 
+  @visibleForTesting
+  bool Function(Uint8List document, NodeId identity, NodeId device)?
+  ownDeviceRevocationCheck;
+
   Future<List<NodeId>> _readOwnDeviceAddresses(NodeId? me, String hex) async {
     final b = await load(NodeId.fromHex(hex));
     if (b == null) return const [];
@@ -20647,6 +20651,32 @@ class GroupService implements ArchiveGroups {
             if (identity != null) ids.remove(identity);
           }
         }
+      }
+    }
+    // A signed identity revoke can commit before its group-control removal.
+    // After a crash the old membership journal is still valid history, but
+    // must not route new calls/mirrors to the explicitly revoked device.
+    // Read durable material here rather than the verifier's periodic cache.
+    // Missing material preserves legacy group routing; read/verification
+    // failures propagate instead of pretending that no tombstone exists.
+    if (ids.isNotEmpty && b.manifest.isSovereignDevice) {
+      final raw = await material.readSovereignMaterial(_storage, strict: true);
+      if (raw != null && raw.isNotEmpty) {
+        final document = material.decodeSovereignIdentity(raw)?[
+          material.kIdentityDocumentFile
+        ];
+        if (document == null || document.isEmpty) {
+          throw StateError('Own-device revocation document unavailable');
+        }
+        final check = ownDeviceRevocationCheck;
+        ids.removeWhere((device) => check != null
+            ? check(document, b.manifest.owner, device)
+            : EmbeddedNode.identityDocumentDeviceRevoked(
+                document: document,
+                nodeId: b.manifest.owner.bytes,
+                deviceId: device.bytes,
+                lib: _signer is NativeGroupSigner ? _signer.lib : null,
+              ));
       }
     }
     return ids;

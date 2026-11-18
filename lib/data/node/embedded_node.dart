@@ -2664,6 +2664,41 @@ class EmbeddedNode {
     }
   }
 
+  /// Explicit revocation in a current, verified document for [nodeId].
+  /// False is not authorization; ordinary membership and transport proof
+  /// checks still apply. Invalid/unverifiable documents throw, so a routing
+  /// caller cannot confuse an unavailable revocation decision with absence.
+  static bool identityDocumentDeviceRevoked({
+    required Uint8List document,
+    required Uint8List nodeId,
+    required Uint8List deviceId,
+    DynamicLibrary? lib,
+  }) {
+    if (document.isEmpty || nodeId.length != 32 || deviceId.length != 32) {
+      throw ArgumentError('A document and two 32-byte ids are required');
+    }
+    final fn = (lib ?? _veilLib())
+        .lookupFunction<_DocAuthorizesNative, _DocAuthorizesDart>(
+          'veil_identity_document_device_revoked',
+        );
+    final doc = calloc<Uint8>(document.length);
+    final identity = calloc<Uint8>(32), device = calloc<Uint8>(32);
+    try {
+      doc.asTypedList(document.length).setAll(0, document);
+      identity.asTypedList(32).setAll(0, nodeId);
+      device.asTypedList(32).setAll(0, deviceId);
+      final result = fn(doc, document.length, identity, device);
+      if (result != 0 && result != 1) {
+        throw StateError('Own-device revocation document unavailable');
+      }
+      return result == 1;
+    } finally {
+      calloc.free(doc);
+      calloc.free(identity);
+      calloc.free(device);
+    }
+  }
+
   /// Was [publicKey] entitled to speak for [nodeId] AT [atUnixSecs]?
   ///
   /// [identityDocumentAuthorizes] asks whether the document lists the key and
