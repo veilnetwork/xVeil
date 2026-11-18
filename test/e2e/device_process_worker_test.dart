@@ -610,6 +610,19 @@ void main() {
               final authorization = <String, Object?>{};
               if (request['authorizationOnly'] == true) {
                 authorization['processId'] = pid;
+                if (request['ownDeviceRouting'] == true) {
+                  final physical = NodeId.fromHex(
+                    request['physical'] as String,
+                  );
+                  authorization['ownRoutingIncludesDevice'] =
+                      (await device!.groups!.addressableOwnDevices()).contains(
+                        physical,
+                      );
+                  authorization['ownRosterIncludesDevice'] =
+                      (await device!.groups!.otherDeviceIds()).contains(
+                        physical,
+                      );
+                }
                 final stored = await device!.storage.loadPeerAuthorization();
                 authorization['storedPeers'] = [
                   for (final entry in stored) entry.peer,

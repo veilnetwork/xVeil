@@ -1,0 +1,51 @@
+{
+  "schema": "xveil-validation/1",
+  "nativeSource": "26c0a8a59ef692bdbbd33437bc55cb3fe03775ac",
+  "baseline": {
+    "currentTombstonePublished": true,
+    "groupRosterStillIncludedRevokedDevice": true,
+    "outgoingOwnRoutingIncludedRevokedDevice": true,
+    "expectedAssertionFailure": true,
+    "processesRemaining": 0,
+    "unreleasedPorts": 0
+  },
+  "candidate": {
+    "currentlyDelegatedSiblingAddressableBeforeRevoke": true,
+    "groupRosterStillIncludedRevokedDevice": true,
+    "outgoingOwnRoutingIncludedRevokedDevice": false,
+    "exactDocumentRepublishedAfterCrash": true,
+    "authorizedMessagesAndCallPreserved": true,
+    "newOfferAndReplyAbsentOnRevokedDevice": true,
+    "incomingDenialObservationMs": 30341,
+    "outgoingObservationMs": 8191,
+    "e2ePassed": 1,
+    "ownedProcessesTracked": 44,
+    "processesRemaining": 0,
+    "portsReleased": 28,
+    "independentProcessAuditPassed": true,
+    "sourceAndNativeBytesStableDuringTest": true
+  },
+  "checks": {
+    "rustFfiPassed": 384,
+    "rustFfiIgnored": 2,
+    "nestedChildNotDoubleCounted": true,
+    "clippyWarningsDenied": true,
+    "groupTestsPassed": 546,
+    "groupTestsSkipped": 0,
+    "focusedAnalysisClean": true,
+    "generatedHeaderAndContractsStable": true,
+    "productionFeatureNativeBuildPassed": true,
+    "externalMountHeldDuringBuilds": true
+  },
+  "limits": {
+    "fullDeviceMatrixQualified": false,
+    "androidAotQualified": false,
+    "newLeakOrAudioInterceptionProven": false,
+    "netcallResolved": false,
+    "phoneQaInstalled": false,
+    "phoneMainAppChanged": false,
+    "desktopGuiLaunched": false,
+    "productionServersChanged": false,
+    "pushedOrReleased": false
+  }
+}

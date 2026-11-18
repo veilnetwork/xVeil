@@ -119,11 +119,22 @@ const kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
 /// The setting is still read as a fallback, because material written by an
 /// earlier build lives there and an identity must not lose its device key to
 /// an upgrade.
-Future<String?> readSovereignMaterial(Storage storage) async {
+/// Authorization callers set [strict] so an unreadable current file cannot
+/// fall back to a stale legacy setting or be mistaken for absent material.
+Future<String?> readSovereignMaterial(
+  Storage storage, {
+  bool strict = false,
+}) async {
   try {
     final bytes = await storage.loadFile(kSovereignIdentitySetting);
-    if (bytes != null && bytes.isNotEmpty) return utf8.decode(bytes);
+    if (bytes != null) {
+      if (strict && bytes.isEmpty) {
+        throw const FormatException('Empty sovereign material');
+      }
+      if (bytes.isNotEmpty) return utf8.decode(bytes);
+    }
   } catch (_) {
+    if (strict) rethrow;
     // Fall through to the legacy home rather than fail: a missing or
     // unreadable file is exactly the pre-upgrade state.
   }

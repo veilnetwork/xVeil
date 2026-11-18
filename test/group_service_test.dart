@@ -14,6 +14,7 @@ import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/space_discovery_transport.dart';
+import 'package:xveil/data/node/sovereign_identity_material.dart' as material;
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -17470,8 +17471,9 @@ void main() {
     expect(await service.addressableOwnDevices(), [bob]);
     store.reads.clear();
     expect(await service.addressableOwnDevices(), [bob]);
-    expect(store.reads, [[key, ...segments]],
-        reason: 'every completed lookup must freshly read header and payload together');
+    expect(store.reads, [
+      [key, ...segments], [material.kSovereignIdentitySetting],
+    ], reason: 'fresh journal batch is followed by the durable revocation check');
 
     for (final reject in [false, true]) {
       store.missBatch = !reject;
@@ -17507,6 +17509,76 @@ void main() {
     expect(await service.addressableOwnDevices(), [bob]);
     expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
     expect(await service.addressableOwnDevices(), isEmpty);
+  });
+
+  test('durable own tombstones fence a still-valid device group roster', () async {
+    final store = _HeldGroupHeaderStorage();
+    await store.open(password: 'fixture', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async { await service.dispose(); await store.close(); });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    expect(await service.addressableOwnDevices(), [bob],
+        reason: 'legacy groups without sovereign material keep their routing');
+    var checks = 0;
+    service.ownDeviceRevocationCheck = (document, identity, device) {
+      checks++;
+      expect(identity, sovereign.nodeId);
+      expect(device, bob);
+      if (document.single == 3) throw StateError('unverifiable fixture');
+      return document.single == 2;
+    };
+    Future<void> put(int version) => material.writeSovereignMaterial(store,
+      material.encodeSovereignIdentity({
+        material.kIdentityDocumentFile: Uint8List.fromList([version]),
+      }));
+    await put(1);
+    expect(await service.addressableOwnDevices(), [bob]);
+    await put(2); // No group revoke; model crash before its separate commit.
+    expect(await service.otherDeviceIds(), [bob]);
+    expect(await service.addressableOwnDevices(), isEmpty);
+    expect(await service.addressableOwnDevices(), isEmpty,
+        reason: 'no completed-read cache may restore the old decision');
+    await put(3);
+    await expectLater(service.addressableOwnDevices(), throwsStateError);
+    await material.writeSovereignMaterial(store, 'corrupt material');
+    await expectLater(service.addressableOwnDevices(), throwsStateError);
+    await put(1);
+    await store.putSetting(material.kSovereignIdentitySetting,
+        material.encodeSovereignIdentity({
+          material.kIdentityDocumentFile: Uint8List.fromList([1]),
+        }));
+    store.heldKey = material.kSovereignIdentitySetting;
+    store.failRead = true;
+    await expectLater(service.addressableOwnDevices(), throwsStateError);
+    store.failRead = false;
+    await store.storeFile(material.kSovereignIdentitySetting, Uint8List(0));
+    await expectLater(service.addressableOwnDevices(), throwsFormatException);
+    await put(1);
+    expect(await service.addressableOwnDevices(), [bob]);
+    expect(checks, greaterThanOrEqualTo(5));
+  });
+
+  test('shutdown while reading own tombstones cannot return stale targets', () async {
+    final store = _HeldGroupHeaderStorage();
+    await store.open(password: 'fixture', createIfMissing: true);
+    final service = GroupService(store, _FakeSigner(owner));
+    addTearDown(() async { await service.dispose(); await store.close(); });
+    expect(await service.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    await material.writeSovereignMaterial(store,
+      material.encodeSovereignIdentity({
+        material.kIdentityDocumentFile: Uint8List.fromList([1]),
+      }));
+    service.ownDeviceRevocationCheck = (_, _, _) => false;
+    store.heldKey = material.kSovereignIdentitySetting;
+    store.captured = Completer<void>();
+    store.release = Completer<void>();
+    final reading = service.addressableOwnDevices();
+    await store.captured!.future;
+    service.beginShutdown();
+    store.release!.complete();
+    expect(await reading, isEmpty);
   });
 
   test('fresh header references override still-readable speculative segments', () async {
