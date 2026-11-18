@@ -1,0 +1,282 @@
+{
+  "schema": "xveil-partial-reconnect-wake/1",
+  "parentCommit": "a7b16c20",
+  "tests": {
+    "baselineAssertionFailures": 3,
+    "relatedPassed": 453,
+    "relatedSkipped": 0,
+    "sourceStableDuringFinalRun": true,
+    "sourceSha256": {
+      "lib/state/call_service.dart": "0817a21bdc7d5f62303e715e6633b9dbe5d3c336b4343ba2f3e1184a935b2d39",
+      "test/call_service_test.dart": "879b67863da14f4980fced7974ee3d19dbf02483c16b35551c0c7fd4b923d232"
+    },
+    "focusedAnalysisPassed": true,
+    "intermediateAssertionFailures": 2
+  },
+  "qualification": {
+    "configuredSeedsPerApp": 1,
+    "actualCoreSessionsAtBaselineEach": 3,
+    "manualBans": false,
+    "candidateChangedEndpoint": "android-only",
+    "candidateNonAotNativeLibrariesUnchanged": 13,
+    "newRustBuilds": 0,
+    "macSdkCommit": "53fbbe34",
+    "androidSdk": "published-0.13.102",
+    "audioDirection": "android-to-mac-receive-only",
+    "baseline": {
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1291,
+          "firstFreshAfterObservedDefaultMs": 5669,
+          "maxNativeAudioAgeMs": 6320,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 4
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 1
+            }
+          }
+        },
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2423,
+          "firstFreshAfterObservedDefaultMs": 521,
+          "maxNativeAudioAgeMs": 645,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 4
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 4,
+              "commonPeers": 4,
+              "peersWithReplacedLink": 1
+            }
+          }
+        }
+      ]
+    },
+    "performanceImprovementProven": false,
+    "intermediateCandidate": {
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1296,
+          "firstFreshAfterObservedDefaultMs": 25354,
+          "maxNativeAudioAgeMs": 25976,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 2,
+              "commonPeers": 2,
+              "peersWithReplacedLink": 2
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        },
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2394,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 392,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 2,
+              "afterSessions": 4,
+              "commonPeers": 2,
+              "peersWithReplacedLink": 2
+            },
+            "mac": {
+              "beforeSessions": 3,
+              "afterSessions": 4,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        }
+      ]
+    },
+    "intermediatePhysicalWake": {
+      "partialRestoreEvents": 1,
+      "deferredRetryWakes": 1,
+      "partialWakeAfterPreviousDeferredMs": 3308,
+      "beforeFiveSecondRetryDeadline": true
+    },
+    "candidate": {
+      "sameCallThroughout": true,
+      "directions": [
+        {
+          "direction": "wifi-to-cellular",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 1312,
+          "firstFreshAfterObservedDefaultMs": 4600,
+          "maxNativeAudioAgeMs": 5131,
+          "samples": 47,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 4,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 3
+            },
+            "mac": {
+              "beforeSessions": 4,
+              "afterSessions": 3,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        },
+        {
+          "direction": "cellular-to-wifi",
+          "defaultObserved": true,
+          "freshAudioAfterDefaultObserved": true,
+          "firstDefaultAfterCommandMs": 2350,
+          "firstFreshAfterObservedDefaultMs": 0,
+          "maxNativeAudioAgeMs": 347,
+          "samples": 49,
+          "nativeSessionChanges": {
+            "phone": {
+              "beforeSessions": 3,
+              "afterSessions": 4,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 3
+            },
+            "mac": {
+              "beforeSessions": 3,
+              "afterSessions": 4,
+              "commonPeers": 3,
+              "peersWithReplacedLink": 0
+            }
+          }
+        }
+      ],
+      "publicationOrderIndependent": true,
+      "partialRestorationEvents": 3,
+      "deferredRetryWakesNeeded": 0,
+      "livenessTimeouts": 0,
+      "nativeTraceEnabled": false
+    },
+    "signedMacFrameworkReSignedWithSeedResources": true
+  },
+  "networkObservation": {
+    "pcapSnaplen": 96,
+    "temporaryRemoteCaptures": 4,
+    "candidateCapturedRecordsPerCore": [
+      3320,
+      5033,
+      4153
+    ],
+    "captureKernelDropsPerCore": [
+      0,
+      0,
+      0
+    ],
+    "newSourceFlowsPerCore": [
+      39,
+      46,
+      28
+    ],
+    "noPayloadFlowsPerCore": [
+      23,
+      39,
+      19
+    ],
+    "newSourceAttribution": "inferred common new source across captures",
+    "perConnectionPhoneToNicCorrelationProven": false,
+    "incompletePhoneHandshakes": 81,
+    "incompleteAppWrittenBytesRange": [
+      69,
+      194
+    ],
+    "kernelAckedBytesEqualsOne": 81,
+    "kernelReceivedBytesEqualsZero": 81,
+    "kernelNotsentBytesEqualsZero": 81,
+    "kernelRetransmittedBytesPositive": 80,
+    "kernelSentMinusRetransMatchesAppWritten": 81,
+    "coreKeepaliveTimeoutsInCandidate": 2,
+    "latestValidatedNetworkSnapshots": {
+      "baseline": {
+        "transports": [
+          "WIFI"
+        ],
+        "vpn": false
+      },
+      "candidate": {
+        "transports": [
+          "WIFI"
+        ],
+        "vpn": false
+      },
+      "afterCleanup": {
+        "transports": [
+          "CELLULAR"
+        ],
+        "vpn": false
+      }
+    },
+    "rootCauseProven": false,
+    "capturedVariant": "intermediate-candidate"
+  },
+  "cleanup": {
+    "schema": "xveil-partial-reconnect-cleanup/1",
+    "networkSettingsRestored": true,
+    "bothAppsLockedAndStopped": true,
+    "macExitedNormallyAfterSigterm": true,
+    "noBansUsed": true,
+    "traceDisabledBoth": true,
+    "qaContactP2PRestored": true,
+    "ownedPortsAndAdbForwardFree": true,
+    "originalQaApkRestoredBySha256": true,
+    "qaPackageRetainedStoppedWithSyntheticData": true,
+    "phoneQaNoServices": true,
+    "qaOnlyPermissionsRevoked": true,
+    "mainPhoneApkUnchanged": true,
+    "macQaSeedAssetRestoredAndSignatureVerified": true,
+    "privateBuildSourceRestored": true,
+    "remoteCaptureGroupsExited": 4,
+    "serverServicesUnmodified": true,
+    "ownedBuildCacheBytesRemoved": 928182272,
+    "baselineRemoteCaptureExited": true,
+    "ownedBuildCacheBytesRemovedTotal": 2263556096,
+    "independentAudit": {
+      "phoneQaStopped": true,
+      "macQaExited": true,
+      "ownedPortsFree": true,
+      "signedMacFrameworkBytesSameAfterResourceRestore": false,
+      "aotCompilationReused": true
+    }
+  },
+  "published": false
+}
