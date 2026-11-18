@@ -4162,6 +4162,110 @@ void main() {
         });
       });
 
+      void peerRelay(
+        _FakeMessaging wire,
+        CallSignalType type,
+        int? at, {
+        NodeId? sender,
+        bool? retainedConsent = true,
+      }) {
+        wire.onCallSignal!(
+          sender ?? peer,
+          CallSignal(
+            callId: 'overlay-retry',
+            type: type,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+            p2pUpgradeAllowed: retainedConsent,
+            sentAtMs: at,
+          ),
+        );
+      }
+
+      for (final type in [CallSignalType.transportInfo, CallSignalType.health]) {
+        test('fresh peer relay report wakes a deferred candidate: $type', () {
+          fakeAsync((async) {
+            final t = fixture(async);
+            t.media.proven = true;
+            peerRelay(t.wire, type, 10);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.relay);
+            expect(t.svc.current?.status, CallStatus.active);
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        });
+      }
+
+      test('a fresh peer relay hint survives unfinished qualification', () {
+        fakeAsync((async) {
+          final gate = Completer<bool>();
+          final t = fixture(async, gate: gate);
+          peerRelay(t.wire, CallSignalType.transportInfo, 10);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          t.media.proven = true;
+          gate.complete(false);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('only one dated peer relay report can bypass the retry delay', () {
+        fakeAsync((async) {
+          final t = fixture(async);
+          t.wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'overlay-retry',
+              type: CallSignalType.health,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+              sentAtMs: 10,
+            ),
+          );
+          peerRelay(t.wire, CallSignalType.transportInfo, 9);
+          peerRelay(t.wire, CallSignalType.health, 9);
+          peerRelay(t.wire, CallSignalType.transportInfo, null);
+          peerRelay(
+            t.wire,
+            CallSignalType.transportInfo,
+            11,
+            retainedConsent: null,
+          );
+          peerRelay(
+            t.wire,
+            CallSignalType.transportInfo,
+            12,
+            sender: NodeId.fromHex('b' * 64),
+          );
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          peerRelay(t.wire, CallSignalType.transportInfo, 12);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+
+          t.media.proven = true;
+          for (var at = 12; at < 16; at++) {
+            peerRelay(t.wire, CallSignalType.transportInfo, at);
+            peerRelay(t.wire, CallSignalType.health, at);
+          }
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          async.elapse(const Duration(seconds: 5));
+          expect(t.media.switches, hasLength(3));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
       test(
         'a surviving session does not hide a restored relay opportunity',
         () {

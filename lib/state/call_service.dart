@@ -289,6 +289,8 @@ abstract class CallMediaController {
   Map<String, Object?> get diagnostics => const {};
 }
 
+enum _PeerRelayWake { available, requested, used }
+
 /// The call-session state machine (control plane). One active call at a time.
 /// Subscribes to [MessagingService.onCallSignal] for inbound offers/answers/…
 /// and sends outbound signals via [MessagingService.sendCallSignal]. Media is
@@ -524,6 +526,7 @@ class CallService {
   ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
   ({String callId, DateTime until})? _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
+  var _peerRelayWake = _PeerRelayWake.available;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
   // temporary route failure changes the active transport. A direct posture
@@ -544,6 +547,7 @@ class CallService {
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
     _relayFallbackFlight = null;
+    _peerRelayWake = _PeerRelayWake.available;
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
@@ -1639,6 +1643,7 @@ class CallService {
           _lastPeerRouteHealthAtMs = at;
           _lateP2PPeerActive = sig.transport!.kind == CallTransportKind.p2p;
           final withdrawn = _foldPeerRelaySettlement(live, sig);
+          _notePeerRelay(live, sig);
           final relayConfirmed =
               sig.transport?.kind == CallTransportKind.relay &&
               sig.p2pUpgradeAllowed == true &&
@@ -1674,6 +1679,7 @@ class CallService {
             _lastTransportInfoAtMs = at;
           }
           _foldPeerRelaySettlement(routeCall!, sig);
+          _notePeerRelay(routeCall, sig);
         }
         final upgrade = _current;
         if (upgrade != null &&
@@ -1992,6 +1998,23 @@ class CallService {
     _relayCandidateRetry = null;
   }
 
+  void _notePeerRelay(Call call, CallSignal signal) {
+    if (_peerRelayWake != _PeerRelayWake.available ||
+        signal.sentAtMs == null ||
+        signal.transport?.kind != CallTransportKind.relay ||
+        signal.p2pUpgradeAllowed == null ||
+        call.status != CallStatus.active ||
+        call.transport != CallTransportKind.p2p ||
+        (_relayCandidateRetry?.callId != call.callId &&
+            _relayFallbackFlight?.callId != call.callId)) {
+      return;
+    }
+    // The peer report can advance an existing recovery once. A stream of
+    // fresh heartbeats must still respect the normal retry cadence.
+    _peerRelayWake = _PeerRelayWake.requested;
+    _wakeDeferredRelay(call.peer, call.callId);
+  }
+
   void _armRelayCandidateRetry(
     NodeId peer,
     String callId,
@@ -2038,16 +2061,19 @@ class CallService {
       );
       return;
     }
-    // A session-count edge is only a wake hint. The native candidate still
-    // needs fresh sealed peer proof; it never authorizes a route on its own.
-    // Consume only this call's pending attempt, whether woken by a session
-    // edge or its bounded retry timer.
+    // A wake hint cannot authorize a route. The native candidate still needs
+    // fresh sealed proof.
     _cancelRelayCandidateRetry();
-    devLog(
-      () => fromOverlay
-          ? 'xVeil[call-media]: overlay reconnected; retrying deferred relay'
-          : 'xVeil[call-media]: deferred relay retry deadline reached',
-    );
+    if (_peerRelayWake == _PeerRelayWake.requested) {
+      _peerRelayWake = _PeerRelayWake.used;
+      devLog(() => 'xVeil[call-media]: peer on relay; retrying deferred relay');
+    } else {
+      devLog(
+        () => fromOverlay
+            ? 'xVeil[call-media]: overlay reconnected; retrying deferred relay'
+            : 'xVeil[call-media]: deferred relay retry deadline reached',
+      );
+    }
     unawaited(_followRelayFallback(peer, callId));
   }
 
@@ -2074,9 +2100,9 @@ class CallService {
     future = _applyRelayFallback(peer, callId).whenComplete(() {
       if (identical(_relayFallbackFlight?.future, future)) {
         _relayFallbackFlight = null;
-        // A reconnect can arrive during native open/qualification. Do not
-        // overlap it, or let that older failure consume the new wake hint.
-        if (connections != _relayConnectionGeneration) {
+        // Keep hints that arrived while the old candidate was qualifying.
+        if (connections != _relayConnectionGeneration ||
+            _peerRelayWake == _PeerRelayWake.requested) {
           _wakeDeferredRelay(peer, callId);
         }
       }
@@ -3079,6 +3105,9 @@ class CallService {
     if (_disposed) return;
     if (call.status == CallStatus.active && call.mediaStartedAt == null) {
       call = call.copyWith(mediaStartedAt: _now());
+    }
+    if (_current?.transport != call.transport) {
+      _peerRelayWake = _PeerRelayWake.available;
     }
     if (_current?.callId != call.callId) {
       _resetLateP2P();
