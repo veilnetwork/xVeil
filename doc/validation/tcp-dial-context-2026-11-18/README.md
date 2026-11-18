@@ -203,3 +203,64 @@ Poco при начале этого цикла снова не найден по
 калибровки до/после одного окна, нормализация настоящих mapping/start-строк и
 серверных SYN/SYNACK с сохранением неоднозначности. Новых данных о причине
 паузы звука этот clock preflight не даёт. NETCALL-01 открыт, push/релиза нет.
+
+## Нормализация настоящих файлов захвата
+
+Добавлен [normalize_tcp_connect_capture.py](../../../scripts/normalize_tcp_connect_capture.py):
+он читает native log и classic PCAP, формирует вход для отбора кандидатов, затем
+сразу выполняет анализ. Это read-only обработка файлов, без вызовов ADB/SSH,
+включения trace или изменения приложений. Нормализованный JSON записывается
+только по явно заданному пути с правами 0600 и O_EXCL: существующий файл или
+symlink не заменяется. stdout содержит лишь агрегатные счётчики; ошибки не
+раскрывают путь, строки лога и содержимое JSON.
+
+```sh
+python3 scripts/normalize_tcp_connect_capture.py /private/capture.json \
+  --output /private/new-evidence.json
+```
+
+Manifest: schema `xveil-tcp-connect-capture/1`; `single_process_capture`,
+`capture_started_before_trace`, `native_trace_complete` должны быть true.
+`native_log` задаёт файл одного процесса. `clocks` и `slot_targets` имеют
+формат входа предыдущего анализатора; `verified_fixed_target_slots` перечисляет
+только независимо проверенные фиксированные obfs4-tcp цели без fallback.
+`cores[]` содержит `target`, `pcap`, `port`, `kernel_dropped_packets: 0` и
+`capture_complete: true`. Относительные пути считаются от manifest. Эти
+утверждения не выводятся из самого PCAP: сборщик должен сохранить подтверждения
+PID/покрытия, штатного окончания и kernel drop counters. Набор Core clocks
+должен совпадать с набором PCAP targets.
+
+PeerId из настоящего Display (`0x` + восемь hex-цифр) переводится в числовой slot;
+client start сохраняет process-local connection/context, а auxiliary с тем же
+context остаётся отдельным сокетом. Повторный start/context, изменение context
+или observation без captured start отклоняются. Старый start с None context не
+получает выдуманный target и продолжает блокировать ложную единственность.
+
+PCAP поддерживает оба порядка байтов, micro/nanosecond timestamps, Ethernet,
+Linux SLL/SLL2 и текущие IPv4 targets. Header-only snapshot сохраняет длину из
+IPv4/TCP headers: отсутствие payload в самом snapshot не означает нулевую
+отправку. Перекрытия/ретрансляции считаются один раз, включая wrap sequence;
+число PCAP records не трактуется как wire packet/MTU count. Tuple без SYN или
+SYNACK учитывается отдельно как incomplete, а не как готовый flow без payload.
+Повторное использование tuple с разными sequence origins, предшествующая SYN
+история, несовместимый SYNACK, IP fragmentation, TFO, IPv6/VLAN, повреждённый
+PCAP и слишком точный объявленный clock resolution отклоняются. Это намеренно
+ограниченный нормализатор данного стенда, не общий TCP reassembler.
+
+Проверки: **17 новых unit/CLI-тестов passed** (включая все 12 комбинаций PCAP
+endian/precision/link в одном тесте), плюс **20 candidate + 6 queue + 8 shaper
+проверок passed**. Полный путь log/PCAP → нормализованный JSON → candidate summary
+проверен на синтетическом capture; это не физический mobile handover.
+
+Дополнительно прочитаны неизменённые файлы прежней физической серии. Native
+parser принял **137 client starts, 0 context mappings**. Три PCAP содержат
+**47 / 54 / 36 complete flows**, **30 / 31 / 31 incomplete tuple groups** и
+**23 / 39 / 19 complete flows без клиентских payload bytes**. Это агрегаты всех
+соответствующих потоков захвата, не атрибуция конкретному телефону или медиа.
+Совпадение общего числа complete flows со start rows **не является связью**:
+в прежнем native log нет context mappings и необходимых калибровок, поэтому
+индивидуальная атрибуция и вывод о причине паузы по этим файлам не заявлены.
+
+Следующий обязательный этап — новый bounded мобильный захват с началом logcat
+и PCAP **до** включения trace, калибровками по обе стороны окна и проверенным
+snapshot slot → target. Готовность offline-инструментов не закрывает NETCALL-01.
