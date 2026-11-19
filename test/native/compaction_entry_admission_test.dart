@@ -67,10 +67,20 @@ void main() {
       'setting',
       'file',
       'none',
-      if (automatic) ...['cancel', 'abandoned', 'start-over', 'old-consent'],
+      if (automatic) ...[
+        'cancel',
+        'abandoned',
+        'start-over',
+        'other-instance',
+        'other-instance-after-close',
+        'old-consent',
+      ],
     ]) {
       final restoring = scenario == 'cancel' || scenario == 'abandoned';
       final startOver = scenario == 'start-over';
+      final otherInstanceAfterClose = scenario == 'other-instance-after-close';
+      final otherInstance =
+          scenario == 'other-instance' || otherInstanceAfterClose;
       final corruption = switch (scenario) {
         'setting' || 'file' => scenario,
         _ => 'none',
@@ -86,6 +96,10 @@ void main() {
           'cancel' || 'abandoned' =>
             '$scenario collection preserves an independent hidden space',
           'start-over' => 'onboarding revokes old automatic compaction consent',
+          'other-instance' =>
+            'an older preference snapshot cannot compact away a later space',
+          'other-instance-after-close' =>
+            'new space after source close cancels the prepared publication',
           'old-consent' =>
             'unbound automatic compaction consent cannot delete a space',
           _ => 'native solo admission: automatic=$automatic roster=$corruption',
@@ -97,8 +111,25 @@ void main() {
           );
           addTearDown(() => directory.delete(recursive: true));
           final path = '${directory.path}/fixture.hv';
-          final preferencesPath = '${directory.path}/fixture-prefs.json';
-          if (startOver) {
+          final preferencesPath = profilePrefsPath(directory.path, 'default');
+          if (otherInstance) {
+            final first = await ProfilePreferencesStore.load(
+              preferencesPath,
+              ownedFile: await ManagedProfilePreferencesFile.open(
+                preferencesPath,
+              ),
+            );
+            addTearDown(first.releaseFile);
+            expect(
+              await first.setValue(
+                'String',
+                'flutter.storage.autoCompactSetup.v1',
+                'fixture-setup',
+              ),
+              isTrue,
+            );
+            SharedPreferencesStorePlatform.instance = first;
+          } else if (startOver) {
             SharedPreferencesStorePlatform.instance =
                 await ProfilePreferencesStore.load(preferencesPath);
           }
@@ -117,7 +148,7 @@ void main() {
           final seed = facade();
           try {
             Uint8List? childKeys;
-            if (hasChild && !startOver) {
+            if (hasChild && !startOver && !otherInstance) {
               expect(
                 await seed.open(
                   password: 'child-fixture',
@@ -148,6 +179,42 @@ void main() {
           } finally {
             await seed.close();
           }
+          Future<void> addOtherSpace() async {
+            final second = await ProfilePreferencesStore.load(
+              preferencesPath,
+              ownedFile: await ManagedProfilePreferencesFile.open(
+                preferencesPath,
+              ),
+            );
+            try {
+              expect(
+                await second.setValue(
+                  'String',
+                  'flutter.storage.autoCompactSetup.v1',
+                  'new-setup',
+                ),
+                isTrue,
+              );
+            } finally {
+              await second.releaseFile();
+            }
+            try {
+              expect(
+                await seed.open(
+                  password: 'child-fixture',
+                  createIfMissing: true,
+                ),
+                isTrue,
+              );
+              await seed.saveProfile(
+                const UserProfile(displayName: 'Child fixture'),
+              );
+              await seed.storeFile('fixture-body', body);
+            } finally {
+              await seed.close();
+            }
+          }
+
           if (corruption != 'none') {
             final raw = HvKvLogStore(
               hv.HvSpace.open(path: path, password: _bytes('root-fixture')),
@@ -189,12 +256,15 @@ void main() {
               containerCompactorProvider.overrideWithValue((
                 path,
                 passwords, {
+                required beforePublication,
                 dylibPath,
               }) async {
                 nativeCalls++;
-                await hv.compactKnownAsync(
+                if (otherInstanceAfterClose) await addOtherSpace();
+                await hv.compactKnownPreparedAsync(
                   path,
                   passwords,
+                  repairMetadata: (_) => beforePublication(),
                   dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
                 );
               }),
@@ -216,7 +286,15 @@ void main() {
           );
           providers.read(appControllerProvider);
           try {
-            if (restoring || startOver) {
+            if (otherInstance) {
+              final prefs = await providers.read(prefsProvider.future);
+              if (!otherInstanceAfterClose) await addOtherSpace();
+              expect(
+                prefs.getString('storage.autoCompactSetup.v1'),
+                'fixture-setup',
+              );
+              await controller.unlock('root-fixture');
+            } else if (restoring || startOver) {
               controller.debugDeniableStackStarter = (_) async =>
                   throw StateError('network disabled for fixture');
               await controller.unlock('root-fixture');
@@ -305,7 +383,12 @@ void main() {
           } finally {
             await reader.close();
           }
-          expect(nativeCalls, corruption == 'none' && !hasChild ? 1 : 0);
+          expect(
+            nativeCalls,
+            otherInstanceAfterClose || (corruption == 'none' && !hasChild)
+                ? 1
+                : 0,
+          );
         },
         skip: Platform.environment['XVEIL_NATIVE_COMPACTION_ENTRY'] != '1',
       );

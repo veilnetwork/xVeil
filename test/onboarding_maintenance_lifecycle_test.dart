@@ -189,6 +189,7 @@ _fixture(_Stage stage, {bool deniable = false}) async {
       containerCompactorProvider.overrideWithValue((
         path,
         passwords, {
+        required beforePublication,
         dylibPath,
       }) async {
         controller.rewrites++;

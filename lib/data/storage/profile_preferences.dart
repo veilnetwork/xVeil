@@ -110,6 +110,19 @@ class ProfilePreferencesLifetime {
     return _BoundPreferences(this, raw);
   }
 
+  Future<String?> readPersistedString(String key) => _track(() async {
+    final backend = _backend;
+    final String? value;
+    if (backend is ProfilePreferencesStore) {
+      value = await backend.readPersistedString(key);
+    } else {
+      final entry = (await backend.getAll())['flutter.$key'];
+      value = entry is String ? entry : null;
+    }
+    _requireActive();
+    return value;
+  });
+
   Future<T> _track<T>(Future<T> Function() operation) {
     final Future<T> result;
     try {

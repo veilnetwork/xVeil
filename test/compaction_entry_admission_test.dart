@@ -137,9 +137,11 @@ class _Fixture {
         containerCompactorProvider.overrideWithValue((
           path,
           passwords, {
+          required beforePublication,
           dylibPath,
         }) async {
           rewrites++;
+          await beforePublication();
         }),
         preparedContainerCompactorProvider.overrideWithValue((
           path,

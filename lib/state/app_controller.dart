@@ -3431,17 +3431,26 @@ class AppController extends Notifier<AppState> {
   /// from versions that did not bind consent to the current setup.
   Future<bool> autoCompactEnabled() async {
     try {
-      final storage = ref.read(storageProvider);
-      final consent = await storage.getSetting(_autoCompactKey);
-      if (consent == null || !consent.startsWith('v2:') || !ref.mounted) {
-        return false;
-      }
-      final prefs = await ref.read(prefsProvider.future);
-      final revision = prefs.getString(_autoCompactSetupRevision);
-      return revision != null && consent == 'v2:$revision';
+      final revision = await _automaticCompactionRevision(
+        ref.read(storageProvider),
+        ProfilePreferencesLifetime.current(),
+      );
+      return revision != null;
     } catch (_) {
       return false;
     }
+  }
+
+  Future<String?> _automaticCompactionRevision(
+    Storage storage,
+    ProfilePreferencesLifetime preferences,
+  ) async {
+    final consent = await storage.getSetting(_autoCompactKey);
+    if (consent == null || !consent.startsWith('v2:')) return null;
+    final revision = await preferences.readPersistedString(
+      _autoCompactSetupRevision,
+    );
+    return revision != null && consent == 'v2:$revision' ? revision : null;
   }
 
   Future<void> setAutoCompactEnabled(bool enabled) async {
@@ -3781,7 +3790,9 @@ class AppController extends Notifier<AppState> {
     final path = ref.read(deniableBootProvider)?.storePath;
     if (path == null) return;
     try {
-      if (!await autoCompactEnabled() || !current()) return;
+      final preferences = ProfilePreferencesLifetime.current();
+      final revision = await _automaticCompactionRevision(storage, preferences);
+      if (revision == null || !current()) return;
       final size = await File(path).length();
       if (!current() || size < _autoCompactMinBytes) return;
       final lastRaw = await storage.getSetting(_lastCompactSizeKey);
@@ -3806,9 +3817,28 @@ class AppController extends Notifier<AppState> {
           );
           await storage.close(); // release LOCK_EX before compact_known.
           if (!current()) return;
-          await ref.read(containerCompactorProvider)(path, [
-            Uint8List.fromList(utf8.encode(password)),
-          ], dylibPath: _hvDylibPath());
+          final secret = Uint8List.fromList(utf8.encode(password));
+          try {
+            await ref.read(containerCompactorProvider)(
+              path,
+              [secret],
+              dylibPath: _hvDylibPath(),
+              beforePublication: () async {
+                // The native preparation holds the source lock here. A setup
+                // in another process could have added a space after close.
+                final stillAccepted =
+                    await preferences.readPersistedString(
+                      _autoCompactSetupRevision,
+                    ) ==
+                    revision;
+                if (!current() || !stillAccepted) {
+                  throw StateError('automatic compaction consent expired');
+                }
+              },
+            );
+          } finally {
+            wipeSecretBytes(secret);
+          }
           if (!current()) return;
           final reopened = await storage.open(password: password);
           if (!current()) {
