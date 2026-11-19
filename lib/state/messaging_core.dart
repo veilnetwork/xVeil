@@ -1045,6 +1045,8 @@ class MessagingService {
   /// a full resolve + circuit-build of its own — used for chat messages so the
   /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
   /// not a reused circuit).
+  /// [cancelOnDispose] lets inline device notices stop before transport
+  /// admission if their session closes during ratchet preparation.
   Future<void> _send(
     NodeId dst,
     Uint8List payload, {
@@ -1052,7 +1054,11 @@ class MessagingService {
     bool deferRatchetWrite = false,
     bool requireIdentityAddress = false,
     bool background = false,
+    bool cancelOnDispose = false,
   }) async {
+    if (cancelOnDispose && _disposed) {
+      throw StateError('messaging is disposing');
+    }
     if (_anonymous && payload.length > kLargeFrameMaxBytes) {
       throw ArgumentError(
         'anonymous application frame exceeds the framing bound',
@@ -1078,6 +1084,7 @@ class MessagingService {
         deferRatchetWrite: deferRatchetWrite,
         requireIdentityAddress: requireIdentityAddress,
         background: background,
+        cancelOnDispose: cancelOnDispose,
       );
     }
     final clock = Stopwatch()..start();
@@ -1090,6 +1097,7 @@ class MessagingService {
         deferRatchetWrite: deferRatchetWrite,
         requireIdentityAddress: requireIdentityAddress,
         background: background,
+        cancelOnDispose: cancelOnDispose,
       );
       success = true;
     } catch (error, stack) {
@@ -1123,6 +1131,7 @@ class MessagingService {
     bool deferRatchetWrite = false,
     bool requireIdentityAddress = false,
     bool background = false,
+    bool cancelOnDispose = false,
   }) async {
     devLog(
       () =>
@@ -1197,6 +1206,9 @@ class MessagingService {
     // any other, and the durable outbox re-drives the frame when the container
     // comes back, so the message is queued rather than lost.
     await _requireDurableRatchet();
+    if (cancelOnDispose && _disposed) {
+      throw StateError('messaging is disposing');
+    }
     // Where the chain is ALLOWED to get to, on disk before anything sealed
     // from it is observable (report12 X-H5). The state itself still follows
     // the send — it is far too big to write first — but a reservation is 36
@@ -1206,6 +1218,9 @@ class MessagingService {
     // already spent, because the recovery on start steps over every index the
     // reservation covers.
     await _reserveRatchetSendWindow(dst);
+    if (cancelOnDispose && _disposed) {
+      throw StateError('messaging is disposing');
+    }
     final sw = Stopwatch()..start();
     final sourceTransport = _transport;
     if (background && !wantReply && sourceTransport is LocalSourceTransport) {
@@ -1863,6 +1878,7 @@ class MessagingService {
   /// Every 30 minutes, compare erasures with every one of my other devices (see
   /// [WireKind.deviceGone]); also done whenever one says it is online.
   Future<void> _askSiblingsForErasures() async {
+    if (_disposed) return;
     final now = _now();
     final last = _erasuresComparedAt;
     if (last != null && now.difference(last) < const Duration(minutes: 30)) {
@@ -1870,6 +1886,7 @@ class MessagingService {
     }
     _erasuresComparedAt = now;
     for (final device in await myOtherDevices?.call() ?? const <NodeId>[]) {
+      if (_disposed) return;
       await _deviceMirror.askSiblingForErasures(device);
     }
   }
@@ -1880,6 +1897,7 @@ class MessagingService {
   /// connects before the device group has said who they are, and a call that
   /// found nobody to tell must not use up the window.
   Future<void> announcePresence() {
+    if (_disposed) return Future<void>.value();
     final pending = _presenceInFlight;
     if (pending != null) {
       // The device list may have grown while that send was waiting on a slow
@@ -1898,7 +1916,7 @@ class MessagingService {
   Future<void> _announcePresence() async {
     try {
       final devices = await myOtherDevices?.call() ?? const <NodeId>[];
-      if (devices.isEmpty) return;
+      if (_disposed || devices.isEmpty) return;
       final now = _now();
       _presenceAnnouncedTo.removeWhere(
         (_, at) => now.difference(at) >= const Duration(seconds: 30),
@@ -1909,12 +1927,17 @@ class MessagingService {
       ];
       if (due.isEmpty) return;
       final frame = WireEnvelope.presence(await _selfHex()).encode();
+      if (_disposed) return;
       // A dead sibling must not delay the announcement to one that is here.
       final sent = await Future.wait([
         for (final device in due)
           () async {
             try {
-              await _send(device, frame).timeout(liveLegDeadline);
+              await _send(
+                device,
+                frame,
+                cancelOnDispose: true,
+              ).timeout(liveLegDeadline);
               return true;
             } catch (_) {
               // Best-effort: the probe ladder still reaches it.
@@ -1922,6 +1945,7 @@ class MessagingService {
             }
           }(),
       ]);
+      if (_disposed) return;
       final completedAt = _now();
       var told = 0;
       for (var i = 0; i < due.length; i++) {
