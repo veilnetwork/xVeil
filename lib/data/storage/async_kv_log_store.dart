@@ -1002,35 +1002,19 @@ class WorkerKvLogStore
     ),
   );
 
-  /// One supervised spawn for both open flavours. Deliberately shared: the
-  /// death-watch wiring below is exactly the bug XV-07 was, and a second
-  /// hand-rolled copy of it for the keys path is how that bug would come back.
+  /// One supervised spawn for both open flavours.
   static Future<WorkerKvLogStore?> _spawn(
     _OpenConfig Function(SendPort reply) build,
   ) async {
-    final boot = ReceivePort();
-    // Watch the isolate BEFORE it can die (audit XV-07). Wired at spawn time
-    // rather than after, because a worker that fails while opening the
-    // container fails FAST — most often on the very first FFI call — and a
-    // watcher attached afterwards would miss exactly that case.
-    final death = WorkerDeath();
-    final isolate = await Isolate.spawn<(Isolate, _OpenConfig)>(
+    final (
+      isolate: isolate,
+      watch: death,
+      reply: first,
+    ) = await WorkerDeath.spawn<(Isolate, _OpenConfig)>(
       _workerEntry,
-      (Isolate.current, build(boot.sendPort)),
-      errorsAreFatal: true,
-      onExit: death.exitPort.sendPort,
-      onError: death.errorPort.sendPort,
+      (reply) => (Isolate.current, build(reply)),
+      worker: 'storage worker',
     );
-    Object? first;
-    try {
-      first = await death.race(boot.first);
-    } catch (e) {
-      boot.close();
-      death.dispose();
-      isolate.kill(priority: Isolate.immediate);
-      throw hv.HvException('Internal', 'storage worker died during open: $e');
-    }
-    boot.close();
     void abandon() {
       death.dispose();
       isolate.kill(priority: Isolate.immediate);

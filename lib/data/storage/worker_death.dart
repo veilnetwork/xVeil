@@ -93,6 +93,12 @@ class StorageWorkerInbox {
   }
 }
 
+/// The VM rejected the spawn, so no storage owner ran.
+final class StorageWorkerSpawnFailure extends hv.HvException {
+  StorageWorkerSpawnFailure(String worker)
+    : super('Internal', 'could not start $worker');
+}
+
 /// Watches a worker isolate and turns its death into a failed future.
 ///
 /// `onExit` fires for any termination; `onError` fires first when the isolate
@@ -100,6 +106,42 @@ class StorageWorkerInbox {
 /// silent exit — an OOM kill, an FFI abort — is reported too, not only the
 /// errors Dart could describe.
 class WorkerDeath {
+  /// Supervise startup from before the worker can run. A refused spawn and a
+  /// running worker that exits before its first reply have different ownership
+  /// consequences for the caller.
+  static Future<({Isolate isolate, WorkerDeath watch, Object? reply})> spawn<T>(
+    void Function(T message) entry,
+    T Function(SendPort reply) build, {
+    required String worker,
+  }) async {
+    final boot = ReceivePort();
+    final watch = WorkerDeath();
+    Isolate? isolate;
+    try {
+      isolate = await Isolate.spawn<T>(
+        entry,
+        build(boot.sendPort),
+        errorsAreFatal: true,
+        onExit: watch.exitPort.sendPort,
+        onError: watch.errorPort.sendPort,
+      );
+      final reply = await watch.race(boot.first);
+      return (isolate: isolate, watch: watch, reply: reply);
+    } catch (error, stack) {
+      watch.dispose();
+      if (isolate == null) {
+        Error.throwWithStackTrace(StorageWorkerSpawnFailure(worker), stack);
+      }
+      isolate.kill(priority: Isolate.immediate);
+      Error.throwWithStackTrace(
+        hv.HvException('Internal', '$worker died during open: $error'),
+        stack,
+      );
+    } finally {
+      boot.close();
+    }
+  }
+
   WorkerDeath() {
     errorPort.listen((message) {
       final detail = message is List && message.isNotEmpty

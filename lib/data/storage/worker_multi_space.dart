@@ -93,9 +93,13 @@ class WorkerMultiSpaceBacking
   /// window enough (see the rollback below).
   Future<SendPort> _spawn() async {
     final hook = debugBringUpWorker;
-    final live = await (hook == null
-        ? _bringUp()
-        : hook(_path, paddingPreset.tag));
+    final LiveMultiSpaceWorker live;
+    try {
+      live = await (hook == null ? _bringUp() : hook(_path, paddingPreset.tag));
+    } on StorageWorkerSpawnFailure {
+      _bootstrapFailedCleanly = true;
+      rethrow;
+    }
     _isolate = live.isolate;
     _watch = live.watch;
     _toWorker = live.port;
@@ -108,41 +112,22 @@ class WorkerMultiSpaceBacking
   }
 
   Future<LiveMultiSpaceWorker> _bringUp() async {
-    final boot = ReceivePort();
-    // Watch the isolate BEFORE it can die (audit XV-07). This is the
-    // all-online path: N identities share one worker, so a worker that dies
-    // takes every one of their stores with it. Wired at spawn time rather than
-    // after, because a worker that fails while opening the container fails
-    // FAST — most often on the very first FFI call — and a watcher attached
-    // afterwards would miss exactly that case.
-    final death = WorkerDeath();
-    final isolate = await Isolate.spawn<(Isolate, _MOpenConfig)>(
+    final (
+      isolate: isolate,
+      watch: death,
+      reply: first,
+    ) = await WorkerDeath.spawn<(Isolate, _MOpenConfig)>(
       _multiWorkerEntry,
-      (
+      (reply) => (
         Isolate.current,
         _MOpenConfig(
           path: _path,
           paddingPresetTag: paddingPreset.tag,
-          reply: boot.sendPort,
+          reply: reply,
         ),
       ),
-      errorsAreFatal: true,
-      onExit: death.exitPort.sendPort,
-      onError: death.errorPort.sendPort,
+      worker: 'multi-space worker',
     );
-    Object? first;
-    try {
-      first = await death.race(boot.first);
-    } catch (e) {
-      boot.close();
-      death.dispose();
-      isolate.kill(priority: Isolate.immediate);
-      throw hv.HvException(
-        'Internal',
-        'multi-space worker died during open: $e',
-      );
-    }
-    boot.close();
     void abandon() {
       death.dispose();
       isolate.kill(priority: Isolate.immediate);
