@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/hv_native.dart';
 
 Future<({bool released, String? failure, bool reopenedOnWorker})> _probe(
   bool useKeys,
+  String expectedError,
 ) async {
   if (!ensureHiddenVolumeLoaded()) {
     throw StateError('native storage library unavailable');
@@ -23,6 +24,12 @@ Future<({bool released, String? failure, bool reopenedOnWorker})> _probe(
     argon: hv.ArgonPreset.min,
   );
   final keys = old.spaceKeys();
+  final absent = expectedError == 'Io';
+  final displaced = File('$path.displaced');
+  if (absent) {
+    old.close();
+    File(path).renameSync(displaced.path);
+  }
   final openWithPassword = workerSpaceOpener(path);
   final openWithKeys = workerKeysSpaceOpener(path);
   Future<AsyncKvLogStore?> open() => useKeys
@@ -45,12 +52,16 @@ Future<({bool released, String? failure, bool reopenedOnWorker})> _probe(
                 T1 first,
                 T2 second,
               ) {
-                // Release the original lock after receiving native Busy
-                // and before the opener decides whether to try inline.
+                // Restore the file after the first native error reaches the
+                // opener and before it can try again in the calling isolate.
                 if (!released &&
                     first is hv.HvException &&
-                    first.kind == 'Busy') {
-                  old.close();
+                    first.kind == expectedError) {
+                  if (absent) {
+                    displaced.renameSync(path);
+                  } else {
+                    old.close();
+                  }
                   released = true;
                 }
                 return parent.runBinary(zone, callback, first, second);
@@ -72,28 +83,30 @@ Future<({bool released, String? failure, bool reopenedOnWorker})> _probe(
       await reopened?.close();
     }
   } finally {
-    if (!released) old.close();
+    if (!absent && !released) old.close();
     fixture.deleteSync(recursive: true);
   }
 }
 
 void main() {
   for (final useKeys in [false, true]) {
-    test(
-      'transient storage contention keeps the ${useKeys ? 'keys' : 'password'} opener off the UI isolate',
-      () async {
-        final result = await Isolate.run(() => _probe(useKeys));
-        expect(
-          result.released,
-          isTrue,
-          reason: 'native Busy reached the opener',
-        );
-        expect(result, (
-          released: true,
-          failure: 'Busy',
-          reopenedOnWorker: true,
-        ));
-      },
-    );
+    for (final failure in ['Busy', 'Io']) {
+      test(
+        'native $failure keeps the ${useKeys ? 'keys' : 'password'} opener off the UI isolate',
+        () async {
+          final result = await Isolate.run(() => _probe(useKeys, failure));
+          expect(
+            result.released,
+            isTrue,
+            reason: 'native $failure reached the opener',
+          );
+          expect(result, (
+            released: true,
+            failure: failure,
+            reopenedOnWorker: true,
+          ));
+        },
+      );
+    }
   }
 }

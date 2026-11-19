@@ -538,6 +538,13 @@ class _Err extends _Reply {
   final String message;
 }
 
+/// Dart could not resolve the native bindings in the worker. The caller can
+/// try its own already-loaded library for this open.
+final class _WorkerBindingUnavailable extends hv.HvException {
+  _WorkerBindingUnavailable(ArgumentError error)
+    : super('Internal', error.toString());
+}
+
 Future<void> _workerEntry((Isolate, _OpenConfig) launch) async {
   final (owner, config) = launch;
   final inbox = StorageWorkerInbox(owner);
@@ -628,8 +635,12 @@ Future<void> _openAndServeWorker(
     } else {
       store = opened as KvLogStore;
     }
-  } on hv.HvException catch (e) {
-    cfg.reply.send(_workerErrorReply(e, managed: cfg is _OpenManagedIdentity));
+  } on ArgumentError catch (e) {
+    cfg.reply.send(
+      cfg is _OpenManagedIdentity
+          ? _workerErrorReply(e, managed: true)
+          : _WorkerBindingUnavailable(e),
+    );
     return;
   } catch (e) {
     cfg.reply.send(_workerErrorReply(e, managed: cfg is _OpenManagedIdentity));
@@ -1029,6 +1040,9 @@ class WorkerKvLogStore
       case _Null():
         death.dispose();
         return null;
+      case _WorkerBindingUnavailable():
+        death.dispose();
+        throw first;
       case _Err(:final kind, :final message):
         // The worker returns from bootstrap on terminal replies. Let it
         // unregister its owner-exit listener before its isolate stops.
@@ -1316,60 +1330,30 @@ typedef AsyncSpaceOpener =
       required bool create,
     });
 
-/// Once the worker isolate is proven unable to open a space (e.g. a spawned
-/// isolate that can't load the native lib — observed on Android), stop spawning
-/// it for the rest of the process and open INLINE instead. Process-global so a
-/// single failure flips every space to the safe path.
-bool _workerOpenUsable = true;
-
 /// Builds an [AsyncSpaceOpener] over the hidden-volume container at [path] whose
-/// open + every operation run on a worker isolate (UI thread never blocks).
+/// open and operations ordinarily run on a worker isolate.
 ///
-/// When the worker fails to open on a device with a broken worker-side native
-/// loader, the calling isolate can still open using its startup preload.
-/// File lock contention goes back to the caller so a later attempt still
-/// uses a worker. A wrong password or absent space returns `null`.
+/// If Dart cannot resolve the native bindings in a worker, the caller can
+/// use its own library for that attempt. Outcomes returned by hidden-volume
+/// are authoritative for the attempt, and a wrong password returns `null`.
 AsyncSpaceOpener workerSpaceOpener(
   String path, {
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
 }) {
   return ({required Uint8List password, required bool create}) async {
-    if (_workerOpenUsable) {
-      try {
-        return await WorkerKvLogStore.open(
-          path: path,
-          password: password,
-          create: create,
-          paddingPreset: paddingPreset,
-        );
-      } on hv.HvException catch (e) {
-        // A previous owner can release this lock just after the worker
-        // answers. Then an inline open would succeed and misclassify the
-        // available worker as broken, moving the KDF and I/O to the UI.
-        if (e.kind == 'Busy' || e.kind == 'WouldBlock') rethrow;
-        devLog(
-          () =>
-              'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
-              'trying INLINE open',
-        );
-        final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(
-          password: password,
-          create: create,
-        );
-        _workerOpenUsable = false;
-        devLog(
-          () =>
-              'xVeil[storage]: INLINE open worked where the worker failed — '
-              'off-isolate storage disabled for the rest of this run',
-        );
-        return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
-      }
+    try {
+      return await WorkerKvLogStore.open(
+        path: path,
+        password: password,
+        create: create,
+        paddingPreset: paddingPreset,
+      );
+    } on _WorkerBindingUnavailable catch (e) {
+      devLog(() => 'xVeil[storage]: worker binding unavailable: ${e.message}');
+      return syncWrappedSpaceOpener(
+        hvSpaceOpener(path, paddingPreset: paddingPreset),
+      )(password: password, create: create);
     }
-    final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(
-      password: password,
-      create: create,
-    );
-    return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
   };
 }
 
@@ -1414,42 +1398,23 @@ AsyncKeysSpaceOpener syncWrappedKeysOpener(KeysSpaceOpener inner) {
 /// master and child strictly one at a time), so the container's exclusive flock
 /// is never wanted by two isolates at once (audit XV-14).
 ///
-/// Uses the same conditional inline fallback as [workerSpaceOpener].
-/// Contention propagates to the caller and keeps worker opens available.
+/// Uses the same per-attempt fallback as [workerSpaceOpener].
 AsyncKeysSpaceOpener workerKeysSpaceOpener(
   String path, {
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
 }) {
-  AsyncKvLogStore? inlineOpen(Uint8List keys) {
-    final inline = hvKeysSpaceOpener(path, paddingPreset: paddingPreset)(keys);
-    return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
-  }
-
   return (Uint8List keys) async {
-    if (_workerOpenUsable) {
-      try {
-        return await WorkerKvLogStore.openWithKeys(
-          path: path,
-          keys: keys,
-          paddingPreset: paddingPreset,
-        );
-      } on hv.HvException catch (e) {
-        if (e.kind == 'Busy' || e.kind == 'WouldBlock') rethrow;
-        devLog(
-          () =>
-              'xVeil[storage]: worker keys-open FAILED (${e.kind}: ${e.message})'
-              ' — trying INLINE open',
-        );
-        final inline = inlineOpen(keys);
-        _workerOpenUsable = false;
-        devLog(
-          () =>
-              'xVeil[storage]: INLINE keys-open worked where the worker failed '
-              '— off-isolate storage disabled for the rest of this run',
-        );
-        return inline;
-      }
+    try {
+      return await WorkerKvLogStore.openWithKeys(
+        path: path,
+        keys: keys,
+        paddingPreset: paddingPreset,
+      );
+    } on _WorkerBindingUnavailable catch (e) {
+      devLog(() => 'xVeil[storage]: worker binding unavailable: ${e.message}');
+      return syncWrappedKeysOpener(
+        hvKeysSpaceOpener(path, paddingPreset: paddingPreset),
+      )(keys);
     }
-    return inlineOpen(keys);
   };
 }
