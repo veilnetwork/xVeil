@@ -52,6 +52,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'opaque_record_link': 'delivery.opaque_record PRIVATE_CANARY', "
                 "'queue_admission_trace': 'delivery.opaque_trace stage=queue_admission outcome=missing PRIVATE_CANARY', "
                 "'queue_outcome': 'PRIVATE_CANARY', "
+                "'registration': 60131466, "
+                "'queue_dequeue_trace': 'delivery.opaque_trace stage=queue_dequeued registration=60131466', "
+                "'queue_state_trace': 'delivery.opaque_trace stage=queue_state state=receiver_dropped registration=60131466', "
                 "'connection': 314159265, 'local_port': 45678, 'peer_port': 45679, "
                 "'written_bytes': 314159265, 'read_bytes': 314159265, "
                 "'tcp_kernel_progress': 'PRIVATE_CANARY', 'sent_bytes': 424242421, "
@@ -105,6 +108,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                                       'opaque_record_link',
                                       'queue_admission_trace', 'stage=queue_admission',
                                       'outcome=missing', 'queue_outcome',
+                                      '60131466', 'queue_dequeue_trace', 'queue_state_trace',
+                                      'stage=queue_dequeued', 'stage=queue_state',
                                       'local_port', 'peer_port', 'written_bytes',
                                       'read_bytes', '45678', '45679',
                                       'tcp_kernel_progress', 'sent_bytes', 'acked_bytes',

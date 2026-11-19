@@ -508,6 +508,11 @@ void main() {
         'queue_admission_trace':
             'delivery.opaque_trace stage=queue_admission outcome=missing private-queue-log',
         'queue_outcome': _PrivateValue(),
+        'registration': 60131466,
+        'queue_dequeue_trace':
+            'delivery.opaque_trace stage=queue_dequeued registration=60131466',
+        'queue_state_trace':
+            'delivery.opaque_trace stage=queue_state state=receiver_dropped registration=60131466',
         'qtag': 'private-dht-query-fingerprint',
         'walk_tag': 'private-dht-walk-fingerprint',
         'op': 314159265,
@@ -570,6 +575,11 @@ void main() {
         'stage=queue_admission',
         'outcome=missing',
         'queue_outcome',
+        '60131466',
+        'queue_dequeue_trace',
+        'queue_state_trace',
+        'stage=queue_dequeued',
+        'stage=queue_state',
         'qtag',
         'walk_tag',
         '314159265',

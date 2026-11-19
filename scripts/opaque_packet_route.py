@@ -17,6 +17,9 @@ def attribute_route(digest, rows, *, source, receiver, sealed_us, received_us,
     tables = dict(transport_selected=selected, dispatch_enter=entered,
                   dispatch_return=returned)
     for row in rows:
+        if row.get('stage') in ('queue_admission', 'queue_dequeued', 'queue_state'):
+            # Local queue observations do not establish forwarding hops.
+            continue
         if row['opaque_sha256'] != digest:
             continue
         if int(row['opaque_bytes']) != sealed_bytes:
