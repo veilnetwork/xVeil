@@ -2124,6 +2124,9 @@ class CallService {
   Future<bool> _waitForRelayRebuildAdmission() async {
     final wait = Completer<bool>();
     _relayRebuildAdmission = wait;
+    // Retire a timeout probe that started before this recovery. Its snapshot
+    // can return after admission has already handed control to the rebuild.
+    _livenessProbeToken = null;
     try {
       return await wait.future.timeout(
         kCallRelayCandidateRetry,
@@ -3394,7 +3397,11 @@ class CallService {
       final timeout = _peerConfirmedAfterConnect
           ? kCallLivenessTimeout
           : kCallStartupLivenessTimeout;
-      if (alive != null && _now().difference(alive) > timeout) {
+      // A relay rebuild already waiting for admission can still recover at
+      // its own bounded deadline. Keep sending health during that wait.
+      if (_relayRebuildAdmission == null &&
+          alive != null &&
+          _now().difference(alive) > timeout) {
         if (_livenessProbeToken == null) {
           final token = Object();
           _livenessProbeToken = token;
