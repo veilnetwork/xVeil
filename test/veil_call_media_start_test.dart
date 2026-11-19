@@ -230,6 +230,8 @@ class _HandoverTransport extends _RepairingTransport {
   int peerAdmissionChecks = 0;
   final probeRequests = <int>[];
   bool failRelayOpen = false;
+  Completer<int>? directOpenGate;
+  final directOpening = Completer<void>();
   Completer<int>? relayOpenGate;
   final relayOpening = Completer<void>();
   bool? proofAvailable;
@@ -262,6 +264,10 @@ class _HandoverTransport extends _RepairingTransport {
     if (relay && failRelayOpen) throw StateError('relay open unavailable');
     final channel = opened.length + 42;
     opened.add(channel);
+    if (direct && directOpenGate != null) {
+      directOpening.complete();
+      return directOpenGate!.future;
+    }
     if (relay && relayOpenGate != null) {
       relayOpening.complete();
       return relayOpenGate!.future;
@@ -2313,6 +2319,84 @@ void main() {
     }
   });
 
+  const inactiveDirectSession = 'direct media session is not active';
+
+  for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
+    test('network change retires a ${route.name} repair open', () async {
+      final transport = _HandoverTransport();
+      final engineChannels = <int>[];
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory: ({required veilChan, required localId, required peerId}) {
+          engineChannels.add(veilChan);
+          return _HandoverEngine();
+        },
+      );
+      final gate = Completer<int>();
+      try {
+        expect(
+          await controller.start(_call(direct: true).copyWith(transport: route)),
+          isTrue,
+        );
+        if (route == CallTransportKind.p2p) {
+          transport.directOpenGate = gate;
+        } else {
+          transport.relayOpenGate = gate;
+        }
+        final repairing = controller.repairRoute();
+        await Future.any([
+          route == CallTransportKind.p2p
+              ? transport.directOpening.future
+              : transport.relayOpening.future,
+          repairing.then((_) => fail('The repair must reach the channel open')),
+        ]);
+        transport.dispatchNetworkChange();
+        gate.complete(43);
+        expect(await repairing, isFalse);
+        expect(transport.closed, [42, 43]);
+        expect(engineChannels, [42]);
+        expect(controller.activeTransport, isNull);
+
+        transport.relayOpenGate = null;
+        expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+        expect(engineChannels, [42, 44]);
+        expect(controller.activeTransport, CallTransportKind.relay);
+      } finally {
+        await controller.stop();
+        await transport.networkDispatches.close();
+      }
+    });
+  }
+
+  test('stale direct repair does not open a fallback relay', () async {
+    final transport = _HandoverTransport();
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory: ({required veilChan, required localId, required peerId}) =>
+          _HandoverEngine(),
+    );
+    try {
+      expect(await controller.start(_call(direct: true)), isTrue);
+      final gate = transport.directOpenGate = Completer<int>();
+      final repairing = controller.repairRoute();
+      await Future.any([
+        transport.directOpening.future,
+        repairing.then((_) => fail('The repair must reach the channel open')),
+      ]);
+      transport.dispatchNetworkChange();
+      gate.completeError(
+        VeilException('direct media open failed: $inactiveDirectSession'),
+      );
+      expect(await repairing, isFalse);
+      expect(transport.opened, [42, 43]);
+      expect(transport.closed, [42]);
+      expect(controller.activeTransport, isNull);
+    } finally {
+      await controller.stop();
+      await transport.networkDispatches.close();
+    }
+  });
+
   test('network change retires a retained relay candidate before retry', () async {
     final transport = _HandoverTransport()..proofAvailable = false;
     final engine = _HandoverEngine();
@@ -2393,8 +2477,6 @@ void main() {
       await controller.stop();
     }
   });
-
-  const inactiveDirectSession = 'direct media session is not active';
 
   test(
     'an initial media start retries a direct session still registering',
