@@ -106,11 +106,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   /// more often than" measures from the asking.
   Future<void> _offerCompactionIfDue() async {
     final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
     final offer = await ctrl.compactionOffer();
     if (offer == null || offer.verdict != CompactionOfferVerdict.offer) return;
-    if (!mounted) return;
+    if (!mounted || !ctrl.holdsIdentity(lease)) return;
     await ctrl.noteCompactionOffered();
-    if (!mounted) return;
+    if (!mounted || !ctrl.holdsIdentity(lease)) return;
     final l = AppL10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final estimate = offer.estimate;
@@ -131,7 +132,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           TextButton(
             onPressed: () async {
               messenger.hideCurrentMaterialBanner();
-              await _compactFromBanner(l, estimate);
+              if (mounted && ctrl.holdsIdentity(lease)) {
+                await _compactFromBanner(l, estimate, ctrl, lease);
+              }
             },
             child: Text(l.compactOfferRun),
           ),
@@ -147,6 +150,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   Future<void> _compactFromBanner(
     AppL10n l,
     CompactionEstimate estimate,
+    AppController ctrl,
+    IdentityLease lease,
   ) async {
     final password = await showDialog<String>(
       context: context,
@@ -157,7 +162,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         cancelLabel: l.actionCancel,
       ),
     );
-    if (password == null || password.isEmpty || !mounted) return;
+    if (password == null ||
+        password.isEmpty ||
+        !mounted ||
+        !ctrl.holdsIdentity(lease)) {
+      return;
+    }
     // Taken BEFORE the await: compaction tears the session down and reopens it,
     // so this screen's context may be gone by the time there is a result.
     final messenger = ScaffoldMessenger.of(context);
@@ -167,7 +177,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       estimate: estimate,
       currentPassword: password,
     );
-    if (sizes == null) return;
+    if (sizes == null || !messenger.mounted || !ctrl.holdsIdentity(lease)) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(

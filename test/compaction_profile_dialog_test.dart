@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/data/update/app_update.dart';
+import 'package:xveil/features/home/home_shell.dart';
 import 'package:xveil/features/settings/storage_settings_screen.dart';
+import 'package:xveil/state/app_update_controller.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/whisper_model_controller.dart';
 import 'support/fake_hv_container.dart';
 import 'package:xveil/domain/compaction_profile_authorization.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
@@ -154,21 +158,45 @@ class _Controller extends AppController {
 }
 
 class _ScreenController extends _Controller {
+  _ScreenController({this.solo = false});
+  final bool solo;
+  int identity = 0;
+  int collectionStarts = 0;
+  Completer<void>? estimateGate;
+  final waitingForEstimate = Completer<void>();
   final finish = Completer<void>();
   final started = Completer<void>();
+  @override
+  bool get canCompactStorage => solo;
+  @override
+  IdentityLease leaseIdentity() => IdentityLease(null, 0, identity);
+  @override
+  bool holdsIdentity(IdentityLease lease) => lease.lifecycle == identity;
+  @override
+  Future<bool> beginCompactionCollection() {
+    collectionStarts++;
+    return super.beginCompactionCollection();
+  }
   @override
   List<ManagedStorageLocator> get compactionVisibleIdentities => [];
   @override
   Future<({CompactionOfferVerdict verdict, CompactionEstimate estimate})?>
-  compactionOffer({DateTime? now}) async => (
-    verdict: CompactionOfferVerdict.offer,
-    estimate: const CompactionEstimate(
-      fileBytes: 100,
-      liveBytes: 10,
-      identitiesCounted: 1,
-      identitiesKnown: 1,
-    ),
-  );
+  compactionOffer({DateTime? now}) async {
+    final gate = estimateGate;
+    if (gate != null) {
+      if (!waitingForEstimate.isCompleted) waitingForEstimate.complete();
+      await gate.future;
+    }
+    return (
+      verdict: CompactionOfferVerdict.offer,
+      estimate: const CompactionEstimate(
+        fileBytes: 100,
+        liveBytes: 10,
+        identitiesCounted: 1,
+        identitiesKnown: 1,
+      ),
+    );
+  }
   @override
   Future<({int before, int after})> compactStorageKeeping({
     required CompactionRoster roster,
@@ -180,7 +208,136 @@ class _ScreenController extends _Controller {
   }
 }
 
+class _NoUpdates extends AppUpdateController {
+  @override
+  Future<void> checkIfDue({DateTime? now, AppUpdateChecker? checker}) async {}
+}
+
+class _NoSpeechDownload extends WhisperModelController {
+  @override
+  WhisperModelState build() => const WhisperModelState();
+  @override
+  Future<void> ensureDownloadedInBackground() async {}
+}
+
 void main() {
+  for (final step in ['estimate', 'banner', 'password']) {
+    testWidgets('home compaction drops a retired $step', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final ctrl = _ScreenController();
+      final l = AppL10nEn();
+      if (step == 'estimate') ctrl.estimateGate = Completer<void>();
+      Future<void> frame() async {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump();
+      }
+      final container = ProviderContainer(
+        overrides: [
+          appControllerProvider.overrideWith(() => ctrl),
+          appUpdateProvider.overrideWith(_NoUpdates.new),
+          whisperModelControllerProvider.overrideWith(_NoSpeechDownload.new),
+          singleSpaceStorageProvider.overrideWithValue(FakeHvContainer().storage()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: HomeShell(),
+          ),
+        ),
+      );
+      await frame();
+      if (step == 'estimate') {
+        expect(ctrl.waitingForEstimate.isCompleted, isTrue);
+        ctrl.identity++;
+        ctrl.estimateGate!.complete();
+        await frame();
+        expect(find.byType(MaterialBanner), findsNothing);
+        expect(ctrl.collectionStarts, 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+        return;
+      }
+      expect(find.byType(MaterialBanner), findsOneWidget);
+      if (step == 'banner') ctrl.identity++;
+      await tester.tap(find.widgetWithText(TextButton, l.compactOfferRun));
+      await frame();
+      if (step == 'password') {
+        expect(find.byType(CompactPasswordDialog), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'previous-fixture');
+        ctrl.identity++;
+        await tester.tap(find.widgetWithText(FilledButton, l.actionContinue));
+        await frame();
+      }
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(ctrl.collectionStarts, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  for (final solo in [true, false]) {
+    for (final step in ['password', 'estimate']) {
+      testWidgets('settings compaction drops a retired $step (solo=$solo)', (
+        tester,
+      ) async {
+        SharedPreferences.setMockInitialValues({});
+        final ctrl = _ScreenController(solo: solo);
+        final l = AppL10nEn();
+        final container = ProviderContainer(
+          overrides: [
+            appControllerProvider.overrideWith(() => ctrl),
+            singleSpaceStorageProvider.overrideWithValue(FakeHvContainer().storage()),
+          ],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: StorageSettingsScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final tile = find.widgetWithText(
+          ListTile,
+          solo ? l.settingsStorageCompact : l.compactOfferTitle,
+        );
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'previous-fixture');
+        if (step == 'password') {
+          ctrl.identity++;
+        } else {
+          ctrl.estimateGate = Completer<void>();
+        }
+        await tester.tap(
+          find.widgetWithText(
+            FilledButton,
+            solo ? l.settingsStorageCompact : l.actionContinue,
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (step == 'estimate') {
+          expect(ctrl.waitingForEstimate.isCompleted, isTrue);
+          ctrl.identity++;
+          ctrl.estimateGate!.complete();
+          await tester.pumpAndSettle();
+        }
+        expect(ctrl.collectionStarts, 0);
+        expect(ctrl.observedPhase, AppPhase.ready);
+        expect(find.byType(CompactPasswordDialog), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
+      });
+    }
+  }
+
   testWidgets(
     'compaction completion does not reload a replaced settings screen',
     (tester) async {

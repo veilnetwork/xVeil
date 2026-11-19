@@ -144,7 +144,7 @@ Future<({int before, int after})?> showCompactionOffer(
       result = await pending;
     }
   }
-  return result;
+  return navigator.mounted && ctrl.holdsIdentity(lease) ? result : null;
 }
 
 class _CompactionOfferDialog extends ConsumerStatefulWidget {
@@ -382,9 +382,10 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     final route = ModalRoute.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
     final l = AppL10n.of(context);
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = widget.lease;
     setState(() => _busy = true);
     try {
-      final ctrl = ref.read(appControllerProvider.notifier);
       // Own rejection recovery too: callers waiting after a route redirect
       // must not return before the closed collection session is restored.
       final operation = () async {
@@ -447,6 +448,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
+      if (!ctrl.holdsIdentity(lease)) return;
       if (mounted && (route?.isActive ?? false)) {
         setState(() {
           _failedRun = true;

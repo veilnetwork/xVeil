@@ -238,6 +238,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
 
   Future<void> _compactAll(AppL10n l) async {
     final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
     final access = ctrl.compactionAccessLocator;
     final passwordless =
         access is ManagedStorageLocator &&
@@ -253,11 +254,14 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
               cancelLabel: l.actionCancel,
             ),
           );
-    if (pw == null || (!passwordless && pw.isEmpty) || !mounted) return;
-    final offer = await ref
-        .read(appControllerProvider.notifier)
-        .compactionOffer();
-    if (offer == null || !mounted) return;
+    if (pw == null ||
+        (!passwordless && pw.isEmpty) ||
+        !mounted ||
+        !ctrl.holdsIdentity(lease)) {
+      return;
+    }
+    final offer = await ctrl.compactionOffer();
+    if (offer == null || !mounted || !ctrl.holdsIdentity(lease)) return;
     final messenger = ScaffoldMessenger.of(context);
     final sizes = await showCompactionOffer(
       context,
@@ -267,7 +271,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     );
     // Preparing/reopening can replace this route. The replacement loads its
     // own statistics; the old widget must not read ref or update its context.
-    if (sizes == null || !mounted) return;
+    if (sizes == null || !mounted || !ctrl.holdsIdentity(lease)) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(
@@ -280,6 +284,8 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   }
 
   Future<void> _compact(AppL10n l) async {
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
     final pw = await showDialog<String>(
       context: context,
       builder: (d) => CompactPasswordDialog(
@@ -289,8 +295,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
         cancelLabel: l.actionCancel,
       ),
     );
-    if (pw == null || pw.isEmpty) return;
-    if (!mounted) return;
+    if (pw == null || pw.isEmpty || !mounted || !ctrl.holdsIdentity(lease)) {
+      return;
+    }
     // THROUGH THE ROSTER, not with the one password that was typed.
     //
     // `compact_known` keeps exactly the spaces whose passwords it is given and
@@ -303,11 +310,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     //
     // The warning that stood in its place was honest and useless: it told
     // people what they were about to lose without offering the way to keep it.
-    final ctrl = ref.read(appControllerProvider.notifier);
     final offer = await ctrl.compactionOffer();
-    if (!mounted) return;
+    if (!mounted || !ctrl.holdsIdentity(lease)) return;
     final size = await ctrl.containerSizeBytes();
-    if (!mounted) return;
+    if (!mounted || !ctrl.holdsIdentity(lease)) return;
     // Capture the ROOT messenger BEFORE the await — compaction tears the
     // session down and re-opens (navigating away), so this context may be
     // unmounted by the time the result is ready.
@@ -326,7 +332,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
             ),
         currentPassword: pw,
       );
-      if (r == null) return;
+      if (r == null || !messenger.mounted || !ctrl.holdsIdentity(lease)) return;
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -335,13 +341,14 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
         ),
       );
     } catch (_) {
+      if (!messenger.mounted || !ctrl.holdsIdentity(lease)) return;
       messenger.showSnackBar(
         SnackBar(content: Text(l.settingsStorageCompactFailed)),
       );
     }
     // Re-read: the size and the dead share both just changed, and the nudge
     // has to disappear on its own once it has been acted on.
-    if (mounted) await _load();
+    if (mounted && ctrl.holdsIdentity(lease)) await _load();
   }
 
   @override

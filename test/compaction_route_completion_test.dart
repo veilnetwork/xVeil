@@ -63,7 +63,15 @@ class _ControlledCompaction extends AppController {
   }
 }
 
-enum _Scenario { redirect, popup, cancel, fastCollection, discarded, locked }
+enum _Scenario {
+  redirect,
+  popup,
+  cancel,
+  fastCollection,
+  discarded,
+  locked,
+  retiredResult,
+}
 
 void main() {
   for (final scenario in _Scenario.values) {
@@ -84,6 +92,8 @@ void main() {
         'a discarded collection restores the closed session before returning',
       _Scenario.locked =>
         'a discarded collection must not restore an obsolete authorization',
+      _Scenario.retiredResult =>
+        'completion waits for compaction but drops the result of a retired identity',
     };
     testWidgets(title, (tester) async {
       final fixture = FakeHvContainer();
@@ -215,6 +225,9 @@ void main() {
         );
         await tester.pumpAndSettle();
       }
+      if (scenario == _Scenario.retiredResult) {
+        controller.authorizationCurrent = false;
+      }
       controller.finish.complete();
       await tester.pumpAndSettle();
       if (!redirect) {
@@ -222,7 +235,12 @@ void main() {
         expect(find.text(AppL10nEn().compactOfferTitle), findsNothing);
       }
       expect(completed, isTrue);
-      expect(result, cancel ? null : (before: 1000, after: 100));
+      expect(
+        result,
+        cancel || scenario == _Scenario.retiredResult
+            ? null
+            : (before: 1000, after: 100),
+      );
       if (!redirect) {
         navigator.currentState!.pop();
         await tester.pumpAndSettle();

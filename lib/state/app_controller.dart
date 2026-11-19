@@ -1831,6 +1831,7 @@ class AppController extends Notifier<AppState> {
   /// label across a lock, so a lease taken in one space matched a completely
   /// different space unlocked afterwards.
   bool holdsIdentity(IdentityLease lease) =>
+      ref.mounted &&
       _setupRecovery == null &&
       state.phase != AppPhase.identityEraseRecovery &&
       _endingSessions == 0 &&
