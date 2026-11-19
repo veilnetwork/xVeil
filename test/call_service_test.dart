@@ -2790,6 +2790,76 @@ void main() {
       });
     }
 
+    for (final (failedProbes, confirmedAudio) in [
+      (1, true),
+      (2, true),
+      (1, false),
+    ]) {
+      test('relay receive stalls after $failedProbes failed probes '
+          '(confirmed audio=$confirmedAudio)', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..audioTelemetry = true
+            ..relayRefresh = (_) async => false;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkHandovers: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            localAllowsP2P: (_) async => false,
+          )..start();
+          const callId = 'relay-receive-after-failed-probe';
+          wire.onCallSignal!(peer, offer(callId));
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: CallMedia(audio: true),
+            ),
+          );
+          final oldAudio = clock.now();
+          media.audioRxAt = oldAudio;
+          media.rxAt = oldAudio;
+          async.elapse(const Duration(milliseconds: 100));
+          network.add(null);
+          async.elapse(const Duration(seconds: 4));
+          expect(media.relayRefreshes, 1);
+
+          if (failedProbes == 2) {
+            admissions.add(null);
+            async.elapse(const Duration(seconds: 1));
+            expect(media.relayRefreshes, 2);
+          }
+          media.audioRxAt = clock.now();
+          media.rxAt = media.audioRxAt;
+          media.latestAudioRead = () async =>
+              confirmedAudio ? media.audioRxAt : oldAudio;
+          async.elapse(
+            kCallDirectSessionSilence - const Duration(milliseconds: 1),
+          );
+          expect(media.repairs, 0, reason: 'allow the brief return of audio');
+          async.elapse(const Duration(seconds: 1));
+          expect(media.repairs, confirmedAudio ? 1 : 0);
+          expect(media.relayRefreshes, failedProbes, reason: 'no extra probe');
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test(
       'answer racing a slow durable offer never arms a timer on the active call',
       () {

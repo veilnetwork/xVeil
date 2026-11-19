@@ -517,7 +517,12 @@ class CallService {
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
   Timer? _mediaWatchdogTimer;
   bool _mediaWatchdogCheckBusy = false;
-  ({DateTime at, bool localNetworkChanged, int? failedProbeGeneration})?
+  ({
+    DateTime at,
+    bool localNetworkChanged,
+    int? failedProbeGeneration,
+    bool probeRetrySpent,
+  })?
   _relayHandover;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
@@ -858,6 +863,7 @@ class CallService {
           at: _now(),
           localNetworkChanged: true,
           failedProbeGeneration: null,
+          probeRetrySpent: false,
         );
         devLog(() => 'xVeil[call-media]: local network handover on relay');
         return;
@@ -2404,13 +2410,19 @@ class CallService {
   Future<void> _checkRelayHandoverAudio(Call call) async {
     final media = _media;
     final handover = _relayHandover;
-    if (media == null ||
-        handover == null ||
-        _mediaWatchdogCheckBusy ||
-        handover.failedProbeGeneration == _relayConnectionGeneration) {
+    if (media == null || handover == null || _mediaWatchdogCheckBusy) return;
+    final handoverAt = handover.at;
+    bool canProbe() =>
+        !handover.probeRetrySpent &&
+        handover.failedProbeGeneration != _relayConnectionGeneration;
+
+    final cachedAudio = media.lastAudioRxAt;
+    // Waiting for admission limits unproven probes. Audio that actually
+    // arrived after the handover can still justify a confirmed early repair.
+    if (!canProbe() &&
+        (cachedAudio == null || cachedAudio.isBefore(handoverAt))) {
       return;
     }
-    final handoverAt = handover.at;
 
     // The handover window applies to the last audio before the outage.
     // A packet near its end still needs the full silence interval, the
@@ -2444,7 +2456,7 @@ class CallService {
         _now().difference(handoverAt) < kCallDirectSessionSilence ||
         !stillOnHandover() ||
         media.isRepairingReceiveSession ||
-        !stalled(call, media.lastAudioRxAt)) {
+        !stalled(call, cachedAudio)) {
       return;
     }
 
@@ -2494,6 +2506,7 @@ class CallService {
     // Before any audio has arrived on the new network, keep the active
     // channel open. Only a candidate with a fresh peer echo may replace it.
     if (latestRxAt.isBefore(handoverAt)) {
+      if (!canProbe()) return;
       if (handover.failedProbeGeneration != null) {
         devLog(() => 'xVeil[call-media]: retrying relay probe after admission');
       }
@@ -2513,17 +2526,15 @@ class CallService {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
         if (_relayHandover == handover) {
-          // Admission during the probe also counts. Keep one retry within
-          // the original window; the new candidate still needs a peer echo.
+          // Admission during the probe also counts. Allow one probe retry,
+          // but keep observing actual audio even after that retry fails.
           _relayHandover =
-              !refreshed &&
-                  handover.failedProbeGeneration == null &&
-                  ownedCall() != null &&
-                  _now().isBefore(checkUntil)
+              !refreshed && ownedCall() != null && _now().isBefore(checkUntil)
               ? (
                   at: handoverAt,
                   localNetworkChanged: handover.localNetworkChanged,
                   failedProbeGeneration: probeGeneration,
+                  probeRetrySpent: handover.failedProbeGeneration != null,
                 )
               : null;
         }
@@ -3460,6 +3471,7 @@ class CallService {
               at: _now(),
               localNetworkChanged: false,
               failedProbeGeneration: null,
+              probeRetrySpent: false,
             )
           : null;
     }
