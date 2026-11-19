@@ -409,6 +409,26 @@ void main() {
   );
 
   test(
+    'migration leaves an up-to-date native preference file byte-for-byte',
+    () async {
+      final current = const JsonEncoder.withIndent('  ').convert({
+        'v': 1,
+        'e': {
+          'flutter.locale': {'t': 'String', 'v': 'es'},
+        },
+      });
+      final owner = await open(prefs());
+      expect(await owner.write(current), isTrue);
+      await owner.close();
+
+      expect(await install(), 'default');
+      expect((await stores.last.getAll())['flutter.locale'], 'es');
+      expect(File(prefs()).readAsStringSync(), current);
+      expect(await legacy.getAll(), isEmpty);
+    },
+  );
+
+  test(
     'a malformed pending marker blocks startup without preference writes',
     () async {
       StorageProfileCoordinator.forPreferences(base()).close();

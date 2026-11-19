@@ -59,6 +59,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     this._file,
     this._entries,
     this._ownedFile,
+    this._loadedSnapshot,
     this.legacyPreferences,
   );
 
@@ -68,6 +69,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   final File _file;
   final ProfilePreferencesFile? _ownedFile;
+  final bool _loadedSnapshot;
   final LegacyProfilePreferences? legacyPreferences;
 
   /// value type (the `valueType` tag the plugin already hands to [setValue]) →
@@ -117,12 +119,14 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     // a refused/dead owner into an unguarded local read or an empty backend.
     final ownedContents = ownedFile == null ? null : await ownedFile.read();
     final entries = <String, ({String type, Object value})>{};
+    var loadedSnapshot = false;
     try {
       if (ownedFile != null ? ownedContents != null : file.existsSync()) {
         final json = jsonDecode(ownedContents ?? await file.readAsString());
         if (json is Map<String, dynamic> && json['v'] == _version) {
           final raw = json['e'];
           if (raw is Map<String, dynamic>) {
+            loadedSnapshot = true;
             for (final entry in raw.entries) {
               final decoded = _decode(entry.value);
               if (decoded != null) entries[entry.key] = decoded;
@@ -137,6 +141,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       file,
       entries,
       ownedFile,
+      loadedSnapshot,
       legacyPreferences,
     );
   }
@@ -531,6 +536,7 @@ Future<void> _migrateLegacy(
     /* an unreadable profiles dir just means no suffixes to strip */
   }
 
+  final selectedCount = into._entries.length;
   final elsewhere = <String, Map<String, ({String type, Object value})>>{};
   for (final entry in all.entries) {
     final full = entry.key;
@@ -551,11 +557,10 @@ Future<void> _migrateLegacy(
     }
   }
 
-  // EVERY destination has to be on disk before the source is emptied. A single
-  // failed write used to be logged and ignored, and the clear below then
-  // destroyed the only remaining copy of settings that decide how the container
-  // is opened (audit X-02).
-  var migrated = await into._flush();
+  // All newly imported keys require a successful write before the legacy
+  // source can be cleared. An unchanged snapshot needs no second write.
+  final current = into._loadedSnapshot && into._entries.length == selectedCount;
+  var migrated = current || await into._flush();
   for (final other in elsewhere.entries) {
     final path = profilePrefsPath(supportDir, other.key);
     ProfilePreferencesFile? owner;
@@ -563,10 +568,13 @@ Future<void> _migrateLegacy(
     try {
       owner = await openOwnedFile?.call(path);
       store = await ProfilePreferencesStore.load(path, ownedFile: owner);
+      final persistedCount = store._entries.length;
       for (final kv in other.value.entries) {
         store._entries.putIfAbsent(kv.key, () => kv.value);
       }
-      if (!await store._flush()) migrated = false;
+      if (store._entries.length != persistedCount && !await store._flush()) {
+        migrated = false;
+      }
     } catch (_) {
       // A refused destination must not be resurrected by migration. Retain
       // the complete legacy source so a later admitted launch can try again.
