@@ -97,7 +97,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
   bool _permissionRequestPending = false;
-  bool _permissionRequested = false;
+  bool _permissionDecided = false;
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
@@ -166,7 +166,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   Future<void> _requestNotificationPermission() async {
-    if (_permissionRequested || _permissionRequestPending || !_foreground) {
+    if (_permissionDecided || _permissionRequestPending || !_foreground) {
       return;
     }
     _permissionRequestPending = true;
@@ -180,10 +180,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           ref.read(appControllerProvider).phase != AppPhase.ready) {
         return;
       }
-      // The system prompt itself may briefly make the app inactive. Mark the
-      // request before invoking it so a resume never repeats a denied prompt.
-      _permissionRequested = true;
-      await service.requestPermission();
+      // The pending flag covers the prompt's own inactive/resumed transition.
+      // Only a real OS decision suppresses attempts on later returns.
+      _permissionDecided = await service.requestPermission() != null;
     } finally {
       _permissionRequestPending = false;
     }

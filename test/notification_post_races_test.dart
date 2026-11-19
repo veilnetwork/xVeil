@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/domain/chat.dart';
@@ -175,6 +178,19 @@ class _PermissionStartupPlugin extends Fake
   final posted = <String?>[];
   final titles = <String?>[];
   final bodies = <String?>[];
+
+  @override
+  T? resolvePlatformSpecificImplementation<
+    T extends FlutterLocalNotificationsPlatform
+  >() => switch (T) {
+    const (MacOSFlutterLocalNotificationsPlugin) =>
+      MacOSFlutterLocalNotificationsPlugin() as T,
+    const (AndroidFlutterLocalNotificationsPlugin) =>
+      AndroidFlutterLocalNotificationsPlugin() as T,
+    const (IOSFlutterLocalNotificationsPlugin) =>
+      IOSFlutterLocalNotificationsPlugin() as T,
+    _ => null,
+  };
 
   @override
   Future<bool?> initialize({
@@ -709,6 +725,88 @@ void main() {
         await cleanup(tester);
       }
     });
+  }
+
+  for (final firstResult in ['busy', 'missing result', 'denied', 'granted']) {
+    testWidgets(
+      'notification permission resumes after $firstResult',
+      (tester) async {
+        const channel = MethodChannel(
+          'dexterous.com/flutter/local_notifications',
+        );
+        final messenger = tester.binding.defaultBinaryMessenger;
+        diagnosticJournal.clear();
+        addTearDown(diagnosticJournal.clear);
+        final attempts = <String>[];
+        final grant = Completer<void>();
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          attempts.add(call.method);
+          if (attempts.length > 1) return false;
+          if (firstResult == 'granted') await grant.future;
+          return switch (firstResult) {
+            'busy' => throw PlatformException(
+              code: 'permissionRequestInProgress',
+            ),
+            'granted' => true,
+            'denied' => false,
+            _ => null,
+          };
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+        final plugin = _PermissionStartupPlugin()..startup.complete(true);
+        final service = NotificationService(plugin: plugin);
+        await service.init(onTap: (_) {});
+        await mount(tester, service: service, minimize: false);
+        try {
+          final method = Platform.isAndroid
+              ? 'requestNotificationsPermission'
+              : 'requestPermissions';
+          expect(attempts, [method]);
+          if (firstResult == 'granted') {
+            // The open OS prompt can move the app out and back into focus.
+            await lifecycle(tester, background);
+            await lifecycle(tester, foreground);
+            expect(attempts, [method]);
+            grant.complete();
+            await _pump(tester);
+          }
+          final retries =
+              firstResult == 'busy' || firstResult == 'missing result';
+          if (diagnosticJournal.enabled) {
+            final evidence = diagnosticJournal.toJson()['last_evidence'] as Map;
+            expect(evidence['notificationPermission']?['values'], {
+              'state': retries ? -1 : (firstResult == 'granted' ? 1 : 0),
+            });
+          }
+          for (var i = 0; i < 2; i++) {
+            await lifecycle(tester, background);
+            await lifecycle(tester, foreground);
+            expect(attempts, [method, if (retries) method]);
+          }
+          if (diagnosticJournal.enabled) {
+            final report = diagnosticJournal.toJson();
+            final events = (report['events'] as List).where(
+              (row) => row['event'] == 'notificationPermission',
+            );
+            final expected = retries
+                ? [-1, 0]
+                : [firstResult == 'granted' ? 1 : 0];
+            expect(events.map((row) => row['values']), [
+              for (final state in expected) {'state': state},
+            ]);
+            expect(
+              (report['last_evidence']
+                  as Map)['notificationPermission']['values'],
+              {'state': expected.last},
+            );
+          }
+        } finally {
+          if (!grant.isCompleted) grant.complete();
+          await cleanup(tester);
+        }
+      },
+      skip: !(Platform.isMacOS || Platform.isIOS || Platform.isAndroid),
+    );
   }
 
   testWidgets(

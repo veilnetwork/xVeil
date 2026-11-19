@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/diagnostic_journal.dart';
 import '../../core/log.dart';
 import 'windows_toast_content.dart';
 
@@ -292,38 +293,48 @@ class NotificationService {
   }
 
   /// Ask the OS for permission to post notifications (iOS/macOS always; Android
-  /// 13+). No-op where not applicable. Returns true if granted (best-effort).
-  Future<bool> requestPermission() async {
-    if (!_ready) return false;
+  /// 13+). Null means the backend could not report an OS decision. Platforms
+  /// without this permission request report success without invoking the OS.
+  Future<bool?> requestPermission() async {
+    if (!_ready) return null;
+    if (!Platform.isIOS && !Platform.isMacOS && !Platform.isAndroid) {
+      return true;
+    }
+    bool? granted;
     try {
       if (Platform.isIOS) {
-        return await _plugin
-                .resolvePlatformSpecificImplementation<
-                  IOSFlutterLocalNotificationsPlugin
-                >()
-                ?.requestPermissions(alert: true, badge: true, sound: true) ??
-            false;
-      }
-      if (Platform.isMacOS) {
-        return await _plugin
-                .resolvePlatformSpecificImplementation<
-                  MacOSFlutterLocalNotificationsPlugin
-                >()
-                ?.requestPermissions(alert: true, badge: true, sound: true) ??
-            false;
-      }
-      if (Platform.isAndroid) {
-        return await _plugin
-                .resolvePlatformSpecificImplementation<
-                  AndroidFlutterLocalNotificationsPlugin
-                >()
-                ?.requestNotificationsPermission() ??
-            true;
+        granted = await _plugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.requestPermissions(alert: true, badge: true, sound: true);
+      } else if (Platform.isMacOS) {
+        granted = await _plugin
+            .resolvePlatformSpecificImplementation<
+              MacOSFlutterLocalNotificationsPlugin
+            >()
+            ?.requestPermissions(alert: true, badge: true, sound: true);
+      } else {
+        granted = await _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.requestNotificationsPermission();
       }
     } catch (e) {
       devLog(() => 'xVeil[notify]: permission request failed: $e');
     }
-    return true;
+    diagnosticJournal.record(
+      DiagnosticEvent.notificationPermission,
+      values: {
+        DiagnosticMetric.state: switch (granted) {
+          true => 1,
+          false => 0,
+          null => -1,
+        },
+      },
+    );
+    return granted;
   }
 
   /// Post a notification. [id] is the OS notification id — message callers
