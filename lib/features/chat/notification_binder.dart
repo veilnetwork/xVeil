@@ -22,7 +22,12 @@ import '../../state/providers.dart';
 import 'attachment_preview.dart';
 import 'message_mentions.dart';
 
-typedef _MessageAlertAttempt = ({int generation, int sequence, NodeId? owner});
+typedef _MessageAlertAttempt = ({
+  int generation,
+  int sequence,
+  NodeId? owner,
+  int? groupGeneration,
+});
 typedef _MessageAlertCandidate = ({
   String convHex,
   String? name,
@@ -91,6 +96,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         ({_MessageAlertAttempt attempt, _MessageAlertCandidate candidate})
       >{};
   int _notificationGeneration = 0;
+  int _groupNotificationGeneration = 0;
   int _notificationSequence = 0;
   int _latestEligibleSequence = 0;
   // Clear requests have a separate OS id. An ordinary message supersedes the
@@ -104,15 +110,18 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // Null only at the very first frame — treat as foreground (suppress).
       WidgetsBinding.instance.lifecycleState == null;
 
-  _MessageAlertAttempt _beginMessageAlert() => (
+  _MessageAlertAttempt _beginMessageAlert({bool groupScoped = false}) => (
     generation: _notificationGeneration,
     sequence: ++_notificationSequence,
     owner: ref.read(appControllerProvider).identity?.nodeId,
+    groupGeneration: groupScoped ? _groupNotificationGeneration : null,
   );
 
   bool _canContinueMessageAlert(_MessageAlertAttempt attempt) =>
       mounted &&
       attempt.generation == _notificationGeneration &&
+      (attempt.groupGeneration == null ||
+          attempt.groupGeneration == _groupNotificationGeneration) &&
       attempt.sequence >= _latestEligibleSequence &&
       ref.read(appControllerProvider).identity?.nodeId == attempt.owner;
 
@@ -205,7 +214,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   void _subscribeGroups(GroupService? service) {
-    _notificationGeneration++;
+    _groupNotificationGeneration++;
     _pendingSpaceComments.clear();
     // Group service initialization does not replace the messaging service's
     // request list. Its alerts retain their own identity/lifecycle fence.
@@ -282,7 +291,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId groupId, GroupMessage message}) n,
   ) async {
     if (!mounted) return;
-    final attempt = _beginMessageAlert();
+    final attempt = _beginMessageAlert(groupScoped: true);
     final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
     var policy = const NotificationMutePolicy.all();
@@ -340,7 +349,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePostView post}) n,
   ) async {
     if (!mounted) return;
-    final attempt = _beginMessageAlert();
+    final attempt = _beginMessageAlert(groupScoped: true);
     final settings = ref.read(notificationSettingsProvider);
     var notificationsEnabled = false;
     var policy = const NotificationMutePolicy.all();
@@ -396,7 +405,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePostView post}) n,
   ) async {
     if (!mounted) return;
-    final attempt = _beginMessageAlert();
+    final attempt = _beginMessageAlert(groupScoped: true);
     final settings = ref.read(notificationSettingsProvider);
     final service = ref.read(groupServiceProvider);
     if (service == null) return;
@@ -449,7 +458,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePublicCommentView comment}) n,
   ) async {
     if (!mounted) return;
-    final attempt = _beginMessageAlert();
+    final attempt = _beginMessageAlert(groupScoped: true);
     final settings = ref.read(notificationSettingsProvider);
     final service = ref.read(groupServiceProvider);
     if (service == null) return;
@@ -549,7 +558,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!mounted) return;
     final postId = n.message.spacePostId;
     if (postId == null) return;
-    final attempt = _beginMessageAlert();
+    final attempt = _beginMessageAlert(groupScoped: true);
     final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
     var mode = SpaceCommentNotificationMode.none;
@@ -713,6 +722,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // previews below need (the loop bodies sit past async gaps).
     final l = AppL10n.of(context);
     final attempt = _beginMessageAlert();
+    final groupAttempt = (
+      generation: attempt.generation,
+      sequence: attempt.sequence,
+      owner: attempt.owner,
+      groupGeneration: _groupNotificationGeneration,
+    );
     final settings = ref.read(notificationSettingsProvider);
     devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
     if (!settings.enabled) return;
@@ -724,7 +739,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       return;
     }
     if (!_canContinueMessageAlert(attempt)) return;
-    final candidates = <_MessageAlertCandidate>[];
+    final directCandidates = <_MessageAlertCandidate>[];
     final self = ref.read(appControllerProvider).identity?.nodeId;
     for (final c in convs) {
       final mode = c.peer.notificationModeAt(DateTime.now());
@@ -742,7 +757,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         mention = await _newestUnreadDirectMention(c, self);
         if (mention == null) continue;
       }
-      candidates.add((
+      directCandidates.add((
         convHex: mention == null
             ? c.id
             : notificationMentionPayload(
@@ -767,7 +782,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       ));
     }
     // Groups compete with 1:1 chats for the same single latest alert.
-    final gsvc = ref.read(groupServiceProvider);
+    final groupCandidates = <_MessageAlertCandidate>[];
+    final gsvc = _canContinueMessageAlert(groupAttempt)
+        ? ref.read(groupServiceProvider)
+        : null;
     if (gsvc == null) {
       devLog(() => 'xVeil[notify]: flush — no group service');
     } else {
@@ -793,7 +811,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           if (mode == NotificationMuteMode.mentionsOnly && mention == null) {
             continue;
           }
-          candidates.add((
+          groupCandidates.add((
             convHex: mention == null
                 ? 'group:${g.groupId.hex}'
                 : notificationMentionPayload(
@@ -840,7 +858,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             '${latestPost.title}\n${latestPost.body}',
             gsvc.selfId,
           );
-          candidates.add((
+          groupCandidates.add((
             convHex: isMention
                 ? notificationMentionPayload(
                     '/space/${space.groupId.hex}/comments?post=${Uri.encodeQueryComponent(latestPost.postId)}',
@@ -889,7 +907,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           );
           final route =
               '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(latestPost.postId)}';
-          candidates.add((
+          groupCandidates.add((
             convHex: notificationMentionPayload(route),
             name: public.descriptor.name.trim().isNotEmpty
                 ? public.descriptor.name
@@ -909,21 +927,31 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
     }
     if (!_canContinueMessageAlert(attempt)) return;
-    final pendingComments = _pendingSpaceComments.entries.toList();
-    _pendingSpaceComments.clear();
-    for (final pending in pendingComments) {
-      // The identity may already have changed before the service listeners
-      // replace their subscriptions and clear the old comment buffer.
-      if (pending.key == active ||
-          pending.value.attempt.owner != attempt.owner) {
-        continue;
+    _MessageAlertCandidate? groupLatest;
+    if (_canContinueMessageAlert(groupAttempt)) {
+      final pendingComments = _pendingSpaceComments.entries.toList();
+      _pendingSpaceComments.clear();
+      for (final pending in pendingComments) {
+        if (pending.key == active ||
+            pending.value.attempt.owner != attempt.owner) {
+          continue;
+        }
+        groupCandidates.add(pending.value.candidate);
       }
-      candidates.add(pending.value.candidate);
+      groupLatest = newestByTimestamp(groupCandidates, (c) => c.timestampMs);
     }
-    final latest = newestByTimestamp(candidates, (c) => c.timestampMs);
+    final directLatest = newestByTimestamp(
+      directCandidates,
+      (c) => c.timestampMs,
+    );
+    final useGroup =
+        groupLatest != null &&
+        (directLatest == null ||
+            groupLatest.timestampMs > directLatest.timestampMs);
+    final latest = useGroup ? groupLatest : directLatest;
     if (latest == null) return;
     await _show(
-      attempt: attempt,
+      attempt: useGroup ? groupAttempt : attempt,
       convHex: latest.convHex,
       name: latest.name,
       shortId: latest.shortId,

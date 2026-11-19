@@ -17,6 +17,7 @@ import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/chat/notification_binder.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -46,6 +47,7 @@ class _App extends AppController {
 class _Storage extends FakeSettingStorage {
   final muted = <NodeId>{};
   final delayed = <NodeId, Completer<void>>{};
+  Future<List<Conversation>>? unread;
 
   @override
   Future<Contact?> getContact(NodeId id) async {
@@ -57,7 +59,7 @@ class _Storage extends FakeSettingStorage {
   }
 
   @override
-  Future<List<Conversation>> loadConversations() async => [];
+  Future<List<Conversation>> loadConversations() async => await unread ?? [];
 }
 
 class _Messaging implements MessagingService {
@@ -80,6 +82,29 @@ class _Groups implements GroupService {
     }
     return super.noSuchMethod(invocation);
   }
+}
+
+class _UnreadGroups extends _Groups {
+  final requested = Completer<void>();
+  final release = Completer<List<GroupListEntry>>();
+
+  @override
+  Future<List<GroupListEntry>> listGroups() {
+    if (!requested.isCompleted) requested.complete();
+    return release.future;
+  }
+
+  @override
+  Future<NotificationMutePolicy> groupNotificationPolicy(
+    NodeId groupId,
+  ) async => const NotificationMutePolicy.all();
+
+  @override
+  Future<List<GroupListEntry>> listSpaces() async => [];
+
+  @override
+  Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async =>
+      [];
 }
 
 class _CommentGroups extends _Groups {
@@ -595,6 +620,104 @@ void main() {
       await cleanup(tester);
     }
   });
+
+  for (final waitingOn in ['contact lookup', 'OS post', 'unread snapshot']) {
+    testWidgets(
+      'direct alert survives group service startup during $waitingOn',
+      (tester) async {
+        await mount(tester, minimize: waitingOn != 'unread snapshot');
+        final id = notificationIdForIncomingMessage('');
+        final lookup = Completer<void>();
+        final snapshot = Completer<List<Conversation>>();
+        final peer = _id(2);
+        try {
+          if (waitingOn == 'unread snapshot') {
+            storage.unread = snapshot.future;
+            await lifecycle(tester, background);
+          } else {
+            if (waitingOn == 'OS post') {
+              notifications.holdId = id;
+            } else {
+              storage.delayed[peer] = lookup;
+            }
+            message(2);
+            await _pump(tester);
+            expect(notifications.entered.isCompleted, waitingOn == 'OS post');
+          }
+
+          final groups = _Groups();
+          container.read(_groupSource.notifier).state = groups;
+          expect(container.read(groupServiceProvider), same(groups));
+          await _pump(tester);
+          expect(groups.streamReads, greaterThanOrEqualTo(5));
+          lookup.complete();
+          snapshot.complete([
+            Conversation(peer: Contact(nodeId: peer), unread: 1),
+          ]);
+          notifications.release.complete();
+          await _pump(tester);
+
+          expect(notifications.shows, 1);
+          expect(resolveShownPayload(notifications.visible[id]), peer.hex);
+          expect(notifications.cancelled, isNot(contains(id)));
+        } finally {
+          if (!lookup.isCompleted) lookup.complete();
+          if (!snapshot.isCompleted) snapshot.complete([]);
+          await cleanup(tester);
+        }
+      },
+    );
+  }
+
+  for (final replace in [false, true]) {
+    testWidgets(
+      'unread selection checks the group service lifetime (replace=$replace)',
+      (tester) async {
+        await mount(tester, minimize: false);
+        final peer = _id(2);
+        final group = _id(3);
+        final groups = _UnreadGroups();
+        final source = container.read(_groupSource.notifier)..state = groups;
+        expect(container.read(groupServiceProvider), same(groups));
+        storage.unread = Future.value([
+          Conversation(peer: Contact(nodeId: peer), unread: 1),
+        ]);
+        try {
+          await lifecycle(tester, background);
+          expect(groups.requested.isCompleted, isTrue);
+          if (replace) {
+            final successor = _Groups();
+            source.state = successor;
+            expect(container.read(groupServiceProvider), same(successor));
+          }
+          groups.release.complete([
+            (
+              groupId: group,
+              name: 'Group',
+              description: '',
+              visibility: null,
+              lifecycleState: SpaceLifecycleState.active,
+              discoverable: false,
+              unread: 1,
+              postUnread: 0,
+              muted: false,
+              notificationMode: NotificationMuteMode.all,
+              notificationUntil: null,
+              preview: '',
+              lastTs: 1000,
+            ),
+          ]);
+          await _pump(tester);
+          expect(notifications.visible.values.map(resolveShownPayload), [
+            replace ? peer.hex : 'group:${group.hex}',
+          ]);
+        } finally {
+          if (!groups.release.isCompleted) groups.release.complete([]);
+          await cleanup(tester);
+        }
+      },
+    );
+  }
 
   for (final next in ['muted', 'eligible', 'identity change']) {
     testWidgets('pending contact notification respects $next', (tester) async {
