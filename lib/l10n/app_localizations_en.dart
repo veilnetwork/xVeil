@@ -6755,8 +6755,7 @@ class AppL10nEn extends AppL10n {
   String get profileRunningNow => 'Running now';
 
   @override
-  String get profileChoiceNotSaved =>
-      'The choice could not be saved — the next launch will use the current profile';
+  String get profileChoiceNotSaved => 'Could not save the profile choice.';
 
   @override
   String get profileRestartRequired => 'Restart xVeil to switch profile';
@@ -6767,6 +6766,9 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get profileCreateTitle => 'New profile';
+
+  @override
+  String get profileCreateFailed => 'Could not create the profile.';
 
   @override
   String get profileNameHint => 'for example: testing';

@@ -2822,13 +2822,14 @@
   "profileExplainer": "Un perfil es una instalación aparte: su propio contenedor, su propia contraseña, sus propias identidades. No se comparte nada entre perfiles. Úsalo para mantener una versión de prueba lejos de tus datos reales.",
   "profileDefaultName": "Default (production)",
   "profileRunningNow": "En ejecución ahora",
-  "profileChoiceNotSaved": "No se pudo guardar la elección: el próximo inicio usará el perfil actual",
+  "profileChoiceNotSaved": "No se pudo guardar la elección de perfil.",
   "@profileChoiceNotSaved": {
     "description": "Shown when the active-profile pointer file could not be written durably; the selection is not applied so the screen never claims a switch that will not happen."
   },
   "profileRestartRequired": "Reinicia xVeil para cambiar de perfil",
   "profileSwitchNote": "El perfil elegido se recuerda y se aplica en el próximo inicio. En escritorio también puedes pasar --profile <nombre>; en el móvil, define XVEIL_PROFILE antes de iniciar.",
   "profileCreateTitle": "Nuevo perfil",
+  "profileCreateFailed": "No se pudo crear el perfil.",
   "profileNameHint": "por ejemplo: pruebas",
   "profileNameRule": "Minúsculas, dígitos, punto, guion y guion bajo. Hasta 32 caracteres.",
   "profileRevealed": "Perfiles desbloqueados",

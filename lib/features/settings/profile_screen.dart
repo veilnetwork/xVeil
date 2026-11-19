@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/error_journal.dart';
 import '../../data/storage/app_profile.dart';
 import '../../data/storage/profile_prefs_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
+import '../common/async_error_view.dart';
 
 /// The hidden profile switcher: which on-disk profile the app starts on.
 ///
@@ -28,6 +30,8 @@ class ProfileScreen extends ConsumerStatefulWidget {
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   List<String>? _profiles;
   String? _selected;
+  late String _supportPath;
+  ({Object error, StackTrace stack})? _loadError;
 
   @override
   void initState() {
@@ -36,34 +40,46 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    final support = await getApplicationSupportDirectory();
-    final names = <String>{AppProfiles.defaultName, activeProfile};
-    final dir = Directory('${support.path}/profiles');
-    if (dir.existsSync()) {
-      for (final entry in dir.listSync().whereType<Directory>()) {
-        final name = entry.uri.pathSegments
-            .where((segment) => segment.isNotEmpty)
-            .last;
-        // Only list what this build would actually accept, so a directory
-        // created by hand under a name we refuse cannot look selectable.
-        if (AppProfiles.isValidName(name)) names.add(name);
+    try {
+      final support = await getApplicationSupportDirectory();
+      final names = <String>{AppProfiles.defaultName, activeProfile};
+      final dir = Directory('${support.path}/profiles');
+      try {
+        await for (final entry in dir.list().where(
+          (entry) => entry is Directory,
+        )) {
+          final name = lastPathSegment(entry.path);
+          if (AppProfiles.isValidName(name)) names.add(name);
+        }
+      } on PathNotFoundException {
+        if (FileSystemEntity.typeSync(dir.path, followLinks: false) !=
+            FileSystemEntityType.notFound) {
+          rethrow;
+        }
       }
+      final remembered = await readProfileChoice(
+        File(activeProfilePath(support.path)),
+      );
+      if (!mounted) return;
+      setState(() {
+        _supportPath = support.path;
+        _profiles = names.toList()..sort();
+        _selected = remembered ?? activeProfile;
+      });
+    } catch (error, stack) {
+      if (!mounted) return;
+      setState(() => _loadError = (error: error, stack: stack));
     }
-    // NOT a preference (audit XV-16): the choice has to be readable before the
-    // per-profile preference file it would otherwise live in is even located,
-    // and as a preference it sat in the system store that iOS backs up — where
-    // the name of the profile in use is exactly the fact worth hiding.
-    final remembered = await readRememberedProfile(support.path);
-    if (!mounted) return;
-    setState(() {
-      _profiles = names.toList()..sort();
-      _selected = remembered ?? activeProfile;
-    });
+  }
+
+  void _retry() {
+    if (_loadError == null) return;
+    setState(() => _loadError = null);
+    unawaited(_load());
   }
 
   Future<void> _choose(String name) async {
-    final support = await getApplicationSupportDirectory();
-    final recorded = await writeRememberedProfile(support.path, name);
+    final recorded = await writeRememberedProfile(_supportPath, name);
     if (!mounted) return;
     final l = AppL10n.of(context);
     if (!recorded) {
@@ -95,37 +111,62 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         createLabel: l.commonCreate,
       ),
     );
-    if (name == null || name.isEmpty) return;
-    if (!AppProfiles.isValidName(name.toLowerCase())) {
-      if (!mounted) return;
+    if (!mounted || name == null || name.isEmpty) return;
+    final profile = name.toLowerCase();
+    if (!AppProfiles.isValidName(profile)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l.profileNameRule)));
       return;
     }
-    final support = await getApplicationSupportDirectory();
-    await Directory(
-      AppProfiles.directory(support.path, name.toLowerCase()),
-    ).create(recursive: true);
-    await _load();
-    await _choose(name.toLowerCase());
+    try {
+      await Directory(
+        AppProfiles.directory(_supportPath, profile),
+      ).create(recursive: true);
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'profile-create',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.profileCreateFailed)));
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _profiles = {..._profiles!, profile}.toList()..sort());
+    await _choose(profile);
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final profiles = _profiles;
+    final failure = _loadError;
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
         title: Text(l.profileTitle),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add),
-        label: Text(l.commonCreate),
-      ),
-      body: profiles == null
+      floatingActionButton: profiles == null
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _create,
+              icon: const Icon(Icons.add),
+              label: Text(l.commonCreate),
+            ),
+      body: failure != null
+          ? AsyncErrorView(
+              key: ObjectKey(failure.error),
+              error: failure.error,
+              stack: failure.stack,
+              where: 'profiles',
+              onRetry: _retry,
+            )
+          : profiles == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
