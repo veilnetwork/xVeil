@@ -114,12 +114,33 @@ void main() {
             .having(
               (e) => e.preferencesOpenReason,
               'reason',
-              ManagedPreferencesOpenReason.filesystemUnsafe,
+              ManagedPreferencesFailureReason.filesystemUnsafe,
             ),
       ),
     );
     expect(marker.readAsStringSync(), 'fixture');
     expect(File(prefs()).existsSync(), isFalse);
+  });
+
+  test('a preference read reports a directory without modifying it', () async {
+    final owner = await open(prefs());
+    final directory = Directory(prefs())..createSync();
+    final marker = File('${directory.path}/marker')
+      ..writeAsStringSync('fixture');
+    await expectLater(
+      owner.read(),
+      throwsA(
+        isA<ManagedWorkerFailure>()
+            .having((e) => e.kind, 'kind', ManagedWorkerFailureKind.invalid)
+            .having(
+              (e) => e.preferencesReadReason,
+              'read reason',
+              ManagedPreferencesFailureReason.fileType,
+            )
+            .having((e) => e.preferencesOpenReason, 'open reason', isNull),
+      ),
+    );
+    expect(marker.readAsStringSync(), 'fixture');
   });
 
   test(

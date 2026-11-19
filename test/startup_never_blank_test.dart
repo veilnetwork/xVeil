@@ -18,7 +18,7 @@ void main() {
     await runStartup(
       boot: () async => throw const ManagedWorkerFailure(
         ManagedWorkerFailureKind.invalid,
-        preferencesOpenReason: ManagedPreferencesOpenReason.filesystemUnsafe,
+        preferencesOpenReason: ManagedPreferencesFailureReason.filesystemUnsafe,
       ),
       present: (w) => presented = w,
     );
@@ -30,7 +30,33 @@ void main() {
       diagnosticJournal.enabled
           ? {
               'state': ManagedWorkerFailureKind.invalid.index,
-              'code': ManagedPreferencesOpenReason.filesystemUnsafe.index,
+              'code': ManagedPreferencesFailureReason.filesystemUnsafe.index,
+            }
+          : isNull,
+    );
+  });
+
+  test('startup retains the distinct preference read refusal', () async {
+    diagnosticJournal.clear();
+    addTearDown(diagnosticJournal.clear);
+    Widget? presented;
+    await runStartup(
+      boot: () async => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.invalid,
+        preferencesReadReason: ManagedPreferencesFailureReason.filePermissions,
+      ),
+      present: (widget) => presented = widget,
+    );
+    expect(presented, isA<StartupFailedApp>());
+    final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
+    expect(retained?['profilePreferencesOpenFailed'], isNull);
+    final event = retained?['profilePreferencesReadFailed'] as Map?;
+    expect(
+      event?['values'],
+      diagnosticJournal.enabled
+          ? {
+              'state': ManagedWorkerFailureKind.invalid.index,
+              'code': ManagedPreferencesFailureReason.filePermissions.index,
             }
           : isNull,
     );

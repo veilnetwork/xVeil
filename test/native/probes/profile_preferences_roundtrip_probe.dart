@@ -15,9 +15,9 @@ const _second = '{"fixture":"synthetic preferences second"}';
 
 Future<void> main(List<String> args) async {
   final adminOwner = args.length == 3 && args.last == 'administrators';
-  if ((!adminOwner && args.length != 2) ||
-      !['exercise', 'verify'].contains(args.first)) {
-    throw ArgumentError('expected exercise/verify and a disposable profile');
+  const modes = ['exercise', 'verify', 'repair-legacy', 'reject-writable'];
+  if ((!adminOwner && args.length != 2) || !modes.contains(args.first)) {
+    throw ArgumentError('expected probe mode and a disposable profile');
   }
   final profile = Directory(args[1]);
   final report = <String, Object?>{};
@@ -40,7 +40,34 @@ Future<void> main(List<String> args) async {
     );
     final path = '${profile.path}/xveil.prefs.json';
     owner = await ManagedProfilePreferencesFile.open(path);
-    if (args.first == 'verify') {
+    if (args.first == 'repair-legacy' || args.first == 'reject-writable') {
+      final before = fs.inspect(path);
+      check('legacy_file_user_owned', before.ownedByCurrentUser);
+      check('legacy_file_shared', !before.ownerOnly);
+      if (args.first == 'repair-legacy') {
+        check('legacy_file_read_only', before.otherUsersHaveReadOnlyAccess);
+        check('legacy_content_preserved', await owner.read() == _second);
+        final repaired = fs.inspect(path);
+        check('legacy_file_same_object', before.sameObject(repaired));
+        check('legacy_file_private', repaired.ownerOnly);
+      } else {
+        check('foreign_writer_detected', !before.otherUsersHaveReadOnlyAccess);
+        try {
+          await owner.read();
+          check('foreign_writer_rejected', false);
+        } on ManagedWorkerFailure catch (error) {
+          check(
+            'foreign_writer_rejected',
+            error.preferencesReadReason ==
+                ManagedPreferencesFailureReason.filePermissions,
+          );
+        }
+        check(
+          'foreign_writable_file_untouched',
+          File(path).readAsStringSync() == _second,
+        );
+      }
+    } else if (args.first == 'verify') {
       check('cold_read_equal', await owner.read() == _second);
       check('cold_file_private', fs.inspect(path).ownerOnly);
     } else {
@@ -77,7 +104,10 @@ Future<void> main(List<String> args) async {
           'foreign_stale_refused',
           !acceptedWithOldReader && !await owner.write(_second),
         );
-        check('foreign_stale_unchanged', stale.readAsStringSync() == stalePayload);
+        check(
+          'foreign_stale_unchanged',
+          stale.readAsStringSync() == stalePayload,
+        );
         stale.deleteSync(); // This probe created this exact synthetic fixture.
       }
       // Windows may deny removing a file held without delete sharing. Such

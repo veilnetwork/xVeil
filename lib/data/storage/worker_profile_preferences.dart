@@ -1,8 +1,8 @@
 part of 'async_kv_log_store.dart';
 
-/// Bounded diagnostics for a failed native preference admission. Keep ordinal
+/// Bounded diagnostics for failed native preference operations. Keep ordinal
 /// values stable in exported reports. No native error text or paths.
-enum ManagedPreferencesOpenReason {
+enum ManagedPreferencesFailureReason {
   filesystemUnavailable,
   filesystemUnsafe,
   filesystemChanged,
@@ -13,30 +13,35 @@ enum ManagedPreferencesOpenReason {
   invalidRole,
   sqlite,
   other,
+  fileType,
+  fileOwner,
+  filePermissions,
 }
 
-ManagedPreferencesOpenReason _preferencesOpenReason(Object error) =>
+ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
     switch (error) {
       ManagedFsFailure(:final kind) => switch (kind) {
         ManagedFsFailureKind.unavailable =>
-          ManagedPreferencesOpenReason.filesystemUnavailable,
+          ManagedPreferencesFailureReason.filesystemUnavailable,
         ManagedFsFailureKind.unsafe =>
-          ManagedPreferencesOpenReason.filesystemUnsafe,
+          ManagedPreferencesFailureReason.filesystemUnsafe,
         ManagedFsFailureKind.changed =>
-          ManagedPreferencesOpenReason.filesystemChanged,
-        ManagedFsFailureKind.io => ManagedPreferencesOpenReason.filesystemIo,
+          ManagedPreferencesFailureReason.filesystemChanged,
+        ManagedFsFailureKind.io => ManagedPreferencesFailureReason.filesystemIo,
         ManagedFsFailureKind.missingCatalog =>
-          ManagedPreferencesOpenReason.missingCatalog,
+          ManagedPreferencesFailureReason.missingCatalog,
         ManagedFsFailureKind.erasurePending =>
-          ManagedPreferencesOpenReason.erasurePending,
+          ManagedPreferencesFailureReason.erasurePending,
       },
       ManagedLeaseFailure(kind: ManagedLeaseFailureKind.busy) ||
-      ManagedSqliteFailure(sqliteCode: 5) => ManagedPreferencesOpenReason.busy,
+      ManagedSqliteFailure(
+        sqliteCode: 5,
+      ) => ManagedPreferencesFailureReason.busy,
       ManagedLeaseFailure() ||
-      ManagedCatalogFailure() => ManagedPreferencesOpenReason.invalidRole,
-      ManagedSqliteFailure() => ManagedPreferencesOpenReason.sqlite,
-      FileSystemException() => ManagedPreferencesOpenReason.filesystemIo,
-      _ => ManagedPreferencesOpenReason.other,
+      ManagedCatalogFailure() => ManagedPreferencesFailureReason.invalidRole,
+      ManagedSqliteFailure() => ManagedPreferencesFailureReason.sqlite,
+      FileSystemException() => ManagedPreferencesFailureReason.filesystemIo,
+      _ => ManagedPreferencesFailureReason.other,
     };
 
 final class _OpenProfilePreferences extends _OpenConfig {
@@ -284,7 +289,7 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
       Directory(base).uri.resolve(ProfilePreferencesLayout.file),
     );
   } catch (error) {
-    final reason = _preferencesOpenReason(error);
+    final reason = _preferencesFailureReason(error);
     try {
       gate?.close();
     } catch (_) {
@@ -322,18 +327,24 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
     requireStablePath();
   }
 
-  void requireFile() {
-    requireHeld();
+  ManagedPathWitness? inspectFile() {
     if (FileSystemEntity.typeSync(file.path, followLinks: false) ==
         FileSystemEntityType.notFound) {
-      return;
+      return null;
     }
-    final witness = fs.inspect(file.path);
-    if (witness.directory ||
-        !witness.ownedByCurrentUser ||
-        !witness.ownerOnly) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    return fs.inspect(file.path);
+  }
+
+  ManagedPreferencesFailureReason? fileFailure(ManagedPathWitness? witness) {
+    if (witness == null) return null;
+    if (witness.directory) return ManagedPreferencesFailureReason.fileType;
+    if (!witness.ownedByCurrentUser) {
+      return ManagedPreferencesFailureReason.fileOwner;
     }
+    if (!witness.ownerOnly) {
+      return ManagedPreferencesFailureReason.filePermissions;
+    }
+    return null;
   }
 
   final rx = ReceivePort();
@@ -364,15 +375,41 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
             }
             message.reply.send(const _Ok(null));
           case _PreferencesReadReq():
-            requireFile();
-            final value = file.existsSync() ? file.readAsStringSync() : null;
+            requireHeld();
+            var witness = inspectFile();
+            if (Platform.isWindows &&
+                witness != null &&
+                !witness.directory &&
+                witness.ownedByCurrentUser &&
+                !witness.ownerOnly &&
+                witness.otherUsersHaveReadOnlyAccess) {
+              witness = windows.restrictLegacyPreferenceReadAccess(
+                file.path,
+                witness,
+              );
+              requireHeld();
+            }
+            final failure = fileFailure(witness);
+            if (failure != null) {
+              message.reply.send(
+                _ManagedWorkerErr(
+                  ManagedWorkerFailureKind.invalid,
+                  preferencesReadReason: failure,
+                ),
+              );
+              break;
+            }
+            final value = witness == null ? null : file.readAsStringSync();
             requireHeld();
             message.reply.send(_Ok(value));
           case _PreferencesWriteReq(:final contents):
             if (config.writeGate != null) {
               await _awaitManagedEraseAdmission(config.writeGate);
             }
-            requireFile();
+            requireHeld();
+            if (fileFailure(inspectFile()) != null) {
+              throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+            }
             final written = writePrivateFileAtomicallySync(file, contents);
             requireHeld();
             message.reply.send(_Ok(written));
@@ -386,7 +423,14 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
         }
       } catch (error) {
-        message.reply.send(_workerErrorReply(error, managed: true));
+        message.reply.send(
+          message is _PreferencesReadReq
+              ? _ManagedWorkerErr(
+                  _managedFailureKind(error),
+                  preferencesReadReason: _preferencesFailureReason(error),
+                )
+              : _workerErrorReply(error, managed: true),
+        );
       } finally {
         subscription.resume();
       }

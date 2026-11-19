@@ -30,7 +30,12 @@ void main() {
         ]),
         current,
       ),
-      (ownerOnly: true, safeAncestor: true, ownedByCurrentUser: true),
+      (
+        ownerOnly: true,
+        safeAncestor: true,
+        ownedByCurrentUser: true,
+        otherUsersHaveReadOnlyAccess: true,
+      ),
     );
   });
   test(
@@ -38,7 +43,12 @@ void main() {
     () {
       expect(
         managedWindowsAclPolicy(facts([rule('S-1-1-0', 0x120089)]), current),
-        (ownerOnly: false, safeAncestor: true, ownedByCurrentUser: true),
+        (
+          ownerOnly: false,
+          safeAncestor: true,
+          ownedByCurrentUser: true,
+          otherUsersHaveReadOnlyAccess: true,
+        ),
       );
       for (final mask in [
         0x10000,
@@ -77,6 +87,40 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'preference repair rejects any foreign access that can change a file',
+    () {
+      const everyone = 'S-1-1-0';
+      expect(
+        managedWindowsAclPolicy(
+          facts([rule(everyone, 0x1200a9)]),
+          current,
+        )!.otherUsersHaveReadOnlyAccess,
+        isTrue,
+      );
+      for (final mask in [
+        0x2, // write data
+        0x4, // append data
+        0x10, // write extended attributes
+        0x100, // write attributes
+        0x10000, // delete
+        0x40000, // change DACL
+        0x80000, // change owner
+        0x10000000, // generic all
+        0x40000000, // generic write
+      ]) {
+        expect(
+          managedWindowsAclPolicy(
+            facts([rule(everyone, mask)]),
+            current,
+          )!.otherUsersHaveReadOnlyAccess,
+          isFalse,
+          reason: 'foreign access mask $mask',
+        );
+      }
+    },
+  );
   test(
     'unknown owners and malformed/incomplete grants cannot establish privacy',
     () {

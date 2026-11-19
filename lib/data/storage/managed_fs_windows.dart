@@ -57,7 +57,12 @@ String _currentSid() {
 
 /// Pure policy over the existing handle-bound native ACL probe. Ignoring deny
 /// rules can only refuse more often. Unknown/malformed grants fail closed.
-({bool ownerOnly, bool safeAncestor, bool ownedByCurrentUser})?
+({
+  bool ownerOnly,
+  bool safeAncestor,
+  bool ownedByCurrentUser,
+  bool otherUsersHaveReadOnlyAccess,
+})?
 managedWindowsAclPolicy(Object? value, String currentSid) {
   if (!RegExp(r'^S-1-[0-9]+(?:-[0-9]+)+$').hasMatch(currentSid) ||
       value is! Map ||
@@ -74,6 +79,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
   }
   var private = true;
   var stable = owner == currentSid || _trustedSystemSids.contains(owner);
+  var otherUsersHaveReadOnlyAccess = true;
   for (final rule in rules) {
     if (rule is! Map ||
         rule['allow'] is! bool ||
@@ -88,6 +94,14 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
     }
     if (sid == currentSid || _trustedSystemSids.contains(sid)) continue;
     if (rights != 0) private = false;
+    // A leaf must also exclude content/attribute writes. The ancestor mask
+    // below intentionally allows rights that can add children to directories.
+    const readAndExecute =
+        win.FILE_GENERIC_READ |
+        win.FILE_GENERIC_EXECUTE |
+        win.GENERIC_READ |
+        win.GENERIC_EXECUTE;
+    if (rights & ~readAndExecute != 0) otherUsersHaveReadOnlyAccess = false;
     // DELETE | FILE_DELETE_CHILD | WRITE_DAC | WRITE_OWNER | GENERIC_ALL |
     // GENERIC_WRITE. Creating unrelated children alone does not replace ours.
     if (rights & 0x500d0040 != 0) stable = false;
@@ -96,6 +110,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
     ownerOnly: private,
     safeAncestor: stable,
     ownedByCurrentUser: owner == currentSid,
+    otherUsersHaveReadOnlyAccess: otherUsersHaveReadOnlyAccess,
   );
 }
 
@@ -143,13 +158,13 @@ ManagedPathWitness inspect(String path) {
     }
     final f = info.ref;
     return ManagedPathWitness(
-      identity:
-          '${f.dwVolumeSerialNumber}:${f.nFileIndexHigh}:${f.nFileIndexLow}:${facts!['owner']}',
+      identity: _fileIdentity(f, facts!['owner'] as String),
       directory: f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0,
       ownerOnly: policy.ownerOnly,
       ownedByCurrentUser: policy.ownedByCurrentUser,
       ownedByWindowsAdministrators: facts['owner'] == _administratorsSid,
       safeAncestor: policy.safeAncestor,
+      otherUsersHaveReadOnlyAccess: policy.otherUsersHaveReadOnlyAccess,
     );
   } finally {
     if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);
@@ -157,6 +172,10 @@ ManagedPathWitness inspect(String path) {
     calloc.free(name);
   }
 }
+
+String _fileIdentity(win.BY_HANDLE_FILE_INFORMATION file, String owner) =>
+    '${file.dwVolumeSerialNumber}:${file.nFileIndexHigh}:'
+    '${file.nFileIndexLow}:$owner';
 
 /// Flush an existing, already-admitted source parent. Unlike ordinary managed
 /// publication, recovery has no live MOVEFILE_WRITE_THROUGH result to retain.
@@ -257,12 +276,46 @@ bool createPrivateDirectory(String path) {
 /// grant through publication; this is not a path admission capability.
 bool createPrivateFile(String path) {
   final sid = _currentSid();
+  final attributes = calloc<win.SECURITY_ATTRIBUTES>();
+  final name = path.toNativeUtf16();
+  try {
+    return _withPrivateFileDescriptor(sid, (descriptor) {
+      attributes.ref
+        ..nLength = sizeOf<win.SECURITY_ATTRIBUTES>()
+        ..lpSecurityDescriptor = descriptor
+        ..bInheritHandle = 0;
+      final handle = win.CreateFile(
+        name,
+        win.GENERIC_WRITE,
+        win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
+        attributes,
+        win.CREATE_NEW,
+        win.FILE_ATTRIBUTE_NORMAL | win.FILE_FLAG_OPEN_REPARSE_POINT,
+        0,
+      );
+      if (handle != win.INVALID_HANDLE_VALUE) {
+        win.CloseHandle(handle);
+        return true;
+      }
+      final error = win.GetLastError();
+      if (error == win.ERROR_ALREADY_EXISTS ||
+          error == win.ERROR_FILE_EXISTS ||
+          FileSystemEntity.typeSync(path, followLinks: false) !=
+              FileSystemEntityType.notFound) {
+        return false;
+      }
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    });
+  } finally {
+    calloc.free(attributes);
+    calloc.free(name);
+  }
+}
+
+T _withPrivateFileDescriptor<T>(String sid, T Function(Pointer<Void>) action) {
   final sddl = 'O:${sid}D:P(A;;FA;;;$sid)(A;;FA;;;SY)(A;;FA;;;BA)'
       .toNativeUtf16();
   final descriptor = calloc<Pointer<Void>>();
-  final attributes = calloc<win.SECURITY_ATTRIBUTES>();
-  final name = path.toNativeUtf16();
-  var handle = win.INVALID_HANDLE_VALUE;
   try {
     final convert = DynamicLibrary.open('advapi32.dll')
         .lookupFunction<
@@ -283,35 +336,144 @@ bool createPrivateFile(String path) {
         descriptor.value == nullptr) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
-    attributes.ref
-      ..nLength = sizeOf<win.SECURITY_ATTRIBUTES>()
-      ..lpSecurityDescriptor = descriptor.value
-      ..bInheritHandle = 0;
-    handle = win.CreateFile(
-      name,
-      win.GENERIC_WRITE,
-      win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
-      attributes,
-      win.CREATE_NEW,
-      win.FILE_ATTRIBUTE_NORMAL | win.FILE_FLAG_OPEN_REPARSE_POINT,
-      0,
-    );
-    if (handle != win.INVALID_HANDLE_VALUE) return true;
-    final error = win.GetLastError();
-    if (error == win.ERROR_ALREADY_EXISTS ||
-        error == win.ERROR_FILE_EXISTS ||
-        FileSystemEntity.typeSync(path, followLinks: false) !=
-            FileSystemEntityType.notFound) {
-      return false;
-    }
-    throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    return action(descriptor.value);
   } finally {
-    if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);
     if (descriptor.value != nullptr) win.LocalFree(descriptor.value);
     calloc.free(descriptor);
-    calloc.free(attributes);
     calloc.free(sddl);
+  }
+}
+
+/// Tighten the ACL of an existing user-owned preferences file that legacy
+/// xVeil could create with inherited read grants. The caller holds the profile
+/// lease. This is a metadata change on the witnessed file handle; it writes
+/// no preference bytes, so a concurrent open or an old reader cannot expose
+/// new content or overwrite newer settings.
+ManagedPathWitness restrictLegacyPreferenceReadAccess(
+  String path,
+  ManagedPathWitness expected,
+) {
+  if (expected.directory ||
+      !expected.ownedByCurrentUser ||
+      !expected.otherUsersHaveReadOnlyAccess) {
+    throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+  }
+  final sid = _currentSid();
+  final name = path.toNativeUtf16();
+  final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
+  var handle = win.INVALID_HANDLE_VALUE;
+  try {
+    const readControl = 0x00020000;
+    const writeDac = 0x00040000;
+    handle = win.CreateFile(
+      name,
+      win.FILE_READ_ATTRIBUTES | readControl | writeDac,
+      win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
+      nullptr,
+      win.OPEN_EXISTING,
+      win.FILE_FLAG_OPEN_REPARSE_POINT,
+      0,
+    );
+    if (handle == win.INVALID_HANDLE_VALUE ||
+        win.GetFileInformationByHandle(handle, info) == 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+    final file = info.ref;
+    if (file.dwFileAttributes &
+                (win.FILE_ATTRIBUTE_DIRECTORY |
+                    win.FILE_ATTRIBUTE_REPARSE_POINT) !=
+            0 ||
+        file.nNumberOfLinks != 1 ||
+        expected.identity != _fileIdentity(file, sid)) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    final current = inspect(path);
+    if (!expected.sameObject(current) ||
+        !current.otherUsersHaveReadOnlyAccess) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    if (current.ownerOnly) return current;
+    _withPrivateFileDescriptor(
+      sid,
+      (descriptor) => _setPrivateFileDacl(handle, descriptor),
+    );
+    final repaired = inspect(path);
+    if (!expected.sameObject(repaired) || !repaired.ownerOnly) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    return repaired;
+  } finally {
+    if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);
+    calloc.free(info);
     calloc.free(name);
+  }
+}
+
+void _setPrivateFileDacl(int handle, Pointer<Void> descriptor) {
+  final acl = calloc<Pointer<Void>>();
+  final present = calloc<Int32>();
+  final defaulted = calloc<Int32>();
+  try {
+    final advapi = DynamicLibrary.open('advapi32.dll');
+    final getDacl = advapi
+        .lookupFunction<
+          Int32 Function(
+            Pointer<Void>,
+            Pointer<Int32>,
+            Pointer<Pointer<Void>>,
+            Pointer<Int32>,
+          ),
+          int Function(
+            Pointer<Void>,
+            Pointer<Int32>,
+            Pointer<Pointer<Void>>,
+            Pointer<Int32>,
+          )
+        >('GetSecurityDescriptorDacl');
+    if (getDacl(descriptor, present, acl, defaulted) == 0 ||
+        present.value == 0 ||
+        acl.value == nullptr) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    final setSecurity = advapi
+        .lookupFunction<
+          Uint32 Function(
+            IntPtr,
+            Int32,
+            Uint32,
+            Pointer<Void>,
+            Pointer<Void>,
+            Pointer<Void>,
+            Pointer<Void>,
+          ),
+          int Function(
+            int,
+            int,
+            int,
+            Pointer<Void>,
+            Pointer<Void>,
+            Pointer<Void>,
+            Pointer<Void>,
+          )
+        >('SetSecurityInfo');
+    const fileObject = 1;
+    const protectedDacl = 0x80000000;
+    if (setSecurity(
+          handle,
+          fileObject,
+          win.DACL_SECURITY_INFORMATION | protectedDacl,
+          nullptr,
+          nullptr,
+          acl.value,
+          nullptr,
+        ) !=
+        0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+  } finally {
+    calloc.free(defaulted);
+    calloc.free(present);
+    calloc.free(acl);
   }
 }
 
