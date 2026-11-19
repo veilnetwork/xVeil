@@ -16,6 +16,20 @@ class _Storage extends HiddenVolumeStorage {
   _Storage()
     : super(({required password, required create}) => FakeKvLogStore());
   final failedReads = <String>{};
+  Future<void> Function(String id)? beforeFailureWrite;
+
+  @override
+  Future<bool> markMessageStatus(
+    String conversationId,
+    String messageId,
+    MessageStatus status,
+  ) async {
+    if (status == MessageStatus.failed) {
+      await beforeFailureWrite?.call(messageId);
+    }
+    return super.markMessageStatus(conversationId, messageId, status);
+  }
+
   @override
   Future<List<Message>> loadMessages(String id, {int? limit}) async {
     if (failedReads.contains(id)) throw StateError('damaged conversation');
@@ -134,6 +148,56 @@ void main() {
     expect(ids(2), ['slow']);
     expect(ids(3), ['healthy']);
     expect(transport.gates['slow']!.isCompleted, isFalse);
+  });
+
+  test('shutdown joins an admitted retry status write and skips the next', () async {
+    final old = DateTime.now().subtract(const Duration(hours: 2));
+    await queue(2, 'first-expired', timestamp: old);
+    await queue(
+      2,
+      'second-expired',
+      seq: 2,
+      timestamp: old.add(const Duration(seconds: 1)),
+    );
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    final writes = <String>[];
+    storage.beforeFailureWrite = (id) {
+      writes.add(id);
+      if (!entered.isCompleted) entered.complete();
+      return release.future;
+    };
+
+    final retry = service.reconcileOnConnect();
+    runs.add(retry);
+    await entered.future;
+    var closed = false;
+    final closing = service.dispose().then<void>((_) => closed = true);
+    try {
+      await barrier();
+      expect(closed, isFalse);
+    } finally {
+      release.complete();
+      await Future.wait([retry, closing]);
+    }
+    expect(writes, ['first-expired']);
+    expect(
+      (await storage.loadMessageById(_id(2).hex, 'first-expired'))?.status,
+      MessageStatus.failed,
+    );
+    expect(
+      (await storage.loadMessageById(_id(2).hex, 'second-expired'))?.status,
+      MessageStatus.sent,
+    );
+
+    final reopened = MessagingService(transport, storage);
+    addTearDown(reopened.dispose);
+    await reopened.reconcileOnConnect();
+    expect(writes, ['first-expired', 'second-expired']);
+    expect(
+      (await storage.loadMessageById(_id(2).hex, 'second-expired'))?.status,
+      MessageStatus.failed,
+    );
   });
 
   test(
