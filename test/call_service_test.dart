@@ -2418,6 +2418,104 @@ void main() {
       });
     }
 
+    for (final outcome in [
+      'already waiting',
+      'snapshot pending',
+      'snapshot outlasts admission',
+      'no admission',
+    ]) {
+      test('liveness lets a bounded relay reconnect finish: $outcome', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final snapshot = Completer<DateTime?>();
+          final admissionBeforeSnapshot =
+              outcome == 'snapshot outlasts admission';
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..repairSucceeds = false
+            ..relayGate = admissionBeforeSnapshot ? Completer<bool>() : null
+            ..readSnapshot = (() => snapshot.future);
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const callId = 'relay-rebuild-crosses-liveness';
+          wire.onCallSignal!(peer, offer(callId));
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          media.rxAt = clock.now();
+          async.elapse(kCallMediaRepairAfter);
+          expect(media.repairs, 1);
+          expect(media.activeTransport, isNull);
+
+          final snapshotPending =
+              outcome == 'snapshot pending' || admissionBeforeSnapshot;
+          final expiryTick = kCallLivenessTimeout + kCallHeartbeatInterval;
+          const offset = Duration(milliseconds: 250);
+          async.elapse(
+            expiryTick - kCallMediaRepairAfter +
+                (snapshotPending ? offset : -offset),
+          );
+          expect(media.snapshotReads, snapshotPending ? 1 : 0);
+          network.add(NetworkAttachment.cellular);
+          media.cameraStopped.complete();
+          async.flushMicrotasks();
+          wire.sent.clear();
+          if (admissionBeforeSnapshot) {
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(media.activeTransport, isNull);
+          }
+          async.elapse(offset);
+          snapshot.complete(null);
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(media.switches, [
+            if (admissionBeforeSnapshot) CallTransportKind.relay,
+          ]);
+          expect(wire.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          if (!snapshotPending) {
+            expect(media.snapshotReads, 0);
+            expect(
+              wire.sent.where((s) => s.type == CallSignalType.health),
+              isNotEmpty,
+            );
+          }
+
+          if (outcome == 'no admission') {
+            async.elapse(kCallRelayCandidateRetry - offset);
+            expect(svc.current, isNull);
+            final end = wire.sent.where((s) => s.type == CallSignalType.end);
+            expect(end.single.reason, CallEndReason.error);
+            expect(media.switches, isEmpty);
+          } else {
+            if (admissionBeforeSnapshot) {
+              media.relayGate!.complete(true);
+            } else {
+              admissions.add(null);
+            }
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(media.activeTransport, CallTransportKind.relay);
+            media.rxAt = clock.now();
+            async.elapse(kCallHeartbeatInterval);
+            expect(svc.current?.status, CallStatus.active);
+            expect(wire.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          }
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
       test('keeps $route media in place while the local network is offline', () {
         fakeAsync((async) {
@@ -10177,7 +10275,7 @@ class _GatedRepairMedia extends _FakeMedia {
   }
 }
 
-class _RepairThenRelayMedia extends _FakeMedia {
+class _RepairThenRelayMedia extends _SnapshotMedia {
   final operations = CallMediaRouteOperations();
   final cameraStopped = Completer<void>();
   bool repairSucceeds = true;
