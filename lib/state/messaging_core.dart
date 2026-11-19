@@ -2913,13 +2913,13 @@ class MessagingService {
   Future<List<PendingClearRequest>> pendingClearRequests() =>
       _conversationAdmin.pendingClearRequests();
 
-  /// Answer one. [accept] carries it out; either way the record goes and the
-  /// requester is told nothing.
   /// Put a request in the list a person answers — for a GROUP request, whose
   /// arrival the group service decides, not this layer.
   Future<void> rememberClearRequest(PendingClearRequest request) =>
       _conversationAdmin.rememberClearRequest(request);
 
+  /// Returns true when the exact pending request was accepted and applied.
+  /// Declines and stale answers return false. The requester receives no reply.
   Future<bool> answerClearRequest(
     PendingClearRequest request, {
     required bool accept,
@@ -4757,6 +4757,8 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    final clearRequests = _conversationAdmin.pendingClearRequestWrites;
+    if (clearRequests != null) await clearRequests;
     await _messageDelivery.quiesce();
     await largeFramesClosed;
     await postReceiptsClosed;

@@ -599,59 +599,91 @@ class _MessagingConversationAdmin {
         await _owner._storage.getSetting(kPendingClearRequestsKey),
       );
 
+  // The fallback messaging provider can be replaced on the same container.
+  static final _clearRequestTails = Expando<Future<void>>();
+  Future<void>? _clearRequestTail;
+
+  Future<void>? get pendingClearRequestWrites => _clearRequestTail;
+
+  Future<T> _withClearRequests<T>(Future<T> Function() action) {
+    // Direct, group and UI actions update the same stored list.
+    if (_owner._disposed) {
+      return Future.error(StateError('clear request owner is closing'));
+    }
+    final storage = _owner._storage;
+    final previous = _clearRequestTails[storage] ?? Future<void>.value();
+    final result = previous.then((_) => action());
+    late final Future<void> tail;
+    tail = result.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_clearRequestTail, tail)) _clearRequestTail = null;
+      if (identical(_clearRequestTails[storage], tail)) {
+        _clearRequestTails[storage] = null;
+      }
+    });
+    _clearRequestTails[storage] = _clearRequestTail = tail;
+    return result;
+  }
+
   /// Remember a request nobody has answered yet.
   ///
   /// The watermark is stored ALREADY in this device's names, because the
   /// translation depends on which names the requester used and the record does
   /// not keep those — re-deriving it a day later would be guessing.
-  Future<void> rememberClearRequest(PendingClearRequest request) async {
-    final folded = foldPendingClearRequest(
-      await pendingClearRequests(),
-      request,
-    );
-    await _owner._storage.putSetting(
-      kPendingClearRequestsKey,
-      encodePendingClearRequests(folded),
-    );
-    _owner._signal();
-  }
+  Future<void> rememberClearRequest(PendingClearRequest request) =>
+      _withClearRequests(() async {
+        final folded = foldPendingClearRequest(
+          await pendingClearRequests(),
+          request,
+        );
+        await _owner._storage.putSetting(
+          kPendingClearRequestsKey,
+          encodePendingClearRequests(folded),
+        );
+        _owner._signal();
+      });
 
   /// Answer one: [accept] carries it out, otherwise it is simply forgotten.
   ///
-  /// Either way the record goes, and the requester is told nothing — the
-  /// no-oracle rule holds here as everywhere else in this layer. A request for
-  /// a chat whose messages have since been cleared by other means applies to
-  /// nothing, which is a no-op rather than an error.
+  /// Only the exact revision shown to the user may be answered. Rejected or
+  /// successfully applied requests are removed locally.
   Future<bool> answerClearRequest(
     PendingClearRequest request, {
     required bool accept,
-  }) async {
-    final remaining = [
-      for (final held in await pendingClearRequests())
-        if (held.key != request.key) held,
-    ];
-    await _owner._storage.putSetting(
-      kPendingClearRequestsKey,
-      encodePendingClearRequests(remaining),
-    );
-    if (accept && request.isGroup) {
-      // A GROUP's messages live in the group service, not in this store, and
-      // the conversation store has no row under a group id to clear — so the
-      // group request goes where its messages are. Unwired means there is no
-      // group service to carry it out; saying yes then does nothing rather
-      // than clearing a 1:1 chat that happens to share nothing with it.
-      await _owner.onGroupClearAccepted?.call(request);
-    } else if (accept) {
-      await _owner._storage.applyRemoteClear(
-        NodeId.fromHex(request.chatHex),
-        request.requesterHex,
-        request.seq,
-        request.watermark,
-        selfHex: await _owner._selfHex(),
+  }) {
+    final watermark = Map.of(request.watermark);
+    return _withClearRequests(() async {
+      final pending = await pendingClearRequests();
+      final held = pending.where((held) => held.key == request.key).firstOrNull;
+      if (held == null ||
+          held.atMs != request.atMs ||
+          held.seq != request.seq ||
+          held.watermark.length != watermark.length ||
+          watermark.entries.any((e) => held.watermark[e.key] != e.value)) {
+        return false;
+      }
+      if (accept && held.isGroup) {
+        final apply = _owner.onGroupClearAccepted;
+        if (apply == null) return false;
+        await apply(held);
+      } else if (accept) {
+        await _owner._storage.applyRemoteClear(
+          NodeId.fromHex(held.chatHex),
+          held.requesterHex,
+          held.seq,
+          held.watermark,
+          selfHex: await _owner._selfHex(),
+        );
+      }
+      await _owner._storage.putSetting(
+        kPendingClearRequestsKey,
+        encodePendingClearRequests([
+          for (final other in pending)
+            if (other.key != held.key) other,
+        ]),
       );
-    }
-    _owner._signal();
-    return accept;
+      _owner._signal();
+      return accept;
+    });
   }
 
   Future<void> markRead(String conversationId) async {
