@@ -868,7 +868,9 @@ class CallService {
         devLog(() => 'xVeil[call-media]: local network handover on relay');
         return;
       }
-      if (!_canInspectDirectSession(call)) return;
+      if (!_isActiveDirectCall(call)) return;
+      // A route operation can still be running when the network changes.
+      // Keep the observation for the watchdog once it can inspect the route.
       _directNetworkHandoverAt = _now();
       unawaited(_checkLostDirectSession(call));
     }, onError: (Object _) {});
@@ -2361,12 +2363,15 @@ class CallService {
     await _followRelayFallback(call.peer, call.callId, retryBy: retryBy);
   }
 
-  bool _canInspectDirectSession(Call call) =>
-      !_disposed &&
+  bool _isActiveDirectCall(Call call) =>
       call.status == CallStatus.active &&
       call.transport == CallTransportKind.p2p &&
       call.localPosture == CallPosture.direct &&
-      call.peerPosture == CallPosture.direct &&
+      call.peerPosture == CallPosture.direct;
+
+  bool _canInspectDirectSession(Call call) =>
+      !_disposed &&
+      _isActiveDirectCall(call) &&
       _relayFallbackFlight == null &&
       _media?.isRepairingReceiveSession == false;
 
