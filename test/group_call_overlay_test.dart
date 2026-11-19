@@ -7,6 +7,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/features/calls/group_call_overlay.dart';
+import 'package:xveil/features/calls/video_frame_view.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
@@ -45,13 +46,14 @@ GroupCall _call({
   );
 }
 
-Widget _host(GroupCallRoomView child) => MaterialApp(
-  locale: const Locale('en'),
-  localizationsDelegates: AppL10n.localizationsDelegates,
-  supportedLocales: AppL10n.supportedLocales,
-  theme: ThemeData.dark(),
-  home: Scaffold(body: child),
-);
+Widget _host(GroupCallRoomView child, {Locale locale = const Locale('en')}) =>
+    MaterialApp(
+      locale: locale,
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      theme: ThemeData.dark(),
+      home: Scaffold(body: child),
+    );
 
 void main() {
   // What the room is called at the top of a call. It used to be `groupId.short`
@@ -276,6 +278,96 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('local mirror follows the capture source before roster updates', (
+    tester,
+  ) async {
+    final localFrame = ValueNotifier<VeilVideoFrame?>(null);
+    final peerFrame = ValueNotifier<VeilVideoFrame?>(null);
+    addTearDown(localFrame.dispose);
+    addTearDown(peerFrame.dispose);
+    final camera = _call(status: GroupCallStatus.active, video: true);
+    final sharing = camera.copyWith(screenOn: true);
+    final selfId = _id(1);
+    final advertised = sharing.participants[selfId.hex]!;
+    final resumedCamera = camera.copyWith(
+      participants: {
+        ...camera.participants,
+        selfId.hex: advertised.copyWith(
+          media: const CallMedia(audio: true, video: true, screen: true),
+        ),
+      },
+    );
+
+    Future<void> showRoom(GroupCall call) => tester.pumpWidget(
+      _host(
+        GroupCallRoomView(
+          call: call,
+          title: 'Private room',
+          selfId: selfId,
+          isAdmin: false,
+          onAccept: () {},
+          onDecline: () {},
+          onLeave: () {},
+          onEndEveryone: () {},
+          onMic: () {},
+          onCamera: () {},
+          onScreen: () {},
+          localVideoFrame: localFrame,
+          videoFrameFor: (_) => peerFrame,
+        ),
+      ),
+    );
+
+    CallVideoFrameView videoFor(String id) =>
+        tester.widget(find.byKey(ValueKey('group-call-video-$id')));
+
+    await showRoom(camera);
+    expect(videoFor(selfId.short).mirrored, isTrue);
+    await showRoom(sharing);
+    expect(videoFor(selfId.short).mirrored, isFalse);
+    await showRoom(resumedCamera);
+    expect(videoFor(selfId.short).mirrored, isTrue);
+    expect(videoFor(_id(2).short).mirrored, isFalse);
+  });
+
+  testWidgets('screen share badge fits the tile with large text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 830);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpWidget(
+      _host(
+        GroupCallRoomView(
+          call: _call(status: GroupCallStatus.active, peerScreen: true),
+          title: 'Group call',
+          selfId: _id(1),
+          isAdmin: false,
+          onAccept: () {},
+          onDecline: () {},
+          onLeave: () {},
+          onEndEveryone: () {},
+          onMic: () {},
+          onCamera: () {},
+          onScreen: () {},
+        ),
+        locale: const Locale('ru'),
+      ),
+    );
+    final badge = find.byKey(
+      const ValueKey('group-call-screen-badge-02020202'),
+    );
+    final tile = find.ancestor(of: badge, matching: find.byType(ClipRRect));
+    expect(tile, findsOneWidget);
+    expect(
+      tester.getRect(badge).right,
+      lessThanOrEqualTo(tester.getRect(tile).right),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('mini room stays bounded and exposes expand/leave targets', (
