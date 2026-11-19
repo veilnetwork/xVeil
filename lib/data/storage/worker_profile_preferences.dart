@@ -18,6 +18,11 @@ enum ManagedPreferencesFailureReason {
   filePermissions,
 }
 
+bool _isWindowsPreferenceReadBusy(Object error) =>
+    Platform.isWindows &&
+    error is FileSystemException &&
+    (error.osError?.errorCode == 32 || error.osError?.errorCode == 33);
+
 ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
     switch (error) {
       ManagedFsFailure(:final kind) => switch (kind) {
@@ -40,6 +45,8 @@ ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
       ManagedLeaseFailure() ||
       ManagedCatalogFailure() => ManagedPreferencesFailureReason.invalidRole,
       ManagedSqliteFailure() => ManagedPreferencesFailureReason.sqlite,
+      FileSystemException() when _isWindowsPreferenceReadBusy(error) =>
+        ManagedPreferencesFailureReason.busy,
       FileSystemException() => ManagedPreferencesFailureReason.filesystemIo,
       _ => ManagedPreferencesFailureReason.other,
     };
@@ -377,33 +384,52 @@ void _profilePreferencesEntry(
             }
             message.reply.send(const _Ok(null));
           case _PreferencesReadReq():
-            requireHeld();
-            var witness = inspectFile();
-            if (Platform.isWindows &&
-                witness != null &&
-                !witness.directory &&
-                witness.ownedByCurrentUser &&
-                !witness.ownerOnly &&
-                witness.otherUsersHaveReadOnlyAccess) {
-              witness = windows.restrictLegacyPreferenceReadAccess(
-                file.path,
-                witness,
-              );
+            final elapsed = Stopwatch()..start();
+            FileSystemException? contention;
+            while (true) {
               requireHeld();
+              var witness = inspectFile();
+              if (Platform.isWindows &&
+                  witness != null &&
+                  !witness.directory &&
+                  witness.ownedByCurrentUser &&
+                  !witness.ownerOnly &&
+                  witness.otherUsersHaveReadOnlyAccess) {
+                witness = windows.restrictLegacyPreferenceReadAccess(
+                  file.path,
+                  witness,
+                );
+                requireHeld();
+              }
+              final failure = fileFailure(witness);
+              if (failure != null) {
+                message.reply.send(
+                  _ManagedWorkerErr(
+                    ManagedWorkerFailureKind.invalid,
+                    preferencesReadReason: failure,
+                  ),
+                );
+                break;
+              }
+              // A previously busy file disappearing does not establish an
+              // empty preference store. Keep the original refusal in that case.
+              if (witness == null && contention != null) throw contention;
+              try {
+                final value = witness == null ? null : file.readAsStringSync();
+                requireHeld();
+                message.reply.send(_Ok(value));
+                break;
+              } on FileSystemException catch (error) {
+                if (!_isWindowsPreferenceReadBusy(error) ||
+                    elapsed.elapsed >= const Duration(seconds: 1)) {
+                  rethrow;
+                }
+                contention = error;
+                // Antivirus or another process can temporarily deny sharing.
+                // Retry with the same grant and freshly checked file witness.
+                await Future<void>.delayed(const Duration(milliseconds: 50));
+              }
             }
-            final failure = fileFailure(witness);
-            if (failure != null) {
-              message.reply.send(
-                _ManagedWorkerErr(
-                  ManagedWorkerFailureKind.invalid,
-                  preferencesReadReason: failure,
-                ),
-              );
-              break;
-            }
-            final value = witness == null ? null : file.readAsStringSync();
-            requireHeld();
-            message.reply.send(_Ok(value));
           case _PreferencesWriteReq(:final contents):
             if (config.writeGate != null) {
               await _awaitManagedEraseAdmission(inbox, config.writeGate);
@@ -428,7 +454,9 @@ void _profilePreferencesEntry(
         message.reply.send(
           message is _PreferencesReadReq
               ? _ManagedWorkerErr(
-                  _managedFailureKind(error),
+                  _isWindowsPreferenceReadBusy(error)
+                      ? ManagedWorkerFailureKind.busy
+                      : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),
                 )
               : _workerErrorReply(error, managed: true),

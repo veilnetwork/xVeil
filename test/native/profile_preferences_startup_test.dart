@@ -1,13 +1,17 @@
 @Timeout(Duration(minutes: 3))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:ffi' show nullptr;
 import 'dart:isolate';
 import 'package:crypto/crypto.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:win32/win32.dart' as win;
 import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
@@ -102,6 +106,89 @@ void main() {
     SharedPreferencesStorePlatform.instance = original;
     support.deleteSync(recursive: true);
   });
+
+  for (final temporary in [true, false]) {
+    test(
+      'Windows startup while a file is held open (temporary=$temporary)',
+      () async {
+        // Use the same local data directory as the installed Windows app.
+        support.deleteSync();
+        support = Directory(Platform.environment['LOCALAPPDATA']!)
+            .createTempSync('xveil-prefs-contention-');
+        const stored = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}';
+        final writer = await open(prefs());
+        expect(await writer.write(stored), isTrue);
+        await writer.close();
+        final name = prefs().toNativeUtf16();
+        final handle = win.CreateFile(
+          name,
+          win.GENERIC_READ,
+          0,
+          nullptr,
+          win.OPEN_EXISTING,
+          win.FILE_ATTRIBUTE_NORMAL,
+          0,
+        );
+        calloc.free(name);
+        expect(handle, isNot(win.INVALID_HANDLE_VALUE));
+        var held = true;
+        void unlock() {
+          if (!held) return;
+          held = false;
+          expect(win.CloseHandle(handle), isNot(0));
+        }
+
+        Timer? release;
+        try {
+          expect(
+            () => File(prefs()).readAsStringSync(),
+            throwsA(
+              isA<FileSystemException>().having(
+                (error) => error.osError?.errorCode,
+                'Windows error code',
+                32,
+              ),
+            ),
+          );
+          final startup = install();
+          if (temporary) {
+            release = Timer(const Duration(milliseconds: 250), unlock);
+            expect(
+              await startup.timeout(const Duration(seconds: 5)),
+              AppProfiles.defaultName,
+            );
+          } else {
+            await expectLater(
+              startup.timeout(const Duration(seconds: 5)),
+              throwsA(
+                isA<ManagedWorkerFailure>()
+                    .having(
+                      (error) => error.kind,
+                      'kind',
+                      ManagedWorkerFailureKind.busy,
+                    )
+                    .having(
+                      (error) => error.preferencesReadReason,
+                      'read reason',
+                      ManagedPreferencesFailureReason.busy,
+                    ),
+              ),
+            );
+            expect(SharedPreferencesStorePlatform.instance, same(legacy));
+            expect(await legacy.getAll(), {'flutter.locale': 'ru'});
+          }
+        } finally {
+          release?.cancel();
+          unlock();
+        }
+        if (!temporary) expect(await install(), AppProfiles.defaultName);
+        final settings = await SharedPreferencesStorePlatform.instance.getAll();
+        expect(settings['flutter.locale'], 'es');
+        expect(File(prefs()).readAsStringSync(), stored);
+      },
+      skip: !Platform.isWindows,
+    );
+  }
 
   test('preference admission preserves the typed filesystem reason', () async {
     Directory(base()).createSync(recursive: true);
