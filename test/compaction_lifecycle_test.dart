@@ -143,15 +143,18 @@ void main() {
   }
 
   final library = Platform.environment['XVEIL_HV_DYLIB'];
-  for (final (lockAfterRewrite, switchAfterRestore) in [
-    (false, false),
-    (true, false),
-    (false, true),
+  for (final (lockAfterRewrite, switchAfterRestore, refuseRestore) in [
+    (false, false, false),
+    (true, false, false),
+    (false, true, false),
+    (false, false, true),
   ]) {
     test(
-      switchAfterRestore
-          ? 'native compaction size stays with the identity that requested it'
-          : 'native rewrite reopens only its live session (lock=$lockAfterRewrite)',
+      switch ((switchAfterRestore, refuseRestore)) {
+        (true, _) => 'native compaction size stays with the originating identity',
+        (_, true) => 'published compaction reports a refused automatic reopen',
+        _ => 'native rewrite reopens only its live session (lock=$lockAfterRewrite)',
+      },
       () async {
         expect(ensureHiddenVolumeLoaded(), isTrue);
         final directory = await Directory.systemTemp.createTemp(
@@ -167,7 +170,21 @@ void main() {
             argon: hv.ArgonPreset.min,
           ),
         ).close();
-        final storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        final opener = workerSpaceOpener(path);
+        var refused = false;
+        var denyOpen = false;
+        final storage = HiddenVolumeStorage.async(({
+          required password,
+          required create,
+        }) async {
+          if (denyOpen) {
+            expect(utf8.decode(password), passwords.last);
+            expect(create, isFalse);
+            refused = true;
+            return null;
+          }
+          return opener(password: password, create: create);
+        });
         final roster = CompactionRoster();
         const sizeKey = 'storage.lastcompactsize.v1';
         for (var i = 0; i < passwords.length; i++) {
@@ -206,7 +223,12 @@ void main() {
           controller.debugDeniableStackStarter = (_) async =>
               throw StateError('network disabled for fixture');
           controller.restore = (password) async {
-            await controller.unlockNormally(password);
+            denyOpen = refuseRestore;
+            try {
+              await controller.unlockNormally(password);
+            } finally {
+              denyOpen = false;
+            }
             if (switchAfterRestore) {
               restored.complete();
               await finishRestore.future;
@@ -217,9 +239,14 @@ void main() {
           roster: roster,
           reopenWith: passwords.last,
         );
-        final completion = lockAfterRewrite
-            ? expectLater(compacting, throwsStateError)
-            : expectLater(compacting, completes);
+        final completion = expectLater(
+          compacting,
+          switch ((lockAfterRewrite, refuseRestore)) {
+            (true, _) => throwsStateError,
+            (_, true) => throwsA(isA<CompactionReopenIncomplete>()),
+            _ => completes,
+          },
+        );
         await controller.remapped.future;
         if (lockAfterRewrite) await controller.lock();
         controller.continueRemap.complete();
@@ -243,9 +270,18 @@ void main() {
           lockAfterRewrite ? isEmpty : [passwords.last],
         );
         var expectedOriginSize = '101';
-        if (lockAfterRewrite) {
-          expect(container.read(appControllerProvider).phase, AppPhase.locked);
+        if (lockAfterRewrite || refuseRestore) {
+          final locked = container.read(appControllerProvider);
+          expect(locked.phase, AppPhase.locked);
+          expect(locked.unlockError, isFalse);
+          expect(refused, refuseRestore);
           expect(storage.isOpen, isFalse);
+          if (refuseRestore) {
+            await controller.unlockNormally(passwords.last);
+            expect(container.read(appControllerProvider).phase, AppPhase.ready);
+            expect((await storage.loadProfile())?.displayName, 'fixture-1');
+            await controller.lock();
+          }
         } else {
           final sizes = await compacting;
           if (!switchAfterRestore) expectedOriginSize = '${sizes.after}';
