@@ -34,7 +34,18 @@ try {
   $everyone=[Security.Principal.SecurityIdentifier]::new('S-1-1-0')
   $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone,[Security.AccessControl.FileSystemRights]::ReadAndExecute,$inherit,$propagation,$allow))
   Set-Acl -LiteralPath $fixture -AclObject $acl
-  foreach($mode in @('exercise','verify')){
+  $file=Join-Path $fixture 'xveil.prefs.json'
+  foreach($mode in @('exercise','verify','repair-legacy','reject-writable')){
+    if($mode -eq 'repair-legacy' -or $mode -eq 'reject-writable'){
+      $leafAcl=Get-Acl -LiteralPath $file
+      $rights=if($mode -eq 'repair-legacy'){
+        [Security.AccessControl.FileSystemRights]::ReadAndExecute
+      } else {
+        [Security.AccessControl.FileSystemRights]::WriteData
+      }
+      $leafAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone,$rights,$allow))
+      Set-Acl -LiteralPath $file -AclObject $leafAcl
+    }
     $result=& $exe $mode $fixture @ownerArg|ConvertFrom-Json
     $result|ConvertTo-Json -Compress
     if($LASTEXITCODE -ne 0 -or !$result.ok){throw ('Preference '+$mode+' regression failed')}

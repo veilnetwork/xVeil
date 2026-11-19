@@ -61,6 +61,7 @@ enum DiagnosticEvent {
   androidCameraPreview,
   notificationPermission,
   profilePreferencesOpenFailed,
+  profilePreferencesReadFailed,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -634,6 +635,7 @@ class DiagnosticJournal {
     DiagnosticEvent.onboardingFailed,
     DiagnosticEvent.preferenceStoreFallback,
     DiagnosticEvent.profilePreferencesOpenFailed,
+    DiagnosticEvent.profilePreferencesReadFailed,
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
     DiagnosticEvent.notificationPermission,

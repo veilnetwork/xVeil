@@ -18,6 +18,7 @@ import 'managed_catalog_store.dart';
 import 'managed_directory_catalog.dart';
 import 'managed_fs_contract.dart';
 import 'managed_fs_platform.dart' show ManagedFsPlatform;
+import 'managed_fs_windows.dart' as windows;
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';
@@ -1068,7 +1069,12 @@ class WorkerKvLogStore
       // worker leaves this pending forever, and every later call joins it.
       final r = await _watch.race(reply.first);
       if (r is _Err) throw hv.HvException(r.kind, r.message);
-      if (r is _ManagedWorkerErr) throw ManagedWorkerFailure(r.kind);
+      if (r is _ManagedWorkerErr) {
+        throw ManagedWorkerFailure(
+          r.kind,
+          preferencesReadReason: r.preferencesReadReason,
+        );
+      }
       if (r is _LegacyCompactionErr) {
         throw ManagedLegacyCompactionFailure(
           r.kind,

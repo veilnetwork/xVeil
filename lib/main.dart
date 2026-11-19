@@ -115,6 +115,15 @@ Future<void> runStartup({
         },
       );
     }
+    if (e is ManagedWorkerFailure && e.preferencesReadReason != null) {
+      diagnosticJournal.record(
+        DiagnosticEvent.profilePreferencesReadFailed,
+        values: {
+          DiagnosticMetric.state: e.kind.index,
+          DiagnosticMetric.code: e.preferencesReadReason!.index,
+        },
+      );
+    }
     errorJournal.record(
       kind: 'startup',
       error: e,

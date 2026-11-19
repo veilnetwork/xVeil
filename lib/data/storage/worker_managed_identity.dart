@@ -15,9 +15,14 @@ enum ManagedWorkerFailureKind {
 
 /// Bounded transport error: never contains native messages, paths, IDs or keys.
 final class ManagedWorkerFailure implements Exception {
-  const ManagedWorkerFailure(this.kind, {this.preferencesOpenReason});
+  const ManagedWorkerFailure(
+    this.kind, {
+    this.preferencesOpenReason,
+    this.preferencesReadReason,
+  });
   final ManagedWorkerFailureKind kind;
-  final ManagedPreferencesOpenReason? preferencesOpenReason;
+  final ManagedPreferencesFailureReason? preferencesOpenReason;
+  final ManagedPreferencesFailureReason? preferencesReadReason;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
@@ -40,9 +45,14 @@ final class _OpenManagedIdentity extends _OpenConfig {
 }
 
 final class _ManagedWorkerErr extends _Reply {
-  const _ManagedWorkerErr(this.kind, {this.preferencesOpenReason});
+  const _ManagedWorkerErr(
+    this.kind, {
+    this.preferencesOpenReason,
+    this.preferencesReadReason,
+  });
   final ManagedWorkerFailureKind kind;
-  final ManagedPreferencesOpenReason? preferencesOpenReason;
+  final ManagedPreferencesFailureReason? preferencesOpenReason;
+  final ManagedPreferencesFailureReason? preferencesReadReason;
 }
 
 final class _ManagedReclaimReq extends _Req {
@@ -58,7 +68,7 @@ final class _ManagedOpenFailed extends _Reply {
   });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
-  final ManagedPreferencesOpenReason? preferencesOpenReason;
+  final ManagedPreferencesFailureReason? preferencesOpenReason;
 }
 
 final class _ManagedBootstrapCleanup implements Exception {
