@@ -2085,10 +2085,7 @@ class CallService {
       _announceCallRoute(cur, CallTransportKind.relay);
       return;
     }
-    if (!repaired &&
-        actual == null &&
-        cur.transport == CallTransportKind.relay) {
-      if (_relayRebuildAdmission != null) return;
+    if (!repaired && actual == null) {
       final changedAt = _localNetworkHandoverAt;
       // The OS may already have switched networks while the notification
       // to the node is still queued. A failed rebuild can finish in that gap.
@@ -2096,21 +2093,25 @@ class CallService {
           networkVersion != _networkObservationVersion ||
           (changedAt != null &&
               _now().difference(changedAt) < kCallLivenessTimeout);
-      // A rebuild can finish just before the replacement session registers.
-      // Keep the current call while that admission can still arrive.
-      final reconnected =
-          (connections != _relayConnectionGeneration && !_networkOffline) ||
-          (handover && await _waitForRelayRebuildAdmission());
-      final live = repairOwner();
-      if (live == null || media.activeTransport == live.transport) return;
-      if (reconnected &&
-          live.transport == CallTransportKind.relay &&
-          media.activeTransport == null) {
-        devLog(
-          () => 'xVeil[call-media]: retrying relay rebuild after reconnect',
-        );
-        await _followRelayFallback(peer, callId);
-        return;
+      if (cur.transport == CallTransportKind.relay ||
+          (handover && _isActiveDirectCall(cur))) {
+        if (_relayRebuildAdmission != null) return;
+        // A rebuild can finish just before the replacement session registers.
+        // A direct call whose channel closed may recover on a qualified relay.
+        final reconnected =
+            (connections != _relayConnectionGeneration && !_networkOffline) ||
+            (handover && await _waitForRelayRebuildAdmission());
+        final live = repairOwner();
+        if (live == null ||
+            live.transport != cur.transport ||
+            media.activeTransport == live.transport) {
+          return;
+        }
+        if (reconnected && media.activeTransport == null) {
+          devLog(() => 'xVeil[call-media]: recovering on relay after reconnect');
+          await _followRelayFallback(peer, callId);
+          return;
+        }
       }
     }
     // Fail closed. A broken route must not silently become onion (or any other
@@ -2464,6 +2465,7 @@ class CallService {
       !_disposed &&
       !_networkOffline &&
       _isActiveDirectCall(call) &&
+      _relayRebuildAdmission == null &&
       _relayFallbackFlight == null &&
       _media?.isRepairingReceiveSession == false;
 
