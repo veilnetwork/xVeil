@@ -3175,10 +3175,13 @@ class AppController extends Notifier<AppState> {
     final after = await File(path).length();
     // Remember the post-compaction size: the auto-compact trigger compares the
     // current size against it (bloat = mostly-dead padding grows the file a
-    // multiple past the last-known-live size). Best-effort.
-    try {
-      await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
-    } catch (_) {}
+    // multiple past the last-known-live size). Reopening and reading the size
+    // both yield to lock and a subsequent unlock of a different space.
+    if (ref.mounted && holdsIdentity(lease)) {
+      try {
+        await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
+      } catch (_) {}
+    }
     return (before: before, after: after);
   }
 
