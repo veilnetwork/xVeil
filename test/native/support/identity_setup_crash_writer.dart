@@ -14,7 +14,10 @@ import 'package:xveil/domain/storage_initialization.dart';
 import 'package:xveil/domain/storage_locator.dart';
 
 void gate(String path) {
-  File(path).writeAsStringSync('ready', flush: true);
+  // The parent treats the marker's existence as the crash boundary.
+  final pending = File('$path.pending')
+    ..writeAsStringSync('ready', flush: true);
+  pending.renameSync(path);
   stdin.readByteSync();
   throw StateError('owned crash fixture must be killed');
 }
