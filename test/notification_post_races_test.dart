@@ -11,7 +11,10 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/clear_request.dart';
+import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/chat/notification_binder.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
@@ -38,8 +41,18 @@ class _App extends AppController {
 }
 
 class _Storage extends FakeSettingStorage {
+  final muted = <NodeId>{};
+  final delayed = <NodeId, Completer<void>>{};
+
   @override
-  Future<Contact?> getContact(NodeId id) async => Contact(nodeId: id);
+  Future<Contact?> getContact(NodeId id) async {
+    await delayed[id]?.future;
+    return Contact(
+      nodeId: id,
+      mutedUntil: muted.contains(id) ? kMuteForever : null,
+    );
+  }
+
   @override
   Future<List<Conversation>> loadConversations() async => [];
 }
@@ -64,6 +77,45 @@ class _Groups implements GroupService {
     }
     return super.noSuchMethod(invocation);
   }
+}
+
+class _CommentGroups extends _Groups {
+  _CommentGroups(this.comment);
+
+  final GroupMessage comment;
+  final notices =
+      StreamController<({NodeId spaceId, GroupMessage message})>.broadcast();
+
+  @override
+  NodeId get selfId => _id(1);
+
+  @override
+  Stream<({NodeId spaceId, GroupMessage message})> get incomingComments =>
+      notices.stream;
+
+  @override
+  Future<SpaceSubscription> spaceSubscription(NodeId spaceId) async =>
+      SpaceSubscription.memberDefault(
+        spaceId,
+      ).copyWith(commentNotifications: SpaceCommentNotificationMode.all);
+
+  @override
+  Future<NotificationMutePolicy> groupNotificationPolicy(
+    NodeId groupId,
+  ) async => const NotificationMutePolicy.all();
+
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) async => null;
+
+  @override
+  Future<List<SpacePostView>> postsOf(NodeId spaceId) async => [];
+
+  @override
+  Future<List<SpacePostCommentView>> spacePostCommentsOf(
+    NodeId spaceId,
+    String postId, {
+    bool applyLocalRetention = true,
+  }) async => [SpacePostCommentView(root: comment)];
 }
 
 class _Notifications extends NotificationService {
@@ -116,6 +168,7 @@ class _Notifications extends NotificationService {
 class _PermissionStartupPlugin extends Fake
     implements FlutterLocalNotificationsPlugin {
   final startup = Completer<bool>();
+  final posted = <String?>[];
 
   @override
   Future<bool?> initialize({
@@ -131,6 +184,15 @@ class _PermissionStartupPlugin extends Fake
 
   @override
   Future<void> cancelAll() async {}
+
+  @override
+  Future<void> show({
+    required int id,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async => posted.add(payload);
 }
 
 class _PermissionNotifications extends NotificationService {
@@ -312,6 +374,7 @@ void main() {
   );
 
   late _Messaging messaging;
+  late _Storage storage;
   late _Notifications notifications;
   late StreamController<List<PendingClearRequest>> requests;
   late ProviderContainer container;
@@ -343,12 +406,13 @@ void main() {
   }) async {
     SharedPreferences.setMockInitialValues({});
     messaging = _Messaging();
+    storage = _Storage();
     notifications = _Notifications();
     requests = StreamController<List<PendingClearRequest>>.broadcast();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          storageProvider.overrideWithValue(_Storage()),
+          storageProvider.overrideWithValue(storage),
           messagingServiceProvider.overrideWithValue(messaging),
           groupServiceProvider.overrideWith((ref) => ref.watch(_groupSource)),
           notificationServiceProvider.overrideWithValue(
@@ -383,6 +447,118 @@ void main() {
   void message(int peer) => messaging.notices.add(
     IncomingNotice(from: _id(peer), preview: 'fixture', isFile: false),
   );
+
+  String? resolveShownPayload(String? token) => token == null
+      ? null
+      : container.read(opaqueNotificationPayloadsProvider).resolve(token);
+
+  testWidgets('a muted message cannot supersede an alert queued at startup', (
+    tester,
+  ) async {
+    final plugin = _PermissionStartupPlugin();
+    final service = NotificationService(plugin: plugin);
+    final startup = service.init(onTap: (_) {});
+    await mount(tester, service: service);
+    try {
+      storage.muted.add(_id(3));
+      message(2);
+      await _pump(tester);
+      expect(plugin.posted, isEmpty);
+      message(3);
+      await _pump(tester);
+      plugin.startup.complete(true);
+      await startup;
+      await _pump(tester);
+      expect(plugin.posted.map(resolveShownPayload), [_id(2).hex]);
+    } finally {
+      if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+      await startup;
+      await cleanup(tester);
+    }
+  });
+
+  for (final next in ['muted', 'eligible', 'identity change']) {
+    testWidgets('pending contact notification respects $next', (tester) async {
+      await mount(tester);
+      final gate = Completer<void>();
+      try {
+        storage.delayed[_id(2)] = gate;
+        message(2);
+        await _pump(tester);
+        expect(notifications.shows, 0);
+        if (next == 'identity change') {
+          (container.read(appControllerProvider.notifier) as _App)
+              .changeIdentity();
+        } else {
+          if (next == 'muted') storage.muted.add(_id(3));
+          message(3);
+        }
+        await _pump(tester);
+        gate.complete();
+        await _pump(tester);
+        final latest = resolveShownPayload(
+          notifications.visible[notificationIdForIncomingMessage('')],
+        );
+        expect(latest, switch (next) {
+          'muted' => _id(2).hex,
+          'eligible' => _id(3).hex,
+          _ => null,
+        });
+        expect(notifications.shows, next == 'identity change' ? 0 : 1);
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+        await cleanup(tester);
+      }
+    });
+  }
+
+  for (final change in ['none', 'identity', 'group service']) {
+    testWidgets('foreground comment alert keeps its context ($change)', (
+      tester,
+    ) async {
+      final comment = GroupMessage(
+        groupId: _id(5),
+        author: _id(2),
+        seq: 1,
+        prevHash: '',
+        body: 'fixture comment',
+        policyVersion: 1,
+        createdAtMs: 1000,
+        spacePostId: 'fixture-post',
+        signature: Uint8List(0),
+      );
+      final groups = _CommentGroups(comment);
+      await mount(tester, minimize: false);
+      try {
+        container.read(_groupSource.notifier).state = groups;
+        await _pump(tester);
+        groups.notices.add((spaceId: comment.groupId, message: comment));
+        await _pump(tester);
+        expect(notifications.shows, 0);
+        if (change == 'identity') {
+          (container.read(appControllerProvider.notifier) as _App)
+              .changeIdentity();
+          expect(container.read(groupServiceProvider), same(groups));
+        } else if (change == 'group service') {
+          container.read(_groupSource.notifier).state = _Groups();
+          await _pump(tester);
+        }
+        await lifecycle(tester, background);
+        expect(notifications.shows, change == 'none' ? 1 : 0);
+        if (change == 'none') {
+          expect(
+            resolveShownPayload(
+              notifications.visible[notificationIdForIncomingMessage('')],
+            ),
+            'space-comment:${comment.groupId.hex}:fixture-post',
+          );
+        }
+      } finally {
+        await cleanup(tester);
+        await groups.notices.close();
+      }
+    });
+  }
 
   for (final duringStartup in [
     'visible',

@@ -22,6 +22,17 @@ import '../../state/providers.dart';
 import 'attachment_preview.dart';
 import 'message_mentions.dart';
 
+typedef _MessageAlertAttempt = ({int generation, int sequence, NodeId? owner});
+typedef _MessageAlertCandidate = ({
+  String convHex,
+  String? name,
+  String shortId,
+  String preview,
+  int timestampMs,
+  bool allowReply,
+  bool isMention,
+});
+
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
 /// OS notifications, applying the privacy + lifecycle policy. A widget (not a
 /// bare provider) so it has a [BuildContext] for localized, preview-respecting
@@ -74,20 +85,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// service signal rebuilds it — does not re-announce a question the person
   /// has already been shown. Cleared on identity switch with everything else.
   final Set<String> _announcedClearRequests = {};
-  final Map<
-    String,
-    ({
-      String convHex,
-      String? name,
-      String shortId,
-      String preview,
-      int timestampMs,
-      bool allowReply,
-      bool isMention,
-    })
-  >
-  _pendingSpaceComments = {};
+  final _pendingSpaceComments =
+      <
+        String,
+        ({_MessageAlertAttempt attempt, _MessageAlertCandidate candidate})
+      >{};
   int _notificationGeneration = 0;
+  int _notificationSequence = 0;
+  int _latestEligibleSequence = 0;
   // Clear requests have a separate OS id. An ordinary message supersedes the
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
@@ -98,6 +103,31 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
       // Null only at the very first frame — treat as foreground (suppress).
       WidgetsBinding.instance.lifecycleState == null;
+
+  _MessageAlertAttempt _beginMessageAlert() => (
+    generation: _notificationGeneration,
+    sequence: ++_notificationSequence,
+    owner: ref.read(appControllerProvider).identity?.nodeId,
+  );
+
+  bool _canContinueMessageAlert(_MessageAlertAttempt attempt) =>
+      mounted &&
+      attempt.generation == _notificationGeneration &&
+      attempt.sequence >= _latestEligibleSequence &&
+      ref.read(appControllerProvider).identity?.nodeId == attempt.owner;
+
+  void _rememberSpaceComment(
+    String thread,
+    _MessageAlertAttempt attempt,
+    _MessageAlertCandidate candidate,
+  ) {
+    if (ref.read(activeConversationProvider) == thread) return;
+    final previous = _pendingSpaceComments[thread];
+    if (previous != null && previous.attempt.sequence > attempt.sequence) {
+      return;
+    }
+    _pendingSpaceComments[thread] = (attempt: attempt, candidate: candidate);
+  }
 
   @override
   void initState() {
@@ -170,12 +200,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
     _announcedClearRequests.clear();
+    _pendingSpaceComments.clear();
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
   }
 
   void _subscribeGroups(GroupService? service) {
     _notificationGeneration++;
+    _pendingSpaceComments.clear();
     // Group service initialization does not replace the messaging service's
     // request list. Its alerts retain their own identity/lifecycle fence.
     _groupSub?.cancel();
@@ -200,13 +232,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// foreground app shows it in-app and surfaces the rest on minimize.
   Future<void> _onIncoming(IncomingNotice notice) async {
     if (!mounted) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
+    final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
     Contact? contact;
     try {
       contact = await ref.read(storageProvider).getContact(notice.from);
     } catch (_) {}
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     final self = ref.read(appControllerProvider).identity?.nodeId;
     final isMention = self != null && messageMentionsNode(notice.preview, self);
     final mode =
@@ -222,6 +255,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         ? null
         : '/chat/${notice.from.hex}?msg=${Uri.encodeQueryComponent(notice.messageId!)}';
     await _show(
+      attempt: attempt,
       convHex: isMention && mentionRoute != null
           ? notificationMentionPayload(mentionRoute)
           : notice.from.hex,
@@ -232,7 +266,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // derive the human kind label instead (display-only).
       preview: notice.isFile
           ? attachmentPreviewText(
-              AppL10n.of(context),
+              l,
               name: notice.fileName,
               duration: sidecarDuration(notice.sidecar),
             )
@@ -249,7 +283,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId groupId, GroupMessage message}) n,
   ) async {
     if (!mounted) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
+    final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
     var policy = const NotificationMutePolicy.all();
     GroupService? service;
@@ -259,7 +294,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           await service?.groupNotificationPolicy(n.groupId) ??
           const NotificationMutePolicy.all();
     } catch (_) {}
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     final self =
         service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
     final isMention = self != null && messageMentionsNode(n.message.body, self);
@@ -277,8 +312,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     try {
       name = (await service?.stateOf(n.groupId))?.name;
     } catch (_) {}
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     await _show(
+      attempt: attempt,
       convHex: isMention
           ? notificationMentionPayload(
               '/group/${n.groupId.hex}?msg=${Uri.encodeQueryComponent(n.message.ref)}',
@@ -286,7 +322,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : 'group:${n.groupId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.groupId.short,
-      preview: _groupPreview(AppL10n.of(context), n.message),
+      preview: _groupPreview(l, n.message),
       settings: settings,
       allowReply: !isMention,
       isMention: isMention,
@@ -305,7 +341,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePostView post}) n,
   ) async {
     if (!mounted) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
     final settings = ref.read(notificationSettingsProvider);
     var notificationsEnabled = false;
     var policy = const NotificationMutePolicy.all();
@@ -320,7 +356,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           const NotificationMutePolicy.all();
       name = (await service?.stateOf(n.spaceId))?.name;
     } catch (_) {}
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     final self =
         service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
     final mentionText = '${n.post.title}\n${n.post.body}';
@@ -338,6 +374,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       return;
     }
     await _show(
+      attempt: attempt,
       convHex: isMention
           ? notificationMentionPayload(
               '/space/${n.spaceId.hex}/comments?post=${Uri.encodeQueryComponent(n.post.postId)}',
@@ -360,7 +397,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePostView post}) n,
   ) async {
     if (!mounted) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
     final settings = ref.read(notificationSettingsProvider);
     final service = ref.read(groupServiceProvider);
     if (service == null) return;
@@ -372,9 +409,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
-    if (!mounted ||
-        generation != _notificationGeneration ||
-        subscription == null) {
+    if (!_canContinueMessageAlert(attempt) || subscription == null) {
       return;
     }
     final mentionText = '${n.post.title}\n${n.post.body}';
@@ -394,6 +429,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final route =
         '/space/${n.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(n.post.postId)}';
     await _show(
+      attempt: attempt,
       convHex: notificationMentionPayload(route),
       name: subscription.descriptor.name.trim().isNotEmpty
           ? subscription.descriptor.name
@@ -414,7 +450,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     ({NodeId spaceId, SpacePublicCommentView comment}) n,
   ) async {
     if (!mounted) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
     final settings = ref.read(notificationSettingsProvider);
     final service = ref.read(groupServiceProvider);
     if (service == null) return;
@@ -450,8 +486,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
-    if (!mounted ||
-        generation != _notificationGeneration ||
+    if (!_canContinueMessageAlert(attempt) ||
         post == null ||
         !notificationModeAllows(
           policy.effectiveAt(DateTime.now()),
@@ -483,9 +518,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       isMention: isMention,
     );
     if (_foreground) {
-      if (ref.read(activeConversationProvider) != ordinaryPayload) {
-        _pendingSpaceComments[ordinaryPayload] = candidate;
-      }
+      _rememberSpaceComment(ordinaryPayload, attempt, candidate);
       return;
     }
     if (!shouldAlertIncoming(
@@ -496,6 +529,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       return;
     }
     await _show(
+      attempt: attempt,
       convHex: candidate.convHex,
       name: candidate.name,
       shortId: candidate.shortId,
@@ -516,7 +550,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!mounted) return;
     final postId = n.message.spacePostId;
     if (postId == null) return;
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
+    final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
     var mode = SpaceCommentNotificationMode.none;
     var policy = const NotificationMutePolicy.all();
@@ -545,7 +580,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
-    if (!mounted || generation != _notificationGeneration) {
+    if (!_canContinueMessageAlert(attempt)) {
       return;
     }
     final replyTarget = n.message.replyTo == null
@@ -575,15 +610,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       convHex: payload,
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.spaceId.short,
-      preview: _groupPreview(AppL10n.of(context), n.message),
+      preview: _groupPreview(l, n.message),
       timestampMs: n.message.createdAtMs,
       allowReply: false,
       isMention: isMention,
     );
     if (_foreground) {
-      if (ref.read(activeConversationProvider) != ordinaryPayload) {
-        _pendingSpaceComments[ordinaryPayload] = candidate;
-      }
+      _rememberSpaceComment(ordinaryPayload, attempt, candidate);
       return;
     }
     if (!shouldAlertIncoming(
@@ -594,6 +627,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       return;
     }
     await _show(
+      attempt: attempt,
       convHex: candidate.convHex,
       name: candidate.name,
       shortId: candidate.shortId,
@@ -679,7 +713,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // Captured once before any await: the localized labels the per-candidate
     // previews below need (the loop bodies sit past async gaps).
     final l = AppL10n.of(context);
-    final generation = ++_notificationGeneration;
+    final attempt = _beginMessageAlert();
     final settings = ref.read(notificationSettingsProvider);
     devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
     if (!settings.enabled) return;
@@ -690,19 +724,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
-    if (!mounted || generation != _notificationGeneration) return;
-    final candidates =
-        <
-          ({
-            String convHex,
-            String? name,
-            String shortId,
-            String preview,
-            int timestampMs,
-            bool allowReply,
-            bool isMention,
-          })
-        >[];
+    if (!_canContinueMessageAlert(attempt)) return;
+    final candidates = <_MessageAlertCandidate>[];
     final self = ref.read(appControllerProvider).identity?.nodeId;
     for (final c in convs) {
       final mode = c.peer.notificationModeAt(DateTime.now());
@@ -756,7 +779,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
               'xVeil[notify]: flush — ${groups.length} groups, unread: '
               '${[for (final g in groups) g.unread]}',
         );
-        if (!mounted || generation != _notificationGeneration) return;
+        if (!_canContinueMessageAlert(attempt)) return;
         for (final g in groups) {
           final policy = await gsvc.groupNotificationPolicy(g.groupId);
           final mode = policy.effectiveAt(DateTime.now());
@@ -886,16 +909,22 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
       }
     }
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     final pendingComments = _pendingSpaceComments.entries.toList();
     _pendingSpaceComments.clear();
     for (final pending in pendingComments) {
-      if (pending.key == active) continue;
-      candidates.add(pending.value);
+      // The identity may already have changed before the service listeners
+      // replace their subscriptions and clear the old comment buffer.
+      if (pending.key == active ||
+          pending.value.attempt.owner != attempt.owner) {
+        continue;
+      }
+      candidates.add(pending.value.candidate);
     }
     final latest = newestByTimestamp(candidates, (c) => c.timestampMs);
     if (latest == null) return;
     await _show(
+      attempt: attempt,
       convHex: latest.convHex,
       name: latest.name,
       shortId: latest.shortId,
@@ -950,6 +979,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   Future<void> _show({
+    required _MessageAlertAttempt attempt,
     required String convHex,
     required String? name,
     required String shortId,
@@ -958,12 +988,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     bool allowReply = true,
     bool isMention = false,
   }) async {
-    if (!mounted) return;
-    // The ticket this alert holds. Two awaits follow — mention resolution and
-    // the OS post — and a switch across either one means the sender, the
-    // preview and the live inline reply below belong to an identity that is
-    // no longer on screen.
-    final generation = _notificationGeneration;
+    if (!_canContinueMessageAlert(attempt)) return;
+    // An arrival can replace the pending alert only after passing policy.
+    // Compare arrival order so even if an older lookup finishes after a
+    // newer eligible one, the OS keeps the newer message.
+    _latestEligibleSequence = attempt.sequence;
     final l = AppL10n.of(context);
     final full = settings.preview == NotificationPreview.full;
     // Mentions only resolve for a FULL preview — the hidden branch must not
@@ -971,7 +1000,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final resolved = full
         ? await resolveMentionsForLocalDisplay(ref, preview)
         : '';
-    if (!mounted || generation != _notificationGeneration) return;
+    if (!_canContinueMessageAlert(attempt)) return;
     final content = notificationContent(
       mode: settings.preview,
       contactName: name,
@@ -995,17 +1024,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // person on the other end that the two are the same device
     // (report17 XV17-M12). Leaving the map alone on failure keeps the alert
     // that IS on screen attributable to whoever posted it.
-    if (generation != _notificationGeneration) return;
     final owners = ref.read(notificationOwnersProvider);
-    final owner = ref.read(appControllerProvider).identity?.nodeId.hex;
+    final owner = attempt.owner?.hex;
     final id = notificationIdForIncomingMessage(convHex);
     final posted = await ref
         .read(notificationServiceProvider)
         .showIfCurrent(
-          isCurrent: () =>
-              mounted &&
-              generation == _notificationGeneration &&
-              ref.read(appControllerProvider).identity?.nodeId.hex == owner,
+          isCurrent: () => _canContinueMessageAlert(attempt),
           id: id,
           title: content.title,
           body: content.body,
@@ -1027,11 +1052,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!posted) return;
     // The service orders a stale post's take-down BEFORE a newer post using
     // this id. Never cancel here: the id may already belong to a later alert.
-    if (!mounted ||
-        generation != _notificationGeneration ||
-        ref.read(appControllerProvider).identity?.nodeId.hex != owner) {
-      return;
-    }
+    if (!_canContinueMessageAlert(attempt)) return;
     owners.remember(convHex, owner);
   }
 
