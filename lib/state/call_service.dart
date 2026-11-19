@@ -150,6 +150,11 @@ CallTransportKind negotiateCallTransport({
   return CallTransportKind.relay;
 }
 
+typedef CallReceiveRepairRequest = ({
+  Call call,
+  Future<bool> Function() rebuild,
+});
+
 /// Media-plane hook for the call FSM. Started when a call reaches
 /// [CallStatus.connecting]; the FSM promotes to [CallStatus.active] once [start]
 /// succeeds. Injected (nullable) so the control-plane FSM stays fully testable
@@ -254,6 +259,11 @@ abstract class CallMediaController {
   Future<DateTime?> readLatestAudioRxAt() async => null;
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
+
+  /// The node or engine detected loss of local receive progress. Run the
+  /// controller's rebuild under the call's network recovery lifecycle.
+  Stream<CallReceiveRepairRequest> get localReceiveRepairRequests =>
+      const Stream<CallReceiveRepairRequest>.empty();
 
   /// Call-key-authenticated state from this controller's current call only.
   /// Setup and terminal commands never use this optional, lossy carrier.
@@ -547,6 +557,7 @@ class CallService {
   int _cameraOperationEpoch = 0;
   int _cameraSelectionEpoch = 0;
   StreamSubscription<CallSignal>? _peerCallControlSub;
+  StreamSubscription<CallReceiveRepairRequest>? _localReceiveRepairSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
   int? _lastPeerCompactHealthAtMs;
@@ -929,6 +940,13 @@ class CallService {
       // loaded. Messaging keeps early copies available for durable retry.
       _historyReady = _restoreHistoryAndAttach();
     }
+    _localReceiveRepairSub = _media?.localReceiveRepairRequests.listen((request) {
+      final call = request.call;
+      if (_current?.peerDevice != call.peerDevice) return;
+      unawaited(
+        _repairMediaRoute(call.peer, call.callId, localRebuild: request.rebuild),
+      );
+    });
     _peerCallControlSub = _media?.peerCallControl.listen((signal) {
       final call = _current;
       if (_disposed ||
@@ -2013,6 +2031,7 @@ class CallService {
     NodeId peer,
     String callId, {
     int? peerRequestAtMs,
+    Future<bool> Function()? localRebuild,
   }) async {
     final media = _media;
     final before = _current;
@@ -2069,7 +2088,7 @@ class CallService {
 
     var repaired = false;
     try {
-      repaired = await media.repairRoute();
+      repaired = await (localRebuild ?? media.repairRoute)();
     } catch (e) {
       devLog(() => 'xVeil[call-media]: route repair failed call=$callId: $e');
     }
@@ -2141,6 +2160,8 @@ class CallService {
         }
       }
     }
+    // A local watchdog failure still leaves ordinary liveness in charge.
+    if (localRebuild != null) return;
     // Fail closed. A broken route must not silently become onion (or any other
     // route) merely to keep the call UI alive.
     unawaited(
@@ -4073,6 +4094,8 @@ class CallService {
     _cameraUnavailableSub = null;
     unawaited(_peerCallControlSub?.cancel());
     _peerCallControlSub = null;
+    unawaited(_localReceiveRepairSub?.cancel());
+    _localReceiveRepairSub = null;
     unawaited(_overlaySessionsSub?.cancel());
     _overlaySessionsSub = null;
     unawaited(_overlaySessionAdmissionsSub?.cancel());

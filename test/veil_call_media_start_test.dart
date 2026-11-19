@@ -13,6 +13,7 @@ import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/veil_call_media.dart';
@@ -318,6 +319,13 @@ class _HandoverEngine extends _Engine {
   };
 
   @override
+  bool setAudioSourcePressure(
+    bool? pressured, {
+    DateTime? sampledAt,
+    DateTime? growthHoldStartedAt,
+  }) => true;
+
+  @override
   bool get supportsChannelRebind => true;
 
   @override
@@ -548,6 +556,7 @@ Future<void> _connectCameraCall(
   CallService service,
   _CameraCallWire wire, {
   bool video = true,
+  CallPosture peerPosture = CallPosture.anonymous,
 }) async {
   await service.placeCall(_id(2), CallMedia(audio: true, video: video));
   // Observe actual media admission, rather than assuming a fixed number of
@@ -564,7 +573,7 @@ Future<void> _connectCameraCall(
       CallSignal(
         callId: service.current!.callId,
         type: CallSignalType.answer,
-        posture: CallPosture.anonymous,
+        posture: peerPosture,
         mediaKey: generateCallMediaKeyContribution(),
       ),
     );
@@ -2422,6 +2431,140 @@ void main() {
       await controller.stop();
     }
   });
+
+  for (final outcome in ['reconnect', 'hangup', 'failure without handover']) {
+    test('receive watchdog repair under call ownership: $outcome', () async {
+      final statsPolls = <void Function()>[];
+      await runZoned(
+        () async {
+          final transport = _HandoverTransport();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final wire = _CameraCallWire();
+          final oldEngine = _HandoverEngine();
+          final engineChannels = <int>[];
+          var now = DateTime.now();
+          final controller = VeilCallMediaController(
+            transport,
+            statsNow: () => now,
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) {
+                  engineChannels.add(veilChan);
+                  return veilChan == 42 ? oldEngine : _HandoverEngine();
+                },
+          );
+          final service = CallService(
+            wire,
+            media: controller,
+            now: () => now,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            readNetworkChangeGeneration: () =>
+                transport.networkChangeGeneration,
+          )..start();
+          try {
+            await _connectCameraCall(
+              service,
+              wire,
+              video: false,
+              peerPosture: CallPosture.direct,
+            );
+            final callId = service.current!.callId;
+            expect(service.current?.status, CallStatus.active);
+            expect(controller.activeTransport, CallTransportKind.relay);
+            wire.onCallSignal!(
+              _id(2),
+              CallSignal(
+                callId: callId,
+                type: CallSignalType.health,
+                capture: const CallMedia(audio: false, video: false),
+                sentAtMs: now.millisecondsSinceEpoch,
+              ),
+            );
+            await pumpEventQueue();
+
+            oldEngine.stalled = true;
+            final oldOpen = transport.relayOpenGate = Completer<int>();
+            final poll = statsPolls.last;
+            poll();
+            now = now.add(kCallMediaRepairAfter);
+            poll();
+            await transport.relayOpening.future.timeout(
+              const Duration(seconds: 5),
+              onTimeout: () =>
+                  fail('The receive watchdog must start the repair'),
+            );
+            expect(transport.opened, [42, 43]);
+            expect(controller.isRepairingReceiveSession, isTrue);
+
+            if (outcome == 'failure without handover') {
+              oldOpen.completeError(StateError('synthetic relay open refusal'));
+              await pumpEventQueue();
+              expect(controller.isRepairingReceiveSession, isFalse);
+              expect(service.current?.callId, callId);
+              expect(service.current?.status, CallStatus.active);
+              expect(
+                wire.sent.where((signal) => signal.type == CallSignalType.end),
+                isEmpty,
+              );
+              return;
+            }
+
+            transport.dispatchNetworkChange();
+            network.add(NetworkAttachment.cellular);
+            oldOpen.complete(43);
+            transport.relayOpenGate = null;
+            await pumpEventQueue();
+            expect(controller.activeTransport, isNull);
+            expect(transport.closed, [42, 43]);
+            expect(engineChannels, [42]);
+            expect(service.current?.status, CallStatus.active);
+            expect(transport.opened, [42, 43]);
+
+            if (outcome == 'hangup') {
+              await service.hangup();
+              admissions.add(null);
+              await pumpEventQueue();
+              expect(service.current, isNull);
+              expect(transport.opened, [42, 43]);
+              final ends = wire.sent.where(
+                (signal) => signal.type == CallSignalType.end,
+              );
+              expect(ends.single.reason, CallEndReason.hangup);
+              return;
+            }
+
+            admissions.add(null);
+            await pumpEventQueue();
+            expect(service.current?.callId, callId);
+            expect(service.current?.status, CallStatus.active);
+            expect(controller.activeTransport, CallTransportKind.relay);
+            expect(engineChannels, [42, 44]);
+            expect(
+              wire.sent.where((signal) => signal.type == CallSignalType.end),
+              isEmpty,
+            );
+          } finally {
+            service.dispose();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            unawaited(transport.networkDispatches.close());
+            await pumpEventQueue();
+          }
+        },
+        zoneSpecification: ZoneSpecification(
+          createPeriodicTimer: (self, parent, zone, interval, callback) {
+            final timer = parent.createPeriodicTimer(zone, interval, callback);
+            if (interval == const Duration(seconds: 1)) {
+              timer.cancel();
+              statsPolls.add(() => zone.runUnary(callback, timer));
+            }
+            return timer;
+          },
+        ),
+      );
+    });
+  }
 
   test('an unused relay candidate expires after the retry window', () async {
     final transport = _HandoverTransport()..proofAvailable = false;

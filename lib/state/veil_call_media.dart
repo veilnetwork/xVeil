@@ -449,6 +449,7 @@ class VeilCallMediaController implements CallMediaController {
     Future<void>? audioProcessingReady,
     Future<bool> Function()? requestCamera,
     CallMicrophonePermission? Function(Future<bool>)? microphonePermissionFactory,
+    @visibleForTesting DateTime Function()? statsNow,
     @visibleForTesting bool? androidCameraCapture,
     @visibleForTesting
     AndroidNativeCallCamera Function()? nativeCameraFactory,
@@ -460,6 +461,7 @@ class VeilCallMediaController implements CallMediaController {
        _audioProcessingReady = audioProcessingReady,
        _engineFactory = engineFactory ?? VeilMediaEngine.create,
        _requestCamera = requestCamera ?? MacMediaPermissions.requestCamera,
+       _statsNow = statsNow ?? DateTime.now,
        _androidCameraCapture = androidCameraCapture ?? Platform.isAndroid,
        _nativeCameraFactory = nativeCameraFactory ?? AndroidNativeCallCamera.new,
        _injectedCameraFactory = cameraCaptureFactory,
@@ -468,6 +470,7 @@ class VeilCallMediaController implements CallMediaController {
 
   final CallMediaEngineFactory _engineFactory;
   final Future<bool> Function() _requestCamera;
+  final DateTime Function() _statsNow;
   final Future<void>? _audioProcessingReady;
   final bool _androidCameraCapture;
   final AndroidNativeCallCamera Function() _nativeCameraFactory;
@@ -492,12 +495,18 @@ class VeilCallMediaController implements CallMediaController {
 
   final VeilFlutterTransport _transport;
   final _peerCallControl = StreamController<CallSignal>.broadcast();
+  final _localReceiveRepairRequests =
+      StreamController<CallReceiveRepairRequest>.broadcast(sync: true);
   final _microphoneUnavailable = StreamController<String>.broadcast();
   final _cameraUnavailable = StreamController<String>.broadcast();
   Timer? _controlPollTimer;
 
   @override
   Stream<CallSignal> get peerCallControl => _peerCallControl.stream;
+
+  @override
+  Stream<CallReceiveRepairRequest> get localReceiveRepairRequests =>
+      _localReceiveRepairRequests.stream;
 
   @override
   Stream<String> get microphoneUnavailable => _microphoneUnavailable.stream;
@@ -1078,6 +1087,33 @@ class VeilCallMediaController implements CallMediaController {
         }
       },
     );
+  }
+
+  void _requestLocalReceiveRepair(
+    Call call,
+    VeilMediaEngine engine,
+    String reason,
+  ) {
+    final managed = _localReceiveRepairRequests.hasListener;
+    Future<bool> rebuild() {
+      if (_engine != engine || _routeRepairing || _starvedRebuilds >= 2) {
+        return Future.value(true);
+      }
+      _starvedRebuilds++;
+      devLog(
+        () => 'xVeil[call-media]: $reason — local session rebuild #$_starvedRebuilds',
+      );
+      return _rebuildLocalSession(
+        checkNetworkGeneration:
+            managed && _chanTransport != CallTransportKind.onion,
+      );
+    }
+
+    if (managed) {
+      _localReceiveRepairRequests.add((call: call, rebuild: rebuild));
+    } else {
+      unawaited(rebuild());
+    }
   }
 
   @override
@@ -2010,7 +2046,7 @@ class VeilCallMediaController implements CallMediaController {
         // read must not hide its already observed terminal state.
         if (_androidCameraCapture) _observeCameraCapture(engine, const {});
         final stats = engine.getStats();
-        final now = DateTime.now();
+        final now = _statsNow();
         _mediaReceiveActivity.observe(stats, now);
         if (!_androidCameraCapture) _observeCameraCapture(engine, stats);
         diagnosticJournal.recordMediaStats(stats);
@@ -2168,7 +2204,6 @@ class VeilCallMediaController implements CallMediaController {
           // (its packets already arrive), and this native flow must NOT count
           // as media liveness — that would mask the outage from the FSM
           // forever. Self-heal with a local session rebuild instead.
-          final now = DateTime.now();
           _engineRxStalledSince ??= now;
           if (now.difference(_engineRxStalledSince!) >= kCallMediaRepairAfter) {
             _engineRxStalledSince = null;
@@ -2180,14 +2215,12 @@ class VeilCallMediaController implements CallMediaController {
                     'reached, keeping session',
               );
             } else {
-              _starvedRebuilds++;
-              devLog(
-                () =>
-                    'xVeil[call-media]: node receives but engine starved '
-                    '(native=$nativeRx engine=$rx chan=$_chan) — local session '
-                    'rebuild #$_starvedRebuilds',
+              _requestLocalReceiveRepair(
+                currentCall,
+                engine,
+                'node receives but engine starved '
+                '(native=$nativeRx engine=$rx chan=$_chan)',
               );
-              unawaited(_rebuildLocalSession());
             }
           }
         }
@@ -2201,13 +2234,11 @@ class VeilCallMediaController implements CallMediaController {
           // stuck. Repair this endpoint; the peer cannot drain our worker.
           _audioReceiveActivity.workerStalledSince = null;
           if (_starvedRebuilds < 2) {
-            _starvedRebuilds++;
-            devLog(
-              () =>
-                  'xVeil[call-media]: audio worker stalled — local '
-                  'session rebuild #$_starvedRebuilds',
+            _requestLocalReceiveRepair(
+              currentCall,
+              engine,
+              'audio worker stalled',
             );
-            unawaited(_rebuildLocalSession());
           }
         }
         final adapter = _bitrateAdapter;
