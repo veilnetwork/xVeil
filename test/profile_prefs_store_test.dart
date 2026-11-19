@@ -160,6 +160,37 @@ void main() {
   });
 
   group('the active profile pointer', () {
+    test('overlapping choices are saved in request order', () async {
+      expect(await writeRememberedProfile(support.path, 'default'), isTrue);
+      final saved = await Future.wait([
+        writeRememberedProfile(support.path, 'first'),
+        writeRememberedProfile(support.path, 'second'),
+        writeRememberedProfile(support.path, 'last'),
+      ]);
+      expect(saved, [true, true, true]);
+      expect(await readRememberedProfile(support.path), 'last');
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: InMemorySharedPreferencesStore.empty(),
+        ),
+        'last',
+      );
+    });
+
+    test('a failed choice leaves the current choice and can be retried', () async {
+      expect(await writeRememberedProfile(support.path, 'first'), isTrue);
+      final temporary = Directory('${activeProfilePath(support.path)}.tmp')
+        ..createSync();
+      expect(await writeRememberedProfile(support.path, 'last'), isFalse);
+      expect(await readRememberedProfile(support.path), 'first');
+      temporary.deleteSync();
+      expect(await writeRememberedProfile(support.path, 'last'), isTrue);
+      expect(await readRememberedProfile(support.path), 'last');
+    });
+
     test('is a file, and refuses a name this build would not accept', () async {
       expect(await readRememberedProfile(support.path), isNull);
       await writeRememberedProfile(support.path, 'decoy');
