@@ -414,6 +414,76 @@ void main() {
           );
         }
 
+        for (final source in ['local', 'sibling', 'peer']) {
+          test(
+            'retired $source acceptance preserves a replacement request',
+            () async {
+              await mA.sendRequest(b, 'old greeting');
+              if (source == 'peer') {
+                await _deliver(
+                  mB,
+                  a,
+                  tA.sent.singleWhere((e) => e.kind == WireKind.request),
+                );
+                await mB.acceptContact(a);
+              }
+              final gated = sA as _DecisionGateStorage;
+              gated.holdOutbox = true;
+              final accepting = switch (source) {
+                'local' => mA.acceptContact(b),
+                'sibling' => mA.applyMirroredContactStatus(
+                  b,
+                  ContactStatus.accepted,
+                  atMs: 1000,
+                ),
+                _ => _deliver(
+                  mA,
+                  b,
+                  tB.sent.singleWhere((e) => e.kind == WireKind.accept),
+                ),
+              };
+              try {
+                await gated.decisionEntered.future;
+                expect(
+                  (await sA.getContact(b))?.status,
+                  ContactStatus.accepted,
+                );
+                await mA.deleteConversation(b);
+                expect(await sA.getContact(b), isNull);
+                expect(
+                  (await mA.submitContactRequest(
+                    b,
+                    'replacement greeting',
+                  )).admitted,
+                  isTrue,
+                );
+              } finally {
+                gated.decisionRelease.complete();
+              }
+              await accepting;
+              expect(
+                (await sA.getContact(b))?.status,
+                ContactStatus.pendingOutgoing,
+              );
+              final greeting = (await sA.loadMessages(b.hex)).single;
+              expect(greeting.body, 'replacement greeting');
+              expect(greeting.status, MessageStatus.sending);
+              final requests = (await sA.pendingOutboxFrames()).where(
+                (row) => row.frameId.startsWith('request:'),
+              );
+              expect(requests.map((row) => row.frameId), [
+                'request:${greeting.id}',
+              ]);
+              await sA.close();
+              expect(await sA.open(password: 'fixture'), isTrue);
+              expect(
+                (await sA.pendingOutboxFrames()).map((row) => row.frameId),
+                contains('request:${greeting.id}'),
+              );
+            },
+          );
+        }
+
         test(
           'initial request carries the committed greeting position',
           () async {
