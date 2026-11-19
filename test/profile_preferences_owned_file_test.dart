@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,6 +101,57 @@ void main() {
     },
   );
 
+  test(
+    'queued settings survive an earlier write error and drain before close',
+    () async {
+      final firstStarted = Completer<void>();
+      final firstResult = Completer<bool>();
+      final secondStarted = Completer<void>();
+      final secondResult = Completer<bool>();
+      final failure = StateError('synthetic write refusal');
+      final store = await ProfilePreferencesStore.load(
+        local.path,
+        ownedFile: owner,
+      );
+      owner.writeGate = () {
+        firstStarted.complete();
+        return firstResult.future;
+      };
+      final first = expectLater(
+        store.setValue('String', 'flutter.locale', 'ru'),
+        throwsA(same(failure)),
+      );
+      await firstStarted.future;
+
+      owner.writeGate = () {
+        secondStarted.complete();
+        return secondResult.future;
+      };
+      final second = store.setValue('String', 'flutter.locale', 'es');
+      final secondStartedOrSettled = Future.any<void>([
+        secondStarted.future,
+        second.then<void>((_) {}),
+      ])..ignore();
+      final closing = store.releaseFile();
+      expect(secondStarted.isCompleted, isFalse);
+      expect(owner.writes, hasLength(1));
+      firstResult.completeError(failure);
+      await first;
+      try {
+        await secondStartedOrSettled;
+        expect(secondStarted.isCompleted, isTrue);
+        expect(owner.closes, 0);
+        expect(jsonDecode(owner.writes.last)['e']['flutter.locale']['v'], 'es');
+      } finally {
+        secondResult.complete(true);
+        await closing;
+      }
+      expect(await second, isTrue);
+      expect(owner.writes, hasLength(2));
+      expect(owner.closes, 1);
+    },
+  );
+
   test('file owner mismatch refuses before any read', () async {
     final wrong = _FileOwner('${fixture.path}/other.json');
     await expectLater(
@@ -138,6 +190,7 @@ class _FileOwner implements ProfilePreferencesFile {
   final String path;
   String? contents;
   Object? readFailure, writeFailure;
+  Future<bool> Function()? writeGate;
   bool writeResult = true;
   int reads = 0, closes = 0, closeFailures = 0;
   final writes = <String>[];
@@ -152,6 +205,7 @@ class _FileOwner implements ProfilePreferencesFile {
   Future<bool> write(String contents) async {
     writes.add(contents);
     if (writeFailure case final Object error) throw error;
+    if (writeGate case final gate?) return gate();
     return writeResult;
   }
 
