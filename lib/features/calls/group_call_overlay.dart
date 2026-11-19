@@ -150,6 +150,22 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
       _minimized = false;
       _screenDevices = null;
     }
+    final media = calls.mediaController;
+    final nativeMedia = media is VeilGroupCallMediaController ? media : null;
+    // PiP renders only a remote video surface or an opaque cover. It does
+    // not need room metadata or any of the full room's controls.
+    if (_pipActive) {
+      return Positioned.fill(
+        child: Material(
+          color: Colors.black,
+          child: _GroupPipView(
+            call: call,
+            selfId: groups.selfId,
+            videoFrameFor: nativeMedia?.videoFrameFor,
+          ),
+        ),
+      );
+    }
 
     // Bound the room before the asynchronous group metadata resolves. This
     // overlay is a sibling of the router's Navigator, so controls below must
@@ -162,28 +178,6 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
           final title = groupCallTitleFor(AppL10n.of(context), state?.name);
           final role = state?.roleOf(groups.selfId);
           final isAdmin = role != null && role.rank >= GroupRole.admin.rank;
-          final media = calls.mediaController;
-          final nativeMedia = media is VeilGroupCallMediaController
-              ? media
-              : null;
-          // Android PiP window: only a dedicated video surface (first remote
-          // participant with video) or an opaque cover may render — the full
-          // room grid overflows the tiny window and would expose whatever
-          // screen sat underneath (same rule as the 1:1 overlay).
-          if (_pipActive) {
-            // Material ancestor: the frame view's text placeholders otherwise
-            // render with the bare default style (yellow underline).
-            return Positioned.fill(
-              child: Material(
-                color: Colors.black,
-                child: _GroupPipView(
-                  call: call,
-                  selfId: groups.selfId,
-                  videoFrameFor: nativeMedia?.videoFrameFor,
-                ),
-              ),
-            );
-          }
           if (_minimized && call.status != GroupCallStatus.ringing) {
             return GroupCallMiniView(
               call: call,
@@ -387,31 +381,44 @@ class _GroupPipView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    GroupCallParticipant? source;
+    ValueListenable<VeilVideoFrame?>? frames;
     for (final participant in call.participants.values) {
       if (participant.nodeId == selfId) continue;
       if (!(participant.media.video || participant.media.screen)) continue;
-      final frames = videoFrameFor?.call(participant.nodeId);
+      frames = videoFrameFor?.call(participant.nodeId);
       if (frames == null) continue;
-      return ColoredBox(
-        color: Colors.black,
-        child: CallVideoFrameView(
-          frameListenable: frames,
-          freshnessToken: (participant.nodeId.hex, participant.media.screen),
-          waitingLabel: participant.media.screen
-              ? l.callScreenWaiting
-              : l.callVideoWaiting,
-          staleLabel: l.callVideoPaused,
-          placeholderIcon: participant.media.screen
-              ? Icons.screen_share_outlined
-              : Icons.videocam_outlined,
-          fit: BoxFit.cover,
-        ),
-      );
+      source = participant;
+      break;
     }
-    return const ColoredBox(
+    final screen = source?.media.screen ?? false;
+    return ColoredBox(
       color: Colors.black,
-      child: Center(
-        child: Icon(Icons.groups_rounded, color: Colors.white38, size: 30),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Keep the renderer alive through a period without a video source.
+          // A restarting camera must not reuse the frame from before the cover.
+          CallVideoFrameView(
+            enabled: frames != null,
+            frameListenable: frames ?? const AlwaysStoppedAnimation(null),
+            freshnessToken: (call.callId, source?.nodeId, screen),
+            waitingLabel: screen ? l.callScreenWaiting : l.callVideoWaiting,
+            staleLabel: l.callVideoPaused,
+            placeholderIcon: screen
+                ? Icons.screen_share_outlined
+                : Icons.videocam_outlined,
+            fit: BoxFit.cover,
+          ),
+          if (frames == null)
+            const Center(
+              child: Icon(
+                Icons.groups_rounded,
+                color: Colors.white38,
+                size: 30,
+              ),
+            ),
+        ],
       ),
     );
   }

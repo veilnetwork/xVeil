@@ -1,16 +1,51 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
+import 'package:xveil/domain/group_policy.dart';
+import 'package:xveil/features/calls/call_lifecycle_bridge.dart';
 import 'package:xveil/features/calls/group_call_overlay.dart';
 import 'package:xveil/features/calls/video_frame_view.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/group_call_service.dart';
+import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/veil_group_call_media.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
+
+class _ReadyApp extends AppController {
+  @override
+  AppState build() => const AppState(AppPhase.ready);
+}
+
+class _Groups extends Fake implements GroupService {
+  @override
+  NodeId get selfId => _id(1);
+
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) async => null;
+}
+
+class _Video extends Fake implements VeilGroupCallMediaController {
+  final frames = ValueNotifier<VeilVideoFrame?>(_videoFrame(20));
+
+  @override
+  ValueNotifier<VeilVideoFrame?> videoFrameFor(NodeId peer) => frames;
+}
+
+class _Calls extends Fake implements GroupCallService {
+  _Calls(this.mediaController);
+
+  @override
+  final VeilGroupCallMediaController mediaController;
+}
 
 GroupCall _call({
   required GroupCallStatus status,
@@ -55,6 +90,15 @@ Widget _host(GroupCallRoomView child, {Locale locale = const Locale('en')}) =>
       theme: ThemeData.dark(),
       home: Scaffold(body: child),
     );
+
+Future<void> _pumpForFrame(WidgetTester tester, Finder frame) async {
+  for (var i = 0; i < 20 && frame.evaluate().isEmpty; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 5)),
+    );
+    await tester.pump();
+  }
+}
 
 void main() {
   // What the room is called at the top of a call. It used to be `groupId.short`
@@ -232,6 +276,10 @@ void main() {
   ) async {
     final staleCamera = ValueNotifier<VeilVideoFrame?>(_videoFrame(20));
     addTearDown(staleCamera.dispose);
+    final frame = find.descendant(
+      of: find.byKey(const ValueKey('group-call-video-02020202')),
+      matching: find.byKey(const ValueKey('call-video-frame')),
+    );
     await tester.pumpWidget(
       _host(
         GroupCallRoomView(
@@ -255,30 +303,14 @@ void main() {
         ),
       ),
     );
-    for (var i = 0; i < 20; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-      await tester.pump();
-      final frame = find.descendant(
-        of: find.byKey(const ValueKey('group-call-video-02020202')),
-        matching: find.byKey(const ValueKey('call-video-frame')),
-      );
-      if (frame.evaluate().isNotEmpty) break;
-    }
+    await _pumpForFrame(tester, frame);
 
     expect(
       find.byKey(const ValueKey('group-call-screen-badge-02020202')),
       findsOneWidget,
     );
     expect(find.text('Waiting for shared screen…'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('group-call-video-02020202')),
-        matching: find.byKey(const ValueKey('call-video-frame')),
-      ),
-      findsOneWidget,
-    );
+    expect(frame, findsOneWidget);
   });
 
   testWidgets('local mirror follows the capture source before roster updates', (
@@ -360,17 +392,8 @@ void main() {
       ),
     );
 
-    Future<void> pumpForFrame() async {
-      for (var i = 0; i < 20 && frame.evaluate().isEmpty; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)),
-        );
-        await tester.pump();
-      }
-    }
-
     await showRoom(peerVideo: true);
-    await pumpForFrame();
+    await _pumpForFrame(tester, frame);
     expect(frame, findsOneWidget);
 
     await showRoom(peerVideo: false);
@@ -378,14 +401,85 @@ void main() {
     expect(find.byType(CircleAvatar), findsNWidgets(2));
 
     await showRoom(peerVideo: true);
-    await pumpForFrame();
+    await _pumpForFrame(tester, frame);
     expect(frame, findsNothing);
     expect(find.text('Waiting for video…'), findsOneWidget);
 
     frames.value = _videoFrame(21);
-    await pumpForFrame();
+    await _pumpForFrame(tester, frame);
     expect(frame, findsOneWidget);
     expect(find.text('Waiting for video…'), findsNothing);
+  });
+
+  testWidgets('group PiP covers disabled video and waits for a new frame', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(180, 110);
+    addTearDown(tester.view.reset);
+    final groups = _Groups();
+    final video = _Video();
+    final changes = StreamController<GroupCall?>.broadcast();
+    final frame = find.byKey(const ValueKey('call-video-frame'));
+    final previousPipMode = callPipMode.value;
+    callPipMode.value = true;
+    try {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appControllerProvider.overrideWith(_ReadyApp.new),
+            currentGroupCallProvider.overrideWith((_) => changes.stream),
+            groupCallServiceProvider.overrideWithValue(_Calls(video)),
+            groupServiceProvider.overrideWithValue(groups),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Stack(children: [GroupCallOverlay()]),
+          ),
+        ),
+      );
+
+      Future<void> update({
+        required bool peerVideo,
+        bool peerScreen = false,
+      }) async {
+        changes.add(
+          _call(
+            status: GroupCallStatus.active,
+            video: true,
+            peerVideo: peerVideo,
+            peerScreen: peerScreen,
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      // Opening PiP over an active screen share may only have a cached frame.
+      await update(peerVideo: false, peerScreen: true);
+      await _pumpForFrame(tester, frame);
+      expect(tester.takeException(), isNull);
+      expect(frame, findsOneWidget);
+
+      await update(peerVideo: false);
+      expect(frame, findsNothing);
+      expect(find.byIcon(Icons.groups_rounded), findsOneWidget);
+
+      await update(peerVideo: true);
+      await _pumpForFrame(tester, frame);
+      expect(frame, findsNothing);
+      expect(find.text('Waiting for video…'), findsOneWidget);
+
+      video.frames.value = _videoFrame(21);
+      await _pumpForFrame(tester, frame);
+      expect(frame, findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      callPipMode.value = previousPipMode;
+      await changes.close();
+      video.frames.dispose();
+    }
   });
 
   testWidgets('screen share badge fits the tile with large text', (
