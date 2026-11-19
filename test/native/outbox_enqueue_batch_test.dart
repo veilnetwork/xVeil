@@ -136,7 +136,7 @@ void main() {
       final rows = await readback.count(Ns.outbox);
       expect(rows, greaterThan(1));
       readback.readsUntilFailure = 2;
-      expect(await ids(), isEmpty);
+      await expectLater(ids(), throwsStateError);
       expect(readback.readsUntilFailure, 0);
       expect(await readback.count(Ns.outboxIndex), 1);
       expect(await readback.count(Ns.outbox), rows);

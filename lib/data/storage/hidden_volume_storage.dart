@@ -7137,7 +7137,7 @@ class HiddenVolumeStorage
   @override
   Future<List<OutboxFrame>> pendingOutboxFrames() =>
       _outboxSerialized(() async {
-        if (!await _ensureOutboxLoadedCritical()) return const [];
+        if (!_outboxLoaded) await _loadIndexedOutboxCritical();
         return [
           for (final item in _outboxById.values)
             OutboxFrame(

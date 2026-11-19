@@ -88,6 +88,19 @@ SpaceOpener _memOpener() {
   return ({required password, required bool create}) => store;
 }
 
+class _InterruptedOutboxStore extends FakeKvLogStore {
+  bool interruptNextRead = false;
+
+  @override
+  Uint8List? get(int namespace, Uint8List key) {
+    if (namespace == Ns.outboxIndex && interruptNextRead) {
+      interruptNextRead = false;
+      throw StateError('fixture outbox index read interrupted');
+    }
+    return super.get(namespace, key);
+  }
+}
+
 class _AckSpyStorage extends HiddenVolumeStorage {
   _AckSpyStorage() : super(_memOpener());
   int singleCalls = 0, batchCalls = 0, reads = 0;
@@ -946,6 +959,101 @@ void main() {
     expect(chunks.length, greaterThan(2));
     return (service: service, store: store, link: link, chunks: chunks);
   }
+
+  test(
+    'interrupted outbox read retains the complete group snapshot after slice ACK',
+    () async {
+      final backing = _InterruptedOutboxStore();
+      final storage = HiddenVolumeStorage(
+        ({required password, required create}) => backing,
+      );
+      final source = await queuedSender(storage: storage);
+      await source.service.dispose();
+      final original = await storage.pendingOutboxFrames();
+      await storage.close();
+      expect(await storage.open(password: 'source'), isTrue);
+      addTearDown(source.link.dispose);
+      addTearDown(storage.close);
+      final service = MessagingService(source.link, storage);
+      addTearDown(service.dispose);
+
+      Future<void> ack(String id) => service.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.ack(id).encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+
+      final first = source.chunks.first;
+      backing.interruptNextRead = true;
+      await ack(first.frameId!);
+      await pumpEventQueue();
+      expect(backing.interruptNextRead, isFalse);
+      final recovered = await storage.pendingOutboxFrames();
+      expect(
+        recovered.map((f) => f.frameId),
+        unorderedEquals(original.map((f) => f.frameId)),
+      );
+      final before = {for (final frame in original) frame.frameId: frame.wire};
+      for (final frame in recovered) {
+        expect(frame.wire, before[frame.frameId]);
+      }
+
+      final tid = parseGroupEntryChunk(first.body).transferId;
+      await ack('grpa:$tid');
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'interrupted outbox read defers replication until the backlog is known',
+    () async {
+      final backing = _InterruptedOutboxStore();
+      final storage = HiddenVolumeStorage(
+        ({required password, required create}) => backing,
+      );
+      final link = _Link(a);
+      addTearDown(link.dispose);
+      await storage.open(password: 'source', createIfMissing: true);
+      await storage.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      final frame = WireEnvelope.groupEntry('queued').encode();
+      for (var i = 0; i < 256; i++) {
+        await storage.enqueueOutboxFrame('queued-$i', b.hex, frame);
+      }
+      await storage.close();
+      expect(await storage.open(password: 'source'), isTrue);
+      addTearDown(storage.close);
+      final service = MessagingService(link, storage);
+      addTearDown(service.dispose);
+
+      backing.interruptNextRead = true;
+      await service.sendGroupSnapshot(
+        b,
+        'aa11',
+        'snapshot-during-read-failure',
+      );
+      expect(backing.interruptNextRead, isFalse);
+      expect(link.sent, isEmpty);
+      expect(await storage.pendingOutboxFrames(), hasLength(256));
+
+      await service.sendGroupSnapshot(
+        b,
+        'aa11',
+        'snapshot-after-read-recovery',
+      );
+      expect(link.sent, isEmpty);
+      expect(await storage.pendingOutboxFrames(), hasLength(256));
+
+      service.debugRetireOutboxFrame(b.hex, 'queued-0');
+      await pumpEventQueue();
+      await service.sendGroupSnapshot(b, 'aa11', 'snapshot-after-ack');
+      expect(link.sent, hasLength(1));
+      expect(await storage.pendingOutboxFrames(), hasLength(256));
+    },
+  );
 
   test(
     'mixed-version partial slice ACK keeps the complete recovery copy',

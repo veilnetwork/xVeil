@@ -504,6 +504,8 @@ abstract interface class Storage {
   });
 
   /// The frames still awaiting delivery (enqueued and not yet acked).
+  /// Throws if the queue cannot be read. An empty list confirms there are no
+  /// pending frames.
   Future<List<OutboxFrame>> pendingOutboxFrames();
 
   /// Replace a complete immutable transfer locally, without claiming a peer ACK.
