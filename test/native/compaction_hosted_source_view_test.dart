@@ -50,6 +50,9 @@ class _HostedLegacy extends MultiIdentitySession {
 }
 
 class _Controller extends AppController {
+  _Controller({this.recoverNormally = false});
+  final bool recoverNormally;
+
   @override
   AppState build() => const AppState(AppPhase.ready);
   // Supply the actual active child's legacy classification without booting
@@ -59,6 +62,7 @@ class _Controller extends AppController {
       ref.read(sessionProvider) == null ? super.usesManagedStorage : false;
   @override
   Future<void> unlock(String password) async {
+    if (recoverNormally) return super.unlock(password);
     state = const AppState(AppPhase.ready);
   }
 }
@@ -75,19 +79,38 @@ void main() {
     return;
   }
   for (final publish in [false, true]) {
-    for (final confirmed in [true, false]) {
+    for (final (confirmed, failSourceSelection) in [
+      (true, false),
+      (false, false),
+      if (publish) (true, true),
+    ]) {
       test(
-        'hosted legacy source selected only after release (publish=$publish confirmed=$confirmed)',
+        failSourceSelection
+            ? 'failed source selection restores the original master before compaction'
+            : 'hosted legacy source selected only after release (publish=$publish confirmed=$confirmed)',
         () async {
+          if (failSourceSelection) {
+            SharedPreferences.setMockInitialValues({'keep_all_online': false});
+          }
           final f = CompactionProfileFixture();
           await f.create();
           addTearDown(f.dispose);
+          final selectionError = StateError('fixture legacy selection failure');
+          var failNextLegacySelection = false;
+          List<int>? sourceAtRefusal;
           Future<ProfileStorageRouter> route() => ProfileStorageRouter.open(
             profileDirectory: f.profile,
-            legacyFactory: () => HiddenVolumeStorage.async(
-              workerSpaceOpener(f.source),
-              keysOpener: workerKeysSpaceOpener(f.source),
-            ),
+            legacyFactory: () {
+              if (failNextLegacySelection) {
+                failNextLegacySelection = false;
+                sourceAtRefusal = File(f.source).readAsBytesSync();
+                throw selectionError;
+              }
+              return HiddenVolumeStorage.async(
+                workerSpaceOpener(f.source),
+                keysOpener: workerKeysSpaceOpener(f.source),
+              );
+            },
           );
           final router = await route();
           final access = ManagedStorageLocator(
@@ -103,7 +126,7 @@ void main() {
           final session = _HostedLegacy(hosted, confirmed: confirmed);
           addTearDown(session.forceClose);
           final before = File(f.source).readAsBytesSync();
-          final controller = _Controller();
+          final controller = _Controller(recoverNormally: failSourceSelection);
           final container = ProviderContainer(
             overrides: [
               appControllerProvider.overrideWith(() => controller),
@@ -150,12 +173,21 @@ void main() {
                 spaceKeys: entry.value,
               );
             }
+            failNextLegacySelection = failSourceSelection;
             final operation = controller.compactStorageKeepingWithProfile(
               roster: roster,
               reopenWith: 'visible-fixture',
               profileAuthorization: authority,
             );
-            if (confirmed) {
+            if (failSourceSelection) {
+              await expectLater(operation, throwsA(same(selectionError)));
+              expect(router.access, access);
+              final recovered = container.read(appControllerProvider);
+              expect(recovered.phase, AppPhase.pickingIdentity);
+              expect(recovered.identities, ['child-fixture', 'master-fixture']);
+              expect(sourceAtRefusal, before);
+              await controller.lock();
+            } else if (confirmed) {
               final result = await operation;
               expect(result.after, greaterThan(0));
               expect(owner.router.access, access);
@@ -182,7 +214,9 @@ void main() {
           }
           await session.forceClose();
           await owner.close();
-          await f.verify(published: publish && confirmed);
+          await f.verify(
+            published: publish && confirmed && !failSourceSelection,
+          );
         },
       );
     }

@@ -1913,7 +1913,7 @@ class AppController extends Notifier<AppState> {
       final router = ref.read(profileStorageRouterProvider);
       if (router != null) {
         router.requireAccessSelection();
-        if (router.location != router.access) {
+        if (router.accessViewNeedsSelection) {
           await _updateStorageRoute(
             () => router.select(router.access, access: false),
           );
@@ -3007,34 +3007,34 @@ class AppController extends Notifier<AppState> {
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
     requireCurrentSession();
-    state = state.copyWith(
-      phase: AppPhase.preparingNode,
-      preparingReason: PreparingReason.unlocking,
-    );
-    final sessionsReleased = await _boundedTeardown(
-      'session teardown',
-      _teardownSession,
-    );
-    requireCurrentSession();
-    final nodesReleased = await _boundedTeardown(
-      'node teardown',
-      _teardownRealStack,
-    );
-    requireCurrentSession();
-    final sourceQuiet =
-        sessionsReleased &&
-        nodesReleased &&
-        _retiringSessions.isEmpty &&
-        _retiringStacks.isEmpty;
-    if (sourceQuiet) await _selectLegacyCompactionView(requireCurrentSession);
-    // release the LOCK_EX
-    final released = await _boundedTeardown(
-      'store close',
-      () => ref.read(storageProvider).close(),
-    );
     Object? publicationFailure;
     ManagedLegacyCompactionResult? mixedResult;
     try {
+      state = state.copyWith(
+        phase: AppPhase.preparingNode,
+        preparingReason: PreparingReason.unlocking,
+      );
+      final sessionsReleased = await _boundedTeardown(
+        'session teardown',
+        _teardownSession,
+      );
+      requireCurrentSession();
+      final nodesReleased = await _boundedTeardown(
+        'node teardown',
+        _teardownRealStack,
+      );
+      requireCurrentSession();
+      final sourceQuiet =
+          sessionsReleased &&
+          nodesReleased &&
+          _retiringSessions.isEmpty &&
+          _retiringStacks.isEmpty;
+      if (sourceQuiet) await _selectLegacyCompactionView(requireCurrentSession);
+      // Release the source lock before attempting publication.
+      final released = await _boundedTeardown(
+        'store close',
+        () => ref.read(storageProvider).close(),
+      );
       requireCurrentSession();
       if (!sourceQuiet) {
         throw StateError('identity sessions have not confirmed source release');

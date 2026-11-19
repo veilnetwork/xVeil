@@ -36,6 +36,7 @@ final class ProfileStorageRouter {
   bool _closing = false, _closed = false;
   int _epoch = 0;
   Storage? _storage;
+  bool _selectionRetired = false;
   IdentityStorageLocator _location = const LegacyStorageLocator();
   IdentityStorageLocator _access = const LegacyStorageLocator();
   bool _selectionRequired = false;
@@ -46,6 +47,7 @@ final class ProfileStorageRouter {
   IdentityStorageLocator get location => _location;
   IdentityStorageLocator get access => _access;
   bool get selectionRequired => _selectionRequired;
+  bool get accessViewNeedsSelection => _location != _access || _selectionRetired;
   ManagedIdentityCatalog get catalog => _snapshot;
   void cancelSelections() => _epoch++;
 
@@ -276,13 +278,19 @@ final class ProfileStorageRouter {
         }
       }
       final previous = _storage;
-      if (previous != null) _retiredStores.add(previous);
+      if (previous != null) {
+        // A failed transition can leave the locator unchanged after sealing
+        // its facade. The next unlock must select a fresh facade for it.
+        _selectionRetired = true;
+        _retiredStores.add(previous);
+      }
       await _retireStores();
       if (_closing || ticket != _epoch) {
         throw StateError('storage selection superseded');
       }
       final next = _factory(location, create);
       _storage = next;
+      _selectionRetired = false;
       _location = location;
       if (access) {
         _access = location;
