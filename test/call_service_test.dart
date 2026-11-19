@@ -2448,6 +2448,10 @@ void main() {
       'only direct audio',
       'muted while reading',
       'replaced while reading',
+      'stall starts near window end',
+      'snapshot crosses window end',
+      'native audio after window end',
+      'cached audio after window end',
     ]) {
       test('relay audio after handover: $mode', () {
         fakeAsync((async) {
@@ -2492,9 +2496,29 @@ void main() {
           );
           async.flushMicrotasks();
           expect(svc.current?.transport, CallTransportKind.relay);
+          final handoverAt = clock.now();
           if (mode != 'only direct audio') {
-            async.elapse(const Duration(milliseconds: 100));
-            media.audioRxAt = clock.now();
+            final lastRelayAudio = switch (mode) {
+              'snapshot crosses window end' => const Duration(
+                milliseconds: 6400,
+              ),
+              'stall starts near window end' ||
+              'native audio after window end' => const Duration(
+                milliseconds: 9400,
+              ),
+              'cached audio after window end' => const Duration(
+                milliseconds: 10200,
+              ),
+              _ => const Duration(milliseconds: 100),
+            };
+            final lastAudioAt = handoverAt.add(lastRelayAudio);
+            while (clock.now().isBefore(lastAudioAt)) {
+              final remaining = lastAudioAt.difference(clock.now());
+              const step = Duration(seconds: 1);
+              async.elapse(remaining < step ? remaining : step);
+              media.audioRxAt = clock.now();
+              media.rxAt = clock.now();
+            }
           }
           final snapshot = Completer<DateTime?>();
           media.latestAudioRead = () => snapshot.future;
@@ -2503,7 +2527,8 @@ void main() {
           async.elapse(const Duration(seconds: 3));
           expect(media.repairs, 0);
           async.elapse(const Duration(seconds: 1));
-          if (mode != 'only direct audio') {
+          if (mode != 'only direct audio' &&
+              mode != 'cached audio after window end') {
             expect(media.latestAudioReads, 1);
           } else {
             expect(media.latestAudioReads, 0);
@@ -2515,13 +2540,22 @@ void main() {
           snapshot.complete(switch (mode) {
             'stale cache' => clock.now(),
             'missing snapshot' => null,
+            'native audio after window end' => handoverAt.add(
+              kCallMediaRepairAfter + const Duration(milliseconds: 100),
+            ),
             _ => media.audioRxAt,
           });
           async.flushMicrotasks();
-          expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
+          final repairs = switch (mode) {
+            'confirmed stall' ||
+            'stall starts near window end' ||
+            'snapshot crosses window end' => 1,
+            _ => 0,
+          };
+          expect(media.repairs, repairs);
           expect(svc.current?.status, CallStatus.active);
           expect(media.switches, [CallTransportKind.relay]);
-          if (mode == 'confirmed stall') {
+          if (repairs == 1) {
             async.elapse(const Duration(seconds: 2));
             expect(media.repairs, 1, reason: 'one early repair per handover');
           }

@@ -112,6 +112,8 @@ const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 /// A recent handover with confirmed reception can use the same audio deadline.
 const Duration kCallDirectSessionSilence = Duration(seconds: 3);
 
+const Duration _mediaWatchdogInterval = Duration(seconds: 1);
+
 /// Maximum time call setup waits for endpoint exchange, dialing, and native
 /// admission before falling back from a permitted direct route to relay.
 const Duration kCallP2PSetupTimeout = Duration(seconds: 5);
@@ -2354,16 +2356,33 @@ class CallService {
     final handoverAt = _relayHandoverAt;
     if (media == null || handoverAt == null || _mediaWatchdogCheckBusy) return;
 
-    bool canCheck() =>
+    // The handover window applies to the last audio before the outage.
+    // A packet near its end still needs the full silence interval, the
+    // next watchdog tick, and a bounded native confirmation.
+    final windowEnd = handoverAt.add(kCallMediaRepairAfter);
+    final checkUntil = windowEnd.add(
+      kCallDirectSessionSilence + _mediaWatchdogInterval,
+    );
+
+    bool stillOnHandover() =>
         !_disposed &&
         _relayHandoverAt == handoverAt &&
-        _now().difference(handoverAt) < kCallMediaRepairAfter &&
         !_lateP2PBusy &&
         !media.isRepairingReceiveSession &&
         media.activeTransport == CallTransportKind.relay;
 
-    if (!canCheck() ||
-        !_establishedAudioReceiveStalled(call, routeStartedAt: handoverAt)) {
+    bool stalled(Call call, DateTime? audioRxAt) =>
+        audioRxAt != null &&
+        audioRxAt.isBefore(windowEnd) &&
+        _establishedAudioReceiveStalled(
+          call,
+          latestRxAt: audioRxAt,
+          routeStartedAt: handoverAt,
+        );
+
+    if (!_now().isBefore(checkUntil) ||
+        !stillOnHandover() ||
+        !stalled(call, media.lastAudioRxAt)) {
       return;
     }
 
@@ -2381,20 +2400,15 @@ class CallService {
       _mediaWatchdogCheckBusy = false;
     }
     final current = _current;
-    if (latestRxAt == null ||
-        epoch != _mediaOperationEpoch ||
+    if (epoch != _mediaOperationEpoch ||
         current == null ||
         current.callId != call.callId ||
         current.peer != call.peer ||
         current.peerDevice != call.peerDevice ||
         current.status != CallStatus.active ||
         current.transport != CallTransportKind.relay ||
-        !canCheck() ||
-        !_establishedAudioReceiveStalled(
-          current,
-          latestRxAt: latestRxAt,
-          routeStartedAt: handoverAt,
-        )) {
+        !stillOnHandover() ||
+        !stalled(current, latestRxAt)) {
       return;
     }
 
@@ -3097,7 +3111,7 @@ class CallService {
     _cancelHeartbeat();
     _lastPeerSignalAt = _now();
     _peerConfirmedAfterConnect = peerAlreadyConfirmed;
-    _mediaWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _mediaWatchdogTimer = Timer.periodic(_mediaWatchdogInterval, (_) {
       final call = _current;
       if (call != null) {
         if (call.status == CallStatus.active &&
