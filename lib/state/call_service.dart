@@ -840,7 +840,17 @@ class CallService {
     }
     _networkHandoversSub = _networkHandovers?.listen((_) {
       final call = _current;
-      if (call == null || !_canInspectDirectSession(call)) return;
+      if (_disposed || call == null) return;
+      if (call.status == CallStatus.active &&
+          call.transport == CallTransportKind.relay &&
+          _media?.activeTransport == CallTransportKind.relay) {
+        // Relay can survive as the selected transport while its local network
+        // changes. Use the same receive guard as a newly committed relay.
+        _relayHandoverAt = _now();
+        devLog(() => 'xVeil[call-media]: local network handover on relay');
+        return;
+      }
+      if (!_canInspectDirectSession(call)) return;
       _directNetworkHandoverAt = _now();
       unawaited(_checkLostDirectSession(call));
     }, onError: (Object _) {});
