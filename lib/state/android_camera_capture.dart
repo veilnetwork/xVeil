@@ -5,8 +5,9 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../core/log.dart';
 import '../core/capture_resource_lifetime.dart';
+import '../core/diagnostic_journal.dart';
+import '../core/log.dart';
 import 'owned_camera_controller.dart';
 
 export 'owned_camera_controller.dart' show CameraCaptureRetirementFailure;
@@ -229,7 +230,16 @@ class AndroidCameraCapture implements CaptureResource {
       // A stop that landed after the publish took the controller with it and
       // has closed it. Nothing to release here — but the caller must not be
       // told it has video.
-      return gen == _generation;
+      if (gen != _generation) return false;
+      diagnosticJournal.recordAndroidCameraPreview(
+        backend: AndroidCameraPreviewBackend.cameraX,
+        lens: switch (cam.lensDirection) {
+          CameraLensDirection.front => AndroidCameraPreviewLens.front,
+          CameraLensDirection.back => AndroidCameraPreviewLens.back,
+          CameraLensDirection.external => AndroidCameraPreviewLens.external,
+        },
+      );
+      return true;
     } catch (_) {
       // NOT `stop()`: this runs inside the very future `stop()` waits for.
       await _teardown();

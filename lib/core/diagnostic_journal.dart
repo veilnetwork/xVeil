@@ -58,6 +58,7 @@ enum DiagnosticEvent {
   // code: observed=0, deadline=1, failure=2; background is the chosen fallback
   // or actual observation, not an OS window handle or user presentation data.
   callAlertWindowQuery,
+  androidCameraPreview,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -85,6 +86,10 @@ enum CameraStartOrigin {
   recovery,
   channelAdmission,
 }
+
+enum AndroidCameraPreviewBackend { camera2, cameraX }
+
+enum AndroidCameraPreviewLens { unknown, front, back, external }
 
 enum FolderSavedDiagnosticAction { listing, exporting, discarding }
 
@@ -211,6 +216,10 @@ enum DiagnosticMetric {
   localPreviewReadErrors,
   remotePreviewReadErrors,
   localPreviewAgeMs,
+  previewBackend,
+  previewLens,
+  previewQuarterTurns,
+  previewExtraMirror,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -522,6 +531,27 @@ class DiagnosticJournal {
     );
   }
 
+  /// Configuration handed to the self-preview. The Camera2 values describe
+  /// Flutter's extra transforms, independent of the camera producer matrix.
+  void recordAndroidCameraPreview({
+    required AndroidCameraPreviewBackend backend,
+    required AndroidCameraPreviewLens lens,
+    int? quarterTurns,
+    bool? extraMirror,
+  }) {
+    record(
+      DiagnosticEvent.androidCameraPreview,
+      values: {
+        DiagnosticMetric.previewBackend: backend.index,
+        DiagnosticMetric.previewLens: lens.index,
+        if (quarterTurns != null && quarterTurns >= 0 && quarterTurns <= 3)
+          DiagnosticMetric.previewQuarterTurns: quarterTurns,
+        if (extraMirror != null)
+          DiagnosticMetric.previewExtraMirror: extraMirror ? 1 : 0,
+      },
+    );
+  }
+
   void recordCameraStart({
     required bool success,
     required CameraStartOrigin origin,
@@ -591,6 +621,7 @@ class DiagnosticJournal {
     DiagnosticEvent.cameraStart,
     DiagnosticEvent.cameraStopped,
     DiagnosticEvent.videoPreview,
+    DiagnosticEvent.androidCameraPreview,
     DiagnosticEvent.folderSavedFailure,
     DiagnosticEvent.audioRoute,
     DiagnosticEvent.backgroundSnapshot,

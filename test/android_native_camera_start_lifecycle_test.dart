@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/state/android_native_call_camera.dart';
 
 class _ReplyGate {
@@ -120,7 +121,10 @@ class _CameraPlatform {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late _CameraPlatform platform;
-  setUp(() => platform = _CameraPlatform());
+  setUp(() {
+    diagnosticJournal.clear();
+    platform = _CameraPlatform();
+  });
   tearDown(() => platform.dispose());
 
   for (final reuseOwner in [true, false]) {
@@ -144,6 +148,17 @@ void main() {
         expect(androidNativeCallCameraPreview.value, same(current));
         expect(next.cameraId, 'back');
         expect(platform.hardware, 'back');
+        if (diagnosticJournal.enabled) {
+          final rows = diagnosticJournal.toJson()['events'] as List;
+          expect(rows.map((row) => row['values']), [
+            {
+              'previewBackend': 0,
+              'previewLens': 2,
+              'previewQuarterTurns': 0,
+              'previewExtraMirror': 0,
+            },
+          ]);
+        }
         if (!reuseOwner) {
           await old.stop();
           expect(androidNativeCallCameraPreview.value, same(current));

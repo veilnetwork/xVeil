@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/diagnostic_journal.dart';
 import '../core/log.dart';
 
 /// Geometry and texture identity returned by the app-owned Camera2 call path.
@@ -187,6 +188,17 @@ class AndroidNativeCallCamera {
       androidNativeCallCameraPreview.value = preview;
       // ValueNotifier listeners run synchronously and may stop or replace us.
       if (!_owns(request)) return _finishSupersededStart();
+      diagnosticJournal.recordAndroidCameraPreview(
+        backend: AndroidCameraPreviewBackend.camera2,
+        lens: switch (preview.facing) {
+          'front' => AndroidCameraPreviewLens.front,
+          'back' => AndroidCameraPreviewLens.back,
+          'external' => AndroidCameraPreviewLens.external,
+          _ => AndroidCameraPreviewLens.unknown,
+        },
+        quarterTurns: preview.rotation ~/ 90,
+        extraMirror: preview.mirror,
+      );
       unawaited(refreshStats());
       return true;
     } on PlatformException catch (error) {
