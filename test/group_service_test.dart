@@ -20509,6 +20509,7 @@ void main() {
       final spaceId = await ownerService.createSpace(
         'Public lab',
         visibility: SpaceVisibility.public,
+        discoverable: true,
       );
       final code = await ownerService.createSpaceJoinCode(spaceId);
       expect(code, startsWith('xveil://space/v1#'));
@@ -20528,7 +20529,17 @@ void main() {
       );
       expect(await requesterService.load(spaceId), isNull);
 
-      expect(await requesterService.requestToJoinSpace(code!), isTrue);
+      expect(await ownerService.renameGroup(spaceId, 'Renamed public lab'), isTrue);
+      final refreshed = await ownerService.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(refreshed?.discovery.descriptor.name, 'Renamed public lab');
+      expect(
+        await requesterService.requestToJoinSpace(code!),
+        isTrue,
+        reason: 'the original link must still admit after a directory refresh',
+      );
+      expect(refreshed!.discovery.descriptor.joinCode, code);
       await pump();
       expect(
         (await ownerService.stateOf(spaceId))!.roleOf(bob),
@@ -20537,6 +20548,10 @@ void main() {
       expect(
         (await requesterService.stateOf(spaceId))!.roleOf(bob),
         GroupRole.member,
+      );
+      expect(
+        (await requesterService.stateOf(spaceId))!.name,
+        'Renamed public lab',
       );
       expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
@@ -20810,6 +20825,12 @@ void main() {
                 isTrue,
               );
             }
+            deliver = false;
+            expect(
+              await service.renameGroup(space, 'Renamed automatic public join'),
+              isTrue,
+            );
+            expect(await service.createSpaceJoinCode(space), code);
             // New service instance: no in-memory decision/task may rescue the intent.
             await service.dispose();
             service = makeOwner();
