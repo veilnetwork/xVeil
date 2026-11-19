@@ -501,6 +501,17 @@ void main() {
           '${Uri.encodeQueryComponent(authored!.postId)}',
         );
 
+        final renamed = '$canary renamed';
+        expect(await nextOwner.groups.renameGroup(spaceId, renamed), isTrue);
+        final refreshed = await nextOwner.groups
+            .buildSpacePublicDiscoveryPublication(spaceId);
+        expect(refreshed?.discovery.descriptor.name, renamed);
+        expect(
+          refreshed?.discovery.descriptor.joinCode,
+          result.descriptor.joinCode,
+          reason: 'the link from the original DHT result remains usable',
+        );
+
         var receivedJoins = 0;
         var admittedJoins = 0;
         var receivedSnapshots = 0;
@@ -570,6 +581,7 @@ void main() {
           isEmpty,
         );
         expect(await subscriber.groups.outgoingSpaceJoinRequests(), isEmpty);
+        expect((await subscriber.groups.stateOf(spaceId))?.name, renamed);
 
         final readerBody = '$canary from the joined member';
         final publisherBody = '$canary from the publisher';

@@ -79,3 +79,21 @@ The native regression also checks that the closed runtime releases its leases
 and that the startup task reports no failure. All 612 related Flutter tests
 passed. The loopback test used one process with Veil SDK `3056385c` and
 hidden-volume 2.8.0. Android-to-peer joining still needs device coverage.
+
+## Join links and renaming
+
+Refreshing public discovery after a rename used to rewrite the name inside
+the existing ticket. The name is covered by the ticket hash, so the owner
+rejected both the original link and pending requests that used it.
+
+Issued tickets now retain their original label and hash. The signed discovery
+record and the joined community show the new name. A link issued after the
+ticket expires or is revoked uses the current name. Links invalidated by
+an earlier rewrite still need to be copied again.
+
+The previous code failed the original-link test after the public descriptor
+was refreshed. The corrected code passed 568 related tests, including the
+interrupted-join restart cases, revocation and expiry. On the three-node
+loopback stand, a reader used the link from the original DHT result after the
+publisher renamed the community and rebuilt the descriptor. The reader
+joined, saw the new name, and exchanged encrypted messages.

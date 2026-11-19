@@ -184,6 +184,9 @@ class _SpaceJoins {
           break;
         }
       }
+      // The name in the link is covered by the ticket hash. Keep the issued
+      // ticket intact so a rename preserves links and requests already sent.
+      // Public discovery separately signs the current Space name.
       current ??= SpaceJoinTicket(
         ticketId: _owner._newSpaceInviteId(),
         spaceId: spaceId,
@@ -192,16 +195,6 @@ class _SpaceJoins {
         createdAtMs: now,
         expiresAtMs: now + kSpaceJoinTicketLifetime.inMilliseconds,
       );
-      if (current.spaceName != state.name) {
-        current = SpaceJoinTicket(
-          ticketId: current.ticketId,
-          spaceId: current.spaceId,
-          approver: current.approver,
-          spaceName: state.name,
-          createdAtMs: current.createdAtMs,
-          expiresAtMs: current.expiresAtMs,
-        );
-      }
       final tickets = <SpaceJoinTicket>[
         current,
         for (final ticket in store.tickets)
