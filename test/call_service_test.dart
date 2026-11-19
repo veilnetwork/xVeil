@@ -4196,6 +4196,9 @@ void main() {
       'fresh media',
       'fresh ingress but no sender',
       'cached ingress while direct closes',
+      'snapshot failed',
+      'snapshot timed out',
+      'snapshot failed with fresh cached ingress',
       'superseded handover',
     ]) {
       test('checks P2P early after a network handover ($mode)', () {
@@ -4241,9 +4244,16 @@ void main() {
           };
           final freshIngress =
               mode == 'fresh media' || mode == 'fresh ingress but no sender';
+          final unavailableSnapshot = mode.startsWith('snapshot ');
           final fresh = Completer<DateTime?>();
           final admission = Completer<bool?>();
-          if (freshIngress) media.readSnapshot = () => fresh.future;
+          if (freshIngress || unavailableSnapshot) {
+            media.readSnapshot = () => fresh.future;
+          }
+          if (mode == 'snapshot timed out') {
+            // Avoid sharing a tick with the snapshot's timeout.
+            async.elapse(const Duration(milliseconds: 250));
+          }
           if (mode == 'superseded handover') media.liveAdmissionGate = admission;
           network.add(null);
           async.flushMicrotasks();
@@ -4262,6 +4272,15 @@ void main() {
               async.elapse(const Duration(milliseconds: 10));
               media.liveDirectAdmission = mode == 'fresh media';
               fresh.complete(clock.now());
+            case 'snapshot failed with fresh cached ingress':
+              async.elapse(const Duration(milliseconds: 10));
+              media.rxAt = clock.now();
+              media.liveDirectAdmission = true;
+              fresh.completeError(StateError('media snapshot unavailable'));
+            case 'snapshot failed':
+              fresh.completeError(StateError('media snapshot unavailable'));
+            case 'snapshot timed out':
+              async.elapse(kCallLivenessSnapshotTimeout);
             case 'superseded handover':
               async.elapse(const Duration(milliseconds: 10));
               network.add(null);
@@ -4273,18 +4292,24 @@ void main() {
             'closes on the next tick',
             'cached ingress while direct closes',
             'fresh ingress but no sender',
+            'snapshot failed',
+            'snapshot timed out',
           }.contains(mode);
           expect(media.switches, switched ? [CallTransportKind.relay] : isEmpty);
           expect(
             media.liveAdmissionChecks,
             mode == 'closes on the next tick' ||
-                    freshIngress
+                    freshIngress ||
+                    mode == 'snapshot failed with fresh cached ingress'
                 ? [device, device]
                 : mode == 'cached ingress while direct closes'
                 ? [device, device, device]
                 : [device],
           );
-          expect(media.snapshotReads, switched || freshIngress ? 1 : 0);
+          expect(
+            media.snapshotReads,
+            switched || freshIngress || unavailableSnapshot ? 1 : 0,
+          );
           expect(svc.current?.status, CallStatus.active);
           svc.dispose();
           network.close();

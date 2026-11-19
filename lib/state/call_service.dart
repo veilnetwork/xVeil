@@ -2676,9 +2676,15 @@ class CallService {
     try {
       admitted = await readAdmission();
       if (early && admitted == false && recentNetworkChange()) {
-        final latestRxAt = await media.readLatestMediaRxAt().timeout(
-          const Duration(seconds: 2),
-        );
+        DateTime? latestRxAt;
+        try {
+          latestRxAt = await media.readLatestMediaRxAt().timeout(
+            kCallLivenessSnapshotTimeout,
+          );
+        } catch (_) {
+          // The receive snapshot is supplementary. Its failure does not
+          // erase an answer from the outgoing session registry.
+        }
         if (recentNetworkChange() &&
             ((latestRxAt ?? media.lastMediaRxAt)?.isAfter(networkChangedAt!) ??
                 false)) {
