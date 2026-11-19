@@ -6,6 +6,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -2291,13 +2292,14 @@ void main() {
     for (final outcome in [
       'admission after earlier handover',
       'admission',
+      'admission after offline',
       'deadline',
       'hangup',
     ]) {
       test('failed relay rebuild during a local handover: $outcome', () {
         fakeAsync((async) {
           final wire = _FakeMessaging();
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final admissions = StreamController<void>(sync: true);
           final media = _RepairThenRelayMedia()
             ..openedTransport = CallTransportKind.relay
@@ -2307,7 +2309,7 @@ void main() {
             wire,
             now: () => clock.now(),
             media: media,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             overlaySessionAdmissions: admissions.stream,
           )..start();
           const callId = 'relay-rebuild-before-admission';
@@ -2317,12 +2319,17 @@ void main() {
           expect(svc.current?.transport, CallTransportKind.relay);
           media.rxAt = clock.now();
           final earlierHandover = outcome == 'admission after earlier handover';
-          if (earlierHandover) network.add(null);
+          if (earlierHandover) network.add(NetworkAttachment.cellular);
           async.elapse(kCallMediaRepairAfter);
           expect(media.repairs, 1);
           expect(media.activeTransport, isNull);
 
-          if (!earlierHandover) network.add(null);
+          final wentOffline = outcome == 'admission after offline';
+          if (!earlierHandover) {
+            network.add(
+              wentOffline ? NetworkAttachment.offline : NetworkAttachment.cellular,
+            );
+          }
           const repairTail = Duration(milliseconds: 250);
           async.elapse(repairTail);
           media.cameraStopped.complete();
@@ -2358,9 +2365,10 @@ void main() {
 
           if (outcome == 'hangup') unawaited(svc.hangup());
           if (outcome == 'deadline') async.elapse(kCallRelayCandidateRetry);
+          if (wentOffline) network.add(NetworkAttachment.cellular);
           admissions.add(null);
           async.flushMicrotasks();
-          if (earlierHandover || outcome == 'admission') {
+          if (earlierHandover || wentOffline || outcome == 'admission') {
             expect(media.switches, [CallTransportKind.relay]);
             admissions.add(null);
             media.relayGate!.complete(true);
@@ -2383,6 +2391,58 @@ void main() {
           svc.dispose();
           unawaited(network.close());
           unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
+      test('keeps $route media in place while the local network is offline', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final media = _FakeMedia()
+            ..openedTransport = route
+            ..liveDirectAdmission = false;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const callId = 'network-offline-with-live-call';
+          wire.onCallSignal!(
+            peer,
+            offer(callId).copyWith(transport: CallTransportProposal(route)),
+          );
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, route);
+          media.rxAt = clock.now();
+
+          network.add(NetworkAttachment.offline);
+          async.elapse(kCallMediaRepairAfter);
+          expect(media.repairs, 0);
+          expect(media.switches, isEmpty);
+          expect(media.liveAdmissionChecks, isEmpty);
+          expect(wire.sent.where((s) => s.mediaRepairRequested), isEmpty);
+          expect(svc.current?.callId, callId);
+
+          network.add(NetworkAttachment.cellular);
+          async.flushMicrotasks();
+          if (route == CallTransportKind.p2p) {
+            expect(media.switches, [CallTransportKind.relay]);
+          } else {
+            async.elapse(kCallHeartbeatInterval);
+            expect(media.repairs, 1);
+          }
+          expect(svc.current?.callId, callId);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          svc.dispose();
+          unawaited(network.close());
           async.flushMicrotasks();
         });
       });
@@ -2682,7 +2742,7 @@ void main() {
     ]) {
       test('relay audio after local network change: $mode', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final wire = _FakeMessaging();
           final media = _FakeMedia()
             ..openedTransport = CallTransportKind.relay
@@ -2691,7 +2751,7 @@ void main() {
             wire,
             now: () => clock.now(),
             media: media,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             localAllowsP2P: (_) async => false,
           )..start();
           const callId = 'already-relay-network-change';
@@ -2726,7 +2786,7 @@ void main() {
             async.elapse(const Duration(seconds: 4));
           }
           async.elapse(const Duration(milliseconds: 100));
-          if (mode != 'without a network change') network.add(null);
+          if (mode != 'without a network change') network.add(NetworkAttachment.cellular);
           async.elapse(const Duration(milliseconds: 100));
           if (!preChangeAudio) media.audioRxAt = clock.now();
           media.rxAt = clock.now();
@@ -2750,7 +2810,7 @@ void main() {
           expect(media.latestAudioReads, shouldRead ? 1 : 0);
 
           if (mode == 'superseded during confirmation') {
-            network.add(null);
+            network.add(NetworkAttachment.cellular);
             async.flushMicrotasks();
           }
           snapshot.complete(media.audioRxAt);
@@ -2764,7 +2824,7 @@ void main() {
           media.latestAudioRead = () async => media.audioRxAt;
           if (mode == 'new handover while probing') {
             async.elapse(const Duration(milliseconds: 100));
-            network.add(null);
+            network.add(NetworkAttachment.cellular);
             async.flushMicrotasks();
           }
           probe.complete(mode != 'no echo for pre-change audio');
@@ -2801,7 +2861,7 @@ void main() {
     for (final timing in ['during probe', 'after failure', 'audio resumed']) {
       test('a relay refresh observes admission $timing', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final admissions = StreamController<void>(sync: true);
           final wire = _FakeMessaging();
           final first = Completer<bool>();
@@ -2812,7 +2872,7 @@ void main() {
             wire,
             now: () => clock.now(),
             media: media,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             overlaySessionAdmissions: admissions.stream,
             localAllowsP2P: (_) async => false,
           )..start();
@@ -2846,7 +2906,7 @@ void main() {
           };
 
           async.elapse(const Duration(milliseconds: 100));
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           async.elapse(const Duration(seconds: 4));
           expect(media.relayRefreshes, 1);
           if (timing == 'during probe') {
@@ -2898,7 +2958,7 @@ void main() {
       test('relay receive stalls after $failedProbes failed probes '
           '(confirmed audio=$confirmedAudio)', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final admissions = StreamController<void>(sync: true);
           final wire = _FakeMessaging();
           final media = _FakeMedia()
@@ -2909,7 +2969,7 @@ void main() {
             wire,
             now: () => clock.now(),
             media: media,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             overlaySessionAdmissions: admissions.stream,
             localAllowsP2P: (_) async => false,
           )..start();
@@ -2930,7 +2990,7 @@ void main() {
           media.audioRxAt = oldAudio;
           media.rxAt = oldAudio;
           async.elapse(const Duration(milliseconds: 100));
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           async.elapse(const Duration(seconds: 4));
           expect(media.relayRefreshes, 1);
 
@@ -4203,7 +4263,7 @@ void main() {
     ]) {
       test('checks P2P early after a network handover ($mode)', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final fake = _FakeMessaging();
           final media = _SnapshotMedia()
             ..openedTransport = CallTransportKind.p2p;
@@ -4213,9 +4273,9 @@ void main() {
             media: media,
             localAllowsP2P: (_) async => true,
             peerReachableForP2P: (_) async => true,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
           )..start();
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           async.flushMicrotasks();
           expect(media.liveAdmissionChecks, isEmpty);
 
@@ -4255,7 +4315,7 @@ void main() {
             async.elapse(const Duration(milliseconds: 250));
           }
           if (mode == 'superseded handover') media.liveAdmissionGate = admission;
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           async.flushMicrotasks();
           expect(media.liveAdmissionChecks, [device]);
           switch (mode) {
@@ -4283,7 +4343,7 @@ void main() {
               async.elapse(kCallLivenessSnapshotTimeout);
             case 'superseded handover':
               async.elapse(const Duration(milliseconds: 10));
-              network.add(null);
+              network.add(NetworkAttachment.cellular);
               admission.complete(false);
           }
           async.flushMicrotasks();
@@ -4328,7 +4388,7 @@ void main() {
     ]) {
       test('P2P admission started within the handover window: $outcome', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final admissions = StreamController<void>(sync: true);
           final wire = _FakeMessaging();
           final media = _ReconnectRelayMedia()
@@ -4338,7 +4398,7 @@ void main() {
             wire,
             now: () => clock.now(),
             media: media,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             overlaySessionAdmissions: admissions.stream,
             localAllowsP2P: (_) async => true,
             peerReachableForP2P: (_) async => true,
@@ -4356,7 +4416,7 @@ void main() {
           expect(svc.current?.transport, CallTransportKind.p2p);
 
           media.rxAt = clock.now();
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           const offset = Duration(milliseconds: 100);
           async.elapse(
             kCallDirectSessionSilence - const Duration(seconds: 1) - offset,
@@ -4379,7 +4439,7 @@ void main() {
           expect(media.switches, isEmpty);
 
           if (outcome == 'new overlay admission') admissions.add(null);
-          if (outcome == 'new handover') network.add(null);
+          if (outcome == 'new handover') network.add(NetworkAttachment.cellular);
           media.liveAdmissionGate = null;
           media.liveDirectAdmission = outcome == 'sender recovered';
           if (delayFirst) {
@@ -4420,14 +4480,14 @@ void main() {
 
     test('keeps the P2P handover observation while media is repairing', () {
       fakeAsync((async) {
-        final network = StreamController<void>(sync: true);
+        final network = StreamController<NetworkAttachment>(sync: true);
         final wire = _FakeMessaging();
         final media = _SnapshotMedia()..openedTransport = CallTransportKind.p2p;
         final svc = CallService(
           wire,
           now: () => clock.now(),
           media: media,
-          networkHandovers: network.stream,
+          networkAttachments: network.stream,
           localAllowsP2P: (_) async => true,
           peerReachableForP2P: (_) async => true,
         )..start();
@@ -4446,7 +4506,7 @@ void main() {
         media.rxAt = clock.now();
         media.receiveRepairing = true;
         media.liveDirectAdmission = false;
-        network.add(null);
+        network.add(NetworkAttachment.cellular);
         async.elapse(const Duration(seconds: 1));
         expect(media.liveAdmissionChecks, isEmpty);
         expect(media.switches, isEmpty);
@@ -4465,7 +4525,7 @@ void main() {
 
     test('unproven early relay keeps the ordinary recovery opportunity', () {
       fakeAsync((async) {
-        final network = StreamController<void>(sync: true);
+        final network = StreamController<NetworkAttachment>(sync: true);
         final fake = _FakeMessaging();
         final media = _ReconnectRelayMedia()..liveDirectAdmission = false;
         final svc = CallService(
@@ -4474,7 +4534,7 @@ void main() {
           media: media,
           localAllowsP2P: (_) async => true,
           peerReachableForP2P: (_) async => true,
-          networkHandovers: network.stream,
+          networkAttachments: network.stream,
         )..start();
         fake.onCallSignal!(
           peer,
@@ -4489,7 +4549,7 @@ void main() {
         svc.accept();
         async.flushMicrotasks();
         media.rxAt = clock.now();
-        network.add(null);
+        network.add(NetworkAttachment.cellular);
         async.flushMicrotasks();
         expect(media.switches, [CallTransportKind.relay]);
         expect(svc.current?.transport, CallTransportKind.p2p);
@@ -4512,7 +4572,7 @@ void main() {
       test('an early reconnect wake preserves the handover deadline '
           '(proved relay during wake: $readyDuringWake)', () {
         fakeAsync((async) {
-          final network = StreamController<void>(sync: true);
+          final network = StreamController<NetworkAttachment>(sync: true);
           final counts = StreamController<int>(sync: true);
           final fake = _FakeMessaging();
           final initialResult = Completer<bool>();
@@ -4525,7 +4585,7 @@ void main() {
             media: media,
             localAllowsP2P: (_) async => true,
             peerReachableForP2P: (_) async => true,
-            networkHandovers: network.stream,
+            networkAttachments: network.stream,
             overlaySessions: counts.stream,
           )..start();
           counts.add(0);
@@ -4542,7 +4602,7 @@ void main() {
           svc.accept();
           async.flushMicrotasks();
           media.rxAt = clock.now();
-          network.add(null);
+          network.add(NetworkAttachment.cellular);
           async.flushMicrotasks();
           expect(media.switches, hasLength(1));
 

@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
+import 'package:xveil/data/transport/veil_flutter_transport.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/veil_stack.dart';
 
 import '../e2e/e2e_env.dart' show waitUntil;
@@ -116,6 +118,37 @@ void main() {
                 line.contains('mtu_hint='),
           );
           expect(lines, hasLength(expected.length));
+          final adapter = await VeilFlutterTransport.connect(
+            plan.ipcSocket(root.path),
+          );
+          final attachments = <NetworkAttachment>[];
+          final subscription = adapter.networkAttachments.listen(
+            attachments.add,
+          );
+          try {
+            // An initial usable snapshot is not a handover. An initial
+            // offline snapshot still matters to the call watchdog.
+            final initial = tcp
+                ? NetworkAttachment.offline
+                : NetworkAttachment.wifi;
+            await adapter.networkChanged(initial);
+            await pumpEventQueue();
+            expect(attachments, tcp ? [NetworkAttachment.offline] : isEmpty);
+            const changes = [
+              NetworkAttachment.cellular,
+              NetworkAttachment.offline,
+              NetworkAttachment.wifi,
+              NetworkAttachment.unknown,
+            ];
+            for (final change in changes) {
+              await adapter.networkChanged(change);
+            }
+            await pumpEventQueue();
+            expect(attachments, [if (tcp) initial, ...changes]);
+          } finally {
+            await subscription.cancel();
+            await adapter.dispose();
+          }
           final control = await veil.VeilClient.connect(
             plan.ipcSocket(root.path),
           );
