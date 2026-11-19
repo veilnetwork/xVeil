@@ -581,6 +581,7 @@ class CallService {
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
   Object? _livenessProbeToken;
+  ({int epoch, (int, int?) networkVersion, DateTime until})? _mediaRepair;
   ({NodeId peer, String callId, bool rebuilding, Future<void> future})?
   _relayFallbackFlight;
   bool get _relayRebuildInProgress =>
@@ -2043,6 +2044,7 @@ class CallService {
         before.status != CallStatus.active ||
         _networkOffline ||
         _relayRebuildInProgress ||
+        _mediaRepair?.epoch == _mediaOperationEpoch ||
         _lateP2PBusy) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
@@ -2087,10 +2089,22 @@ class CallService {
     }
 
     var repaired = false;
+    final repair = (
+      epoch: epoch,
+      networkVersion: networkVersion,
+      until: _now().add(
+        before.media.video || before.media.screen
+            ? kCallVisualMediaStartTimeout
+            : kCallMediaStartTimeout,
+      ),
+    );
+    _mediaRepair = repair;
     try {
       repaired = await (localRebuild ?? media.repairRoute)();
     } catch (e) {
       devLog(() => 'xVeil[call-media]: route repair failed call=$callId: $e');
+    } finally {
+      if (_mediaRepair == repair) _mediaRepair = null;
     }
     final cur = repairOwner();
     if (cur == null) return;
@@ -2112,13 +2126,9 @@ class CallService {
       return;
     }
     if (!repaired && actual == null) {
-      final changedAt = _localNetworkHandoverAt;
       // The OS may already have switched networks while the notification
       // to the node is still queued. A failed rebuild can finish in that gap.
-      final handover =
-          networkVersion != _networkObservationVersion ||
-          (changedAt != null &&
-              _now().difference(changedAt) < kCallLivenessTimeout);
+      final handover = _observedNetworkHandover(networkVersion, _now());
       if (cur.transport == CallTransportKind.relay ||
           (handover && _isActiveDirectCall(cur))) {
         if (_relayRebuildAdmission != null) return;
@@ -2174,6 +2184,22 @@ class CallService {
       connections != _relayConnectionGeneration &&
       !_networkOffline &&
       _lastOverlayAdmissionNetwork == _overlayAdmissionNetwork;
+
+  bool _observedNetworkHandover((int, int?) version, DateTime now) {
+    final changedAt = _localNetworkHandoverAt;
+    return version != _networkObservationVersion ||
+        (changedAt != null && now.difference(changedAt) < kCallLivenessTimeout);
+  }
+
+  bool _holdLivenessForRecovery(Call call, DateTime now) {
+    if (_relayRebuildInProgress) return true;
+    final repair = _mediaRepair;
+    return repair != null &&
+        repair.epoch == _mediaOperationEpoch &&
+        now.isBefore(repair.until) &&
+        (call.transport == CallTransportKind.relay || _isActiveDirectCall(call)) &&
+        _observedNetworkHandover(repair.networkVersion, now);
+  }
 
   Future<bool> _waitForRelayRebuildAdmission(Future<bool> deadline) async {
     final wait = Completer<bool>();
@@ -3513,9 +3539,10 @@ class CallService {
           : kCallStartupLivenessTimeout;
       // The lost route can still recover while awaiting admission or opening
       // its replacement. Each phase has a deadline. Keep sending health.
-      if (!_relayRebuildInProgress &&
+      final now = _now();
+      if (!_holdLivenessForRecovery(c, now) &&
           alive != null &&
-          _now().difference(alive) > timeout) {
+          now.difference(alive) > timeout) {
         if (_livenessProbeToken == null) {
           final token = Object();
           _livenessProbeToken = token;
@@ -3615,6 +3642,7 @@ class CallService {
             ? kCallLivenessTimeout
             : kCallStartupLivenessTimeout;
         if (alive == null || now.difference(alive) <= timeout) return;
+        if (_holdLivenessForRecovery(cur, now)) return;
         // Recheck on the new network before acting on silence observed on
         // the old one. Allow one retry so repeated changes cannot keep a
         // dead call alive indefinitely.
@@ -3644,6 +3672,7 @@ class CallService {
   }
 
   void _cancelHeartbeat() {
+    _mediaRepair = null;
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
     final waiting = _relayRebuildAdmission;
