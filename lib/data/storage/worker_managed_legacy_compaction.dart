@@ -464,7 +464,7 @@ void _managedLegacyCompactionEntry(
         sourceName: config.sourceName,
         changes: changes,
       );
-      await _awaitManagedEraseAdmission(publication);
+      await _awaitManagedEraseAdmission(inbox, publication);
       check();
       publicationAttempted = true;
       try {
@@ -516,7 +516,7 @@ void _managedLegacyCompactionEntry(
             started = true;
             final result = await run(publication);
             if (config.beforeReply != null) {
-              await _awaitManagedEraseAdmission(config.beforeReply);
+              await _awaitManagedEraseAdmission(inbox, config.beforeReply);
             }
             message.reply.send(_Ok(result));
           case _CloseReq():

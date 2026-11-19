@@ -6,13 +6,16 @@ import 'dart:isolate';
 import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
-/// An isolate can survive the Flutter engine that started it. Queue owner
-/// exit on the same inbox as writes so the ordinary close path drains them.
+/// An isolate can survive the Flutter engine that started it. Queue close
+/// behind admitted work, and wake any operation awaiting its former owner.
 class StorageWorkerInbox {
   StorageWorkerInbox([this._owner]);
 
   final Isolate? _owner;
   final _port = ReceivePort();
+  ReceivePort? _ownerExit;
+  Completer<bool>? _admission;
+  bool _ownerExited = false;
   bool _serving = false;
 
   SendPort get sendPort => _port.sendPort;
@@ -22,8 +25,19 @@ class StorageWorkerInbox {
   /// startup, before it can process either control message.
   Future<bool> confirmOwner() async {
     final owner = _owner!;
+    final exit = ReceivePort();
+    _ownerExit = exit;
+    exit.listen((_) {
+      exit.close();
+      _ownerExited = true;
+      final pending = _admission;
+      if (pending != null && !pending.isCompleted) pending.complete(false);
+      // The inbox may be paused while an operation awaits its owner's reply.
+      // Only that wait is interrupted. Close still follows prior requests.
+      sendPort.send(null);
+    });
     final acknowledged = ReceivePort();
-    owner.addOnExitListener(sendPort);
+    owner.addOnExitListener(exit.sendPort);
     owner.ping(acknowledged.sendPort);
     try {
       await acknowledged.first.timeout(const Duration(seconds: 10));
@@ -32,6 +46,25 @@ class StorageWorkerInbox {
       return false;
     } finally {
       acknowledged.close();
+    }
+  }
+
+  /// Operations are served serially, including the round trip to the owner
+  /// when it must release a grant or confirm an operation before publication.
+  Future<bool> requestAdmission(SendPort port) async {
+    if (_ownerExited) return false;
+    assert(_admission == null);
+    final pending = Completer<bool>();
+    final reply = RawReceivePort((Object? value) {
+      if (!pending.isCompleted) pending.complete(value == true);
+    });
+    _admission = pending;
+    try {
+      port.send(reply.sendPort);
+      return await pending.future;
+    } finally {
+      _admission = null;
+      reply.close();
     }
   }
 
@@ -51,7 +84,11 @@ class StorageWorkerInbox {
   }
 
   void close() {
-    _owner?.removeOnExitListener(sendPort);
+    final exit = _ownerExit;
+    if (exit != null) {
+      _owner?.removeOnExitListener(exit.sendPort);
+      exit.close();
+    }
     _port.close();
   }
 }

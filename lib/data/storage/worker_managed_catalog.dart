@@ -86,16 +86,12 @@ final class _ManagedEraseAdmission {
   }
 }
 
-Future<void> _awaitManagedEraseAdmission(SendPort? port) async {
-  if (port == null) return;
-  final reply = ReceivePort();
-  try {
-    port.send(reply.sendPort);
-    if (await reply.first != true) {
-      throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
-    }
-  } finally {
-    reply.close();
+Future<void> _awaitManagedEraseAdmission(
+  StorageWorkerInbox inbox,
+  SendPort? port,
+) async {
+  if (port != null && !await inbox.requestAdmission(port)) {
+    throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
   }
 }
 
@@ -392,10 +388,11 @@ void _managedCatalogEntry(
                   password: password,
                   keys: keys,
                   review: review,
-                  beforeErase: () => _awaitManagedEraseAdmission(beforeErase),
+                  beforeErase: () =>
+                      _awaitManagedEraseAdmission(inbox, beforeErase),
                 );
               } else {
-                await _awaitManagedEraseAdmission(beforeErase);
+                await _awaitManagedEraseAdmission(inbox, beforeErase);
               }
               message.reply.send(_Ok(owner?.snapshot() ?? absent()));
             } catch (error) {

@@ -369,7 +369,7 @@ void _profilePreferencesEntry(
             gate!.close();
             gate = null;
             try {
-              await _awaitManagedEraseAdmission(admission);
+              await _awaitManagedEraseAdmission(inbox, admission);
             } finally {
               requireStablePath();
               gate = StorageProfileCoordinator.openExisting(profile, fs: fs);
@@ -406,7 +406,7 @@ void _profilePreferencesEntry(
             message.reply.send(_Ok(value));
           case _PreferencesWriteReq(:final contents):
             if (config.writeGate != null) {
-              await _awaitManagedEraseAdmission(config.writeGate);
+              await _awaitManagedEraseAdmission(inbox, config.writeGate);
             }
             requireHeld();
             if (fileFailure(inspectFile()) != null) {

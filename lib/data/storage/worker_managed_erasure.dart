@@ -719,7 +719,8 @@ Future<void> _managedErasureEntry(
               throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
             }
             await erasure.removeManagedFiles(
-              retireScopes: (_) => _awaitManagedEraseAdmission(admission),
+              retireScopes: (_) =>
+                  _awaitManagedEraseAdmission(inbox, admission),
             );
             message.reply.send(const _Ok(null));
           case _ErasureAuxiliaryReq(:final admission):
@@ -727,7 +728,7 @@ Future<void> _managedErasureEntry(
               throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
             }
             await erasure.removeAuxiliaryFiles(
-              retireScopes: () => _awaitManagedEraseAdmission(admission),
+              retireScopes: () => _awaitManagedEraseAdmission(inbox, admission),
             );
             message.reply.send(const _Ok(null));
           case _ErasureFinishReq(:final admission):
@@ -735,7 +736,7 @@ Future<void> _managedErasureEntry(
               if (erasure != null) {
                 await erasure.finish(
                   verifyOtherDataAbsent: () =>
-                      _awaitManagedEraseAdmission(admission),
+                      _awaitManagedEraseAdmission(inbox, admission),
                   afterStage: config.finishGateStage == null
                       ? null
                       : (stage) async {
@@ -748,7 +749,7 @@ Future<void> _managedErasureEntry(
               } else {
                 released = await reconciliation!.verifyAndRelease(
                   verifyOtherDataAbsent: () =>
-                      _awaitManagedEraseAdmission(admission),
+                      _awaitManagedEraseAdmission(inbox, admission),
                 );
               }
               final checkpoint = config.checkpoint;
