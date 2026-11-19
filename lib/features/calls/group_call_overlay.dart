@@ -337,10 +337,7 @@ class GroupCallRoomView extends StatelessWidget {
                     // stays unbadged: local capture state is visible anyway.
                     staleLabel: isSelf ? null : l.callVideoPaused,
                     mirrored:
-                        isSelf &&
-                        selfViewMirrored(
-                          screenSharing: participant.media.screen,
-                        ),
+                        isSelf && selfViewMirrored(screenSharing: media.screen),
                   );
                 },
               );
@@ -484,42 +481,48 @@ class _ParticipantCard extends StatelessWidget {
                   ),
                 ),
               if (media.screen)
-                Positioned(
-                  left: 8,
+                PositionedDirectional(
+                  start: 8,
+                  end: 8,
                   top: 8,
-                  child: Semantics(
-                    label: l.callScreenOn,
-                    liveRegion: true,
-                    child: Container(
-                      key: ValueKey(
-                        'group-call-screen-badge-${participant.nodeId.short}',
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.primaryContainer.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.screen_share,
-                            size: 14,
-                            color: scheme.onPrimaryContainer,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            l.callScreenOn,
-                            style: TextStyle(
+                  child: Align(
+                    alignment: AlignmentDirectional.topStart,
+                    child: Semantics(
+                      label: l.callScreenOn,
+                      liveRegion: true,
+                      child: Container(
+                        key: ValueKey(
+                          'group-call-screen-badge-${participant.nodeId.short}',
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.primaryContainer.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.screen_share,
+                              size: 14,
                               color: scheme.onPrimaryContainer,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                l.callScreenOn,
+                                style: TextStyle(
+                                  color: scheme.onPrimaryContainer,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
