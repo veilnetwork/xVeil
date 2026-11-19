@@ -37,6 +37,15 @@ class _MessagingDeviceMirror {
   _MessagingDeviceMirror(this._owner);
 
   final MessagingService _owner;
+  final _erasureWrites = AsyncTasks();
+
+  Future<void> closeErasureWrites() async {
+    try {
+      await _erasureWrites.close();
+    } catch (_) {
+      // applyDelete logs failures. Storage keeps unfinished scrub work durable.
+    }
+  }
 
   /// Per sibling device: when this device last asked it about erasures.
   final Map<String, DateTime> _erasureAskedAt = {};
@@ -415,14 +424,21 @@ class _MessagingDeviceMirror {
       // carried arrives again — and parking each one would churn a buffer of
       // 512 that real pending operations share.
       if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return;
-      if (!await _owner._mutations.hasMessage(peer, msgId)) {
+      if (_owner._disposed) return;
+      final found = await _owner._mutations.hasMessage(peer, msgId);
+      if (_owner._disposed) return;
+      if (!found) {
         _owner._mutations.bufferPending(peer, msgId, _PendingOp.delete());
         return;
       }
-      await _owner._storage.deleteMessage(peer.hex, msgId);
-      await _owner._storage.scrubDeleted();
-      _owner._mutations.rememberDeleteCompleted(peer, msgId);
-      _owner._signal();
+      // Keep the deletion and its scrub on the same session even when close
+      // begins between them. Lookups above have no such write obligation.
+      await _erasureWrites.run(() async {
+        await _owner._storage.deleteMessage(peer.hex, msgId);
+        await _owner._storage.scrubDeleted();
+        _owner._mutations.rememberDeleteCompleted(peer, msgId);
+        _owner._signal();
+      });
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored delete of $msgId failed: $e');
     }

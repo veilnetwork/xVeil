@@ -69,6 +69,24 @@ class _HeldScrub extends SyncWrappedAsyncKvLogStore {
   }
 }
 
+class _HeldDeleteLookupStorage extends HiddenVolumeStorage {
+  _HeldDeleteLookupStorage(super.opener);
+
+  final entered = Completer<void>(), release = Completer<void>();
+  bool hold = true;
+
+  @override
+  Future<Message?> loadMessageById(String conversationId, String id) async {
+    final result = await super.loadMessageById(conversationId, id);
+    if (hold) {
+      hold = false;
+      entered.complete();
+      await release.future;
+    }
+    return result;
+  }
+}
+
 void main() {
   final peer = NodeId(Uint8List.fromList(List.filled(32, 2)));
   Future<void> post(HiddenVolumeStorage storage) => storage.appendMessage(
@@ -84,6 +102,86 @@ void main() {
     ({required Uint8List password, required bool create}) => store,
     keysOpener: (_) => store,
   );
+
+  test(
+    'late mirrored delete lookup leaves the replacement identity intact',
+    () async {
+      final original = _Store(), replacement = _Store();
+      final storage = _HeldDeleteLookupStorage(
+        ({required password, required create}) =>
+            switch (utf8.decode(password)) {
+              'original' => original,
+              'replacement' => replacement,
+              _ => throw StateError('unexpected fixture password'),
+            },
+      );
+      final messaging = MessagingService(LoopbackTransport(), storage);
+      addTearDown(storage.close);
+      addTearDown(messaging.dispose);
+      await storage.open(password: 'original');
+      await post(storage);
+      final deleting = messaging.applyMirroredDelete(
+        peer: peer,
+        msgId: 'target',
+      );
+      try {
+        await storage.entered.future;
+        await messaging.dispose();
+        await storage.close();
+        await storage.open(password: 'replacement');
+        await post(storage);
+      } finally {
+        storage.release.complete();
+        await deleting;
+      }
+      expect(await storage.loadMessageById(peer.hex, 'target'), isNotNull);
+      expect(replacement.scrubAttempts, 0);
+    },
+  );
+
+  for (final failScrub in [false, true]) {
+    test(
+      'closing a session joins an admitted mirrored delete scrub (fails: $failScrub)',
+      () async {
+        final raw = _Store();
+        final held = _HeldScrub(raw);
+        final storage = HiddenVolumeStorage.fromAsyncStore(held);
+        final messaging = MessagingService(LoopbackTransport(), storage);
+        addTearDown(storage.close);
+        addTearDown(messaging.dispose);
+        await post(storage);
+        // A view can vacuum legacy rows on its first lookup. Hold the scrub
+        // following the new tombstone, after that initial recovery has run.
+        expect(await storage.isMessageDeleted(peer.hex, 'target'), isFalse);
+        final before = raw.scrubAttempts;
+        held.held = true;
+        final deleting = messaging.applyMirroredDelete(
+          peer: peer,
+          msgId: 'target',
+        );
+        await held.entered.future;
+        var closed = false;
+        final closing = messaging.dispose().then((_) => closed = true);
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(closed, isFalse);
+          expect(raw.scrubAttempts, before);
+        } finally {
+          raw.refuseScrub = failScrub;
+          held.release.complete();
+          await Future.wait([deleting, closing]);
+        }
+        expect(raw.scrubAttempts, before + 1);
+        await storage.close();
+        raw.refuseScrub = false;
+        final reopened = handle(raw);
+        addTearDown(reopened.close);
+        await reopened.open(password: 'fixture');
+        expect(await reopened.isMessageDeleted(peer.hex, 'target'), isTrue);
+        expect(raw.scrubAttempts, before + (failScrub ? 2 : 1));
+      },
+    );
+  }
 
   test(
     'replayed mirror finishes scrub after the tombstone committed',
