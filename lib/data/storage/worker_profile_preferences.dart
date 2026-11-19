@@ -267,7 +267,10 @@ void validateManagedPreferencesContainer(
   }
 }
 
-void _profilePreferencesEntry(_OpenProfilePreferences config) {
+void _profilePreferencesEntry(
+  _OpenProfilePreferences config,
+  StorageWorkerInbox inbox,
+) {
   StorageProfileCoordinator? gate;
   const fs = ManagedFsPlatform();
   late final String base;
@@ -296,7 +299,7 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
       config.reply.send(
         _ManagedOpenFailed(
           _managedFailureKind(error),
-          _serveManagedCleanup(() => gate?.close()),
+          _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
         ),
       );
@@ -347,10 +350,9 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
     return null;
   }
 
-  final rx = ReceivePort();
   var closing = false;
   late final StreamSubscription<dynamic> subscription;
-  subscription = rx.listen((dynamic message) {
+  subscription = inbox.listen(_CloseReq(config.reply), (dynamic message) {
     if (message is! _Req) return;
     if (closing && message is! _CloseReq) {
       message.reply.send(
@@ -417,7 +419,7 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
             closing = true;
             gate?.close();
             message.reply.send(const _Ok(null));
-            rx.close();
+            inbox.close();
             Isolate.current.kill(priority: Isolate.immediate);
           default:
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
@@ -436,5 +438,5 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
       }
     }());
   });
-  config.reply.send(_Ok(rx.sendPort));
+  config.reply.send(_Ok(inbox.sendPort));
 }

@@ -561,7 +561,10 @@ Future<void> _waitAtErasureCheckpoint(SendPort checkpoint) async {
   }
 }
 
-Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
+Future<void> _managedErasureEntry(
+  _OpenManagedErasure config,
+  StorageWorkerInbox inbox,
+) async {
   ManagedDirectoryCatalog? root;
   StorageProfileCoordinator? gate;
   ManagedRootErasure? erasure;
@@ -673,7 +676,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
       config.reply.send(
         _ManagedOpenFailed(
           _managedFailureKind(error),
-          _serveManagedCleanup(cleanup),
+          _serveManagedCleanup(config, inbox, cleanup),
         ),
       );
       return;
@@ -681,11 +684,10 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
     config.reply.send(_workerErrorReply(error, managed: true));
     return;
   }
-  final rx = ReceivePort();
   var closing = false;
   ManagedErasureRelease? released;
   late StreamSubscription<dynamic> subscription;
-  subscription = rx.listen((dynamic message) {
+  subscription = inbox.listen(_CloseReq(config.reply), (dynamic message) {
     if (message is! _Req) return;
     if (closing && message is! _CloseReq) {
       message.reply.send(
@@ -771,7 +773,7 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
             }
             cleanup();
             message.reply.send(const _Ok(null));
-            rx.close();
+            inbox.close();
             Isolate.current.kill(priority: Isolate.immediate);
           default:
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
@@ -783,5 +785,5 @@ Future<void> _managedErasureEntry(_OpenManagedErasure config) async {
       }
     }());
   });
-  config.reply.send(_Ok(rx.sendPort));
+  config.reply.send(_Ok(inbox.sendPort));
 }

@@ -344,20 +344,23 @@ final class _ManagedWorkerOwner {
   }
 }
 
-SendPort _serveManagedCleanup(void Function() close) {
-  final requests = ReceivePort();
-  requests.listen((dynamic message) {
+SendPort _serveManagedCleanup(
+  _OpenConfig config,
+  StorageWorkerInbox inbox,
+  void Function() close,
+) {
+  inbox.listen(_CloseReq(config.reply), (dynamic message) {
     if (message is! _CloseReq) return;
     try {
       close();
       message.reply.send(const _Ok(null));
-      requests.close();
+      inbox.close();
       Isolate.current.kill(priority: Isolate.immediate);
     } catch (error) {
       message.reply.send(_workerErrorReply(error, managed: true));
     }
   });
-  return requests.sendPort;
+  return inbox.sendPort;
 }
 
 _ManagedWorkerOwner _openManagedWorker(_OpenManagedIdentity config) {
