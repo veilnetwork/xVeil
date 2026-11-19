@@ -172,6 +172,47 @@ void main() {
   });
 
   group('migration off the system store', () {
+    test(
+      'defers migration until the profile directory can be listed',
+      () async {
+        final profiles = '${support.path}/profiles';
+        final obstruction = File(profiles)..writeAsStringSync('occupied');
+        final selectedPath = profilePrefsPath(support.path, 'default');
+        final selected = await ProfilePreferencesStore.load(selectedPath);
+        expect(
+          await selected.setValue('String', 'flutter.locale', 'es'),
+          isTrue,
+        );
+        final before = File(selectedPath).readAsBytesSync();
+        const old = {
+          'flutter.locale': 'ru',
+          'flutter.proxy_routing.decoy': 'decoy-route',
+        };
+        final legacy = InMemorySharedPreferencesStore.withData(old);
+
+        Future<String> launch() => installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: legacy,
+        );
+
+        expect(await launch(), AppProfiles.defaultName);
+        expect(await legacy.getAll(), old);
+        expect(File(selectedPath).readAsBytesSync(), before);
+        expect(obstruction.readAsStringSync(), 'occupied');
+
+        obstruction.deleteSync();
+        Directory('$profiles/decoy').createSync(recursive: true);
+        expect(await launch(), AppProfiles.defaultName);
+        expect(await legacy.getAll(), isEmpty);
+        expect(_fileEntries(profilePrefsPath(support.path, 'decoy')), {
+          'flutter.proxy_routing': 'decoy-route',
+        });
+        expect(File(selectedPath).readAsBytesSync(), before);
+      },
+    );
+
     for (final addDuringClear in [false, true]) {
       test(
         'preserves keys added during migration (during clear: $addDuringClear)',
