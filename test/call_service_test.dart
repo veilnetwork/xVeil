@@ -2739,19 +2739,25 @@ void main() {
       'new handover while probing',
       'without a network change',
       'superseded during confirmation',
+      'network IPC pending during confirmation',
     ]) {
       test('relay audio after local network change: $mode', () {
         fakeAsync((async) {
+          final ipcPending = mode == 'network IPC pending during confirmation';
+          final superseded = mode == 'superseded during confirmation' ||
+              ipcPending;
           final network = StreamController<NetworkAttachment>(sync: true);
           final wire = _FakeMessaging();
           final media = _FakeMedia()
             ..openedTransport = CallTransportKind.relay
             ..audioTelemetry = true;
+          var generation = 0;
           final svc = CallService(
             wire,
             now: () => clock.now(),
             media: media,
             networkAttachments: network.stream,
+            readNetworkChangeGeneration: () => generation,
             localAllowsP2P: (_) async => false,
           )..start();
           const callId = 'already-relay-network-change';
@@ -2804,15 +2810,14 @@ void main() {
           async.elapse(const Duration(seconds: 1));
           final shouldProbe = preChangeAudio && mode != 'stale pre-change audio';
           final shouldRead =
-              shouldProbe ||
-              mode == 'confirmed stall' ||
-              mode == 'superseded during confirmation';
+              shouldProbe || mode == 'confirmed stall' || superseded;
           expect(media.latestAudioReads, shouldRead ? 1 : 0);
 
           if (mode == 'superseded during confirmation') {
             network.add(NetworkAttachment.cellular);
             async.flushMicrotasks();
           }
+          if (ipcPending) generation++;
           snapshot.complete(media.audioRxAt);
           async.flushMicrotasks();
           expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
@@ -2840,8 +2845,9 @@ void main() {
             expect(media.repairs, 1, reason: 'ordinary recovery is still armed');
           }
 
-          if (mode == 'superseded during confirmation') {
+          if (superseded) {
             async.elapse(const Duration(milliseconds: 100));
+            if (ipcPending) network.add(NetworkAttachment.cellular);
             media.audioRxAt = clock.now();
             media.rxAt = clock.now();
             media.latestAudioRead = () async => media.audioRxAt;
@@ -4786,6 +4792,85 @@ void main() {
           async.flushMicrotasks();
         });
       });
+    }
+
+    for (final readAudio in [false, true]) {
+      for (final ipcPending in [false, true]) {
+        test('ignores stale direct watchdog evidence after network change '
+            '(audio: $readAudio, IPC pending: $ipcPending)', () {
+          fakeAsync((async) {
+            final fake = _FakeMessaging();
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final lastAudio = Completer<DateTime?>();
+            final admission = Completer<bool?>();
+            final media = _FakeMedia()
+              ..audioTelemetry = readAudio
+              ..latestAudioRead = (() => lastAudio.future)
+              ..liveAdmissionGate = admission;
+            var generation = 0;
+            final svc = CallService(
+              fake,
+              now: () => clock.now(),
+              media: media,
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+              networkAttachments: network.stream,
+              readNetworkChangeGeneration: () => generation,
+            )..start();
+            fake.onCallSignal!(
+              peer,
+              offer('watchdog-network-change').copyWith(
+                transport: const CallTransportProposal(CallTransportKind.p2p),
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+
+            final beforeChange = clock.now();
+            media.rxAt = beforeChange;
+            media.audioRxAt = beforeChange;
+            fake.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: 'watchdog-network-change',
+                type: CallSignalType.health,
+                capture: CallMedia(audio: true),
+              ),
+            );
+            async.elapse(kCallDirectSessionSilence);
+            expect(media.latestAudioReads, readAudio ? 1 : 0);
+            expect(media.liveAdmissionChecks, readAudio ? isEmpty : [peer]);
+
+            if (ipcPending) {
+              generation++;
+            } else {
+              network.add(NetworkAttachment.cellular);
+            }
+            media.liveAdmissionGate = null;
+            media.liveDirectAdmission = true;
+            media.latestAudioRead = () async => clock.now();
+            lastAudio.complete(beforeChange);
+            admission.complete(false);
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+            expect(svc.current?.transport, CallTransportKind.p2p);
+
+            if (ipcPending) network.add(NetworkAttachment.cellular);
+            async.elapse(const Duration(seconds: 1));
+            if (readAudio) {
+              expect(media.latestAudioReads, greaterThan(1));
+            } else {
+              expect(media.liveAdmissionChecks.length, greaterThan(1));
+            }
+            expect(media.switches, isEmpty);
+            expect(svc.current?.status, CallStatus.active);
+            svc.dispose();
+            unawaited(network.close());
+            async.flushMicrotasks();
+          });
+        });
+      }
     }
 
     test('a closed-session reply after hangup cannot restart media', () {
