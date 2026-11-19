@@ -525,6 +525,7 @@ class VeilCallMediaController implements CallMediaController {
     return _transport.sendCallControl(
       channel,
       Uint8List.fromList(utf8.encode(signal.encode())),
+      relayPrimary: signal.type == CallSignalType.transportInfo,
     );
   }
 

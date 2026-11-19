@@ -376,8 +376,13 @@ class VeilFlutterTransport
     return chan;
   }
 
-  bool sendCallControl(int chan, Uint8List bytes) =>
-      !_disposing && _mediaApp.sendCallControl(chan, bytes);
+  bool sendCallControl(
+    int chan,
+    Uint8List bytes, {
+    bool relayPrimary = false,
+  }) =>
+      !_disposing &&
+      _mediaApp.sendCallControl(chan, bytes, relayPrimary: relayPrimary);
   List<Uint8List> pollCallControl(int chan) =>
       _disposing ? const [] : _mediaApp.pollCallControl(chan);
 
