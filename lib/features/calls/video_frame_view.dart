@@ -36,6 +36,7 @@ class CallVideoFrameView extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.placeholderIcon = Icons.videocam_outlined,
     this.mirrored = false,
+    this.enabled = true,
     this.staleLabel,
     this.staleAfter = const Duration(seconds: 4),
   });
@@ -48,6 +49,10 @@ class CallVideoFrameView extends StatefulWidget {
 
   /// Mirror only the camera pixels; waiting and stale labels stay readable.
   final bool mirrored;
+
+  /// Keep the source boundary while a separate surface owns the preview.
+  /// Enabling again waits for a frame newer than the value already cached.
+  final bool enabled;
 
   /// When set, a stream that STOPS delivering new frames (backgrounded peer
   /// app, stopped camera, stalled route) badges the last frame with this label
@@ -84,7 +89,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     // A newly mounted surface (for example mini → full) may inherit an
     // already-confirmed static screen frame. Only a token transition inside a
     // living surface proves that its current frame belongs to the old source.
-    _resetSource(blockCurrent: false);
+    _resetSource(blockCurrent: !widget.enabled);
     if (widget.staleLabel != null) {
       _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         _refreshStale();
@@ -118,6 +123,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
       widget.frameListenable.addListener(_onFrame);
     }
     if (listenableChanged ||
+        oldWidget.enabled != widget.enabled ||
         oldWidget.freshnessToken != widget.freshnessToken) {
       _resetSource(blockCurrent: true);
     }
@@ -152,13 +158,15 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     _stale = false;
     _image?.dispose();
     _image = null;
-    final current = widget.frameListenable.value;
+    final current = widget.enabled ? widget.frameListenable.value : null;
     _blockedFrame = blockCurrent ? current : null;
     _waitingForFreshFrame = blockCurrent;
     if (!blockCurrent) _acceptFrame(current);
   }
 
-  void _onFrame() => _acceptFrame(widget.frameListenable.value);
+  void _onFrame() {
+    if (widget.enabled) _acceptFrame(widget.frameListenable.value);
+  }
 
   void _acceptFrame(VeilVideoFrame? frame) {
     if (frame == null) {
@@ -243,6 +251,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.enabled) return const SizedBox.shrink();
     final image = _image;
     if (image != null) {
       final staleLabel = widget.staleLabel;
@@ -306,31 +315,47 @@ class CallVideoWaitingView extends StatelessWidget {
   final IconData placeholderIcon;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: waitingLabel,
-    liveRegion: true,
-    excludeSemantics: true,
-    child: Center(
-      key: const ValueKey('call-video-waiting'),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            placeholderIcon,
-            color: Colors.white.withValues(alpha: 0.42),
-            size: 38,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            waitingLabel,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.68),
-              fontSize: 13,
-            ),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    const fontSize = 13.0;
+    const iconSize = 38.0;
+    const gap = 10.0;
+    final label = Text(
+      waitingLabel,
+      textAlign: TextAlign.center,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.68),
+        fontSize: fontSize,
       ),
-    ),
-  );
+    );
+    // Prefer space for the status text over a decorative icon on small tiles.
+    final scaledText = MediaQuery.textScalerOf(context).scale(fontSize);
+    return Semantics(
+      label: waitingLabel,
+      liveRegion: true,
+      excludeSemantics: true,
+      child: Center(
+        key: const ValueKey('call-video-waiting'),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxHeight < iconSize + gap + 2 * scaledText) {
+              return label;
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  placeholderIcon,
+                  color: Colors.white.withValues(alpha: 0.42),
+                  size: iconSize,
+                ),
+                const SizedBox(height: gap),
+                Flexible(child: label),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
 }

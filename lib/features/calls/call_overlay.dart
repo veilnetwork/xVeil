@@ -1238,6 +1238,7 @@ class _SelfPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    final androidCamera = Platform.isAndroid && call.cameraOn && !call.screenOn;
     return Material(
       color: Colors.black.withValues(alpha: 0.88),
       elevation: 8,
@@ -1249,24 +1250,24 @@ class _SelfPreview extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (Platform.isAndroid && call.cameraOn && !call.screenOn)
-              AndroidCallCameraPreview(waitingLabel: l.callVideoWaiting)
-            else
-              CallVideoFrameView(
-                mirrored: selfViewMirrored(screenSharing: call.screenOn),
-                frameListenable: localVideoFrame,
-                freshnessToken: (call.callId, call.screenOn),
-                waitingLabel: call.screenOn
-                    ? l.callScreenWaiting
-                    : l.callVideoWaiting,
-                placeholderIcon: call.screenOn
-                    ? Icons.screen_share_outlined
-                    : Icons.videocam_outlined,
-                fit: BoxFit.cover,
-              ),
-            if (!call.cameraOn)
+            CallVideoFrameView(
+              enabled: call.screenOn || (call.cameraOn && !androidCamera),
+              mirrored: selfViewMirrored(screenSharing: call.screenOn),
+              frameListenable: localVideoFrame,
+              freshnessToken: (call.callId, call.screenOn),
+              waitingLabel: call.screenOn
+                  ? l.callScreenWaiting
+                  : l.callVideoWaiting,
+              placeholderIcon: call.screenOn
+                  ? Icons.screen_share_outlined
+                  : Icons.videocam_outlined,
+              fit: BoxFit.cover,
+            ),
+            if (androidCamera)
+              AndroidCallCameraPreview(waitingLabel: l.callVideoWaiting),
+            if (!call.cameraOn && !call.screenOn)
               const ColoredBox(
-                color: Colors.black54,
+                color: Colors.black,
                 child: Center(
                   child: Icon(
                     Icons.videocam_off,
