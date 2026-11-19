@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
@@ -12,13 +15,13 @@ import 'support/fake_hv_container.dart';
 /// pestering. They live in the container rather than in device preferences,
 /// because they belong to the identity that owns the data — a decoy opening on
 /// the same machine must not inherit the real profile's answer.
-Future<ProviderContainer> _open() async {
+Future<ProviderContainer> _open({HiddenVolumeStorage? storage}) async {
   // The controller boots on construction and reads device preferences on the
   // way; without these two lines the test measures a missing binding rather
   // than the settings.
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
-  final storage = FakeHvContainer().storage();
+  storage ??= FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
   await storage.saveProfile(
     const UserProfile(displayName: 'Synthetic compaction profile'),
@@ -33,7 +36,81 @@ Future<ProviderContainer> _open() async {
   return container;
 }
 
+class _PauseAfterSettingWrite extends HiddenVolumeStorage {
+  _PauseAfterSettingWrite(super.opener);
+
+  final firstWriteFinished = Completer<void>();
+  final resumeSave = Completer<void>();
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    await super.putSetting(key, value);
+    if (!firstWriteFinished.isCompleted) {
+      firstWriteFinished.complete();
+      await resumeSave.future;
+    }
+  }
+}
+
 void main() {
+  test('one offer save stays entirely in the original hidden space', () async {
+    final storage = _PauseAfterSettingWrite(FakeHvContainer().passwordOpener);
+    final c = await _open(storage: storage);
+    addTearDown(c.dispose);
+    addTearDown(storage.close);
+    final ctrl = c.read(appControllerProvider.notifier);
+    final saving = ctrl.setCompactionOfferSettings(
+      const CompactionOfferSettings(
+        enabled: false,
+        period: Duration(days: 14),
+        thresholdBytes: 4 << 30,
+      ),
+    );
+    await storage.firstWriteFinished.future;
+    try {
+      await storage.close();
+      expect(
+        await storage.open(password: 'other', createIfMissing: true),
+        isTrue,
+      );
+    } finally {
+      storage.resumeSave.complete();
+    }
+    await saving;
+    final other = await ctrl.compactionOfferSettings();
+    expect(other.enabled, isTrue);
+    expect(other.period, CompactionOfferSettings.defaultPeriod);
+    expect(other.thresholdBytes, CompactionOfferSettings.defaultThresholdBytes);
+
+    await storage.close();
+    expect(await storage.open(password: 'pw'), isTrue);
+    final original = await ctrl.compactionOfferSettings();
+    expect(original.enabled, isFalse);
+    expect(original.period, const Duration(days: 14));
+    expect(original.thresholdBytes, 4 << 30);
+  });
+
+  test('existing separate offer settings remain readable', () async {
+    final storage = FakeHvContainer().storage();
+    final c = await _open(storage: storage);
+    addTearDown(c.dispose);
+    addTearDown(storage.close);
+    await storage.putSetting('storage.compact.offer.enabled.v1', '0');
+    await storage.putSetting('storage.compact.offer.days.v1', '7');
+    await storage.putSetting('storage.compact.offer.bytes.v1', '${2 << 30}');
+
+    final ctrl = c.read(appControllerProvider.notifier);
+    final legacy = await ctrl.compactionOfferSettings();
+    expect(legacy.enabled, isFalse);
+    expect(legacy.period, const Duration(days: 7));
+    expect(legacy.thresholdBytes, 2 << 30);
+    await ctrl.setCompactionOfferSettings(legacy.copyWith(enabled: true));
+    final saved = await ctrl.compactionOfferSettings();
+    expect(saved.enabled, isTrue);
+    expect(saved.period, const Duration(days: 7));
+    expect(saved.thresholdBytes, 2 << 30);
+  });
+
   test('an untouched profile gets three days and a gigabyte', () async {
     final c = await _open();
     addTearDown(c.dispose);

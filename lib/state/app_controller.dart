@@ -3604,6 +3604,7 @@ class AppController extends Notifier<AppState> {
   // can be the default. Its two knobs and its "don't ask again yet" mark live
   // in the container beside everything else the identity owns.
 
+  static const String _offerPolicyKey = 'storage.compact.offer.policy.v1';
   static const String _offerEnabledKey = 'storage.compact.offer.enabled.v1';
   static const String _offerPeriodDaysKey = 'storage.compact.offer.days.v1';
   static const String _offerThresholdKey = 'storage.compact.offer.bytes.v1';
@@ -3614,6 +3615,22 @@ class AppController extends Notifier<AppState> {
   Future<CompactionOfferSettings> compactionOfferSettings() async {
     try {
       final storage = ref.read(storageProvider);
+      final policy = await storage.getSetting(_offerPolicyKey);
+      if (policy != null) {
+        final fields = jsonDecode(policy);
+        if (fields case {
+          'enabled': final bool enabled,
+          'days': final int days,
+          'bytes': final int bytes,
+        } when days > 0 && bytes > 0) {
+          return CompactionOfferSettings(
+            enabled: enabled,
+            period: Duration(days: days),
+            thresholdBytes: bytes,
+          );
+        }
+      }
+      // Read settings saved by earlier versions until the first policy save.
       final enabled = await storage.getSetting(_offerEnabledKey);
       final days = int.tryParse(
         await storage.getSetting(_offerPeriodDaysKey) ?? '',
@@ -3642,12 +3659,17 @@ class AppController extends Notifier<AppState> {
     CompactionOfferSettings settings,
   ) async {
     final storage = ref.read(storageProvider);
-    await storage.putSetting(_offerEnabledKey, settings.enabled ? '1' : '0');
+    // A single accepted write pins the whole policy to the open space.
     await storage.putSetting(
-      _offerPeriodDaysKey,
-      '${settings.period.inDays < 1 ? 1 : settings.period.inDays}',
+      _offerPolicyKey,
+      jsonEncode({
+        'enabled': settings.enabled,
+        'days': settings.period.inDays < 1 ? 1 : settings.period.inDays,
+        'bytes': settings.thresholdBytes > 0
+            ? settings.thresholdBytes
+            : CompactionOfferSettings.defaultThresholdBytes,
+      }),
     );
-    await storage.putSetting(_offerThresholdKey, '${settings.thresholdBytes}');
   }
 
   /// Remember that the offer was SHOWN — not that compaction ran.
