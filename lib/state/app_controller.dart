@@ -2168,7 +2168,11 @@ class AppController extends Notifier<AppState> {
         }
       }
       if (!ref.mounted || _supersededSince(gen)) return;
-      await _maybeAutoCompactBeforeSession(password);
+      // Collection recovery uses only its access password. Skip the
+      // unlock-time repack to preserve every space in the shared container.
+      if (_compactionReopenSelection?.lifecycle != gen) {
+        await _maybeAutoCompactBeforeSession(password);
+      }
       if (_supersededSince(gen)) return;
       await ref.read(profileStorageRouterProvider)?.rememberAccess();
       if (!ref.mounted || _supersededSince(gen)) {
