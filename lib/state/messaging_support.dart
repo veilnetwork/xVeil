@@ -116,29 +116,36 @@ Future<List<NodeId>> liveMailboxRelayCandidates({
 /// first seconds.
 ///
 /// A set that has not grown is not handed over again — a repeat changes nothing
-/// and costs a pass. [cancelled] ends the watch when the identity or the stack
-/// it belongs to is gone.
+/// and costs a pass. Completing [stopped] cancels the retry timer. An in-flight
+/// lookup is allowed to settle, and its result cannot start registration.
 Future<void> startMailboxWhenCarriersExist({
   required Future<List<NodeId>> Function() candidates,
   required Future<void> Function(List<NodeId>) start,
   required bool Function() registered,
-  required bool Function() cancelled,
+  required Completer<void> stopped,
   Duration interval = const Duration(seconds: 10),
   int attempts = 30,
 }) async {
   final handed = <String>{};
   for (var attempt = 0; attempt < attempts; attempt++) {
-    if (cancelled()) return;
+    if (stopped.isCompleted) return;
     final relays = await candidates();
+    if (stopped.isCompleted) return;
     final fresh = relays.where((r) => !handed.contains(r.hex)).isNotEmpty;
     // Before registration every non-empty list is worth another try: the relay
     // may be the same one whose key only now resolves.
     if (relays.isNotEmpty && (fresh || !registered())) {
       handed.addAll(relays.map((r) => r.hex));
       await start(relays);
-      if (cancelled()) return;
     }
-    await Future<void>.delayed(interval);
+    if (attempt + 1 == attempts || stopped.isCompleted) return;
+    final retry = Completer<void>();
+    final timer = Timer(interval, retry.complete);
+    try {
+      await Future.any([retry.future, stopped.future]);
+    } finally {
+      timer.cancel();
+    }
   }
 }
 

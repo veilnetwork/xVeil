@@ -80,6 +80,14 @@ and that the startup task reports no failure. All 612 related Flutter tests
 passed. The loopback test used one process with Veil SDK `3056385c` and
 hidden-volume 2.8.0. Android-to-peer joining still needs device coverage.
 
+The carrier lookup could also finish after shutdown and still enter mailbox
+registration. The shared watch now checks cancellation after lookup and cancels
+the retry timer. Headless shutdown signals both boot and reconnect lookups, then
+joins the admitted work before closing the transport. Controlled tests verify
+that a late result never starts registration and that cancellation clears the
+timer without advancing the clock. All 210 related tests and the three-node
+native restart regression passed.
+
 ## Join links and renaming
 
 Refreshing public discovery after a rename used to rewrite the name inside
