@@ -130,15 +130,31 @@ void main() {
             dispatches++;
           });
           try {
-            // An initial usable snapshot is not a handover. An initial
-            // offline snapshot still matters to the call watchdog.
-            final initial = tcp
-                ? NetworkAttachment.offline
-                : NetworkAttachment.wifi;
-            await adapter.networkChanged(initial);
-            await pumpEventQueue();
-            expect(dispatches, 1);
-            expect(attachments, tcp ? [NetworkAttachment.offline] : isEmpty);
+            if (!tcp) {
+              await adapter.networkChanged(NetworkAttachment.wifi);
+              await pumpEventQueue();
+              expect(dispatches, 1);
+              expect(attachments, isEmpty);
+            }
+            // Keep the connected adapter alive while temporary IPC cannot
+            // open. TCP exercises failure of the first observation as well.
+            final endpoint = File(
+              tcp ? '${root.path}/ipc.port' : plan.ipcSocket(root.path),
+            );
+            final hiddenEndpoint = await endpoint.rename('${endpoint.path}.held');
+            try {
+              for (final change in [
+                NetworkAttachment.offline,
+                NetworkAttachment.offline,
+                NetworkAttachment.cellular,
+              ]) {
+                await expectLater(adapter.networkChanged(change), throwsException);
+              }
+              await pumpEventQueue();
+              expect(attachments, [NetworkAttachment.offline]);
+            } finally {
+              await hiddenEndpoint.rename(endpoint.path);
+            }
             const changes = [
               NetworkAttachment.cellular,
               NetworkAttachment.offline,
@@ -154,7 +170,7 @@ void main() {
               await dispatch;
             }
             await pumpEventQueue();
-            expect(attachments, [if (tcp) initial, ...changes]);
+            expect(attachments, [NetworkAttachment.offline, ...changes]);
           } finally {
             await starts.cancel();
             await subscription.cancel();
