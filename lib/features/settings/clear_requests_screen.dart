@@ -106,6 +106,7 @@ class _ClearRequestTile extends StatelessWidget {
   /// Saying yes is irreversible, so it is asked twice — the same standard the
   /// person's own clear is held to.
   Future<void> _confirmErase(BuildContext context, AppL10n l) async {
+    final messaging = ref.read(messagingServiceProvider);
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -133,9 +134,11 @@ class _ClearRequestTile extends StatelessWidget {
         ],
       ),
     );
-    if (ok != true) return;
-    await ref
-        .read(messagingServiceProvider)
-        .answerClearRequest(request, accept: true);
+    if (ok != true ||
+        !context.mounted ||
+        !identical(ref.read(messagingServiceProvider), messaging)) {
+      return;
+    }
+    await messaging.answerClearRequest(request, accept: true);
   }
 }

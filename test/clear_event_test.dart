@@ -11,6 +11,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/clear_policy.dart';
+import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -63,6 +64,22 @@ SpaceOpener _mem() {
   return ({required password, required bool create}) => s;
 }
 
+class _ClearRequestStorage extends HiddenVolumeStorage {
+  _ClearRequestStorage() : super(_mem());
+  final entered = Completer<void>(), release = Completer<void>();
+  bool holdNextRequestWrite = false;
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    if (key == kPendingClearRequestsKey && holdNextRequestWrite) {
+      holdNextRequestWrite = false;
+      entered.complete();
+      await release.future;
+    }
+    await super.putSetting(key, value);
+  }
+}
+
 Future<void> _until(
   Future<bool> Function() cond, {
   Duration timeout = const Duration(seconds: 5),
@@ -75,6 +92,151 @@ Future<void> _until(
 }
 
 void main() {
+  group('pending clear request decisions', () {
+    late _ClearRequestStorage storage;
+    late MessagingService service;
+    late _Link link;
+    final peer = _id(2);
+
+    PendingClearRequest request({int through = 1, bool group = true}) =>
+        PendingClearRequest(
+          chatHex: (group ? _id(3) : peer).hex,
+          requesterHex: peer.hex,
+          atMs: 1000,
+          seq: group ? 0 : 3,
+          watermark: {peer.hex: through},
+          groupKind: group ? kGroupClearOwn : null,
+        );
+
+    setUp(() async {
+      storage = _ClearRequestStorage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      link = _Link(_id(1));
+      service = MessagingService(link, storage);
+    });
+    tearDown(() async {
+      if (!storage.release.isCompleted) storage.release.complete();
+      await service.dispose();
+      await storage.close();
+      await link.dispose();
+    });
+
+    for (final accept in [false, true]) {
+      test(
+        'a stale answer preserves the replacement request (accept=$accept)',
+        () async {
+          final applied = <Map<String, int>>[];
+          service.onGroupClearAccepted = (request) async =>
+              applied.add(request.watermark);
+          await service.rememberClearRequest(request());
+          final shown = (await service.pendingClearRequests()).single;
+          final updated = request(through: 2);
+          await service.rememberClearRequest(updated);
+
+          expect(
+            await service.answerClearRequest(shown, accept: accept),
+            isFalse,
+          );
+          expect(applied, isEmpty);
+          final current = (await service.pendingClearRequests()).single;
+          expect(current.watermark, updated.watermark);
+          expect(
+            await service.answerClearRequest(current, accept: true),
+            isTrue,
+          );
+          expect(
+            await service.answerClearRequest(current, accept: true),
+            isFalse,
+          );
+          expect(applied, [updated.watermark]);
+          expect(await service.pendingClearRequests(), isEmpty);
+        },
+      );
+    }
+
+    test('parallel direct and group arrivals both stay pending', () async {
+      final direct = request(group: false), group = request(group: true);
+      storage.holdNextRequestWrite = true;
+      final first = service.rememberClearRequest(direct);
+      await storage.entered.future;
+      final second = service.rememberClearRequest(group);
+      await pumpEventQueue();
+      storage.release.complete();
+      await Future.wait([first, second]);
+
+      expect(
+        (await service.pendingClearRequests()).map((r) => r.key),
+        unorderedEquals([direct.key, group.key]),
+      );
+    });
+
+    test(
+      'failed group clear leaves its exact request pending for retry',
+      () async {
+        await service.rememberClearRequest(request());
+        final shown = (await service.pendingClearRequests()).single;
+        expect(await service.answerClearRequest(shown, accept: true), isFalse);
+        expect(await service.pendingClearRequests(), hasLength(1));
+        service.onGroupClearAccepted = (_) async =>
+            throw StateError('fixture apply failed');
+        await expectLater(
+          service.answerClearRequest(shown, accept: true),
+          throwsStateError,
+        );
+        expect(
+          (await service.pendingClearRequests()).single.watermark,
+          shown.watermark,
+        );
+        service.onGroupClearAccepted = (_) async {};
+        expect(await service.answerClearRequest(shown, accept: true), isTrue);
+        expect(await service.pendingClearRequests(), isEmpty);
+      },
+    );
+
+    test('disposing the service waits for an admitted request write', () async {
+      storage.holdNextRequestWrite = true;
+      final saving = service.rememberClearRequest(request());
+      await storage.entered.future;
+      var disposed = false;
+      final closing = service.dispose().then((_) => disposed = true);
+      await pumpEventQueue();
+      final disposedBeforeWrite = disposed;
+      storage.release.complete();
+
+      await saving;
+      await closing;
+      expect(disposedBeforeWrite, isFalse);
+      expect(await service.pendingClearRequests(), hasLength(1));
+      await expectLater(
+        service.rememberClearRequest(request()),
+        throwsStateError,
+      );
+    });
+
+    test(
+      'a replacement service joins pending writes on the same storage',
+      () async {
+        final firstRequest = request(group: false);
+        final nextRequest = request();
+        final nextService = MessagingService(link, storage);
+        addTearDown(nextService.dispose);
+        storage.holdNextRequestWrite = true;
+        final first = service.rememberClearRequest(firstRequest);
+        await storage.entered.future;
+        final closing = service.dispose();
+        final next = nextService.rememberClearRequest(nextRequest);
+        await pumpEventQueue();
+        storage.release.complete();
+        await Future.wait([first, next, closing]);
+
+        expect(
+          (await nextService.pendingClearRequests()).map((r) => r.key),
+          unorderedEquals([firstRequest.key, nextRequest.key]),
+        );
+      },
+    );
+  });
+
   group('clear propagates as an event (messaging)', () {
     late NodeId a, b;
     late _Link tA, tB;

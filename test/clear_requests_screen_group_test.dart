@@ -4,11 +4,31 @@
 // would be a sentence the act does not keep.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/features/settings/clear_requests_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/messaging.dart' show MessagingService;
 import 'package:xveil/state/messaging_providers.dart';
+
+class _AnsweringService implements MessagingService {
+  final accepted = <PendingClearRequest>[];
+
+  @override
+  Future<bool> answerClearRequest(
+    PendingClearRequest request, {
+    required bool accept,
+  }) async {
+    if (accept) accepted.add(request);
+    return accept;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final _activeService = StateProvider((_) => _AnsweringService());
 
 void main() {
   PendingClearRequest request(String? kind) => PendingClearRequest(
@@ -25,6 +45,9 @@ void main() {
       ProviderScope(
         overrides: [
           pendingClearRequestsProvider.overrideWith((ref) => Stream.value([r])),
+          messagingServiceProvider.overrideWith(
+            (ref) => ref.watch(_activeService),
+          ),
         ],
         child: const MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
@@ -84,4 +107,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(l.clearRequestsConfirmTitle), findsOneWidget);
   });
+
+  for (final replace in [false, true]) {
+    testWidgets(
+      'clear confirmation belongs to the service that opened it (replace=$replace)',
+      (tester) async {
+        final pending = request(kGroupClearOwn);
+        final l = await pump(tester, pending);
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ClearRequestsScreen)),
+        );
+        final original = container.read(_activeService);
+        await tester.tap(
+          find.widgetWithText(FilledButton, l.clearRequestsErase),
+        );
+        await tester.pumpAndSettle();
+
+        final next = _AnsweringService();
+        if (replace) {
+          container.read(_activeService.notifier).state = next;
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.widgetWithText(FilledButton, l.clearRequestsErase),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(original.accepted, replace ? isEmpty : [same(pending)]);
+        expect(next.accepted, isEmpty);
+      },
+    );
+  }
 }
