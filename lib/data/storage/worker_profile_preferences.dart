@@ -65,8 +65,15 @@ final class _PreferencesReadReq extends _Req {
 }
 
 final class _PreferencesWriteReq extends _Req {
-  const _PreferencesWriteReq(this.contents, super.reply);
+  const _PreferencesWriteReq(
+    this.contents,
+    super.reply, {
+    this.requireMatch = false,
+    this.expected,
+  });
   final String contents;
+  final bool requireMatch;
+  final String? expected;
 }
 
 final class _PreferencesReleaseGrantReq extends _Req {
@@ -245,6 +252,16 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
   @override
   Future<bool> write(String contents) =>
       _worker._call((reply) => _PreferencesWriteReq(contents, reply));
+  @override
+  Future<bool?> compareAndWrite(String? expected, String contents) =>
+      _worker._call(
+        (reply) => _PreferencesWriteReq(
+          contents,
+          reply,
+          expected: expected,
+          requireMatch: true,
+        ),
+      );
   @override
   Future<void> close() async {
     _retiring.add(this);
@@ -430,15 +447,31 @@ void _profilePreferencesEntry(
                 await Future<void>.delayed(const Duration(milliseconds: 50));
               }
             }
-          case _PreferencesWriteReq(:final contents):
+          case _PreferencesWriteReq(
+            :final contents,
+            :final requireMatch,
+            :final expected,
+          ):
             if (config.writeGate != null) {
               await _awaitManagedEraseAdmission(inbox, config.writeGate);
             }
             requireHeld();
-            if (fileFailure(inspectFile()) != null) {
-              throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-            }
-            final written = writePrivateFileAtomicallySync(file, contents);
+            final written = await withProfilePreferencesWriteLock<bool?>(
+              file,
+              () {
+                requireHeld();
+                final witness = inspectFile();
+                if (fileFailure(witness) != null) {
+                  throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+                }
+                if (requireMatch &&
+                    (witness == null ? null : file.readAsStringSync()) !=
+                        expected) {
+                  return null;
+                }
+                return writePrivateFileAtomicallySync(file, contents);
+              },
+            );
             requireHeld();
             message.reply.send(_Ok(written));
           case _CloseReq():

@@ -4,5 +4,6 @@
 abstract final class ProfilePreferencesLayout {
   static const file = 'xveil.prefs.json';
   static const temporary = '$file.tmp';
-  static const files = <String>{file, temporary};
+  static const lock = '$file.lock';
+  static const files = <String>{file, temporary, lock};
 }
