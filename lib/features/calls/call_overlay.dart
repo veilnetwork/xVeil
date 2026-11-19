@@ -34,8 +34,6 @@ import 'video_frame_view.dart';
 /// Cancel drive the [CallService] FSM.
 enum _OverlayMode { full, mini, hidden }
 
-bool _peerScreenSharing(Call call) => call.media.screen && !call.screenOn;
-
 class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
 
@@ -490,20 +488,12 @@ class _CallBody extends ConsumerWidget {
   }
 
   Widget _videoLayout(BuildContext context, AppL10n l, CallService svc) {
-    final peerScreen = _peerScreenSharing(call);
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(
           color: Colors.black,
-          child: _RemoteCallVideoView(
-            freshnessToken: (call.callId, peerScreen),
-            waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
-            staleLabel: l.callVideoPaused,
-            placeholderIcon: peerScreen
-                ? Icons.screen_share_outlined
-                : Icons.videocam_outlined,
-          ),
+          child: _RemoteCallVideoView(call: call),
         ),
         // Scrims so the white text/controls stay legible over any frame.
         const _Scrim(top: true),
@@ -731,42 +721,53 @@ class _PipEndedCover extends StatelessWidget {
 }
 
 class _RemoteCallVideoView extends StatelessWidget {
-  const _RemoteCallVideoView({
-    required this.freshnessToken,
-    required this.waitingLabel,
-    this.placeholderIcon = Icons.videocam_outlined,
-    this.staleLabel,
-  });
+  const _RemoteCallVideoView({required this.call});
 
-  final Object freshnessToken;
-  final String waitingLabel;
-  final IconData placeholderIcon;
-  final String? staleLabel;
+  final Call call;
 
   @override
   Widget build(BuildContext context) {
-    if (Platform.isAndroid) {
-      return _AndroidNativeRemoteVideoView(
-        freshnessToken: freshnessToken,
-        waitingLabel: waitingLabel,
-        fit: BoxFit.contain,
-        placeholderIcon: placeholderIcon,
-        staleLabel: staleLabel,
-      );
-    }
-    return CallVideoFrameView(
-      frameListenable: remoteVideoFrame,
-      freshnessToken: freshnessToken,
-      waitingLabel: waitingLabel,
-      fit: BoxFit.contain,
-      placeholderIcon: placeholderIcon,
-      staleLabel: staleLabel,
+    final l = AppL10n.of(context);
+    final capture = call.peerCapture;
+    final screen = capture?.screen ?? (call.media.screen && !call.screenOn);
+    final enabled = capture == null || capture.video || screen;
+    final source = (call.callId, screen);
+    final waiting = screen ? l.callScreenWaiting : l.callVideoWaiting;
+    final icon = screen ? Icons.screen_share_outlined : Icons.videocam_outlined;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (defaultTargetPlatform == TargetPlatform.android)
+          _AndroidNativeRemoteVideoView(
+            enabled: enabled,
+            freshnessToken: source,
+            waitingLabel: waiting,
+            fit: BoxFit.contain,
+            placeholderIcon: icon,
+            staleLabel: l.callVideoPaused,
+          )
+        else
+          CallVideoFrameView(
+            enabled: enabled,
+            frameListenable: remoteVideoFrame,
+            freshnessToken: source,
+            waitingLabel: waiting,
+            placeholderIcon: icon,
+            staleLabel: l.callVideoPaused,
+          ),
+        if (!enabled)
+          CallVideoWaitingView(
+            waitingLabel: l.callCameraOff,
+            placeholderIcon: Icons.videocam_off_outlined,
+          ),
+      ],
     );
   }
 }
 
 class _AndroidNativeRemoteVideoView extends StatefulWidget {
   const _AndroidNativeRemoteVideoView({
+    required this.enabled,
     required this.freshnessToken,
     required this.waitingLabel,
     required this.fit,
@@ -774,6 +775,7 @@ class _AndroidNativeRemoteVideoView extends StatefulWidget {
     required this.staleLabel,
   });
 
+  final bool enabled;
   final Object freshnessToken;
   final String waitingLabel;
   final BoxFit fit;
@@ -787,7 +789,7 @@ class _AndroidNativeRemoteVideoView extends StatefulWidget {
 
 class _AndroidNativeRemoteVideoViewState
     extends State<_AndroidNativeRemoteVideoView> {
-  int? _blockedThroughFrame;
+  AndroidNativeCallVideoTexture? _blockedTexture;
   Timer? _staleTimer;
 
   @override
@@ -796,7 +798,7 @@ class _AndroidNativeRemoteVideoViewState
     androidNativeCallVideoTexture.addListener(_onTexture);
     if (widget.staleLabel != null) {
       _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {});
+        if (mounted && widget.enabled) setState(() {});
       });
     }
   }
@@ -804,15 +806,16 @@ class _AndroidNativeRemoteVideoViewState
   @override
   void didUpdateWidget(covariant _AndroidNativeRemoteVideoView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.freshnessToken != widget.freshnessToken) {
-      _blockedThroughFrame = androidNativeCallVideoTexture.value?.frames ?? 0;
+    if (oldWidget.enabled != widget.enabled ||
+        oldWidget.freshnessToken != widget.freshnessToken) {
+      _blockedTexture = androidNativeCallVideoTexture.value;
     }
     if ((oldWidget.staleLabel == null) != (widget.staleLabel == null)) {
       _staleTimer?.cancel();
       _staleTimer = widget.staleLabel == null
           ? null
           : Timer.periodic(const Duration(seconds: 1), (_) {
-              if (mounted) setState(() {});
+              if (mounted && widget.enabled) setState(() {});
             });
     }
   }
@@ -825,30 +828,38 @@ class _AndroidNativeRemoteVideoViewState
   }
 
   void _onTexture() {
-    final value = androidNativeCallVideoTexture.value;
-    final blocked = _blockedThroughFrame;
-    if (blocked != null && value != null && value.frames > blocked) {
-      _blockedThroughFrame = null;
-    }
-    if (mounted) setState(() {});
+    if (mounted && widget.enabled) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     final value = androidNativeCallVideoTexture.value;
-    final blocked = _blockedThroughFrame;
-    if (value == null ||
-        !value.hasFrame ||
-        (blocked != null && value.frames <= blocked)) {
-      return CallVideoFrameView(
-        frameListenable: remoteVideoFrame,
-        freshnessToken: widget.freshnessToken,
-        waitingLabel: widget.waitingLabel,
-        fit: widget.fit,
-        placeholderIcon: widget.placeholderIcon,
-        staleLabel: widget.staleLabel,
-      );
-    }
+    final blocked = _blockedTexture;
+    final visible =
+        widget.enabled &&
+        value != null &&
+        value.hasFrame &&
+        (blocked == null ||
+            value.textureId != blocked.textureId ||
+            value.frames > blocked.frames);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CallVideoFrameView(
+          enabled: widget.enabled && !visible,
+          frameListenable: remoteVideoFrame,
+          freshnessToken: widget.freshnessToken,
+          waitingLabel: widget.waitingLabel,
+          fit: widget.fit,
+          placeholderIcon: widget.placeholderIcon,
+          staleLabel: widget.staleLabel,
+        ),
+        if (visible) _buildTexture(value),
+      ],
+    );
+  }
+
+  Widget _buildTexture(AndroidNativeCallVideoTexture value) {
     final lastFrameAt = value.lastFrameAt;
     final stale =
         widget.staleLabel != null &&
@@ -911,18 +922,9 @@ class _PipVideoView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
-    final peerScreen = _peerScreenSharing(call);
     return ColoredBox(
       color: Colors.black,
-      child: _RemoteCallVideoView(
-        freshnessToken: (call.callId, peerScreen),
-        waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
-        staleLabel: l.callVideoPaused,
-        placeholderIcon: peerScreen
-            ? Icons.screen_share_outlined
-            : Icons.videocam_outlined,
-      ),
+      child: _RemoteCallVideoView(call: call),
     );
   }
 }
@@ -1026,8 +1028,6 @@ class _FloatingCallTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final svc = ref.read(callServiceProvider);
-    final l = AppL10n.of(context);
-    final peerScreen = _peerScreenSharing(call);
     return Positioned(
       left: offset.dx,
       top: offset.dy,
@@ -1044,16 +1044,7 @@ class _FloatingCallTile extends ConsumerWidget {
             fit: StackFit.expand,
             children: [
               if (call.media.video || call.media.screen)
-                _RemoteCallVideoView(
-                  freshnessToken: (call.callId, peerScreen),
-                  waitingLabel: peerScreen
-                      ? l.callScreenWaiting
-                      : l.callVideoWaiting,
-                  staleLabel: l.callVideoPaused,
-                  placeholderIcon: peerScreen
-                      ? Icons.screen_share_outlined
-                      : Icons.videocam_outlined,
-                )
+                _RemoteCallVideoView(call: call)
               else
                 Center(
                   child: CircleAvatar(

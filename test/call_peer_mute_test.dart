@@ -11,10 +11,12 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/features/calls/call_overlay.dart';
 import 'package:xveil/features/calls/call_surface.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/android_native_call_video.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/messaging.dart';
-import 'package:xveil/state/veil_call_media.dart' show localVideoFrame;
+import 'package:xveil/state/veil_call_media.dart'
+    show localVideoFrame, remoteVideoFrame;
 
 /// A peer muting its microphone is invisible to the other side unless it is
 /// SENT: the media layer simply stops emitting packets, which on the receiving
@@ -97,6 +99,143 @@ Future<CallService> _activeCall(
 }
 
 void main() {
+  for (final nativeTexture in [false, true]) {
+    testWidgets(
+      'remote video waits after an explicit camera stop ($nativeTexture)',
+      (tester) async {
+        final messaging = _FakeMessaging();
+        late CallService svc;
+        await tester.runAsync(() async {
+          svc = await _activeCall(
+            messaging,
+            media: const CallMedia(audio: true, video: true),
+          );
+        });
+        addTearDown(svc.dispose);
+        addTearDown(() {
+          androidNativeCallVideoTexture.value = null;
+          remoteVideoFrame.value = null;
+        });
+        final image = nativeTexture
+            ? find.byType(Texture)
+            : find.byType(RawImage);
+
+        void capture(CallMedia value, int at) {
+          messaging.onCallSignal!(
+            _peer(),
+            CallSignal(
+              callId: 'peer-mute',
+              type: CallSignalType.health,
+              capture: value,
+              sentAtMs: at,
+            ),
+          );
+        }
+
+        void frame(int count, {int textureId = 21}) {
+          if (nativeTexture) {
+            androidNativeCallVideoTexture.value = AndroidNativeCallVideoTexture(
+              textureId: textureId,
+              width: 2,
+              height: 2,
+              frames: count,
+              lastFrameAt: DateTime.now(),
+            );
+          } else {
+            remoteVideoFrame.value = VeilVideoFrame(
+              rgba: Uint8List.fromList(List.filled(16, count)),
+              width: 2,
+              height: 2,
+            );
+          }
+        }
+
+        Future<void> pumpForVideo() async {
+          await tester.pump();
+          for (var i = 0; i < 20 && image.evaluate().isEmpty; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 5)),
+            );
+            await tester.pump();
+          }
+        }
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appControllerProvider.overrideWith(_ReadyAppController.new),
+              callServiceProvider.overrideWithValue(svc),
+            ],
+            child: const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: Stack(children: [CallOverlay()]),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        frame(9);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+        if (nativeTexture) {
+          // The Dart fallback can also retain a frame from the prior source.
+          remoteVideoFrame.value = VeilVideoFrame(
+            rgba: Uint8List(16),
+            width: 2,
+            height: 2,
+          );
+        }
+
+        capture(const CallMedia(audio: true), 1000);
+        await tester.pumpAndSettle();
+        expect(image, findsNothing);
+        expect(find.text('Camera off'), findsOneWidget);
+
+        capture(const CallMedia(audio: true, video: true), 2000);
+        await pumpForVideo();
+        expect(image, findsNothing);
+        expect(find.byType(RawImage), findsNothing);
+
+        frame(1, textureId: 22);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+
+        capture(const CallMedia(audio: true, screen: true), 3000);
+        await tester.pumpAndSettle();
+        expect(image, findsNothing);
+        expect(find.text('Waiting for shared screen…'), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 20));
+        frame(2, textureId: 22);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+      },
+      variant: TargetPlatformVariant({
+        nativeTexture ? TargetPlatform.android : TargetPlatform.macOS,
+      }),
+    );
+  }
+
+  test('camera toggles announce capture before the next heartbeat', () async {
+    final messaging = _FakeMessaging();
+    final svc = await _activeCall(
+      messaging,
+      media: const CallMedia(audio: true, video: true),
+    );
+    addTearDown(svc.dispose);
+    messaging.sent.clear();
+    await svc.setCameraEnabled(false);
+    expect(messaging.sent.single.capture?.video, isFalse);
+    messaging.sent.clear();
+    await svc.setCameraEnabled(true);
+    expect(messaging.sent.single.capture?.video, isTrue);
+    messaging.sent.clear();
+    await svc.setScreenShareEnabled(true);
+    final share = messaging.sent.singleWhere(
+      (s) => s.type == CallSignalType.renegotiate,
+    );
+    expect(share.capture?.screen, isTrue);
+  });
+
   testWidgets('self preview follows camera off and screen share in a live call', (
     tester,
   ) async {
