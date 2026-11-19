@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -13,6 +14,7 @@ import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/veil_call_media.dart' show localVideoFrame;
 
 /// A peer muting its microphone is invisible to the other side unless it is
 /// SENT: the media layer simply stops emitting packets, which on the receiving
@@ -38,6 +40,9 @@ class _UpMedia extends CallMediaController {
 
   @override
   Future<void> stop() async {}
+
+  @override
+  Future<bool> setScreenShareEnabled(bool enabled) async => true;
 }
 
 class _FakeMessaging implements MessagingService {
@@ -92,6 +97,89 @@ Future<CallService> _activeCall(
 }
 
 void main() {
+  testWidgets('self preview follows camera off and screen share in a live call', (
+    tester,
+  ) async {
+    late CallService svc;
+    await tester.runAsync(() async {
+      svc = await _activeCall(
+        _FakeMessaging(),
+        media: const CallMedia(audio: true, video: true),
+      );
+    });
+    addTearDown(svc.dispose);
+    addTearDown(() => localVideoFrame.value = null);
+    expect(svc.current?.status, CallStatus.active);
+    expect(svc.current?.cameraOn, isTrue);
+    VeilVideoFrame frame(int color) => VeilVideoFrame(
+      rgba: Uint8List.fromList(List.filled(16, color)),
+      width: 2,
+      height: 2,
+    );
+    final image = find.byType(RawImage);
+    final off = find.byIcon(Icons.videocam_off);
+    Future<void> showFrame(VeilVideoFrame value) async {
+      localVideoFrame.value = value;
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+        if (image.evaluate().isNotEmpty) return;
+      }
+      fail('The local preview did not decode the supplied frame');
+    }
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appControllerProvider.overrideWith(_ReadyAppController.new),
+          callServiceProvider.overrideWith((ref) => svc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          theme: ThemeData.dark(),
+          home: const Stack(children: [CallOverlay()]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await showFrame(frame(30));
+
+    Future<void> camera(bool on) async {
+      await tester.runAsync(() => svc.setCameraEnabled(on));
+      await tester.pumpAndSettle();
+      expect(svc.current?.cameraOn, on);
+    }
+
+    Future<void> share(bool on) async {
+      await tester.runAsync(() => svc.setScreenShareEnabled(on));
+      await tester.pumpAndSettle();
+      expect(svc.current?.screenOn, on);
+    }
+
+    await camera(false);
+    final visibleWhileOff = image.evaluate().isNotEmpty;
+    await camera(true);
+    expect(image, findsNothing, reason: 'old frame returned on camera restart');
+    await showFrame(frame(50));
+    await camera(false);
+    await share(true);
+    expect(image, findsNothing, reason: 'camera frame survived screen start');
+    await showFrame(frame(80));
+    // There is one camera-off icon on the control dock. A second icon would
+    // indicate that the thumbnail also treats the actively shared screen as off.
+    final offIconsWhileSharing = off.evaluate().length;
+    await share(false);
+    await camera(true);
+    expect(image, findsNothing, reason: 'old screen displayed as camera');
+    await showFrame(frame(160));
+    expect(visibleWhileOff, isFalse);
+    expect(offIconsWhileSharing, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('video call route label moves below the enlarged header', (
     tester,
   ) async {

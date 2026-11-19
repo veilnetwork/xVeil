@@ -43,6 +43,33 @@ Future<void> _settleImageDecode(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('waiting label fits the Android thumbnail at large text size', (
+    tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final semantics = tester.ensureSemantics();
+    const label = 'Ожидание видео…';
+    try {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 118,
+              height: 88,
+              child: AndroidCallCameraPreview(waitingLabel: label),
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.bySemanticsLabel(label), findsOneWidget);
+      expect(find.text(label).hitTestable(), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('Android camera changes do not display cached engine frames', (
     tester,
   ) async {
