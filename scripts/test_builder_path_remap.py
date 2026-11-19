@@ -78,11 +78,12 @@ class BuilderPathRemapTest(unittest.TestCase):
         # applies. Include a space to exercise cc-rs/CMake flag tokenisation.
         with tempfile.TemporaryDirectory(prefix='xveil remap ', dir=Path.home()) as directory:
             source = Path(directory) / 'probe.cc'
-            source.write_text('#include <cstdio>\n'
-                              '#define W2(x) L##x\n#define W(x) W2(x)\n'
-                              'int main(){volatile const wchar_t* w=W(__FILE__);'
-                              'std::puts(__FILE__);return w[0]==0;}\n')
-            binary = Path(directory) / 'probe.exe'
+            source.write_text(
+                '#define W2(x) L##x\n#define W(x) W2(x)\n'
+                'extern "C" const char* narrow_path(){return __FILE__;}\n'
+                'extern "C" const wchar_t* wide_path(){return W(__FILE__);}\n'
+            )
+            remapped = f'/build/{source.parent.name}/{source.name}'
             # Caller-supplied correct flags must not mask a missing remap in
             # the Flutter step (which also builds the native VPN helper).
             with mock.patch.dict(os.environ, {'CFLAGS': '', 'CXXFLAGS': ''}):
@@ -94,15 +95,22 @@ class BuilderPathRemapTest(unittest.TestCase):
             for role, additions in producers.items():
                 with self.subTest(role=role):
                     env = {**os.environ, **additions}
-                    subprocess.run([compiler, '/nologo', str(source), '/Fe' + str(binary),
-                                    *shlex.split(env['CXXFLAGS'])], cwd=directory, env=env,
-                                   capture_output=True, check=True)
-                    ran = subprocess.run([str(binary)], capture_output=True, check=True, text=True)
-                    self.assertTrue(ran.stdout.strip().replace('\\', '/').startswith('/build/'))
-                    self.assertTrue(ran.stdout.strip().endswith('probe.cc'))
-                    for prefix in (str(Path.home()), str(Path.home()).replace('\\', '/')):
-                        for encoding in ('utf-8', 'utf-16-le'):
-                            self.assertNotIn(prefix.encode(encoding), binary.read_bytes())
+                    # This gate checks the frontend's generated constants. No
+                    # CRT headers, linker or executable launch are needed.
+                    obj = Path(directory) / f'{role}.obj'
+                    compiled = subprocess.run(
+                        [compiler, '/nologo', '/c', str(source), '/Fo' + str(obj),
+                         *shlex.split(env['CXXFLAGS'])],
+                        cwd=directory, env=env, capture_output=True, text=True,
+                    )
+                    home = str(Path.home()).replace('\\', '/')
+                    diagnostic = (compiled.stdout + compiled.stderr).replace('\\', '/')
+                    self.assertEqual(compiled.returncode, 0, diagnostic.replace(home, '<profile>'))
+                    raw = obj.read_bytes()
+                    for encoding in ('utf-8', 'utf-16-le'):
+                        normalized = raw.replace('\\'.encode(encoding), '/'.encode(encoding))
+                        self.assertIn(remapped.encode(encoding), normalized)
+                        self.assertNotIn(home.encode(encoding), normalized)
 
 
 if __name__ == '__main__':
