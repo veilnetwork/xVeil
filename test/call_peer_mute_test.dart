@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/identity.dart';
@@ -18,6 +20,7 @@ import 'package:xveil/state/android_native_call_video.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/providers.dart' show storageProvider;
 import 'package:xveil/state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
 
@@ -78,6 +81,44 @@ class _SwitchCameraMedia extends _UpMedia {
       facing: 'back',
     ),
   ]);
+}
+
+class _DevicePickerMedia extends _UpMedia {
+  final microphoneLists = <Completer<List<CallMediaDevice>>>[];
+  final screens = Completer<List<CallMediaDevice>>();
+  final screenSelected = Completer<bool>();
+  final selectedScreens = <String>[];
+  final screenCapture = <bool>[];
+
+  @override
+  Future<List<CallMediaDevice>> listMicrophones() {
+    final request = Completer<List<CallMediaDevice>>();
+    microphoneLists.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<List<CallMediaDevice>> listScreens() => screens.future;
+
+  @override
+  Future<bool> selectScreen(String id) async {
+    selectedScreens.add(id);
+    return screenSelected.future;
+  }
+
+  @override
+  Future<bool> setScreenShareEnabled(bool enabled) async {
+    screenCapture.add(enabled);
+    return true;
+  }
+}
+
+class _DevicePickerStorage implements Storage {
+  @override
+  Future<String?> getSetting(String key) async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeMessaging implements MessagingService {
@@ -142,6 +183,124 @@ Future<void> _acceptOfferedCall(
 }
 
 void main() {
+  for (final (path, replaceCall) in [
+    ('settings', true),
+    ('screen list', true),
+    ('screen selection', true),
+    ('screen selection', false),
+  ]) {
+    testWidgets(
+      'call device picker handles $path result with replaceCall=$replaceCall',
+      (tester) async {
+        final screenAction = path != 'settings';
+        final video = CallMedia(audio: true, video: screenAction);
+        final messaging = _FakeMessaging();
+        final media = _DevicePickerMedia();
+        final svc = (await tester.runAsync(
+          () => _activeCall(messaging, media: video, controller: media),
+        ))!;
+        addTearDown(svc.dispose);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appControllerProvider.overrideWith(_ReadyAppController.new),
+              callServiceProvider.overrideWith((ref) => svc),
+              storageProvider.overrideWithValue(_DevicePickerStorage()),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: const Scaffold(body: Stack(children: [CallOverlay()])),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final settings = find.byKey(const ValueKey('call-surface-settings'));
+        final panel = find.byKey(const ValueKey('call-settings-panel'));
+        const primary = CallMediaDevice(
+          id: 'primary',
+          label: 'Primary screen',
+          kind: CallMediaDeviceKind.screen,
+        );
+        if (screenAction) {
+          await tester.tap(find.byKey(const ValueKey('call-screen')));
+          await tester.pump();
+          if (path == 'screen selection') {
+            media.screens.complete(const [
+              primary,
+              CallMediaDevice(
+                id: 'secondary',
+                label: 'Secondary screen',
+                kind: CallMediaDeviceKind.screen,
+              ),
+            ]);
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Video'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text(primary.label));
+            expect(media.selectedScreens, [primary.id]);
+          } else {
+            // Leave selection ready to finish if the stale list is applied.
+            media.screenSelected.complete(true);
+          }
+        } else {
+          await tester.tap(settings);
+          await tester.pump();
+          expect(media.microphoneLists, hasLength(1));
+        }
+
+        if (replaceCall) {
+          await tester.runAsync(() async {
+            await svc.hangup();
+            await _acceptOfferedCall(svc, messaging, 'replacement', video);
+          });
+          expect(svc.current?.callId, 'replacement');
+        }
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+        if (path == 'settings') {
+          await tester.tap(settings);
+          await tester.pump();
+          expect(media.microphoneLists, hasLength(2));
+          media.microphoneLists.first.complete(const [
+            CallMediaDevice(
+              id: 'old-mic',
+              label: 'Old microphone',
+              kind: CallMediaDeviceKind.microphone,
+            ),
+          ]);
+          await tester.pump();
+          expect(panel, findsNothing);
+          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+          media.microphoneLists.last.complete(const [
+            CallMediaDevice(
+              id: 'new-mic',
+              label: 'New microphone',
+              kind: CallMediaDeviceKind.microphone,
+            ),
+          ]);
+          await tester.pumpAndSettle();
+          expect(find.text('New microphone'), findsOneWidget);
+          expect(find.byType(CircularProgressIndicator), findsNothing);
+        } else {
+          if (path == 'screen list') {
+            media.screens.complete(const [primary]);
+          } else {
+            media.screenSelected.complete(true);
+          }
+          await tester.pumpAndSettle();
+          expect(svc.current?.screenOn, !replaceCall);
+          expect(media.screenCapture, [if (!replaceCall) true]);
+          expect(media.selectedScreens, [
+            if (path == 'screen selection') primary.id,
+          ]);
+        }
+        expect(tester.takeException(), isNull);
+      },
+      skip: path != 'settings' && !Platform.isMacOS,
+    );
+  }
+
   for (final transition in [
     'off and on',
     'screen share',
