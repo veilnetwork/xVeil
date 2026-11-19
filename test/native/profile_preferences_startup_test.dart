@@ -512,6 +512,36 @@ void main() {
   });
 
   test(
+    'a refused preference read leaves the legacy profile choice in place',
+    () async {
+      final key = 'flutter.${AppProfiles.activePref}';
+      await legacy.setValue('String', key, 'decoy');
+      final blocked = Directory(prefs('decoy'))..createSync(recursive: true);
+      final marker = File('${blocked.path}/marker')
+        ..writeAsStringSync('fixture');
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ManagedWorkerFailure>().having(
+            (error) => error.preferencesReadReason,
+            'read reason',
+            ManagedPreferencesFailureReason.fileType,
+          ),
+        ),
+      );
+      expect(File(activeProfilePath(support.path)).existsSync(), isFalse);
+      expect((await legacy.getAll())[key], 'decoy');
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+      expect(marker.readAsStringSync(), 'fixture');
+
+      blocked.deleteSync(recursive: true);
+      expect(await install(), 'decoy');
+      expect(await readRememberedProfile(support.path), 'decoy');
+      expect((await legacy.getAll()).containsKey(key), isFalse);
+    },
+  );
+
+  test(
     'local retirement and native release remain separate through the bound application view',
     () async {
       await install();

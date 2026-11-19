@@ -309,16 +309,10 @@ abstract class AppL10n {
   /// **'xVeil could not start'**
   String get startupFailedTitle;
 
-  /// No description provided for @startupFailedBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.'**
-  String get startupFailedBody;
-
   /// No description provided for @startupFailedAction.
   ///
   /// In en, this message translates to:
-  /// **'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.'**
+  /// **'Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.'**
   String get startupFailedAction;
 
   /// No description provided for @storageTitle.

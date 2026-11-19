@@ -10,13 +10,11 @@ import '../settings/error_report.dart';
 /// throw jumped over. So a failure anywhere in bootstrap (a preference store
 /// that will not install, a container path that will not resolve, a provider
 /// override that throws while it is being built) ended with an empty window and
-/// nothing to read: the process alive, the log written where nobody looks, and
-/// a user with no idea whether their data was touched.
+/// nothing to read and no way to export diagnostics.
 ///
-/// It answers exactly that question and nothing else. No stack trace — a stack
-/// on screen is an information leak in a deniable app (the same reason
-/// [ErrorWidget.builder] is replaced in release builds) and there is nothing in
-/// it a user can act on. The detail goes to the log and the error journal.
+/// The screen offers restart guidance and diagnostic export. The stack trace
+/// stays in the log and error journal so it cannot disclose private paths on
+/// screen.
 class StartupFailedApp extends StatelessWidget {
   const StartupFailedApp({super.key});
 
@@ -59,11 +57,6 @@ class _StartupFailedScreen extends StatelessWidget {
                 Text(
                   l.startupFailedTitle,
                   style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  l.startupFailedBody,
-                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 16),
                 const CopyErrorReportTile(phase: 'startup-failed'),
