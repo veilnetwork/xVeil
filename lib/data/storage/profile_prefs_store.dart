@@ -555,7 +555,7 @@ Future<void> _migrateLegacy(
   // failed write used to be logged and ignored, and the clear below then
   // destroyed the only remaining copy of settings that decide how the container
   // is opened (audit X-02).
-  var written = await into._flush();
+  var migrated = await into._flush();
   for (final other in elsewhere.entries) {
     final path = profilePrefsPath(supportDir, other.key);
     ProfilePreferencesFile? owner;
@@ -566,25 +566,30 @@ Future<void> _migrateLegacy(
       for (final kv in other.value.entries) {
         store._entries.putIfAbsent(kv.key, () => kv.value);
       }
-      if (!await store._flush()) written = false;
+      if (!await store._flush()) migrated = false;
     } catch (_) {
       // A refused destination must not be resurrected by migration. Retain
       // the complete legacy source so a later admitted launch can try again.
-      written = false;
+      migrated = false;
     } finally {
-      if (store != null) {
-        await store.releaseFile();
-      } else {
-        await owner?.close();
+      try {
+        await (store?.releaseFile() ?? owner?.close());
+      } catch (error, stack) {
+        // The native owner keeps an unconfirmed close available for retry.
+        // Preserve the migration source while the selected profile starts.
+        migrated = false;
+        devLog(
+          () => 'xVeil[prefs]: close after profile migration: $error\n$stack',
+        );
       }
     }
   }
 
-  if (!written || !mayClearLegacy) {
+  if (!migrated || !mayClearLegacy) {
     devLog(
       () =>
           'xVeil[prefs]: NOT emptying the system store — '
-          '${written ? 'the active-profile pointer could not be carried over' : 'a per-profile file could not be written'}. '
+          '${migrated ? 'the active-profile pointer could not be carried over' : 'a per-profile migration is incomplete'}. '
           'A second copy in the backup is bad; losing the only copy is worse, '
           'and the next launch can try again.',
     );
