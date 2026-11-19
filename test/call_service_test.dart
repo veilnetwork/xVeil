@@ -2565,6 +2565,89 @@ void main() {
       });
     }
 
+    for (final mode in [
+      'confirmed stall',
+      'only pre-change audio',
+      'without a network change',
+      'superseded during confirmation',
+    ]) {
+      test('relay audio after local network change: $mode', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..audioTelemetry = true;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkHandovers: network.stream,
+            localAllowsP2P: (_) async => false,
+          )..start();
+          const callId = 'already-relay-network-change';
+          wire.onCallSignal!(
+            peer,
+            offer(callId).copyWith(
+              transport: const CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+
+          media.audioRxAt = clock.now();
+          wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: const CallMedia(audio: true),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          async.elapse(const Duration(milliseconds: 100));
+          if (mode != 'without a network change') network.add(null);
+          async.elapse(const Duration(milliseconds: 100));
+          if (mode != 'only pre-change audio') media.audioRxAt = clock.now();
+          media.rxAt = clock.now();
+
+          final snapshot = Completer<DateTime?>();
+          media.latestAudioRead = () => snapshot.future;
+          async.elapse(const Duration(seconds: 3));
+          expect(media.repairs, 0);
+          async.elapse(const Duration(seconds: 1));
+          final shouldRead =
+              mode == 'confirmed stall' ||
+              mode == 'superseded during confirmation';
+          expect(media.latestAudioReads, shouldRead ? 1 : 0);
+
+          if (mode == 'superseded during confirmation') {
+            network.add(null);
+            async.flushMicrotasks();
+          }
+          snapshot.complete(media.audioRxAt);
+          async.flushMicrotasks();
+          expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
+
+          if (mode == 'superseded during confirmation') {
+            async.elapse(const Duration(milliseconds: 100));
+            media.audioRxAt = clock.now();
+            media.rxAt = clock.now();
+            media.latestAudioRead = () async => media.audioRxAt;
+            async.elapse(const Duration(seconds: 4));
+            expect(media.repairs, 1, reason: 'the new event owns recovery');
+          }
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(media.switches, isEmpty);
+          svc.dispose();
+          unawaited(network.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test(
       'answer racing a slow durable offer never arms a timer on the active call',
       () {
