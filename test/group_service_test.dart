@@ -13892,6 +13892,48 @@ void main() {
         reason: 'an unchanged group must not resend its manifest and log');
   });
 
+  test('boot sync does not send after shutdown during peer lookup', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    addTearDown(storage.close);
+    final setup = GroupService(storage, _FakeSigner(owner));
+    final groupId = await setup.createGroup('boot sync shutdown');
+    expect(
+      await setup.addControlOp(
+        groupId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    await setup.dispose();
+    final lookupStarted = Completer<void>();
+    final lookupRelease = Completer<Set<NodeId>>();
+    final sent = <NodeId>[];
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      activePeers: () {
+        lookupStarted.complete();
+        return lookupRelease.future;
+      },
+      send: (peer, _, _) async => sent.add(peer),
+    );
+    addTearDown(service.dispose);
+
+    final boot = service.nudgeGroupSyncAll();
+    final awaitingLookup = await Future.any([
+      lookupStarted.future.then((_) => true),
+      boot.then((_) => false),
+    ]);
+    expect(awaitingLookup, isTrue);
+    service.beginShutdown();
+    lookupRelease.complete({bob});
+    await boot;
+    expect(sent, isEmpty);
+  });
+
   test('a cold restart receives no group history when already in sync and '
       'only a missing row when behind', () async {
     final ownerStore = FakeHvContainer().storage();

@@ -16569,6 +16569,7 @@ class GroupService implements ArchiveGroups {
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
+    if (_disposed) return;
     // Verification is synchronous, but peer documents are loaded from the
     // encrypted file store. Without this wait a cold-start vector can claim
     // to hold none of the device-signed rows already on disk, provoking a
@@ -16583,6 +16584,7 @@ class GroupService implements ArchiveGroups {
       ...await _index(),
     };
     for (final gidHex in ids) {
+      if (_disposed) return;
       final NodeId gid;
       try {
         gid = NodeId.fromHex(gidHex);
@@ -16590,6 +16592,7 @@ class GroupService implements ArchiveGroups {
         continue;
       }
       final beforeUpgrade = await load(gid);
+      if (_disposed) return;
       final beforeState = beforeUpgrade == null
           ? null
           : foldControlLog(
@@ -16612,6 +16615,7 @@ class GroupService implements ArchiveGroups {
         // the first signed epoch and fans its recipient envelopes on boot.
         await addControlOp(gid, ControlOp.rotateEpoch);
       }
+      if (_disposed) return;
       await compactStateLogs(gid);
       await nudgeGroupSync(gid);
     }
@@ -16628,12 +16632,12 @@ class GroupService implements ArchiveGroups {
     bool onlyMyDevices = false,
   }) async {
     final send = _send;
-    if (send == null) return 0;
+    if (send == null || _disposed) return 0;
     // Session and resume pulls may race the boot pass. They need the same
     // signer documents before they describe which rows this device holds.
     await loadPeerDocuments();
     final bundle = await load(groupId);
-    if (bundle == null) return 0;
+    if (bundle == null || _disposed) return 0;
     // The address must be resolved before the synchronous request builder.
     // addressableOwnDevices() also resolves it, but runs after the builder.
     if (bundle.manifest.isSovereignDevice) await resolveMyDevice();
@@ -16703,11 +16707,14 @@ class GroupService implements ArchiveGroups {
     // anybody else it does not: which device of mine asked is not theirs.
     final me = myDevices.isEmpty ? null : await resolveMyDevice();
     final forMine = me == null ? null : jsonEncode({...req, 'dv': me.hex});
+    var sent = 0;
     for (final peer in peers) {
+      if (_disposed) break;
       final mine = forMine != null && myDevices.contains(peer);
       await send(peer, groupId, mine ? forMine : jsonEncode(req));
+      sent++;
     }
-    return peers.length;
+    return sent;
   }
 
   /// Ask every one of my own devices what I am missing, in every group.
