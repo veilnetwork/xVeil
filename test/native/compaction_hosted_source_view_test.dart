@@ -82,11 +82,13 @@ void main() {
     for (final (confirmed, failSourceSelection) in [
       (true, false),
       (false, false),
-      if (publish) (true, true),
+      (true, true),
     ]) {
       test(
         failSourceSelection
-            ? 'failed source selection restores the original master before compaction'
+            ? publish
+                  ? 'failed source selection restores the original master before compaction'
+                  : 'failed password collection lets its caller restore the master'
             : 'hosted legacy source selected only after release (publish=$publish confirmed=$confirmed)',
         () async {
           if (failSourceSelection) {
@@ -152,7 +154,20 @@ void main() {
             router.location,
             access,
           ); // Hosted views deliberately bypass this facade.
-          if (publish) {
+          if (failSourceSelection && !publish) {
+            final lease = controller.leaseIdentity();
+            failNextLegacySelection = true;
+            expect(await controller.beginCompactionCollection(), isFalse);
+            expect(sourceAtRefusal, before);
+            await controller.recoverCompactionCollection(
+              lease: lease,
+              reopenWith: 'visible-fixture',
+            );
+            final recovered = container.read(appControllerProvider);
+            expect(recovered.phase, AppPhase.pickingIdentity);
+            expect(recovered.identities, ['child-fixture', 'master-fixture']);
+            await controller.lock();
+          } else if (publish) {
             final authority = CompactionProfileAuthorization(
               controller.compactionVisibleIdentities,
             );

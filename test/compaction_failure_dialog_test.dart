@@ -34,12 +34,17 @@ class _FailedCompaction extends AppController {
   @override
   Future<bool> beginCompactionCollection() async {
     if (failEntry == 'begin') throw StateError('fixture maintenance busy');
+    if (failEntry == 'accepted') {
+      state = const AppState(AppPhase.preparingNode);
+      return false;
+    }
     return true;
   }
 
   @override
   Future<void> cancelCompactionCollection(String password) async {
     cancelled = true;
+    if (failEntry == 'accepted') state = const AppState(AppPhase.ready);
   }
 
   @override
@@ -72,8 +77,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
   });
-  for (final stage in ['note', 'begin']) {
-    testWidgets('entry failure is visible and owns no recovery ($stage)', (
+  for (final stage in ['note', 'begin', 'accepted']) {
+    testWidgets('entry failure is visible with correct recovery ($stage)', (
       tester,
     ) async {
       final controller = _FailedCompaction(failEntry: stage);
@@ -119,12 +124,12 @@ void main() {
         find.text(AppL10nEn().settingsStorageCompactFailed),
         findsOneWidget,
       );
-      expect(
-        controller.cancelled,
-        isFalse,
-        reason: 'a rejected caller must not reopen another collection',
-      );
-      expect(errorJournal.entries.single.kind, 'storage-compaction-entry');
+      final ownsRecovery = stage == 'accepted';
+      expect(controller.cancelled, ownsRecovery);
+      expect(controller.recoveryCalls, ownsRecovery ? 1 : 0);
+      if (!ownsRecovery) {
+        expect(errorJournal.entries.single.kind, 'storage-compaction-entry');
+      }
     });
   }
   test(
