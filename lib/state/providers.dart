@@ -55,11 +55,19 @@ typedef ContainerCompactor =
     Future<void> Function(
       String path,
       List<Uint8List> passwords, {
+      required Future<void> Function() beforePublication,
       String? dylibPath,
     });
 
 final containerCompactorProvider = Provider<ContainerCompactor>(
-  (ref) => hv.compactKnownAsync,
+  (ref) =>
+      (path, passwords, {required beforePublication, dylibPath}) =>
+          hv.compactKnownPreparedAsync(
+            path,
+            passwords,
+            repairMetadata: (_) => beforePublication(),
+            dylibPath: dylibPath,
+          ),
 );
 
 /// Manual compaction repairs encrypted key references before publication.

@@ -115,6 +115,18 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       throw StateError('profile preference file owner mismatch');
     }
     final file = File(path);
+    final (entries, loadedSnapshot) = await _readSnapshot(file, ownedFile);
+    return ProfilePreferencesStore._(
+      file,
+      entries,
+      ownedFile,
+      loadedSnapshot,
+      legacyPreferences,
+    );
+  }
+
+  static Future<(Map<String, ({String type, Object value})>, bool)>
+  _readSnapshot(File file, ProfilePreferencesFile? ownedFile) async {
     // Native admission failure is not a corrupt optional setting. Do not turn
     // a refused/dead owner into an unguarded local read or an empty backend.
     final ownedContents = ownedFile == null ? null : await ownedFile.read();
@@ -135,15 +147,20 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
         }
       }
     } catch (e) {
-      devLog(() => 'xVeil[prefs]: could not read $path, starting empty: $e');
+      devLog(() => 'xVeil[prefs]: could not read ${file.path}: $e');
     }
-    return ProfilePreferencesStore._(
-      file,
-      entries,
-      ownedFile,
-      loadedSnapshot,
-      legacyPreferences,
-    );
+    return (entries, loadedSnapshot);
+  }
+
+  /// Safety decisions must see the file even when this process has a cached
+  /// snapshot. Use the existing native owner and wait for accepted writes.
+  Future<String?> readPersistedString(String key) async {
+    _requireWritable();
+    await _writes;
+    _requireWritable();
+    final (entries, _) = await _readSnapshot(_file, _ownedFile);
+    final entry = entries['$_defaultPrefix$key'];
+    return entry?.type == 'String' ? entry!.value as String : null;
   }
 
   static ({String type, Object value})? _decode(Object? encoded) {

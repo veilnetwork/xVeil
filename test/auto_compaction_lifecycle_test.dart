@@ -118,9 +118,11 @@ void main() {
         containerCompactorProvider.overrideWithValue((
           path,
           passwords, {
+          required beforePublication,
           dylibPath,
         }) async {
           rewrites++;
+          await beforePublication();
         }),
         deniableBootProvider.overrideWithValue(
           DeniableBootConfig(
@@ -171,6 +173,7 @@ void main() {
             containerCompactorProvider.overrideWithValue((
               path,
               passwords, {
+              required beforePublication,
               dylibPath,
             }) async {
               backendCalls++;
@@ -179,6 +182,7 @@ void main() {
               if (stage == _Stage.nativeFailure) {
                 throw StateError('fixture backend refusal');
               }
+              await beforePublication();
             }),
             deniableBootProvider.overrideWithValue(
               DeniableBootConfig(
