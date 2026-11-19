@@ -503,6 +503,14 @@ void main() {
       ? null
       : container.read(opaqueNotificationPayloadsProvider).resolve(token);
 
+  PendingClearRequest clearRequest(int peer) => PendingClearRequest(
+    chatHex: _id(peer).hex,
+    requesterHex: _id(peer).hex,
+    atMs: 1000,
+    seq: 1,
+    watermark: {},
+  );
+
   testWidgets('hiding previews during contact lookup hides text and reply', (
     tester,
   ) async {
@@ -931,6 +939,122 @@ void main() {
       skip: !(Platform.isMacOS || Platform.isIOS || Platform.isAndroid),
     );
   }
+
+  testWidgets(
+    'a resolved clear request is suppressed while the OS is starting',
+    (tester) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service);
+      try {
+        requests.add([clearRequest(2)]);
+        await _pump(tester);
+        requests.add([]);
+        await _pump(tester);
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted, isEmpty);
+
+        requests.add([clearRequest(2)]);
+        await _pump(tester);
+        expect(plugin.posted, [kNotificationPayloadClearRequests]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    },
+  );
+
+  testWidgets('repeat clear request snapshots share one pending post', (
+    tester,
+  ) async {
+    await mount(tester);
+    final id = kNotificationIdClearRequests;
+    final first = clearRequest(2), second = clearRequest(3);
+    try {
+      notifications.holdId = id;
+      requests.add([first, second]);
+      await _pump(tester);
+      expect(notifications.entered.isCompleted, isTrue);
+      requests.add([second, first]);
+      await _pump(tester);
+      requests.add([first, second]);
+      await _pump(tester);
+      notifications.release.complete();
+      await _pump(tester);
+      expect(notifications.shows, 1);
+      expect(notifications.visible[id], kNotificationPayloadClearRequests);
+      expect(notifications.cancelled, isEmpty);
+    } finally {
+      await cleanup(tester);
+    }
+  });
+
+  for (final replace in [false, true]) {
+    testWidgets('request list changes during an OS post (replace=$replace)', (
+      tester,
+    ) async {
+      await mount(tester);
+      final id = kNotificationIdClearRequests;
+      try {
+        notifications.holdId = id;
+        requests.add([clearRequest(2)]);
+        await _pump(tester);
+        expect(notifications.entered.isCompleted, isTrue);
+        requests.add([if (replace) clearRequest(3)]);
+        await _pump(tester);
+        notifications.release.complete();
+        await _pump(tester);
+        expect(notifications.cancelled, contains(id));
+        expect(notifications.shows, replace ? 2 : 1);
+        expect(
+          notifications.visible[id],
+          replace ? kNotificationPayloadClearRequests : null,
+        );
+      } finally {
+        await cleanup(tester);
+      }
+    });
+  }
+
+  testWidgets('resolving the last clear request dismisses the posted alert', (
+    tester,
+  ) async {
+    await mount(tester);
+    try {
+      requests.add([clearRequest(2)]);
+      await _pump(tester);
+      expect(notifications.visible, contains(kNotificationIdClearRequests));
+      requests.add([]);
+      await _pump(tester);
+      expect(notifications.visible, isEmpty);
+    } finally {
+      await cleanup(tester);
+    }
+  });
+
+  testWidgets('the same requests can retry after an OS refusal', (
+    tester,
+  ) async {
+    await mount(tester);
+    try {
+      notifications.firstCompletion = 'false';
+      requests.add([clearRequest(2)]);
+      await _pump(tester);
+      expect(notifications.shows, 1);
+      requests.add([clearRequest(2)]);
+      await _pump(tester);
+      expect(notifications.shows, 2);
+      requests.add([clearRequest(2)]);
+      await _pump(tester);
+      expect(notifications.shows, 2);
+    } finally {
+      await cleanup(tester);
+    }
+  });
 
   testWidgets(
     'an incoming message cannot cancel a pending clear-request alert',
