@@ -6,17 +6,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/startup_unlock.dart';
+
+import '../support/retirement_secret_store.dart';
 
 Uint8List _bytes(String value) => Uint8List.fromList(utf8.encode(value));
 
@@ -52,21 +57,39 @@ class _Notifications extends NotificationService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({
+      'storage.autoCompactSetup.v1': 'fixture-setup',
+    }),
+  );
   for (final automatic in [false, true]) {
     for (final scenario in [
       'setting',
       'file',
       'none',
-      if (automatic) ...['cancel', 'abandoned'],
+      if (automatic) ...['cancel', 'abandoned', 'start-over', 'old-consent'],
     ]) {
       final restoring = scenario == 'cancel' || scenario == 'abandoned';
-      final corruption = restoring ? 'none' : scenario;
-      final hasChild = restoring || corruption != 'none';
+      final startOver = scenario == 'start-over';
+      final corruption = switch (scenario) {
+        'setting' || 'file' => scenario,
+        _ => 'none',
+      };
+      final hasChild = scenario != 'none';
+      final storedConsent = switch (scenario) {
+        'cancel' || 'abandoned' || 'start-over' => '0',
+        'old-consent' => '1',
+        _ => 'v2:fixture-setup',
+      };
       test(
-        restoring
-            ? '$scenario collection preserves an independent hidden space'
-            : 'native solo admission: automatic=$automatic roster=$corruption',
+        switch (scenario) {
+          'cancel' || 'abandoned' =>
+            '$scenario collection preserves an independent hidden space',
+          'start-over' => 'onboarding revokes old automatic compaction consent',
+          'old-consent' =>
+            'unbound automatic compaction consent cannot delete a space',
+          _ => 'native solo admission: automatic=$automatic roster=$corruption',
+        },
         () async {
           expect(ensureHiddenVolumeLoaded(), isTrue);
           final directory = await Directory.systemTemp.createTemp(
@@ -74,6 +97,11 @@ void main() {
           );
           addTearDown(() => directory.delete(recursive: true));
           final path = '${directory.path}/fixture.hv';
+          final preferencesPath = '${directory.path}/fixture-prefs.json';
+          if (startOver) {
+            SharedPreferencesStorePlatform.instance =
+                await ProfilePreferencesStore.load(preferencesPath);
+          }
           final body = Uint8List.fromList(List.generate(70000, (i) => i % 251));
           HvKvLogStore(
             hv.HvSpace.create(
@@ -89,7 +117,7 @@ void main() {
           final seed = facade();
           try {
             Uint8List? childKeys;
-            if (hasChild) {
+            if (hasChild && !startOver) {
               expect(
                 await seed.open(
                   password: 'child-fixture',
@@ -109,11 +137,8 @@ void main() {
               const UserProfile(displayName: 'Root fixture'),
             );
             await seed.storeFile('fixture-body', body);
-            await seed.putSetting(
-              'storage.autocompact.v1',
-              restoring ? '0' : '1',
-            );
-            if (childKeys != null && !restoring) {
+            await seed.putSetting('storage.autocompact.v1', storedConsent);
+            if (childKeys != null && corruption != 'none') {
               await seed.saveRoster([
                 for (var i = 0; i < (corruption == 'file' ? 24 : 1); i++)
                   RosterEntry(label: 'child-$i', spaceKeys: childKeys),
@@ -142,7 +167,7 @@ void main() {
           // A real container, not a sparse size-only witness: auto maintenance's
           // normal size gate must actually be eligible in both control branches.
           expect(await File(path).length(), greaterThanOrEqualTo(16 << 20));
-          final storage = restoring ? facade() : _Storage(path);
+          final storage = restoring || startOver ? facade() : _Storage(path);
           final controller = automatic
               ? _AutoController()
               : _ManualController();
@@ -152,6 +177,9 @@ void main() {
               appControllerProvider.overrideWith(() => controller),
               singleSpaceStorageProvider.overrideWithValue(storage),
               notificationServiceProvider.overrideWithValue(_Notifications()),
+              quickUnlockSecretStoreProvider.overrideWithValue(
+                RetirementSecretStore(),
+              ),
               deniableBootProvider.overrideWithValue(
                 DeniableBootConfig(
                   runtimeDir: '${directory.path}/runtime',
@@ -188,7 +216,7 @@ void main() {
           );
           providers.read(appControllerProvider);
           try {
-            if (restoring) {
+            if (restoring || startOver) {
               controller.debugDeniableStackStarter = (_) async =>
                   throw StateError('network disabled for fixture');
               await controller.unlock('root-fixture');
@@ -197,21 +225,42 @@ void main() {
                 AppPhase.ready,
               );
               await controller.setAutoCompactEnabled(true);
-              final lease = controller.leaseIdentity();
-              expect(await controller.beginCompactionCollection(), isTrue);
-              if (scenario == 'cancel') {
-                await controller.cancelCompactionCollection('root-fixture');
-              } else {
-                await controller.recoverCompactionCollection(
-                  lease: lease,
-                  reopenWith: 'root-fixture',
+              expect(await controller.autoCompactEnabled(), isTrue);
+              if (startOver) {
+                await controller.lock();
+                await controller.startOver();
+                expect(
+                  providers.read(appControllerProvider).phase,
+                  AppPhase.onboarding,
                 );
+                await controller.completeOnboarding(
+                  password: 'child-fixture',
+                  mode: StorageMode.plain,
+                  displayName: 'Child fixture',
+                );
+                await storage.storeFile('fixture-body', body);
+                await controller.lock();
+                SharedPreferencesStorePlatform.instance =
+                    await ProfilePreferencesStore.load(preferencesPath);
+                providers.invalidate(prefsProvider);
+                await controller.unlock('root-fixture');
+              } else {
+                final lease = controller.leaseIdentity();
+                expect(await controller.beginCompactionCollection(), isTrue);
+                if (scenario == 'cancel') {
+                  await controller.cancelCompactionCollection('root-fixture');
+                } else {
+                  await controller.recoverCompactionCollection(
+                    lease: lease,
+                    reopenWith: 'root-fixture',
+                  );
+                }
               }
               expect(
                 providers.read(appControllerProvider).phase,
                 AppPhase.ready,
               );
-              expect(await controller.autoCompactEnabled(), isTrue);
+              expect(await controller.autoCompactEnabled(), restoring);
               await controller.lock();
             } else if (automatic) {
               await controller.unlock('root-fixture');
@@ -256,7 +305,7 @@ void main() {
           } finally {
             await reader.close();
           }
-          expect(nativeCalls, corruption == 'none' && !restoring ? 1 : 0);
+          expect(nativeCalls, corruption == 'none' && !hasChild ? 1 : 0);
         },
         skip: Platform.environment['XVEIL_NATIVE_COMPACTION_ENTRY'] != '1',
       );

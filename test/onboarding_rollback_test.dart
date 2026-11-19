@@ -137,6 +137,46 @@ void main() {
   });
   tearDown(() => SharedPreferencesStorePlatform.instance = original);
 
+  test(
+    'setup refuses to open storage if old consent cannot be revoked',
+    () async {
+      SharedPreferencesStorePlatform.instance = _RefusingPrefsStore();
+      var opens = 0;
+      final storage = HiddenVolumeStorage(({
+        required password,
+        required create,
+      }) {
+        opens++;
+        return FakeKvLogStore();
+      });
+      final container = ProviderContainer(
+        overrides: [
+          singleSpaceStorageProvider.overrideWithValue(storage),
+          deniableBootProvider.overrideWithValue(
+            const DeniableBootConfig(
+              runtimeDir: '/private/tmp/unused-consent-runtime',
+              storePath: '/private/tmp/unused-consent.hv',
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(appControllerProvider.notifier);
+      await _settle(container);
+
+      await expectLater(
+        controller.completeOnboarding(
+          password: 'pw',
+          mode: StorageMode.hiddenSpace,
+        ),
+        throwsStateError,
+      );
+
+      expect(opens, 0);
+      expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
+    },
+  );
+
   test('a profile write that fails leaves the container CLOSED and the user '
       'back on onboarding', () async {
     final store = _WriteRefusingStore();
