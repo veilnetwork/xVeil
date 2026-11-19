@@ -119,6 +119,58 @@ void main() {
   }
 
   test(
+    'legacy outbox stamping on the native worker cannot revive an ACKed row',
+    () async {
+      final bytes = Uint8List.fromList([3, 5, 8]);
+      await put('legacy-a', bytes: bytes);
+      await put('legacy-b', bytes: bytes);
+      for (final key in await backing.kvKeys(Ns.outboxIndex)) {
+        final pointer = (await backing.get(Ns.outboxIndex, key))!;
+        final logId = int.parse(utf8.decode(pointer));
+        final payload = (await backing.readLog(Ns.outbox, logId))!;
+        final decoded = jsonDecode(utf8.decode(payload)) as Map;
+        decoded.remove('t');
+        await backing.commit([
+          AppendLogOp(
+            Ns.outbox,
+            logId,
+            Uint8List.fromList(utf8.encode(jsonEncode(decoded))),
+          ),
+        ]);
+      }
+      await storage.close();
+      backing = _NativeEnqueueStore(
+        (await workerSpaceOpener('${directory.path}/store.hv')(
+          password: password,
+          create: false,
+        ))!,
+      );
+      storage = HiddenVolumeStorage.async(
+        ({required password, required create}) async => backing,
+      );
+      expect(await storage.open(password: secret), isTrue);
+      backing.hold = true;
+      final read = storage.pendingOutboxFrames();
+      await backing.entered.future;
+      final original = await read;
+      expect(original, hasLength(2));
+      final ack = storage.ackOutboxFrame(
+        original.last.frameId,
+        fromPeerHex: 'peer',
+      );
+      backing.release.complete();
+      await ack;
+      await reopen();
+
+      final remaining = (await storage.pendingOutboxFrames()).single;
+      expect(remaining.frameId, original.first.frameId);
+      expect(remaining.enqueuedAtMs, original.first.enqueuedAtMs);
+      expect(remaining.wire, bytes);
+    },
+    skip: skip,
+  );
+
+  test(
     'outbox reload preserves native payload after an interrupted fragment read',
     () async {
       await put('queued');

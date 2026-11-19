@@ -85,6 +85,61 @@ void main() {
           .map((f) => f.frameId)
           .toList();
 
+  for (final replace in [false, true]) {
+    test(
+      'legacy outbox stamping preserves a concurrent ACK (replace=$replace)',
+      () async {
+        await put('legacy-a');
+        await put('legacy-b');
+        for (final write in backing.writes) {
+          final payload = write.whereType<AppendLogOp>().single;
+          final decoded = jsonDecode(utf8.decode(payload.payload)) as Map;
+          decoded.remove('t');
+          backing.raw.commit([
+            AppendLogOp(
+              Ns.outbox,
+              payload.logId,
+              Uint8List.fromList(utf8.encode(jsonEncode(decoded))),
+            ),
+          ]);
+        }
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+
+        backing.hold = true;
+        final read = storage.pendingOutboxFrames();
+        await backing.entered.future;
+        final original = await read;
+        expect(original, hasLength(2));
+        final stamping = original.first;
+        final retiring = original.last;
+        final replacement = Uint8List.fromList([21, 34, 55]);
+        final update = () async {
+          await storage.ackOutboxFrame(retiring.frameId, fromPeerHex: 'peer');
+          if (replace) await put(retiring.frameId, wire: replacement);
+        }();
+        await pumpEventQueue();
+        backing.release.complete();
+        await update;
+        await pumpEventQueue();
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+
+        final pending = {
+          for (final frame in await storage.pendingOutboxFrames())
+            frame.frameId: frame,
+        };
+        expect(
+          pending.keys,
+          unorderedEquals([stamping.frameId, if (replace) retiring.frameId]),
+        );
+        if (replace) expect(pending[retiring.frameId]!.wire, replacement);
+        expect(pending[stamping.frameId]!.wire, stamping.wire);
+        expect(pending[stamping.frameId]!.enqueuedAtMs, stamping.enqueuedAtMs);
+      },
+    );
+  }
+
   for (final failure in ['index', 'header', 'fragment']) {
     test(
       'outbox reload preserves frames after a temporary $failure failure',
