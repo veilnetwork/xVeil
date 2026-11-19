@@ -6277,6 +6277,135 @@ void main() {
       });
     });
 
+    for (final handover in ['offline', 'offline then online', 'IPC pending']) {
+      test('drops late direct readiness from a previous network ($handover)', () {
+        fakeAsync((async) {
+          final network = StreamController<NetworkAttachment>(sync: true);
+          var networkChangeGeneration = 0;
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+            networkAttachments: network.stream,
+            readNetworkChangeGeneration: () => networkChangeGeneration,
+          )..start();
+          offer(fake, 'late-direct-handover');
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+
+          final oldAdmission = Completer<bool?>();
+          media.liveAdmissionGate = oldAdmission;
+          for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+            media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+          }
+          expect(media.liveAdmissionChecks, hasLength(1));
+          fake.onCallSignal!(
+            peer,
+            ready('late-direct-handover').copyWith(
+              sentAtMs: clock.now().millisecondsSinceEpoch + 1,
+            ),
+          );
+          async.flushMicrotasks();
+          final beforeChange = fake.sent.length;
+          if (handover == 'IPC pending') {
+            networkChangeGeneration++;
+          } else {
+            network.add(NetworkAttachment.offline);
+            if (handover == 'offline then online') {
+              network.add(NetworkAttachment.cellular);
+            }
+          }
+          oldAdmission.complete(true);
+          async.flushMicrotasks();
+          final announcedDirect = fake.sent.skip(beforeChange).where(
+            (signal) =>
+                signal.type == CallSignalType.transportInfo &&
+                signal.transport?.kind == CallTransportKind.p2p,
+          );
+          expect(announcedDirect, isEmpty);
+          expect(media.switches, [CallTransportKind.relay]);
+          expect(svc.current?.transport, CallTransportKind.relay);
+
+          if (handover != 'offline then online') {
+            network.add(NetworkAttachment.cellular);
+          }
+          media.liveAdmissionGate = null;
+          media.liveDirectAdmission = true;
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 5));
+          expect(media.liveAdmissionChecks, hasLength(2));
+          expect(media.switches, [
+            CallTransportKind.relay,
+            CallTransportKind.p2p,
+          ]);
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          svc.dispose();
+          unawaited(network.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('a network change during P2P commit leaves a retry on relay', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final commitPolicy = Completer<bool>();
+        var networkChangeGeneration = 0;
+        var commitChecks = 0;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async {
+            if (media.switches.isEmpty || commitPolicy.isCompleted) return true;
+            commitChecks++;
+            return commitPolicy.future;
+          },
+          peerReachableForP2P: (_) async => true,
+          readNetworkChangeGeneration: () => networkChangeGeneration,
+        )..start();
+        offer(fake, 'late-direct-commit');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('late-direct-commit'));
+        async.flushMicrotasks();
+        expect(commitChecks, 1);
+        expect(media.switches, [CallTransportKind.p2p]);
+
+        networkChangeGeneration++;
+        commitPolicy.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.activeTransport, CallTransportKind.relay);
+
+        for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+        }
+        fake.onCallSignal!(
+          peer,
+          ready('late-direct-commit').copyWith(
+            sentAtMs: clock.now().millisecondsSinceEpoch,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p, CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test('admitted recovery snapshot still needs the current device gate', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
