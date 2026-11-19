@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
+import 'package:xveil/features/settings/error_report.dart';
 import 'package:xveil/main.dart' show runStartup;
 
 /// Everything between `main()` and `runApp` runs inside the guarded zone, and
@@ -11,18 +15,97 @@ import 'package:xveil/main.dart' show runStartup;
 /// EMPTY WINDOW: process alive, log written where nobody looks, and a user with
 /// no way to tell whether their data had been touched.
 void main() {
+  for (final duringOpen in [true, false]) {
+    testWidgets('can retry a busy preferences file (open=$duringOpen)', (
+      tester,
+    ) async {
+      final busy = ManagedWorkerFailure(
+        ManagedWorkerFailureKind.busy,
+        preferencesOpenReason: duringOpen
+            ? ManagedPreferencesFailureReason.busy
+            : null,
+        preferencesReadReason: duringOpen
+            ? null
+            : ManagedPreferencesFailureReason.busy,
+      );
+      final retryGate = Completer<void>();
+      var attempts = 0;
+      Widget? presented;
+      await runStartup(
+        loadPreferences: () async {
+          attempts++;
+          if (attempts == 1) throw busy;
+          if (attempts == 2) {
+            await retryGate.future;
+            throw busy;
+          }
+          return (
+            profile: null,
+            supportDirectory: null,
+            erasurePending: true,
+            legacyPreferences: null,
+          );
+        },
+        present: (widget) => presented = widget,
+      );
+
+      await tester.pumpWidget(presented!);
+      expect(find.textContaining('settings file is in use'), findsOneWidget);
+      expect(find.byType(CopyErrorReportTile), findsOneWidget);
+      final retry = find.widgetWithText(FilledButton, 'Try again');
+      await tester.tap(retry);
+      await tester.tap(retry);
+      await tester.pump();
+      expect(attempts, 2);
+      expect(tester.widget<FilledButton>(retry).onPressed, isNull);
+      retryGate.complete();
+      await tester.pump();
+      await tester.pumpWidget(presented!);
+      expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
+      await tester.tap(retry);
+      await tester.pump();
+      expect(attempts, 3);
+      await tester.pumpWidget(presented!);
+      expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
+      expect(find.byType(StartupFailedApp), findsNothing);
+    });
+  }
+
+  testWidgets('a busy preference error during resumed startup stays generic', (
+    tester,
+  ) async {
+    Widget? presented;
+    await runStartup(
+      boot: () async => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.busy,
+        preferencesReadReason: ManagedPreferencesFailureReason.busy,
+      ),
+      present: (widget) => presented = widget,
+    );
+    await tester.pumpWidget(presented!);
+    expect(find.byType(StartupFailedApp), findsOneWidget);
+    expect(find.byType(FilledButton), findsNothing);
+  });
+
   test('startup exposes only the bounded preference admission codes', () async {
     diagnosticJournal.clear();
     addTearDown(diagnosticJournal.clear);
     Widget? presented;
     await runStartup(
-      boot: () async => throw const ManagedWorkerFailure(
+      loadPreferences: () async => throw const ManagedWorkerFailure(
         ManagedWorkerFailureKind.invalid,
         preferencesOpenReason: ManagedPreferencesFailureReason.filesystemUnsafe,
       ),
       present: (w) => presented = w,
     );
-    expect(presented, isA<StartupFailedApp>());
+    expect(
+      presented,
+      isA<StartupFailedApp>().having(
+        (w) => w.retryPreferences,
+        'retry',
+        isNull,
+      ),
+    );
     final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
     final entry = retained?['profilePreferencesOpenFailed'] as Map?;
     expect(
@@ -41,13 +124,20 @@ void main() {
     addTearDown(diagnosticJournal.clear);
     Widget? presented;
     await runStartup(
-      boot: () async => throw const ManagedWorkerFailure(
+      loadPreferences: () async => throw const ManagedWorkerFailure(
         ManagedWorkerFailureKind.invalid,
         preferencesReadReason: ManagedPreferencesFailureReason.filePermissions,
       ),
       present: (widget) => presented = widget,
     );
-    expect(presented, isA<StartupFailedApp>());
+    expect(
+      presented,
+      isA<StartupFailedApp>().having(
+        (w) => w.retryPreferences,
+        'retry',
+        isNull,
+      ),
+    );
     final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
     expect(retained?['profilePreferencesOpenFailed'], isNull);
     final event = retained?['profilePreferencesReadFailed'] as Map?;

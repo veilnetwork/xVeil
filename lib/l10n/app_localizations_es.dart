@@ -136,6 +136,13 @@ class AppL10nEs extends AppL10n {
       'Cierra xVeil y vuelve a abrirlo. Si el error se repite, adjunta el informe de diagnóstico al pedir ayuda.';
 
   @override
+  String get startupPreferencesBusy =>
+      'El archivo de ajustes está en uso. Espera un momento y vuelve a intentarlo.';
+
+  @override
+  String get startupRetry => 'Reintentar';
+
+  @override
   String get storageTitle => '¿Cómo quieres guardar tus datos?';
 
   @override

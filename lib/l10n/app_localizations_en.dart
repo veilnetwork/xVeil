@@ -135,6 +135,13 @@ class AppL10nEn extends AppL10n {
       'Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.';
 
   @override
+  String get startupPreferencesBusy =>
+      'The settings file is in use. Wait a moment, then try again.';
+
+  @override
+  String get startupRetry => 'Try again';
+
+  @override
   String get storageTitle => 'How should we store your data?';
 
   @override

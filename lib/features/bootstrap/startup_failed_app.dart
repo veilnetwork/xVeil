@@ -12,11 +12,12 @@ import '../settings/error_report.dart';
 /// override that throws while it is being built) ended with an empty window and
 /// nothing to read and no way to export diagnostics.
 ///
-/// The screen offers restart guidance and diagnostic export. The stack trace
-/// stays in the log and error journal so it cannot disclose private paths on
-/// screen.
+/// The screen offers diagnostic export and, when preferences are busy, a retry.
+/// The stack trace stays in the log and error journal.
 class StartupFailedApp extends StatelessWidget {
-  const StartupFailedApp({super.key});
+  const StartupFailedApp({super.key, this.retryPreferences});
+
+  final Future<void> Function()? retryPreferences;
 
   @override
   Widget build(BuildContext context) {
@@ -31,18 +32,38 @@ class StartupFailedApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const _StartupFailedScreen(),
+      home: _StartupFailedScreen(retryPreferences: retryPreferences),
     );
   }
 }
 
-class _StartupFailedScreen extends StatelessWidget {
-  const _StartupFailedScreen();
+class _StartupFailedScreen extends StatefulWidget {
+  const _StartupFailedScreen({required this.retryPreferences});
+
+  final Future<void> Function()? retryPreferences;
+
+  @override
+  State<_StartupFailedScreen> createState() => _StartupFailedScreenState();
+}
+
+class _StartupFailedScreenState extends State<_StartupFailedScreen> {
+  bool _retrying = false;
+
+  Future<void> _retry(Future<void> Function() retryPreferences) async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    try {
+      await retryPreferences();
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final retryPreferences = widget.retryPreferences;
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -61,11 +82,22 @@ class _StartupFailedScreen extends StatelessWidget {
                 const SizedBox(height: 16),
                 const CopyErrorReportTile(phase: 'startup-failed'),
                 Text(
-                  l.startupFailedAction,
+                  retryPreferences == null
+                      ? l.startupFailedAction
+                      : l.startupPreferencesBusy,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
+                if (retryPreferences != null) ...[
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _retrying
+                        ? null
+                        : () => _retry(retryPreferences),
+                    child: Text(l.startupRetry),
+                  ),
+                ],
               ],
             ),
           ),
