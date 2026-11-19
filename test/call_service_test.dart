@@ -2506,6 +2506,10 @@ void main() {
     for (final outcome in [
       'new admission',
       'admission during repair',
+      'network changes before repair completes',
+      'IPC confirms the admitted network',
+      'network drops after admission',
+      'superseded admission still expires',
       'deadline',
       'hangup',
     ]) {
@@ -2519,11 +2523,16 @@ void main() {
             ..repairSucceeds = false
             ..liveDirectAdmission = false
             ..relayGate = Completer<bool>();
+          final ipcConfirmed = outcome == 'IPC confirms the admitted network';
+          var osGeneration = 0;
           final svc = CallService(
             wire,
             now: () => clock.now(),
             media: media,
             networkAttachments: network.stream,
+            readNetworkChangeGeneration: ipcConfirmed
+                ? () => osGeneration
+                : null,
             overlaySessionAdmissions: admissions.stream,
             localAllowsP2P: (_) async => true,
             peerReachableForP2P: (_) async => true,
@@ -2551,26 +2560,54 @@ void main() {
             expect(media.repairs, 1);
             expect(media.activeTransport, isNull);
 
-            final admittedEarly = outcome == 'admission during repair';
-            network.add(
-              admittedEarly
-                  ? NetworkAttachment.cellular
-                  : NetworkAttachment.offline,
-            );
-            if (admittedEarly) admissions.add(null);
+            final superseded =
+                outcome == 'network changes before repair completes';
+            final admittedEarly =
+                outcome == 'admission during repair' || ipcConfirmed;
+            if (ipcConfirmed) {
+              osGeneration++;
+            } else {
+              network.add(
+                admittedEarly || superseded
+                    ? NetworkAttachment.cellular
+                    : NetworkAttachment.offline,
+              );
+            }
+            if (admittedEarly || superseded) admissions.add(null);
+            if (ipcConfirmed) network.add(NetworkAttachment.cellular);
+            if (superseded) network.add(NetworkAttachment.wifi);
             media.cameraStopped.complete();
             async.flushMicrotasks();
             expect(svc.current?.status, CallStatus.active);
             if (!admittedEarly) {
-              // Admissions from the old network must not reopen the call.
-              admissions.add(null);
-              async.flushMicrotasks();
               expect(media.switches, isEmpty);
-              network.add(NetworkAttachment.cellular);
+              if (!superseded) {
+                // Ignore a delayed admission received while still offline.
+                admissions.add(null);
+                async.flushMicrotasks();
+                expect(media.switches, isEmpty);
+                network.add(NetworkAttachment.cellular);
+              }
               async.elapse(const Duration(seconds: 1));
               expect(media.switches, isEmpty);
               expect(svc.current?.status, CallStatus.active);
-              if (outcome == 'deadline') {
+              if (outcome == 'network drops after admission' ||
+                  outcome == 'superseded admission still expires') {
+                admissions.add(null);
+                network.add(NetworkAttachment.offline);
+                async.flushMicrotasks();
+                expect(media.switches, isEmpty);
+                expect(svc.current?.status, CallStatus.active);
+                if (outcome == 'superseded admission still expires') {
+                  const waited = Duration(seconds: 1);
+                  const lastTick = Duration(milliseconds: 1);
+                  async.elapse(kCallRelayCandidateRetry - waited - lastTick);
+                  expect(svc.current?.status, CallStatus.active);
+                  async.elapse(lastTick);
+                  expect(svc.current, isNull);
+                }
+                network.add(NetworkAttachment.wifi);
+              } else if (outcome == 'deadline') {
                 async.elapse(kCallRelayCandidateRetry);
               } else if (outcome == 'hangup') {
                 unawaited(svc.hangup());
@@ -2579,7 +2616,9 @@ void main() {
               async.flushMicrotasks();
             }
             final end = wire.sent.where((s) => s.type == CallSignalType.end);
-            if (outcome == 'deadline' || outcome == 'hangup') {
+            if (outcome == 'deadline' ||
+                outcome == 'hangup' ||
+                outcome == 'superseded admission still expires') {
               expect(svc.current, isNull);
               expect(media.switches, isEmpty);
               expect(

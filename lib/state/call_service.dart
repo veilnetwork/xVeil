@@ -367,6 +367,10 @@ class CallService {
   bool _overlaySessionLossObserved = false;
   bool _overlaySessionGrowthObserved = false;
   int _relayConnectionGeneration = 0;
+  int? _lastOverlayAdmissionNetwork;
+  // The stream can report an IPC acknowledgement of the same OS generation.
+  int get _overlayAdmissionNetwork =>
+      _readNetworkChangeGeneration?.call() ?? _networkAttachmentGeneration;
   Completer<bool>? _relayRebuildAdmission;
 
   final Future<List<CallLogEntry>> Function()? _loadFinishedCalls;
@@ -2098,9 +2102,32 @@ class CallService {
         if (_relayRebuildAdmission != null) return;
         // A rebuild can finish just before the replacement session registers.
         // A direct call whose channel closed may recover on a qualified relay.
-        final reconnected =
-            (connections != _relayConnectionGeneration && !_networkOffline) ||
-            (handover && await _waitForRelayRebuildAdmission());
+        bool hasCurrentAdmission() =>
+            connections != _relayConnectionGeneration &&
+            !_networkOffline &&
+            _lastOverlayAdmissionNetwork == _overlayAdmissionNetwork;
+        var reconnected = hasCurrentAdmission();
+        if (handover && !reconnected) {
+          final deadline = Completer<bool>();
+          final timer = Timer(
+            kCallRelayCandidateRetry,
+            () => deadline.complete(false),
+          );
+          try {
+            while (!deadline.isCompleted &&
+                await _waitForRelayRebuildAdmission(deadline.future)) {
+              if (repairOwner() == null) return;
+              // The attachment may have changed after the admission callback
+              // but before this continuation. Keep the original deadline.
+              if (hasCurrentAdmission() && !deadline.isCompleted) {
+                reconnected = true;
+                break;
+              }
+            }
+          } finally {
+            timer.cancel();
+          }
+        }
         final live = repairOwner();
         if (live == null ||
             live.transport != cur.transport ||
@@ -2122,17 +2149,14 @@ class CallService {
     _end(CallEndReason.error, origin: CallEndOrigin.mediaRepairFailure);
   }
 
-  Future<bool> _waitForRelayRebuildAdmission() async {
+  Future<bool> _waitForRelayRebuildAdmission(Future<bool> deadline) async {
     final wait = Completer<bool>();
     _relayRebuildAdmission = wait;
     // Retire a timeout probe that started before this recovery. Its snapshot
     // can return after admission has already handed control to the rebuild.
     _livenessProbeToken = null;
     try {
-      return await wait.future.timeout(
-        kCallRelayCandidateRetry,
-        onTimeout: () => false,
-      );
+      return await Future.any([wait.future, deadline]);
     } finally {
       if (identical(_relayRebuildAdmission, wait)) {
         _relayRebuildAdmission = null;
@@ -2174,6 +2198,7 @@ class CallService {
     // It cannot wake recovery until there is a usable local attachment.
     if (_disposed || _networkOffline) return;
     _relayConnectionGeneration++;
+    _lastOverlayAdmissionNetwork = _overlayAdmissionNetwork;
     final waiting = _relayRebuildAdmission;
     if (waiting != null && !waiting.isCompleted) waiting.complete(true);
     final call = _current;
