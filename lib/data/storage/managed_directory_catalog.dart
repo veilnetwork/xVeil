@@ -410,8 +410,9 @@ final class ManagedDirectoryCatalog {
 
   static ({String path, ManagedPathWitness witness}) _admitProfile(
     String supplied,
-    ManagedFsPlatform fs,
-  ) {
+    ManagedFsPlatform fs, {
+    bool preferencesBase = false,
+  }) {
     if (supplied.isEmpty ||
         supplied.contains('\x00') ||
         !Directory(supplied).isAbsolute) {
@@ -424,7 +425,16 @@ final class ManagedDirectoryCatalog {
     // canonical path; subsequent aliases in the original spelling cannot move it.
     final path = Directory(supplied).resolveSymbolicLinksSync();
     final witness = fs.inspect(path);
-    if (!witness.directory || !witness.ownedByCurrentUser) {
+    // Windows can assign the Administrators group as the default owner when
+    // the shell creates the app-support directory from an elevated token.
+    // Permit that enclosing directory only. The managed child and payload
+    // files still require current-user ownership. Ancestor checks still apply.
+    final owned =
+        witness.ownedByCurrentUser ||
+        (preferencesBase &&
+            Platform.isWindows &&
+            witness.ownedByWindowsAdministrators);
+    if (!witness.directory || !owned) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
     _assertProfile(path, witness, fs);

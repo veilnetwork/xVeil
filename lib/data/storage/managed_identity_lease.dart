@@ -7,6 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 import '../../core/posix_file_facts.dart';
 import '../../domain/storage_protection.dart';
 import 'managed_identity_catalog.dart';
+import 'managed_fs_platform.dart';
 import 'managed_sqlite_connection.dart';
 import 'native_handle_close.dart';
 
@@ -223,7 +224,7 @@ final class _PosixIdentityLock implements Finalizable {
   }) {
     final path = '$database.lock';
     if (create) {
-      File(path).createSync(exclusive: true);
+      const ManagedFsPlatform().reserveNewFile(path);
       if (!Platform.isWindows && posixChmod(path, 0x180) != 0) {
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }

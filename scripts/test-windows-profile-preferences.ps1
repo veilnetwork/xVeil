@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$ProbeExecutable,
-  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$Sha256
+  [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$Sha256,
+  [switch]$AdministratorsOwner
 )
 $ErrorActionPreference='Stop'
 if($env:OS -ne 'Windows_NT'){throw 'This ACL regression runs on Windows'}
@@ -19,15 +20,22 @@ try {
   $propagation=[Security.AccessControl.PropagationFlags]::None
   $allow=[Security.AccessControl.AccessControlType]::Allow
   $current=[Security.Principal.WindowsIdentity]::GetCurrent().User
-  $acl.SetOwner($current)
-  foreach($sid in @($current,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))){
+  $administrators=[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $owner=$current
+  $ownerArg=@()
+  if($AdministratorsOwner){
+    $owner=$administrators
+    $ownerArg=@('administrators')
+  }
+  $acl.SetOwner($owner)
+  foreach($sid in @($current,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'),$administrators)){
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::FullControl,$inherit,$propagation,$allow))
   }
   $everyone=[Security.Principal.SecurityIdentifier]::new('S-1-1-0')
   $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone,[Security.AccessControl.FileSystemRights]::ReadAndExecute,$inherit,$propagation,$allow))
   Set-Acl -LiteralPath $fixture -AclObject $acl
   foreach($mode in @('exercise','verify')){
-    $result=& $exe $mode $fixture|ConvertFrom-Json
+    $result=& $exe $mode $fixture @ownerArg|ConvertFrom-Json
     $result|ConvertTo-Json -Compress
     if($LASTEXITCODE -ne 0 -or !$result.ok){throw ('Preference '+$mode+' regression failed')}
   }

@@ -25,12 +25,14 @@ final class ManagedPathWitness {
     required this.ownerOnly,
     required this.ownedByCurrentUser,
     required this.safeAncestor,
+    this.ownedByWindowsAdministrators = false,
   });
   final String identity;
   final bool directory;
   final bool ownerOnly;
   final bool ownedByCurrentUser;
   final bool safeAncestor;
+  final bool ownedByWindowsAdministrators;
 
   bool sameObject(ManagedPathWitness other) => identity == other.identity;
 }

@@ -14,7 +14,9 @@ const _first = '{"fixture":"synthetic preferences first"}';
 const _second = '{"fixture":"synthetic preferences second"}';
 
 Future<void> main(List<String> args) async {
-  if (args.length != 2 || !['exercise', 'verify'].contains(args.first)) {
+  final adminOwner = args.length == 3 && args.last == 'administrators';
+  if ((!adminOwner && args.length != 2) ||
+      !['exercise', 'verify'].contains(args.first)) {
     throw ArgumentError('expected exercise/verify and a disposable profile');
   }
   final profile = Directory(args[1]);
@@ -29,7 +31,13 @@ Future<void> main(List<String> args) async {
   try {
     final base = fs.inspect(profile.path);
     check('base_read_shared', !base.ownerOnly);
-    check('base_safe', base.safeAncestor && base.ownedByCurrentUser);
+    check('base_safe', base.safeAncestor);
+    check(
+      'base_owner_expected',
+      adminOwner
+          ? base.ownedByWindowsAdministrators && !base.ownedByCurrentUser
+          : base.ownedByCurrentUser,
+    );
     final path = '${profile.path}/xveil.prefs.json';
     owner = await ManagedProfilePreferencesFile.open(path);
     if (args.first == 'verify') {
@@ -49,6 +57,7 @@ Future<void> main(List<String> args) async {
       // final DACL. A fresh private staging object must replace it instead.
       const stalePayload = 'stale synthetic preferences';
       final stale = File('$path.tmp')..writeAsStringSync(stalePayload);
+      final staleOwnedByUser = fs.inspect(stale.path).ownedByCurrentUser;
       final oldReader = stale.openSync();
       var acceptedWithOldReader = false;
       try {
@@ -60,6 +69,16 @@ Future<void> main(List<String> args) async {
         );
       } finally {
         oldReader.closeSync();
+      }
+      if (!staleOwnedByUser) {
+        // On an elevated run the OS can assign the Administrators group as
+        // the default owner. The production writer must leave that leaf alone.
+        check(
+          'foreign_stale_refused',
+          !acceptedWithOldReader && !await owner.write(_second),
+        );
+        check('foreign_stale_unchanged', stale.readAsStringSync() == stalePayload);
+        stale.deleteSync(); // This probe created this exact synthetic fixture.
       }
       // Windows may deny removing a file held without delete sharing. Such
       // refusal must not expose bytes; a retry after release must still work.

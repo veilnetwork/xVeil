@@ -32,7 +32,11 @@ final class StorageProfileCoordinator {
     String suppliedBase, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
   }) => ManagedDirectoryCatalog._safe(() {
-    final base = ManagedDirectoryCatalog._admitProfile(suppliedBase, fs);
+    final base = ManagedDirectoryCatalog._admitProfile(
+      suppliedBase,
+      fs,
+      preferencesBase: true,
+    );
     final profile = ManagedDirectoryCatalog._child(
       base.path,
       'visible-storage',
@@ -128,7 +132,7 @@ final class StorageProfileCoordinator {
         final role = File(
           ManagedDirectoryCatalog._child(stage, ManagedProfileLease.fileName),
         );
-        role.createSync(exclusive: true);
+        fs.reserveNewFile(role.path);
         final before = fs.inspect(role.path);
         files[ManagedProfileLease.fileName] = before;
         fs.restrictNewFile(role.path);

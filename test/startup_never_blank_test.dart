@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
 import 'package:xveil/main.dart' show runStartup;
 
@@ -9,6 +11,31 @@ import 'package:xveil/main.dart' show runStartup;
 /// EMPTY WINDOW: process alive, log written where nobody looks, and a user with
 /// no way to tell whether their data had been touched.
 void main() {
+  test('startup exposes only the bounded preference admission codes', () async {
+    diagnosticJournal.clear();
+    addTearDown(diagnosticJournal.clear);
+    Widget? presented;
+    await runStartup(
+      boot: () async => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.invalid,
+        preferencesOpenReason: ManagedPreferencesOpenReason.filesystemUnsafe,
+      ),
+      present: (w) => presented = w,
+    );
+    expect(presented, isA<StartupFailedApp>());
+    final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
+    final entry = retained?['profilePreferencesOpenFailed'] as Map?;
+    expect(
+      entry?['values'],
+      diagnosticJournal.enabled
+          ? {
+              'state': ManagedWorkerFailureKind.invalid.index,
+              'code': ManagedPreferencesOpenReason.filesystemUnsafe.index,
+            }
+          : isNull,
+    );
+  });
+
   testWidgets('a startup that throws still puts something on screen', (
     tester,
   ) async {

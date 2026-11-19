@@ -1,5 +1,44 @@
 part of 'async_kv_log_store.dart';
 
+/// Bounded diagnostics for a failed native preference admission. Keep ordinal
+/// values stable in exported reports. No native error text or paths.
+enum ManagedPreferencesOpenReason {
+  filesystemUnavailable,
+  filesystemUnsafe,
+  filesystemChanged,
+  filesystemIo,
+  missingCatalog,
+  erasurePending,
+  busy,
+  invalidRole,
+  sqlite,
+  other,
+}
+
+ManagedPreferencesOpenReason _preferencesOpenReason(Object error) =>
+    switch (error) {
+      ManagedFsFailure(:final kind) => switch (kind) {
+        ManagedFsFailureKind.unavailable =>
+          ManagedPreferencesOpenReason.filesystemUnavailable,
+        ManagedFsFailureKind.unsafe =>
+          ManagedPreferencesOpenReason.filesystemUnsafe,
+        ManagedFsFailureKind.changed =>
+          ManagedPreferencesOpenReason.filesystemChanged,
+        ManagedFsFailureKind.io => ManagedPreferencesOpenReason.filesystemIo,
+        ManagedFsFailureKind.missingCatalog =>
+          ManagedPreferencesOpenReason.missingCatalog,
+        ManagedFsFailureKind.erasurePending =>
+          ManagedPreferencesOpenReason.erasurePending,
+      },
+      ManagedLeaseFailure(kind: ManagedLeaseFailureKind.busy) ||
+      ManagedSqliteFailure(sqliteCode: 5) => ManagedPreferencesOpenReason.busy,
+      ManagedLeaseFailure() ||
+      ManagedCatalogFailure() => ManagedPreferencesOpenReason.invalidRole,
+      ManagedSqliteFailure() => ManagedPreferencesOpenReason.sqlite,
+      FileSystemException() => ManagedPreferencesOpenReason.filesystemIo,
+      _ => ManagedPreferencesOpenReason.other,
+    };
+
 final class _OpenProfilePreferences extends _OpenConfig {
   const _OpenProfilePreferences({
     required super.path,
@@ -245,6 +284,7 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
       Directory(base).uri.resolve(ProfilePreferencesLayout.file),
     );
   } catch (error) {
+    final reason = _preferencesOpenReason(error);
     try {
       gate?.close();
     } catch (_) {
@@ -252,11 +292,17 @@ void _profilePreferencesEntry(_OpenProfilePreferences config) {
         _ManagedOpenFailed(
           _managedFailureKind(error),
           _serveManagedCleanup(() => gate?.close()),
+          preferencesOpenReason: reason,
         ),
       );
       return;
     }
-    config.reply.send(_workerErrorReply(error, managed: true));
+    config.reply.send(
+      _ManagedWorkerErr(
+        _managedFailureKind(error),
+        preferencesOpenReason: reason,
+      ),
+    );
     return;
   }
   void requireStablePath() {
