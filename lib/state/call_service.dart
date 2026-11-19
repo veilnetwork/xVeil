@@ -2105,11 +2105,7 @@ class CallService {
         if (_relayRebuildAdmission != null) return;
         // A rebuild can finish just before the replacement session registers.
         // A direct call whose channel closed may recover on a qualified relay.
-        bool hasCurrentAdmission() =>
-            connections != _relayConnectionGeneration &&
-            !_networkOffline &&
-            _lastOverlayAdmissionNetwork == _overlayAdmissionNetwork;
-        var reconnected = hasCurrentAdmission();
+        var reconnected = _hasCurrentRelayAdmissionSince(connections);
         if (handover && !reconnected) {
           final deadline = Completer<bool>();
           final timer = Timer(
@@ -2122,7 +2118,8 @@ class CallService {
               if (repairOwner() == null) return;
               // The attachment may have changed after the admission callback
               // but before this continuation. Keep the original deadline.
-              if (hasCurrentAdmission() && !deadline.isCompleted) {
+              if (_hasCurrentRelayAdmissionSince(connections) &&
+                  !deadline.isCompleted) {
                 reconnected = true;
                 break;
               }
@@ -2151,6 +2148,11 @@ class CallService {
     );
     _end(CallEndReason.error, origin: CallEndOrigin.mediaRepairFailure);
   }
+
+  bool _hasCurrentRelayAdmissionSince(int connections) =>
+      connections != _relayConnectionGeneration &&
+      !_networkOffline &&
+      _lastOverlayAdmissionNetwork == _overlayAdmissionNetwork;
 
   Future<bool> _waitForRelayRebuildAdmission(Future<bool> deadline) async {
     final wait = Completer<bool>();
@@ -2377,33 +2379,62 @@ class CallService {
     // Supersede an in-flight P2P start. Its eventual failure belongs to the
     // abandoned route and must not tear down the relay session opened below.
     final epoch = ++_mediaOperationEpoch;
-    var ok = false;
-    try {
-      final opened = media.switchRoute(CallTransportKind.relay);
-      final startBudget = before.media.video || before.media.screen
-          ? kCallVisualMediaStartTimeout
-          : kCallMediaStartTimeout;
-      ok = rebuilding
-          ? await opened.timeout(
-              startBudget,
-              onTimeout: () {
-                devLog(() => 'xVeil[call-media]: relay rebuild timed out');
-                return false;
-              },
-            )
-          : await opened;
-    } catch (e) {
-      devLog(() => 'xVeil[call-media]: relay follow failed call=$callId: $e');
+    Call? fallbackOwner() {
+      final call = _current;
+      if (_disposed ||
+          epoch != _mediaOperationEpoch ||
+          call == null ||
+          call.callId != callId ||
+          call.peer != peer ||
+          !call.isLive) {
+        return null;
+      }
+      return call;
     }
-    final cur = _current;
-    if (_disposed ||
-        epoch != _mediaOperationEpoch ||
-        cur == null ||
-        cur.callId != callId ||
-        cur.peer != peer ||
-        !cur.isLive) {
-      return;
+
+    Future<bool> openRelay() async {
+      try {
+        return await media.switchRoute(CallTransportKind.relay);
+      } catch (error) {
+        devLog(
+          () => 'xVeil[call-media]: relay follow failed call=$callId: $error',
+        );
+        return false;
+      }
     }
+
+    final deadline = Completer<bool>();
+    Future<bool> rebuildRelay() async {
+      final connections = _relayConnectionGeneration;
+      final network = _overlayAdmissionNetwork;
+      final opened = await openRelay();
+      if (opened || network == _overlayAdmissionNetwork) return opened;
+      // The old open failed across a network change. One replacement can use
+      // fresh admission, with the same deadline as the original open.
+      while (!deadline.isCompleted &&
+          fallbackOwner() != null &&
+          media.activeTransport == null) {
+        if (_hasCurrentRelayAdmissionSince(connections)) return openRelay();
+        if (!await _waitForRelayRebuildAdmission(deadline.future)) break;
+      }
+      return false;
+    }
+
+    final startBudget = before.media.video || before.media.screen
+        ? kCallVisualMediaStartTimeout
+        : kCallMediaStartTimeout;
+    final ok = rebuilding
+        ? await rebuildRelay().timeout(
+            startBudget,
+            onTimeout: () {
+              deadline.complete(false);
+              devLog(() => 'xVeil[call-media]: relay rebuild timed out');
+              return false;
+            },
+          )
+        : await openRelay();
+    final cur = fallbackOwner();
+    if (cur == null) return;
     if (ok && media.activeTransport == CallTransportKind.relay) {
       _cancelRelayCandidateRetry();
       _rearmP2PAfterRelay();
