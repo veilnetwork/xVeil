@@ -1,7 +1,6 @@
 # Public Space joining and discovery
 
 Published in [xVeil 0.13.99](https://github.com/veilnetwork/xVeil/releases/tag/v0.13.99).
-The qualification boundaries below remain unchanged.
 
 Local changes; no release or deployment in this cycle.
 
@@ -62,3 +61,21 @@ QA was locked, stopped, verified exited, and uninstalled; its ADB forward was
 removed. Local stand runtimes were closed. Global discovery from an unknown
 sovereign publisher and a cross-device Android membership ceremony remain
 outside this qualification.
+
+## Headless restart follow-up
+
+The three-node Mac loopback test now uses native epoch encryption. After joining
+by link, the member and publisher read each other's messages. The receiver's
+stored row contains ciphertext. Cold reopen preserves membership and exactly
+one copy of the received message.
+
+On the previous code, closing that reopened runtime reproduced
+`StateError: messaging is disposing` in startup group sync. The runtime now
+owns the startup task and waits for it before stopping messaging. Closing the
+group service stops new sync sends. A test pauses peer lookup to verify this
+boundary independently of network timing.
+
+The native regression also checks that the closed runtime releases its leases
+and that the startup task reports no failure. All 612 related Flutter tests
+passed. The loopback test used one process with Veil SDK `3056385c` and
+hidden-volume 2.8.0. Android-to-peer joining still needs device coverage.

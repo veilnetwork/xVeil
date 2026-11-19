@@ -11,7 +11,6 @@ import 'package:xveil/data/node/space_discovery_transport.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
-import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/veil_stack.dart'
     show kXVeilDebugMetricsDefine, kXVeilDebugHookDefine;
 import 'package:xveil/domain/chat.dart';
@@ -205,6 +204,9 @@ void main() {
       final temp = await Directory(
         '/tmp',
       ).createTemp('xveil-public-discovery-live-');
+      addTearDown(() async {
+        if (await temp.exists()) await temp.delete(recursive: true);
+      });
       // Every directory here inherits the umask, and a distro that ships 002
       // (Ubuntu does) leaves them group-writable. The node then refuses to
       // bind its admin socket — a group-writable parent lets someone else
@@ -248,32 +250,18 @@ void main() {
           password: password,
           apiToken: apiToken,
           debugMetricsPort: metricsPorts[0],
-          groupEpochCryptoOverride: LoopbackMailboxCrypto(),
         );
-        final genesisNodeId =
-            await (genesis.stack.transport as VeilFlutterTransport).nodeId();
         publisher = await HeadlessRuntime.start(
           config: publisherConfig,
           password: password,
           apiToken: apiToken,
           debugMetricsPort: metricsPorts[1],
-          groupEpochCryptoOverride: LoopbackMailboxCrypto(
-            senderForOpen: genesisNodeId,
-          ),
         );
         reader = await HeadlessRuntime.start(
           config: readerConfig,
           password: password,
           apiToken: apiToken,
           debugMetricsPort: metricsPorts[2],
-          // The existing owner/publisher fixture uses synthetic epoch envelopes
-          // to isolate discovery. Read-only discovery never opens them; the
-          // final explicit join does and expects the current publisher.
-          groupEpochCryptoOverride: LoopbackMailboxCrypto(
-            senderForOpen:
-                await (publisher.stack.transport as VeilFlutterTransport)
-                    .nodeId(),
-          ),
         );
         final owner = genesis;
         final nextOwner = publisher;
@@ -583,6 +571,32 @@ void main() {
         );
         expect(await subscriber.groups.outgoingSpaceJoinRequests(), isEmpty);
 
+        final readerBody = '$canary from the joined member';
+        final publisherBody = '$canary from the publisher';
+        expect(
+          await subscriber.groups.postMessage(spaceId, readerBody),
+          isTrue,
+        );
+        expect(
+          await nextOwner.groups.postMessage(spaceId, publisherBody),
+          isTrue,
+        );
+        await _waitUntil(() async {
+          final receivedByOwner = await nextOwner.groups.messagesOf(spaceId);
+          final receivedByMember = await subscriber.groups.messagesOf(spaceId);
+          return receivedByOwner.any(
+                (row) => row.author == readerId && row.body == readerBody,
+              ) &&
+              receivedByMember.any(
+                (row) => row.author == publisherId && row.body == publisherBody,
+              );
+        }, reason: 'the new member did not exchange decrypted messages');
+        final received = (await nextOwner.groups.load(
+          spaceId,
+        ))!.messages.singleWhere((row) => row.author == readerId);
+        expect(received.encryptedPayload, isNotNull);
+        expect(received.body, isEmpty);
+
         final telemetry = StringBuffer();
         for (final port in metricsPorts) {
           telemetry.writeln(await _metrics(port));
@@ -591,6 +605,28 @@ void main() {
         final telemetryLower = telemetry.toString().toLowerCase();
         expect(telemetryLower, isNot(contains(query)));
         expect(telemetryLower, isNot(contains(canary.toLowerCase())));
+        await reader.close();
+        reader = await HeadlessRuntime.start(
+          config: readerConfig,
+          password: password,
+          apiToken: apiToken,
+        );
+        expect(
+          (await reader.groups.stateOf(spaceId))?.isMember(readerId),
+          isTrue,
+        );
+        expect(
+          (await reader.groups.messagesOf(spaceId)).where(
+            (row) => row.author == publisherId && row.body == publisherBody,
+          ),
+          hasLength(1),
+        );
+        await reader.close();
+        expect(Directory(readerConfig.runtimeDir).listSync(), isEmpty);
+        expect(
+          devLogSnapshot(limit: 4000).lines,
+          isNot(anyElement(contains('boot group sync failed'))),
+        );
       } finally {
         await reader?.close();
         await publisher?.close();
@@ -605,7 +641,6 @@ void main() {
         await _containsBytes(temp, utf8.encode(plaintextCanary.toLowerCase())),
         isFalse,
       );
-      await temp.delete(recursive: true);
     },
     skip: enabled
         ? false

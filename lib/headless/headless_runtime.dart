@@ -10,9 +10,9 @@ import '../api/blob_sources.dart';
 import '../api/direct_file_api.dart';
 import '../api/group_api_adapter.dart';
 import '../api/webhook_pump.dart';
-import '../core/ids.dart';
-
 import '../core/cleanup_legs.dart';
+import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/sovereign_identity_material.dart'
     show kSovereignBundleSetting;
@@ -56,6 +56,7 @@ class HeadlessRuntime {
     required this.groups,
     required this.api,
     required this.tokens,
+    required this._bootGroupSync,
     this._mailbox,
     this._nodeStatus,
     required this._webhook,
@@ -69,6 +70,7 @@ class HeadlessRuntime {
   final ApiServer api;
   final List<ApiToken> tokens;
 
+  final Future<void> _bootGroupSync;
   final MailboxService? _mailbox;
   final StreamSubscription<NodeStatus>? _nodeStatus;
   final WebhookPump _webhook;
@@ -79,6 +81,7 @@ class HeadlessRuntime {
     required String password,
     bool createIfMissing = false,
     String? identityPhrase,
+
     /// The identity's recovery certificate (XVRC), when this daemon is JOINING
     /// an identity that already exists rather than creating one.
     ///
@@ -95,7 +98,6 @@ class HeadlessRuntime {
     String? apiToken,
     List<String> apiFileRoots = const <String>[],
     int? debugMetricsPort,
-    VeilMailboxCrypto? groupEpochCryptoOverride,
   }) async {
     if (password.isEmpty) throw ArgumentError('password must not be empty');
     await Directory(config.storePath).parent.create(recursive: true);
@@ -165,8 +167,8 @@ class HeadlessRuntime {
       // decide which identity this phrase names. Stored the same way the app
       // stores it, in the chunked file store, so the two agree on where an
       // identity's credential lives.
-      final joining = identityCredential != null &&
-          identityCredential.trim().isNotEmpty;
+      final joining =
+          identityCredential != null && identityCredential.trim().isNotEmpty;
       if (joining) {
         final cert = SovereignRecoveryCertificate.parse(identityCredential);
         await storage.storeFile(
@@ -256,14 +258,9 @@ class HeadlessRuntime {
         selfPubKey: groupProbe.publicKey,
         lib: groupNative,
       );
-      // The override is an integration-test seam for exercising unrelated
-      // public protocols without waiting for cold ML-KEM DHT publication.
-      // Production callers always use the live node mailbox crypto below.
-      final epochCrypto =
-          groupEpochCryptoOverride ??
-          (stack.transport is VeilFlutterTransport
-              ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
-              : LoopbackMailboxCrypto(senderForOpen: nodeId));
+      final epochCrypto = stack.transport is VeilFlutterTransport
+          ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
+          : LoopbackMailboxCrypto(senderForOpen: nodeId);
       final activePeerTransport = stack.transport;
       groups = GroupService(
         storage,
@@ -278,13 +275,14 @@ class HeadlessRuntime {
           json,
           awaitInitialSend: false,
         ),
-        sendRequiredSnapshot: (peer, groupId, json) => messaging!.sendGroupSnapshot(
-          peer,
-          groupId.hex,
-          json,
-          awaitInitialSend: false,
-          requireEnqueue: true,
-        ),
+        sendRequiredSnapshot: (peer, groupId, json) =>
+            messaging!.sendGroupSnapshot(
+              peer,
+              groupId.hex,
+              json,
+              awaitInitialSend: false,
+              requireEnqueue: true,
+            ),
         sendSpaceInvite: messaging.sendSpaceInvite,
         sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
         sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
@@ -684,6 +682,16 @@ class HeadlessRuntime {
       await api.start(config.apiPort);
       await webhookPump.setTarget(webhookUrl);
 
+      // The network catch-up is optional at startup, but a job that has
+      // entered group storage must settle before messaging or storage closes.
+      final bootGroupSync = groups.nudgeGroupSyncAll().catchError((
+        Object error,
+      ) {
+        devLog(
+          () =>
+              'xVeil[headless]: boot group sync failed (${error.runtimeType})',
+        );
+      });
       return HeadlessRuntime._(
         config: config,
         storage: storage,
@@ -692,6 +700,7 @@ class HeadlessRuntime {
         groups: groups,
         api: api,
         tokens: List.unmodifiable(loadedTokens),
+        bootGroupSync: bootGroupSync,
         mailbox: mailbox,
         nodeStatus: nodeStatus,
         webhook: webhookPump,
@@ -746,8 +755,8 @@ class HeadlessRuntime {
     messaging.onGroupEntryFromStranger = (peer, bundleJson) =>
         groups.receiveGroupFrame(peer, bundleJson, fromStranger: true);
     messaging.allowStrangerGroupSync = groups.allowStrangerGroupSync;
-    messaging.allowStrangerGroupReassembly = groups.allowStrangerGroupReassembly;
-    unawaited(groups.nudgeGroupSyncAll());
+    messaging.allowStrangerGroupReassembly =
+        groups.allowStrangerGroupReassembly;
   }
 
   static Stream<Map<String, dynamic>> _events(
@@ -1030,6 +1039,13 @@ class HeadlessRuntime {
       ('api', api.stop),
       ('webhook', _webhook.close),
       ('node-status', () async => _nodeStatus?.cancel()),
+      (
+        'group-boot-sync',
+        () {
+          groups.beginShutdown();
+          return _bootGroupSync;
+        },
+      ),
       ('mailbox', () async => _mailbox?.dispose()),
       ('messaging', messaging.dispose),
       ('groups', groups.dispose),
