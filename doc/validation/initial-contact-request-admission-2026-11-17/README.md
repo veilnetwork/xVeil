@@ -79,3 +79,25 @@ admission; obsolete continuation cannot initiate another network attempt.
 No GUI applications were launched or activated, no OS input was injected, and
 the existing user application was left running. Only synthetic test stores were
 opened. No phone, relay, installed package, native binary, push or release changes.
+
+## Verifying a lost commit reply
+
+The original qualification above preserved both write errors. The later
+reproduction distinguished pre-commit failure from a lost reply after the
+full commit. In the latter case the old code reported an error even though
+the request was already durable and could be sent by a later retry.
+
+Initial admission and manual retry now share a read-only check of the exact
+indexed payload in the same open store. The stored frame must match byte for
+byte before admission is reported. If the record is absent or the check
+fails, the original write error propagates. Readback leaves the index and
+payload untouched. The normal contact revision still gates the live leg.
+
+Two tests first reproduced the lost-reply error on the original code. The
+final fixture checks initial admission, manual retry, pre-commit failure,
+and temporarily unreadable readback after a commit. The valid record
+survives reopening with the same greeting ID, body and sequence. The fault
+is injected in the ordinary store. The same focused suite also exercises
+the ordinary success and consent controls with the native storage worker.
+The related suite passed 800 tests without skips. The analyzer reported no
+issues in the changed files.
