@@ -8,6 +8,7 @@ import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/features/calls/call_overlay.dart';
+import 'package:xveil/features/calls/call_surface.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
@@ -70,14 +71,17 @@ class _FakeMessaging implements MessagingService {
 /// Inside `testWidgets` this MUST run under `tester.runAsync`: the fixture
 /// waits on the real event queue, which never drains in the fake-async zone a
 /// widget test runs in — it hangs rather than fails.
-Future<CallService> _activeCall(_FakeMessaging messaging) async {
+Future<CallService> _activeCall(
+  _FakeMessaging messaging, {
+  CallMedia media = const CallMedia(audio: true),
+}) async {
   final svc = CallService(messaging, media: _UpMedia())..start();
   messaging.onCallSignal!(
     _peer(),
-    const CallSignal(
+    CallSignal(
       callId: 'peer-mute',
       type: CallSignalType.offer,
-      media: CallMedia(audio: true),
+      media: media,
       posture: CallPosture.direct,
     ),
   );
@@ -88,6 +92,51 @@ Future<CallService> _activeCall(_FakeMessaging messaging) async {
 }
 
 void main() {
+  testWidgets('video call route label moves below the enlarged header', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 830);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    late CallService svc;
+    await tester.runAsync(() async {
+      svc = await _activeCall(
+        _FakeMessaging(),
+        media: const CallMedia(audio: true, screen: true),
+      );
+    });
+    addTearDown(svc.dispose);
+    expect(svc.current?.status, CallStatus.active);
+    expect(svc.current?.transport, CallTransportKind.relay);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appControllerProvider.overrideWith(_ReadyAppController.new),
+          callServiceProvider.overrideWith((ref) => svc),
+        ],
+        child: MaterialApp(
+          locale: const Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          theme: ThemeData.dark(),
+          home: const Stack(children: [CallOverlay()]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final header = find.byType(CallSurfaceHeader);
+    final l = AppL10n.of(tester.element(header));
+    final route = find.text(l.callPathRelay);
+    expect(route, findsOneWidget);
+    expect(
+      tester.getRect(route).top,
+      greaterThanOrEqualTo(tester.getRect(header).bottom),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('incoming call shows all media labels at large text size', (
     tester,
   ) async {

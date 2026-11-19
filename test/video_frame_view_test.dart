@@ -3,7 +3,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_media/veil_media.dart';
+import 'package:xveil/features/calls/call_overlay.dart';
 import 'package:xveil/features/calls/video_frame_view.dart';
+import 'package:xveil/state/android_native_call_camera.dart';
+import 'package:xveil/state/veil_call_media.dart' show localVideoFrame;
 
 VeilVideoFrame _frame(int value) => VeilVideoFrame(
   rgba: Uint8List.fromList(List.filled(16, value)),
@@ -40,6 +43,49 @@ Future<void> _settleImageDecode(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('Android camera changes do not display cached engine frames', (
+    tester,
+  ) async {
+    addTearDown(() {
+      androidNativeCallCameraPreview.value = null;
+      localVideoFrame.value = null;
+    });
+    AndroidNativeCameraPreview camera(int texture, String facing) =>
+        AndroidNativeCameraPreview(
+          textureId: texture,
+          width: 480,
+          height: 640,
+          rotation: 0,
+          mirror: false,
+          fps: 30,
+          cameraId: 'camera-$texture',
+          facing: facing,
+        );
+    androidNativeCallCameraPreview.value = camera(10, 'front');
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AndroidCallCameraPreview(waitingLabel: 'Waiting for camera'),
+      ),
+    );
+    expect(tester.widget<Texture>(find.byType(Texture)).textureId, 10);
+
+    for (final (texture, facing) in [(11, 'back'), (12, 'front')]) {
+      // The engine can retain its last frame after the old capture stops.
+      localVideoFrame.value = _frame(texture);
+      androidNativeCallCameraPreview.value = null;
+      await tester.pump();
+      await _settleImageDecode(tester);
+      expect(find.text('Waiting for camera'), findsOneWidget);
+      expect(find.byType(RawImage), findsNothing);
+      expect(find.byType(Texture), findsNothing);
+
+      androidNativeCallCameraPreview.value = camera(texture, facing);
+      await tester.pump();
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, texture);
+      expect(find.text('Waiting for camera'), findsNothing);
+    }
+  });
+
   testWidgets('self preview mirrors pixels but keeps status text readable', (
     tester,
   ) async {

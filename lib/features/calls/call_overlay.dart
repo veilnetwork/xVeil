@@ -512,35 +512,41 @@ class _CallBody extends ConsumerWidget {
           top: 0,
           left: 0,
           right: 0,
-          child: CallSurfaceHeader(
-            title: call.mediaIdentity.short,
-            subtitle: callStatusLabel(l, call),
-            onMinimize: onMinimize,
-            onSettings: () => onShowDevices(svc),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CallSurfaceHeader(
+                title: call.mediaIdentity.short,
+                subtitle: callStatusLabel(l, call),
+                onMinimize: onMinimize,
+                onSettings: () => onShowDevices(svc),
+              ),
+              if (call.transport != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _TransportBadge(
+                    call.transport!,
+                    fallbackReason:
+                        call.transport == CallTransportKind.relay &&
+                            svc.transportFallbackReason != null
+                        ? l.callPathNoDirectSession
+                        : null,
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: WeakLinkBanner(call: call, svc: svc),
+              ),
+              if (call.media.video && selfPreviewHidden)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: _ShowSelfPreviewButton(onTap: onSelfPreviewShow),
+                  ),
+                ),
+            ],
           ),
-        ),
-        if (call.transport != null)
-          Positioned(
-            top: 66,
-            left: 16,
-            right: 16,
-            child: _TransportBadge(
-              call.transport!,
-              fallbackReason:
-                  call.transport == CallTransportKind.relay &&
-                      svc.transportFallbackReason != null
-                  ? l.callPathNoDirectSession
-                  : null,
-            ),
-          ),
-        // Under the transport badge, which answers "which path"; this one
-        // answers "and it is not carrying this". Same left/right inset so the
-        // two read as one column rather than two floating cards.
-        Positioned(
-          top: call.transport != null ? 112 : 66,
-          left: 16,
-          right: 16,
-          child: WeakLinkBanner(call: call, svc: svc),
         ),
         if (call.media.video && !selfPreviewHidden)
           Positioned(
@@ -555,12 +561,6 @@ class _CallBody extends ConsumerWidget {
                 onResize: onSelfPreviewResize,
               ),
             ),
-          ),
-        if (call.media.video && selfPreviewHidden)
-          Positioned(
-            top: 64,
-            right: 12,
-            child: _ShowSelfPreviewButton(onTap: onSelfPreviewShow),
           ),
         Positioned(
           left: 12,
@@ -1250,7 +1250,7 @@ class _SelfPreview extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (Platform.isAndroid && call.cameraOn && !call.screenOn)
-              _AndroidCameraSelfPreview(waitingLabel: l.callVideoWaiting)
+              AndroidCallCameraPreview(waitingLabel: l.callVideoWaiting)
             else
               CallVideoFrameView(
                 mirrored: selfViewMirrored(screenSharing: call.screenOn),
@@ -1309,8 +1309,9 @@ class _SelfPreview extends StatelessWidget {
   }
 }
 
-class _AndroidCameraSelfPreview extends StatelessWidget {
-  const _AndroidCameraSelfPreview({required this.waitingLabel});
+@visibleForTesting
+class AndroidCallCameraPreview extends StatelessWidget {
+  const AndroidCallCameraPreview({super.key, required this.waitingLabel});
 
   final String waitingLabel;
 
@@ -1377,12 +1378,9 @@ class _PluginAndroidCameraPreview extends StatelessWidget {
         if (controller == null ||
             !controller.value.isInitialized ||
             size == null) {
-          return CallVideoFrameView(
-            frameListenable: localVideoFrame,
-            freshnessToken: 'android-camera-starting',
-            waitingLabel: waitingLabel,
-            fit: BoxFit.cover,
-          );
+          // While neither Android capture owns a texture, the engine can
+          // still hold a frame from the previous camera or shared screen.
+          return CallVideoWaitingView(waitingLabel: waitingLabel);
         }
         final portrait =
             MediaQuery.orientationOf(context) == Orientation.portrait;
