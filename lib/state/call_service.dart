@@ -312,6 +312,7 @@ class CallService {
     String? Function(NodeId peer)? p2pFallbackReason,
     Future<List<CallLogEntry>> Function()? loadFinishedCalls,
     Stream<int>? overlaySessions,
+    Stream<void>? overlaySessionAdmissions,
     Stream<void>? networkHandovers,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
@@ -331,10 +332,14 @@ class CallService {
        // ignore: prefer_initializing_formals — public stream → private field.
        _overlaySessions = overlaySessions,
        // ignore: prefer_initializing_formals — public stream → private field.
+       _overlaySessionAdmissions = overlaySessionAdmissions,
+       // ignore: prefer_initializing_formals — public stream → private field.
        _networkHandovers = networkHandovers;
 
   final Stream<int>? _overlaySessions;
   StreamSubscription<int>? _overlaySessionsSub;
+  final Stream<void>? _overlaySessionAdmissions;
+  StreamSubscription<void>? _overlaySessionAdmissionsSub;
   final Stream<void>? _networkHandovers;
   StreamSubscription<void>? _networkHandoversSub;
   DateTime? _directNetworkHandoverAt;
@@ -817,10 +822,18 @@ class CallService {
   void start() {
     if (_started || _disposed) return;
     _started = true;
-    _overlaySessionsSub = _overlaySessions?.listen(
-      _observeOverlaySessions,
-      onError: (Object _) {},
-    );
+    final admissions = _overlaySessionAdmissions;
+    if (admissions == null) {
+      _overlaySessionsSub = _overlaySessions?.listen(
+        _observeOverlaySessions,
+        onError: (Object _) {},
+      );
+    } else {
+      _overlaySessionAdmissionsSub = admissions.listen(
+        (_) => _noteOverlayConnectivity('overlay session admitted'),
+        onError: (Object _) {},
+      );
+    }
     _networkHandoversSub = _networkHandovers?.listen((_) {
       final call = _current;
       if (call == null || !_canInspectDirectSession(call)) return;
@@ -1999,14 +2012,19 @@ class CallService {
     }
     _overlaySessionLossObserved = false;
     _overlaySessionGrowthObserved = false;
+    _noteOverlayConnectivity(
+      previous == 0
+          ? 'overlay sessions restored'
+          : 'overlay sessions restored after partial loss',
+    );
+  }
+
+  void _noteOverlayConnectivity(String description) {
+    if (_disposed) return;
     _relayConnectionGeneration++;
     final call = _current;
     if (call != null) {
-      devLog(
-        () => previous == 0
-            ? 'xVeil[call-media]: overlay sessions restored'
-            : 'xVeil[call-media]: overlay sessions restored after partial loss',
-      );
+      devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
     }
   }
@@ -3593,6 +3611,8 @@ class CallService {
     _peerCallControlSub = null;
     unawaited(_overlaySessionsSub?.cancel());
     _overlaySessionsSub = null;
+    unawaited(_overlaySessionAdmissionsSub?.cancel());
+    _overlaySessionAdmissionsSub = null;
     unawaited(_networkHandoversSub?.cancel());
     _networkHandoversSub = null;
     if (_media == null) {
@@ -3645,6 +3665,9 @@ final callServiceProvider = Provider<CallService>((ref) {
     callSlot: ref.read(callSlotProvider),
     loadFinishedCalls: ref.read(storageProvider).callLogEntries,
     overlaySessions: transport.sessionCount(),
+    overlaySessionAdmissions: transport is VeilFlutterTransport
+        ? transport.overlaySessionAdmissions
+        : null,
     networkHandovers: transport is VeilFlutterTransport
         ? transport.networkHandovers
         : null,

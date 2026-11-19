@@ -1615,6 +1615,12 @@ class VeilFlutterTransport
         .map((e) => e.sessionCount ?? 0);
   }
 
+  Stream<void> get overlaySessionAdmissions => _client
+      .events()
+      .where((event) =>
+          event.kind == VeilEventKind.sessionAdmitted && event.payload.isEmpty)
+      .map((_) {});
+
   /// Empty, process-local checkpoint wake hints from this runtime. A malformed
   /// hint is ignored; a missed one is covered by the owner's periodic backstop.
   Stream<void> get peerAuthorizationChanges => _client
