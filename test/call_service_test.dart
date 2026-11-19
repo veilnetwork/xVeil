@@ -2288,6 +2288,106 @@ void main() {
       });
     }
 
+    for (final outcome in [
+      'admission after earlier handover',
+      'admission',
+      'deadline',
+      'hangup',
+    ]) {
+      test('failed relay rebuild during a local handover: $outcome', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<void>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..repairSucceeds = false
+            ..relayGate = Completer<bool>();
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkHandovers: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const callId = 'relay-rebuild-before-admission';
+          wire.onCallSignal!(peer, offer(callId));
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          media.rxAt = clock.now();
+          final earlierHandover = outcome == 'admission after earlier handover';
+          if (earlierHandover) network.add(null);
+          async.elapse(kCallMediaRepairAfter);
+          expect(media.repairs, 1);
+          expect(media.activeTransport, isNull);
+
+          if (!earlierHandover) network.add(null);
+          const repairTail = Duration(milliseconds: 250);
+          async.elapse(repairTail);
+          media.cameraStopped.complete();
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(media.switches, isEmpty);
+
+          // Another repair request must not end the call or race the reopen.
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              mediaRepairRequested: true,
+            ),
+          );
+          async.flushMicrotasks();
+          expect(media.repairs, 1);
+          expect(svc.current?.status, CallStatus.active);
+          if (earlierHandover) {
+            wire.sent.clear();
+            async.elapse(kCallHeartbeatInterval - repairTail);
+            expect(
+              wire.sent
+                  .where((s) => s.type == CallSignalType.health)
+                  .single
+                  .mediaRepairRequested,
+              isFalse,
+            );
+          } else {
+            async.elapse(const Duration(seconds: 1));
+          }
+
+          if (outcome == 'hangup') unawaited(svc.hangup());
+          if (outcome == 'deadline') async.elapse(kCallRelayCandidateRetry);
+          admissions.add(null);
+          async.flushMicrotasks();
+          if (earlierHandover || outcome == 'admission') {
+            expect(media.switches, [CallTransportKind.relay]);
+            admissions.add(null);
+            media.relayGate!.complete(true);
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(svc.current?.callId, callId);
+            expect(svc.current?.status, CallStatus.active);
+            expect(svc.current?.transport, CallTransportKind.relay);
+          } else {
+            expect(media.switches, isEmpty);
+            expect(svc.current, isNull);
+            expect(
+              wire.sent
+                  .where((s) => s.type == CallSignalType.end)
+                  .single
+                  .reason,
+              outcome == 'hangup' ? CallEndReason.hangup : CallEndReason.error,
+            );
+          }
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
       test('a receive-only peer does not trigger silence repair on $route', () {
         fakeAsync((async) {
