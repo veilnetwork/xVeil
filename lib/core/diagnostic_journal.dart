@@ -59,6 +59,7 @@ enum DiagnosticEvent {
   // or actual observation, not an OS window handle or user presentation data.
   callAlertWindowQuery,
   androidCameraPreview,
+  notificationPermission,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -633,6 +634,7 @@ class DiagnosticJournal {
     DiagnosticEvent.preferenceStoreFallback,
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
+    DiagnosticEvent.notificationPermission,
     DiagnosticEvent.networkChange,
     DiagnosticEvent.callAudioOutput,
     DiagnosticEvent.audioOutputSnapshot,
