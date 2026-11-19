@@ -246,13 +246,14 @@ class _NewProfileNameDialogState extends State<_NewProfileNameDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: TextField(
         controller: _name,
         autofocus: true,
         decoration: InputDecoration(
           hintText: widget.hint,
-          helperText: widget.helper,
+          helper: Text(widget.helper),
         ),
       ),
       actions: [
