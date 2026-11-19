@@ -233,7 +233,7 @@ Future<
     NodeId peer,
     CallTransportKind transport,
     String? fallbackReason,
-  })
+  })?
 >
 _openCallMediaChannel({
   required Call call,
@@ -243,7 +243,9 @@ _openCallMediaChannel({
   required bool retryInactiveDirect,
   Duration directRetryDelay = const Duration(milliseconds: 300),
   Future<NodeId> Function()? resolveDirectPeerOnRetry,
+  bool Function()? canAttemptOpen,
 }) async {
+  bool canOpen() => canAttemptOpen?.call() ?? true;
   final primaryOnlyPreparation =
       call.media.audio && !call.media.video && !call.media.screen;
   if (call.transport == CallTransportKind.p2p) {
@@ -254,6 +256,7 @@ _openCallMediaChannel({
     // admission; this cannot authorize a device or create a direct session.
     Object? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
+      if (!canOpen()) return null;
       try {
         if (attempt > 0 && resolveDirectPeerOnRetry != null) {
           // Recheck the particular answering device. Another device's admitted
@@ -262,6 +265,7 @@ _openCallMediaChannel({
             const Duration(milliseconds: 300),
             onTimeout: () => throw StateError('direct session probe timed out'),
           );
+          if (!canOpen()) return null;
         }
         final channel = await opener.openMediaChannel(
           directPeer.bytes,
@@ -276,6 +280,7 @@ _openCallMediaChannel({
           fallbackReason: null,
         );
       } catch (e) {
+        if (!canOpen()) return null;
         lastError = e;
         devLog(
           () =>
@@ -327,6 +332,7 @@ _openCallMediaChannel({
           : 'direct open failed',
     );
   }
+  if (!canOpen()) return null;
   if (call.transport == CallTransportKind.relay) {
     final channel = await opener.openMediaChannel(
       (call.peerDevice ?? call.peer).bytes,
@@ -360,8 +366,8 @@ _openCallMediaChannel({
   );
 }
 
-/// Derive the call's directional keys and open the negotiated route with them,
-/// or open NOTHING and return null when the call carries no key material.
+/// Derive the call's directional keys and open the negotiated route with them.
+/// Return null if key derivation fails or [canAttemptOpen] retires the attempt.
 ///
 /// The derive and the open are one step on purpose. Keeping them apart is what
 /// used to allow "no keys → open anyway, unsealed"; here the keys are produced
@@ -384,6 +390,7 @@ openSealedCallMediaChannel({
   bool retryInactiveDirect = true,
   Duration directRetryDelay = const Duration(milliseconds: 300),
   Future<NodeId> Function()? resolveDirectPeerOnRetry,
+  bool Function()? canAttemptOpen,
 }) async {
   final ({Uint8List txKey, Uint8List rxKey}) keys;
   try {
@@ -405,6 +412,7 @@ openSealedCallMediaChannel({
       retryInactiveDirect: retryInactiveDirect,
       directRetryDelay: directRetryDelay,
       resolveDirectPeerOnRetry: resolveDirectPeerOnRetry,
+      canAttemptOpen: canAttemptOpen,
     );
   } finally {
     keys.txKey.fillRange(0, keys.txKey.length, 0);
@@ -1029,7 +1037,9 @@ class VeilCallMediaController implements CallMediaController {
     }
     _lastRepairAt = now;
     if (_chanTransport != CallTransportKind.onion) {
-      return _rebuildLocalSession();
+      // The service awaits this result and can continue recovery on a newly
+      // admitted session if the network changes during the open.
+      return _rebuildLocalSession(checkNetworkGeneration: true);
     }
     final rc = _transport.repairMediaChannel(ch);
     devLog(
@@ -1040,7 +1050,7 @@ class VeilCallMediaController implements CallMediaController {
     return rc == 0;
   }
 
-  Future<bool> _rebuildLocalSession() async {
+  Future<bool> _rebuildLocalSession({bool checkNetworkGeneration = false}) async {
     if (_routeRepairing) return true;
     final active = _activeCall;
     final transport = _chanTransport;
@@ -1053,7 +1063,13 @@ class VeilCallMediaController implements CallMediaController {
         try {
           // Rebuild local audio/engine wiring even for onion. Refreshing only the
           // outbound circuit cannot unblock a stalled local receive worker.
-          return await _restartSessionForRoute(call, transport);
+          return await _restartSessionForRoute(
+            call,
+            transport,
+            rebuildNetworkGeneration: checkNetworkGeneration
+                ? _transport.networkChangeGeneration
+                : null,
+          );
         } catch (error) {
           devLog(
             () => 'xVeil[call-media]: local session rebuild failed: $error',
@@ -1134,7 +1150,12 @@ class VeilCallMediaController implements CallMediaController {
           return false;
         }
         if (canCommit != null) return false;
-        return _restartSessionForRoute(call, transport, requireTarget: true);
+        return _restartSessionForRoute(
+          call,
+          transport,
+          requireTarget: true,
+          rebuildNetworkGeneration: _transport.networkChangeGeneration,
+        );
       },
     );
   }
@@ -1143,12 +1164,9 @@ class VeilCallMediaController implements CallMediaController {
     Call call,
     CallTransportKind transport, {
     bool requireTarget = false,
+    int? rebuildNetworkGeneration,
   }) async {
     bool sameCall() => _activeCall?.callId == call.callId;
-    final relayRebuildNetworkGeneration =
-        requireTarget && transport == CallTransportKind.relay
-        ? _transport.networkChangeGeneration
-        : null;
     // A newer same-call start owns readiness, including its pending phase.
     // The FSM already treats true + no open channel as converging. A route
     // switch, however, can report success only on its requested transport.
@@ -1172,7 +1190,7 @@ class VeilCallMediaController implements CallMediaController {
         _activeCall!.copyWith(transport: transport),
         startingRequest,
         retryInactiveDirect: requireTarget,
-        relayRebuildNetworkGeneration: relayRebuildNetworkGeneration,
+        rebuildNetworkGeneration: rebuildNetworkGeneration,
       );
     } catch (_) {
       // An old lookup/engine failure must not end the newer working session.
@@ -1653,12 +1671,12 @@ class VeilCallMediaController implements CallMediaController {
     Call call,
     int request, {
     bool retryInactiveDirect = true,
-    int? relayRebuildNetworkGeneration,
+    int? rebuildNetworkGeneration,
   }) async {
     bool requested() => request == _startOperationEpoch;
     bool onRebuildNetwork() =>
-        relayRebuildNetworkGeneration == null ||
-        relayRebuildNetworkGeneration == _transport.networkChangeGeneration;
+        rebuildNetworkGeneration == null ||
+        rebuildNetworkGeneration == _transport.networkChangeGeneration;
     if (!onRebuildNetwork()) return false;
     _startedWithoutCamera = false;
     final previousCall = _activeCall;
@@ -1805,6 +1823,7 @@ class VeilCallMediaController implements CallMediaController {
         opener: _transport,
         localNodeId: localId,
         retryInactiveDirect: retryInactiveDirect,
+        canAttemptOpen: rebuildNetworkGeneration == null ? null : currentStart,
         resolveDirectPeerOnRetry: () async {
           final admitted = (await _transport.peerPnetStatus(
             (call.peerDevice ?? call.peer).bytes,
