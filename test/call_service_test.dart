@@ -2654,6 +2654,7 @@ void main() {
       'video relay rebuild expires',
       'admission before the old relay open returns',
       'admission after the old relay open returns',
+      'admission after a second network change',
       'replacement admission expires',
       'hangup during relay rebuild',
       'no admission',
@@ -2673,8 +2674,11 @@ void main() {
               replacementExpires;
           final admissionAlreadyAvailable =
               outcome == 'admission before the old relay open returns';
+          final networkChangesTwice =
+              outcome == 'admission after a second network change';
           final networkChangesDuringOpen =
               admissionAlreadyAvailable ||
+              networkChangesTwice ||
               outcome == 'admission after the old relay open returns';
           final relayStillOpening =
               snapshotOutlastsAdmission ||
@@ -2771,6 +2775,25 @@ void main() {
               CallTransportKind.relay,
               CallTransportKind.relay,
             ]);
+            if (networkChangesTwice) {
+              final previousOpen = media.relayGate!;
+              // Another successful registration on Wi-Fi is stale once that
+              // attachment is lost, even if the open finishes afterwards.
+              admissions.add(null);
+              network.add(NetworkAttachment.offline);
+              previousOpen.complete(false);
+              async.flushMicrotasks();
+              expect(svc.current?.status, CallStatus.active);
+              expect(media.switches, hasLength(2));
+
+              network.add(NetworkAttachment.cellular);
+              async.flushMicrotasks();
+              expect(media.switches, hasLength(2));
+              media.relayGate = Completer<bool>();
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.switches, hasLength(3));
+            }
             media.relayGate!.complete(true);
             async.flushMicrotasks();
             expect(svc.current?.callId, callId);
@@ -2790,6 +2813,17 @@ void main() {
                 oldOpen.complete(false);
                 async.flushMicrotasks();
                 expect(svc.current?.status, CallStatus.active);
+                admissions.add(null);
+                async.flushMicrotasks();
+                expect(media.switches, hasLength(2));
+
+                network.add(NetworkAttachment.offline);
+                final previousOpen = media.relayGate!;
+                media.relayGate = Completer<bool>();
+                previousOpen.complete(false);
+                network.add(NetworkAttachment.cellular);
+                async.flushMicrotasks();
+                expect(svc.current?.status, CallStatus.active);
               }
               final startBudget = visualRebuild
                   ? kCallVisualMediaStartTimeout
@@ -2806,7 +2840,7 @@ void main() {
             admissions.add(null);
             media.relayGate!.complete(true);
             async.flushMicrotasks();
-            expect(media.switches, [CallTransportKind.relay]);
+            expect(media.switches, hasLength(replacementExpires ? 2 : 1));
             expect(svc.current, isNull);
             expect(
               wire.sent.where((s) => s.type == CallSignalType.end).single.reason,
