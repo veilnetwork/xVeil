@@ -108,10 +108,15 @@ void main() {
           'fragment' => manifest['first'] as int,
           _ => null,
         };
-        final failed = await ids();
+        await expectLater(
+          ids(),
+          throwsA(
+            failure == 'index' ? isA<StateError>() : isA<FormatException>(),
+          ),
+          reason: 'an incomplete read must not publish a queue snapshot',
+        );
         expect(backing.raw.kvKeys(Ns.outboxIndex), hasLength(2));
         expect(backing.raw.count(Ns.outbox), rows);
-        expect(failed, isEmpty, reason: 'do not publish a partial snapshot');
         final recovered = await storage.pendingOutboxFrames();
         expect(
           recovered.map((frame) => frame.frameId),

@@ -108,7 +108,7 @@ class _MessagingReplication {
   Future<bool> _backedUp(NodeId dst, String what) async {
     // Seed the counter if the first flush has not run yet — the start-up burst
     // this guards happens inside that very window.
-    await _owner._outbox.ensurePendingCounted();
+    if (!await _owner._outbox.ensurePendingCounted()) return true;
     if (!_owner._outbox.replicationBackedUpFor(dst.hex)) return false;
     final now = _owner._now();
     final last = _backlogLoggedAt[dst.hex];
@@ -145,7 +145,7 @@ class _MessagingReplication {
     if (await _backedUp(dst, 'group snapshot')) {
       // A first-join reply cannot rely on the recipient's future frontier:
       // it has no group to ask about yet. Keep its durable admission pending.
-      if (requireEnqueue) throw StateError('group snapshot queue is full');
+      if (requireEnqueue) throw StateError('group snapshot queue unavailable');
       return;
     }
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));

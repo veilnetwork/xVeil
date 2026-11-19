@@ -176,8 +176,8 @@ class _MessagingOutbox {
   bool _pendingSeeded = false;
 
   /// Fill the per-peer counts from the store if [flush] has not yet done it.
-  Future<void> ensurePendingCounted() async {
-    if (_pendingSeeded) return;
+  Future<bool> ensurePendingCounted() async {
+    if (_pendingSeeded) return true;
     try {
       final pending = await _owner._storage.pendingOutboxFrames();
       _pendingByPeer.clear();
@@ -189,9 +189,11 @@ class _MessagingOutbox {
             (_pendingByPeer[frame.peerHex] ?? 0) + 1;
       }
       _pendingSeeded = true;
+      return true;
     } catch (_) {
       // Unreadable store: leave it unseeded and try again next time rather
-      // than pretending every queue is empty for the rest of the session.
+      // than admitting replication without knowing the backlog.
+      return false;
     }
   }
 
@@ -1711,7 +1713,16 @@ class _MessagingOutbox {
         _ackedWhileUnpersisted.add(key);
         return;
       }
-      if (await _collectGroupSliceAck(peerHex, frameId)) return;
+      try {
+        if (await _collectGroupSliceAck(peerHex, frameId)) return;
+      } catch (error) {
+        // Without the stored ACK mode, a single-slice ACK cannot retire the
+        // row. The retained copy can earn another ACK on a later retry.
+        devLog(
+          () => 'xVeil[durable]: group slice ACK deferred (${error.runtimeType})',
+        );
+        return;
+      }
     }
     _forgetRetiredFrame(peerHex, frameId);
     try {
