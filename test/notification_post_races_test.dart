@@ -123,6 +123,8 @@ class _Notifications extends NotificationService {
   final entered = Completer<void>(), release = Completer<void>();
   final visible = <int, String?>{};
   final cancelled = <int>[];
+  final bodies = <String>[];
+  final replyLabels = <String?>[];
   int shows = 0;
   bool failFirstShow = false;
   String firstCompletion = 'ok';
@@ -152,6 +154,8 @@ class _Notifications extends NotificationService {
     shows++;
     final attempt = shows;
     if (failFirstShow && shows == 1) throw StateError('fixture OS refusal');
+    bodies.add(body);
+    replyLabels.add(replyLabel);
     visible[id] = payload;
     if (id == holdId && !entered.isCompleted) {
       entered.complete();
@@ -169,6 +173,8 @@ class _PermissionStartupPlugin extends Fake
     implements FlutterLocalNotificationsPlugin {
   final startup = Completer<bool>();
   final posted = <String?>[];
+  final titles = <String?>[];
+  final bodies = <String?>[];
 
   @override
   Future<bool?> initialize({
@@ -192,7 +198,11 @@ class _PermissionStartupPlugin extends Fake
     String? body,
     NotificationDetails? notificationDetails,
     String? payload,
-  }) async => posted.add(payload);
+  }) async {
+    posted.add(payload);
+    titles.add(title);
+    bodies.add(body);
+  }
 }
 
 class _PermissionNotifications extends NotificationService {
@@ -451,6 +461,99 @@ void main() {
   String? resolveShownPayload(String? token) => token == null
       ? null
       : container.read(opaqueNotificationPayloadsProvider).resolve(token);
+
+  testWidgets('hiding previews during contact lookup hides text and reply', (
+    tester,
+  ) async {
+    await mount(tester);
+    final lookup = storage.delayed[_id(2)] = Completer<void>();
+    try {
+      final settings = container.read(notificationSettingsProvider.notifier);
+      await settings.setPreview(NotificationPreview.full);
+      message(2);
+      await _pump(tester);
+      expect(notifications.shows, 0);
+      await settings.setPreview(NotificationPreview.hidden);
+      lookup.complete();
+      await _pump(tester);
+      expect(notifications.visible.values.map(resolveShownPayload), [
+        _id(2).hex,
+      ]);
+      expect(notifications.bodies.single, isNot(contains('fixture')));
+      expect(notifications.replyLabels, [null]);
+    } finally {
+      if (!lookup.isCompleted) lookup.complete();
+      await cleanup(tester);
+    }
+  });
+
+  for (final change in ['hide', 'disable', 'enable full']) {
+    testWidgets('preview and enable policy at OS startup ($change)', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service);
+      try {
+        final settings = container.read(notificationSettingsProvider.notifier);
+        await settings.setPreview(
+          change == 'enable full'
+              ? NotificationPreview.hidden
+              : NotificationPreview.full,
+        );
+        message(2);
+        await _pump(tester);
+        expect(plugin.posted, isEmpty);
+        if (change == 'disable') {
+          await settings.setEnabled(false);
+        } else {
+          await settings.setPreview(
+            change == 'hide'
+                ? NotificationPreview.hidden
+                : NotificationPreview.full,
+          );
+        }
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        if (change == 'disable') {
+          expect(plugin.posted, isEmpty);
+        } else {
+          expect(plugin.posted.map(resolveShownPayload), [_id(2).hex]);
+          expect(plugin.titles, ['xVeil']);
+          expect(plugin.bodies.single, isNot(contains('fixture')));
+        }
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    });
+  }
+
+  testWidgets('hiding previews withdraws a full alert already in the OS call', (
+    tester,
+  ) async {
+    await mount(tester);
+    final id = notificationIdForIncomingMessage(_id(2).hex);
+    try {
+      final settings = container.read(notificationSettingsProvider.notifier);
+      await settings.setPreview(NotificationPreview.full);
+      notifications.holdId = id;
+      message(2);
+      await _pump(tester);
+      expect(notifications.entered.isCompleted, isTrue);
+      expect(notifications.visible[id], _id(2).hex);
+      await settings.setPreview(NotificationPreview.hidden);
+      notifications.release.complete();
+      await _pump(tester);
+      expect(notifications.cancelled, [id]);
+      expect(notifications.visible, isEmpty);
+    } finally {
+      await cleanup(tester);
+    }
+  });
 
   testWidgets('a muted message cannot supersede an alert queued at startup', (
     tester,
