@@ -291,6 +291,11 @@ class CompactionRosterRepairIncomplete implements Exception {
   String toString() => 'CompactionRosterRepairIncomplete';
 }
 
+/// The rewrite completed, but the app could not restore the access session.
+class CompactionReopenIncomplete implements Exception {
+  const CompactionReopenIncomplete();
+}
+
 class _IdentityEditEnded implements Exception {}
 
 /// Owns asynchronous container work until it is quiescent, even after lock.
@@ -3152,17 +3157,34 @@ class AppController extends Notifier<AppState> {
           (mixedOwner == null || mixedOwner.isAvailable)) {
         try {
           await _reopenAfterCompaction(reopenWith, lease);
-        } catch (error, stack) {
-          if (mixedOwner == null) rethrow;
-          // Retain a bounded local trace even when this is the only failure;
-          // an existing native publication qualifier must remain primary.
+          // unlock reports refusal through the lock screen, even when its
+          // Future completes normally. An explicit lock belongs to a newer
+          // lifecycle and does not turn a completed rewrite into a failure.
+          if (ref.mounted &&
+              !_supersededSince(lease.lifecycle) &&
+              state.phase == AppPhase.locked &&
+              state.unlockError) {
+            if (publicationFailure == null) {
+              // The published rewrite already verified this credential.
+              state = state.copyWith(unlockError: false);
+            }
+            throw const CompactionReopenIncomplete();
+          }
+        } catch (_, stack) {
+          // Preserve any earlier publication failure or native warning.
           errorJournal.record(
             kind: 'storage-compaction-reopen',
-            error: StateError('could not reopen after compaction'),
+            error: const CompactionReopenIncomplete(),
             stack: stack,
             atMs: DateTime.now().millisecondsSinceEpoch,
           );
           if (publicationFailure == null) {
+            if (mixedOwner == null) {
+              Error.throwWithStackTrace(
+                const CompactionReopenIncomplete(),
+                stack,
+              );
+            }
             throw ManagedLegacyCompactionFailure(
               ManagedWorkerFailureKind.backend,
               mayHaveApplied: true,

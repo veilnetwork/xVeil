@@ -16,11 +16,14 @@ import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
 
+enum _RunFailure { rewrite, roster, reopen }
+
 class _FailedCompaction extends AppController {
-  _FailedCompaction({this.incomplete = false, this.failEntry});
-  final bool incomplete;
+  _FailedCompaction({this.failure = _RunFailure.rewrite, this.failEntry});
+  final _RunFailure failure;
   final String? failEntry;
   bool cancelled = false;
+  int recoveryCalls = 0;
   @override
   AppState build() => const AppState(AppPhase.ready);
   @override
@@ -40,12 +43,27 @@ class _FailedCompaction extends AppController {
   }
 
   @override
+  Future<void> recoverCompactionCollection({
+    required IdentityLease lease,
+    required String reopenWith,
+  }) async {
+    recoveryCalls++;
+    await super.recoverCompactionCollection(
+      lease: lease,
+      reopenWith: reopenWith,
+    );
+  }
+
+  @override
   Future<({int before, int after})> compactStorageKeeping({
     required CompactionRoster roster,
     required String reopenWith,
   }) async {
-    if (incomplete) throw const CompactionRosterRepairIncomplete();
-    throw StateError('fixture rewrite failure');
+    throw switch (failure) {
+      _RunFailure.rewrite => StateError('fixture rewrite failure'),
+      _RunFailure.roster => const CompactionRosterRepairIncomplete(),
+      _RunFailure.reopen => const CompactionReopenIncomplete(),
+    };
   }
 }
 
@@ -141,16 +159,14 @@ void main() {
       );
     },
   );
-  for (final incomplete in [false, true]) {
-    testWidgets('failure leaves a usable dialog (repair=$incomplete)', (
-      tester,
-    ) async {
+  for (final failure in _RunFailure.values) {
+    testWidgets('failure leaves a usable dialog (${failure.name})', (tester) async {
       final fixture = FakeHvContainer();
       final space = fixture.storage();
       await space.open(password: 'fixture', createIfMissing: true);
       await space.saveProfile(const UserProfile(displayName: 'fixture'));
       await space.close();
-      final controller = _FailedCompaction(incomplete: incomplete);
+      final controller = _FailedCompaction(failure: failure);
       final l = AppL10nEn();
       await tester.pumpWidget(
         ProviderScope(
@@ -196,9 +212,11 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
         find.text(
-          incomplete
-              ? l.settingsStorageCompactRepairIncomplete
-              : l.settingsStorageCompactFailed,
+          switch (failure) {
+            _RunFailure.rewrite => l.settingsStorageCompactFailed,
+            _RunFailure.roster => l.settingsStorageCompactRepairIncomplete,
+            _RunFailure.reopen => l.compactOfferOutcomeUncertain,
+          },
         ),
         findsOneWidget,
       );
@@ -218,8 +236,13 @@ void main() {
       expect(recorded['kind'], 'storage-compaction');
       expect(
         recorded['type'],
-        incomplete ? 'CompactionRosterRepairIncomplete' : 'StateError',
+        switch (failure) {
+          _RunFailure.rewrite => 'StateError',
+          _RunFailure.roster => 'CompactionRosterRepairIncomplete',
+          _RunFailure.reopen => 'CompactionReopenIncomplete',
+        },
       );
+      expect(controller.recoveryCalls, failure == _RunFailure.reopen ? 0 : 1);
       expect(recorded.keys.every({'kind', 'type', 'frames'}.contains), isTrue);
       final cancel = tester.widget<TextButton>(
         find.widgetWithText(TextButton, l.actionCancel),

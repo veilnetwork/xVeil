@@ -399,7 +399,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
               error is ManagedLegacyCompactionFailure &&
               error.mayHaveApplied &&
               error.recovery == null;
-          if (!unknownPublication) {
+          if (!unknownPublication && error is! CompactionReopenIncomplete) {
             try {
               await ctrl.recoverCompactionCollection(
                 lease: widget.lease,
@@ -422,8 +422,10 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       _closeCompactionRoute(route, sizes);
     } catch (error, stack) {
       final incomplete = error is CompactionRosterRepairIncomplete;
+      final reopenIncomplete = error is CompactionReopenIncomplete;
       final uncertain =
-          error is ManagedLegacyCompactionFailure && error.mayHaveApplied;
+          reopenIncomplete ||
+          (error is ManagedLegacyCompactionFailure && error.mayHaveApplied);
       final failure = uncertain
           ? l.compactOfferOutcomeUncertain
           : incomplete
@@ -434,7 +436,9 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       // start a new collection if the person wants another attempt.
       errorJournal.record(
         kind: 'storage-compaction',
-        error: incomplete ? error : StateError('compaction failed'),
+        error: incomplete || reopenIncomplete
+            ? error
+            : StateError('compaction failed'),
         stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
