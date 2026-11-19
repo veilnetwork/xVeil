@@ -22,6 +22,17 @@ NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 
 class _FaultStore extends FakeKvLogStore {
   String? fault;
+  bool _refuseIndexRead = false;
+
+  @override
+  Uint8List? get(int namespace, Uint8List key) {
+    if (_refuseIndexRead && namespace == Ns.outboxIndex) {
+      _refuseIndexRead = false;
+      throw StateError('fixture outbox read refused');
+    }
+    return super.get(namespace, key);
+  }
+
   @override
   int commit(List<KvLogOp> ops) {
     final mode = fault;
@@ -32,6 +43,7 @@ class _FaultStore extends FakeKvLogStore {
     fault = null;
     if (mode == 'before') throw StateError('fixture initial admission refused');
     super.commit(ops);
+    _refuseIndexRead = mode == 'unreadable';
     throw StateError('fixture initial admission reply lost');
   }
 }
@@ -123,32 +135,68 @@ Future<(_HeldGreeting, _Wire, MessagingService)> _fixture(
 
 void main() {
   for (final fault in ['before', 'after']) {
-    test('initial admission does not hide storage failure: $fault', () async {
-      final kv = _FaultStore();
-      final (storage, wire, service) = await _fixture(false, log: kv);
-      final peer = _id(2);
-      kv.fault = fault;
-      await expectLater(
-        service.submitContactRequest(peer, 'recoverable greeting'),
-        throwsStateError,
-      );
-      expect(wire.sent, isEmpty);
-      expect(
-        await storage.pendingOutboxFrames(),
-        hasLength(fault == 'before' ? 0 : 1),
-      );
-      final greeting = (await storage.loadMessages(peer.hex)).single;
-      await service.resendRequest(peer);
-      final recovered = (await storage.pendingOutboxFrames()).single;
-      expect(WireEnvelope.decode(recovered.wire).id, greeting.id);
-      expect(
-        wire.sent.where(
-          (e) => e.kind == WireKind.request && e.id == greeting.id,
-        ),
-        hasLength(1),
-      );
-    });
+    test(
+      'initial admission reports durable outcome for commit fault $fault',
+      () async {
+        final kv = _FaultStore();
+        final (storage, wire, service) = await _fixture(false, log: kv);
+        final peer = _id(2);
+        kv.fault = fault;
+        final submission = service.submitContactRequest(
+          peer,
+          'recoverable greeting',
+        );
+        if (fault == 'before') {
+          await expectLater(submission, throwsStateError);
+          expect(wire.sent, isEmpty);
+          expect(await storage.pendingOutboxFrames(), isEmpty);
+          await service.resendRequest(peer);
+        } else {
+          expect(await submission, ContactRequestSubmission.queued);
+        }
+        final greeting = (await storage.loadMessages(peer.hex)).single;
+        final recovered = (await storage.pendingOutboxFrames()).single;
+        final request = WireEnvelope.decode(recovered.wire);
+        expect(
+          (request.id, request.body, request.seq),
+          (greeting.id, greeting.body, greeting.seq),
+        );
+        expect(
+          wire.sent.where(
+            (e) => e.kind == WireKind.request && e.id == greeting.id,
+          ),
+          hasLength(1),
+        );
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+        expect(
+          (await storage.pendingOutboxFrames()).single.wire,
+          recovered.wire,
+        );
+      },
+    );
   }
+  test('unavailable readback leaves a queued request untouched', () async {
+    final kv = _FaultStore()..fault = 'unreadable';
+    final (storage, wire, service) = await _fixture(false, log: kv);
+    final peer = _id(2);
+    await expectLater(
+      service.submitContactRequest(peer, 'recoverable greeting'),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          'fixture initial admission reply lost',
+        ),
+      ),
+    );
+    expect(wire.sent, isEmpty);
+    final greeting = (await storage.loadMessages(peer.hex)).single;
+    expect(
+      (await storage.pendingOutboxFrames()).single.frameId,
+      'request:${greeting.id}',
+    );
+  });
   for (final native in [false, true]) {
     for (final empty in [false, true]) {
       for (final decision in ['accept', 'block', 'cancel', 'replace']) {

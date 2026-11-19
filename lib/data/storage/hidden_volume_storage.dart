@@ -6954,11 +6954,37 @@ class HiddenVolumeStorage
                 ((prior?.frameId == held.frameId) ||
                     _bytesEqual(held.wire, record.frame.wire));
           }
-          final persisted = await _persistOutboxPayloadsCritical(store, [
-            record,
-          ]);
-          for (final item in persisted) {
-            _outboxById[item.frame.frameId] = item;
+          try {
+            final persisted = await _persistOutboxPayloadsCritical(store, [
+              record,
+            ]);
+            for (final item in persisted) {
+              _outboxById[item.frame.frameId] = item;
+            }
+          } catch (error, stack) {
+            // A lost reply can follow the commit. Verify the original frame
+            // under the same outbox/contact lanes before reporting admission.
+            try {
+              if (identical(store, _store)) {
+                final index = await store.get(
+                  Ns.outboxIndex,
+                  _outboxIndexKey(record.frame.frameId),
+                );
+                final logId = index == null
+                    ? null
+                    : int.tryParse(utf8.decode(index));
+                final saved = logId == null
+                    ? null
+                    : await _readOutboxPayload(logId);
+                if (identical(store, _store) &&
+                    _bytesEqual(saved?.payload, record.payload)) {
+                  return true;
+                }
+              }
+            } catch (_) {
+              // Keep the original write error if readback is also unavailable.
+            }
+            Error.throwWithStackTrace(error, stack);
           }
           return true;
         }),

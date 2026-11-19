@@ -152,45 +152,46 @@ Future<void> _deliver(MessagingService to, NodeId from, WireEnvelope frame) =>
 
 void main() {
   for (final fault in ['before', 'after']) {
-    test(
-      'legacy retry preserves admission failure semantics: $fault',
-      () async {
-        final kv = _FaultStore();
-        final storage = _HeldQueue(
-          ({required password, required bool create}) async =>
-              SyncWrappedAsyncKvLogStore(kv),
-        );
-        expect(await storage.open(password: 'fixture'), isTrue);
-        final wire = _Wire(_id(1)), peer = _id(2);
-        var messaging = MessagingService(wire, storage);
-        try {
-          await messaging.sendRequest(peer, 'hello');
-          final first = (await storage.pendingOutboxFrames()).single;
-          await storage.ackOutboxFrame(first.frameId, fromPeerHex: peer.hex);
-          await messaging.dispose();
-          messaging = MessagingService(wire, storage);
-          wire.sent.clear();
-          kv.fault = fault;
+    test('legacy retry follows the durable admission result: $fault', () async {
+      final kv = _FaultStore();
+      final storage = _HeldQueue(
+        ({required password, required bool create}) async =>
+            SyncWrappedAsyncKvLogStore(kv),
+      );
+      expect(await storage.open(password: 'fixture'), isTrue);
+      final wire = _Wire(_id(1)), peer = _id(2);
+      var messaging = MessagingService(wire, storage);
+      try {
+        await messaging.sendRequest(peer, 'hello');
+        final first = (await storage.pendingOutboxFrames()).single;
+        await storage.ackOutboxFrame(first.frameId, fromPeerHex: peer.hex);
+        await messaging.dispose();
+        messaging = MessagingService(wire, storage);
+        wire.sent.clear();
+        kv.fault = fault;
+        if (fault == 'before') {
           await expectLater(messaging.resendRequest(peer), throwsStateError);
           expect(wire.sent, isEmpty);
-          expect(
-            await storage.pendingOutboxFrames(),
-            hasLength(fault == 'before' ? 0 : 1),
-          );
+          expect(await storage.pendingOutboxFrames(), isEmpty);
           await messaging.resendRequest(peer);
-          final saved = (await storage.pendingOutboxFrames()).single;
-          expect(saved.frameId, first.frameId);
+        } else {
           expect(
-            wire.sent.singleWhere((w) => w.kind == WireKind.request).id,
-            WireEnvelope.decode(first.wire).id,
+            await messaging.resendRequest(peer),
+            isFalse,
+            reason: 'a live attempt does not establish a relay deposit',
           );
-        } finally {
-          await messaging.dispose();
-          await wire.dispose();
-          await storage.close();
         }
-      },
-    );
+        final saved = (await storage.pendingOutboxFrames()).single;
+        expect(saved.frameId, first.frameId);
+        final sent = wire.sent.singleWhere((w) => w.kind == WireKind.request);
+        expect(sent.id, WireEnvelope.decode(first.wire).id);
+        expect(sent.encode(), saved.wire);
+      } finally {
+        await messaging.dispose();
+        await wire.dispose();
+        await storage.close();
+      }
+    });
   }
   for (final native in [false, true]) {
     test(
