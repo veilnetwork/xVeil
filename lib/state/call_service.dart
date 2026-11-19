@@ -570,7 +570,10 @@ class CallService {
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
   Object? _livenessProbeToken;
-  ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
+  ({NodeId peer, String callId, bool rebuilding, Future<void> future})?
+  _relayFallbackFlight;
+  bool get _relayRebuildInProgress =>
+      _relayRebuildAdmission != null || _relayFallbackFlight?.rebuilding == true;
   ({String callId, DateTime until, DateTime? handoverRecoveryAt})?
   _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
@@ -2020,7 +2023,7 @@ class CallService {
         !before.isLive ||
         before.status != CallStatus.active ||
         _networkOffline ||
-        _relayRebuildAdmission != null ||
+        _relayRebuildInProgress ||
         _lateP2PBusy) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
@@ -2136,7 +2139,7 @@ class CallService {
         }
         if (reconnected && media.activeTransport == null) {
           devLog(() => 'xVeil[call-media]: recovering on relay after reconnect');
-          await _followRelayFallback(peer, callId);
+          await _followRelayFallback(peer, callId, rebuilding: true);
           return;
         }
       }
@@ -2306,6 +2309,7 @@ class CallService {
     NodeId peer,
     String callId, {
     DateTime? retryBy,
+    bool rebuilding = false,
   }) {
     final call = _current;
     if (_disposed ||
@@ -2325,8 +2329,14 @@ class CallService {
     }
     final connections = _relayConnectionGeneration;
     _cancelRelayCandidateRetry();
+    if (rebuilding) _livenessProbeToken = null;
     late final Future<void> future;
-    future = _applyRelayFallback(peer, callId, retryBy: retryBy).whenComplete(
+    future = _applyRelayFallback(
+      peer,
+      callId,
+      retryBy: retryBy,
+      rebuilding: rebuilding,
+    ).whenComplete(
       () {
         if (identical(_relayFallbackFlight?.future, future)) {
           _relayFallbackFlight = null;
@@ -2338,7 +2348,12 @@ class CallService {
         }
       },
     );
-    _relayFallbackFlight = (peer: peer, callId: callId, future: future);
+    _relayFallbackFlight = (
+      peer: peer,
+      callId: callId,
+      rebuilding: rebuilding,
+      future: future,
+    );
     return future;
   }
 
@@ -2346,6 +2361,7 @@ class CallService {
     NodeId peer,
     String callId, {
     DateTime? retryBy,
+    required bool rebuilding,
   }) async {
     final media = _media;
     final before = _current;
@@ -2363,7 +2379,19 @@ class CallService {
     final epoch = ++_mediaOperationEpoch;
     var ok = false;
     try {
-      ok = await media.switchRoute(CallTransportKind.relay);
+      final opened = media.switchRoute(CallTransportKind.relay);
+      final startBudget = before.media.video || before.media.screen
+          ? kCallVisualMediaStartTimeout
+          : kCallMediaStartTimeout;
+      ok = rebuilding
+          ? await opened.timeout(
+              startBudget,
+              onTimeout: () {
+                devLog(() => 'xVeil[call-media]: relay rebuild timed out');
+                return false;
+              },
+            )
+          : await opened;
     } catch (e) {
       devLog(() => 'xVeil[call-media]: relay follow failed call=$callId: $e');
     }
@@ -3424,9 +3452,9 @@ class CallService {
       final timeout = _peerConfirmedAfterConnect
           ? kCallLivenessTimeout
           : kCallStartupLivenessTimeout;
-      // A relay rebuild already waiting for admission can still recover at
-      // its own bounded deadline. Keep sending health during that wait.
-      if (_relayRebuildAdmission == null &&
+      // The lost route can still recover while awaiting admission or opening
+      // its replacement. Each phase has a deadline. Keep sending health.
+      if (!_relayRebuildInProgress &&
           alive != null &&
           _now().difference(alive) > timeout) {
         if (_livenessProbeToken == null) {
@@ -3582,7 +3610,7 @@ class CallService {
   }) {
     final media = _media;
     if (_networkOffline ||
-        _relayRebuildAdmission != null ||
+        _relayRebuildInProgress ||
         media?.isRepairingReceiveSession == true) {
       return false;
     }
