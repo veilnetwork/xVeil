@@ -10,6 +10,7 @@ import '../api/blob_sources.dart';
 import '../api/direct_file_api.dart';
 import '../api/group_api_adapter.dart';
 import '../api/webhook_pump.dart';
+import '../core/async_tasks.dart';
 import '../core/cleanup_legs.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
@@ -57,7 +58,8 @@ class HeadlessRuntime {
     required this.api,
     required this.tokens,
     required this._bootGroupSync,
-    this._mailbox,
+    required this._mailboxDiscoveryStopped,
+    required this._closeMailbox,
     this._nodeStatus,
     required this._webhook,
   });
@@ -71,7 +73,8 @@ class HeadlessRuntime {
   final List<ApiToken> tokens;
 
   final Future<void> _bootGroupSync;
-  final MailboxService? _mailbox;
+  final Completer<void> _mailboxDiscoveryStopped;
+  final Future<void> Function() _closeMailbox;
   final StreamSubscription<NodeStatus>? _nodeStatus;
   final WebhookPump _webhook;
   bool _closed = false;
@@ -113,6 +116,32 @@ class HeadlessRuntime {
     MailboxService? mailbox;
     StreamSubscription<NodeStatus>? nodeStatus;
     WebhookPump? webhookPump;
+    final mailboxDiscoveryStopped = Completer<void>();
+    final mailboxTasks = AsyncTasks();
+    void discoverMailbox(Future<void> Function() action) {
+      mailboxTasks.start(() async {
+        try {
+          await action();
+        } catch (error) {
+          devLog(
+            () =>
+                'xVeil[headless]: mailbox discovery failed (${error.runtimeType})',
+          );
+        }
+      });
+    }
+
+    Future<void> closeMailbox() async {
+      final settled = mailboxTasks.close();
+      try {
+        // Registration already running inside the mailbox has its own stop
+        // signal. Let dispose wake it before joining the caller that awaits it.
+        await mailbox?.dispose();
+      } finally {
+        await settled;
+      }
+    }
+
     try {
       final opened = await storage.open(
         password: password,
@@ -376,11 +405,13 @@ class HeadlessRuntime {
         messaging.attachMailbox(mailbox);
         final started = mailbox;
         var complained = false;
-        unawaited(
-          startMailboxWhenCarriersExist(
+        discoverMailbox(
+          () => startMailboxWhenCarriersExist(
             candidates: () async {
               final relays = await liveRelays(transport);
-              if (relays.isEmpty && !complained) {
+              if (relays.isEmpty &&
+                  !complained &&
+                  !mailboxDiscoveryStopped.isCompleted) {
                 // Said ONCE, on the first empty answer. It used to be the last
                 // word on the subject; now it is the first, because the search
                 // keeps going and this state is usually temporary.
@@ -396,7 +427,7 @@ class HeadlessRuntime {
             },
             start: (relays) => started.start(relays: relays),
             registered: () => started.isRegistered,
-            cancelled: () => false,
+            stopped: mailboxDiscoveryStopped,
           ),
         );
       }
@@ -407,8 +438,15 @@ class HeadlessRuntime {
           final t = stack!.transport;
           // The reconnect is one moment discovery may have an answer it did
           // not have at boot; the retry above covers the rest.
-          if (m != null && !m.isRegistered) {
-            unawaited(liveRelays(t).then((relays) => m.start(relays: relays)));
+          if (m != null &&
+              !m.isRegistered &&
+              !mailboxDiscoveryStopped.isCompleted) {
+            discoverMailbox(() async {
+              final relays = await liveRelays(t);
+              if (!mailboxDiscoveryStopped.isCompleted) {
+                await m.start(relays: relays);
+              }
+            });
           }
         }
       });
@@ -701,11 +739,13 @@ class HeadlessRuntime {
         api: api,
         tokens: List.unmodifiable(loadedTokens),
         bootGroupSync: bootGroupSync,
-        mailbox: mailbox,
+        mailboxDiscoveryStopped: mailboxDiscoveryStopped,
+        closeMailbox: closeMailbox,
         nodeStatus: nodeStatus,
         webhook: webhookPump,
       );
     } catch (_) {
+      mailboxDiscoveryStopped.complete();
       // Independent legs, same reason as `close()`: this unwinds a boot that
       // already failed, and a second failure here must not leave the rest of
       // the half-built runtime running. The original error is what the caller
@@ -714,7 +754,7 @@ class HeadlessRuntime {
         ('api', () async => api?.stop()),
         ('webhook', () async => webhookPump?.close()),
         ('node-status', () async => nodeStatus?.cancel()),
-        ('mailbox', () async => mailbox?.dispose()),
+        ('mailbox', closeMailbox),
         ('messaging', () async => messaging?.dispose()),
         ('groups', () async => groups?.dispose()),
         ('stack', () async => stack?.dispose()),
@@ -1035,6 +1075,7 @@ class HeadlessRuntime {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _mailboxDiscoveryStopped.complete();
     final failure = await runCleanupLegs('headless', [
       ('api', api.stop),
       ('webhook', _webhook.close),
@@ -1046,7 +1087,7 @@ class HeadlessRuntime {
           return _bootGroupSync;
         },
       ),
-      ('mailbox', () async => _mailbox?.dispose()),
+      ('mailbox', _closeMailbox),
       ('messaging', messaging.dispose),
       ('groups', groups.dispose),
       ('stack', stack.dispose),

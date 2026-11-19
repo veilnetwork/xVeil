@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/embedded_node.dart' show BootstrapPeerCfg;
@@ -181,7 +183,7 @@ void main() {
           registered = true;
         },
         registered: () => registered,
-        cancelled: () => false,
+        stopped: Completer<void>(),
         interval: Duration.zero,
         attempts: 5,
       );
@@ -213,7 +215,7 @@ void main() {
           registered = true; // the first candidate resolved and stuck
         },
         registered: () => registered,
-        cancelled: () => false,
+        stopped: Completer<void>(),
         interval: Duration.zero,
         attempts: 6,
       );
@@ -234,7 +236,7 @@ void main() {
         candidates: () async => const <NodeId>[],
         start: (_) async => started++,
         registered: () => false,
-        cancelled: () => false,
+        stopped: Completer<void>(),
         interval: Duration.zero,
         attempts: 3,
       );
@@ -251,11 +253,60 @@ void main() {
         start: (_) async {},
         // The relay resolved nothing, so registration did not stick.
         registered: () => false,
-        cancelled: () => false,
+        stopped: Completer<void>(),
         interval: Duration.zero,
         attempts: 4,
       );
       expect(asked, 4);
+    });
+
+    test('does not register from a lookup completed after cancellation', () async {
+      final lookup = Completer<List<NodeId>>();
+      final stopped = Completer<void>();
+      var starts = 0;
+      var settled = false;
+      final watch = startMailboxWhenCarriersExist(
+        candidates: () => lookup.future,
+        start: (_) async => starts++,
+        registered: () => false,
+        stopped: stopped,
+        interval: Duration.zero,
+        attempts: 1,
+      ).then((_) => settled = true);
+      stopped.complete();
+      await Future<void>.value();
+      expect(settled, isFalse, reason: 'the active lookup still owns its work');
+      lookup.complete([id(1)]);
+      await watch;
+      expect(starts, 0);
+    });
+
+    test('cancellation wakes the watch and removes its retry timer', () {
+      fakeAsync((clock) {
+        final stopped = Completer<void>();
+        var asked = 0;
+        var settled = false;
+        unawaited(
+          startMailboxWhenCarriersExist(
+            candidates: () async {
+              asked++;
+              return [];
+            },
+            start: (_) async {},
+            registered: () => false,
+            stopped: stopped,
+          ).then<void>((_) => settled = true),
+        );
+        clock.flushMicrotasks();
+        expect(asked, 1);
+        expect(clock.nonPeriodicTimerCount, 1);
+        stopped.complete();
+        clock.flushMicrotasks();
+        expect(settled, isTrue);
+        expect(clock.nonPeriodicTimerCount, 0);
+        clock.elapse(const Duration(minutes: 5));
+        expect(asked, 1);
+      });
     });
 
     test('asks nobody once the stack it belongs to is gone', () async {
@@ -270,7 +321,7 @@ void main() {
         },
         start: (_) async {},
         registered: () => false,
-        cancelled: () => true,
+        stopped: Completer<void>()..complete(),
         interval: Duration.zero,
         attempts: 50,
       );

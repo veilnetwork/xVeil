@@ -115,8 +115,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // are configured — live delivery is unaffected if this never registers.
   // Declared before the closures that read it: a late-resolving mailbox must
   // not be attached to, or retried on, a provider that is already gone.
-  var providerDisposed = false;
-  ref.onDispose(() => providerDisposed = true);
+  final providerDisposed = Completer<void>();
+  ref.onDispose(providerDisposed.complete);
   final configuredRelays = mailboxRelayCandidates(
     ref.read(deniableBootProvider)?.bootstrapPeers ?? const [],
   );
@@ -156,7 +156,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
         },
         start: (relays) => m.start(relays: relays),
         registered: () => m.isRegistered,
-        cancelled: () => providerDisposed,
+        stopped: providerDisposed,
       );
 
   devLog(
@@ -182,7 +182,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   if (transport is VeilFlutterTransport) {
     unawaited(
       RealVeilStack.sovereignReceiveAddress(storage).then((receiveAddress) {
-        if (!providerDisposed) {
+        if (!providerDisposed.isCompleted) {
           // Assigned even when it is null. "This identity has no document" is
           // an ANSWER, and withholding it left the transport unable to tell it
           // apart from "the boot has not looked yet" — which is the state
@@ -193,7 +193,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
         devLog(() => 'xVeil[identity]: transport receive address FAILED: $e');
         // A failure is also an answer for this purpose: no address we can
         // trust. Unblock the waiters rather than making them time out.
-        if (!providerDisposed) transport.identityAddress = null;
+        if (!providerDisposed.isCompleted) transport.identityAddress = null;
       }),
     );
   }
@@ -235,7 +235,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
           );
         })
         .then((m) {
-          if (providerDisposed) {
+          if (providerDisposed.isCompleted) {
             // This stack/transport is already gone — don't start a timer on it.
             unawaited(m.dispose());
             return;
