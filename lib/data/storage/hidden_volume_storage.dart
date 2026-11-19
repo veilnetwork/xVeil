@@ -394,6 +394,10 @@ class HiddenVolumeStorage
     _deleteScrubRecoveryNeeded = false;
     try {
       await _recoverMessageDeletion(opening: true);
+      await _metadataSerialized(
+        _pendingRemoteClearKey,
+        (_) => _resumeRemoteClear(opening: true),
+      );
       await _withRatchetIo(() => _recoverRatchetCleanup(opening: true));
     } catch (_) {
       // A failed recovery must not leak the exclusive handle and wedge retry.
@@ -4884,6 +4888,7 @@ class HiddenVolumeStorage
     NodeId peer, {
     Map<String, int>? upTo,
     int? upToMs,
+    int? beforeLogId,
     required List<String> blobNamesOut,
   }) async {
     final ops = <KvLogOp>[];
@@ -4909,7 +4914,9 @@ class HiddenVolumeStorage
         if (!bySeq && !byTime) continue;
       }
       final hit = await _liveEntryFor(peer.hex, m.id);
-      if (hit == null) continue;
+      if (hit == null || (beforeLogId != null && hit.logId >= beforeLogId)) {
+        continue;
+      }
       cleared.add(m.id);
       deletingKeys.add(_msgKey(peer.hex, m.id));
       candidateBlobIds.addAll(_messageBlobIds(hit.message));
@@ -4939,24 +4946,28 @@ class HiddenVolumeStorage
     // callers commit. Every clear path — local, emitted, and a peer's applied
     // remotely — builds its work here, so one insertion covers all of them,
     // and a bounded clear only names the messages it actually erased.
-    ops.addAll(
-      await _derivedTextOps(
+    final related = <KvLogOp>[
+      ...await _derivedTextOps(
         deadMessageIds: cleared,
         deadContentIds: purgeBlobIds,
       ),
-    );
+    ];
     for (final blobId in purgeBlobIds) {
-      ops.addAll(await _deleteContentBlobOps(blobId, blobNamesOut));
+      related.addAll(await _deleteContentBlobOps(blobId, blobNamesOut));
       // Large-file tier: fold the key scrub into the same batch; the caller
       // removes the ciphertext files after committing (see _onDiskScrubOps).
     }
     // Scrub edit rows: ALL of them for a full local clear; only the cleared
     // messages' for a bounded (remote) clear, so a kept newer message keeps its
     // edit history.
-    ops.addAll(
+    related.addAll(
       await _voidEditRowsOps(peer.hex, targets: upTo == null ? null : cleared),
     );
-    return ops;
+    // A resumed remote clear finds unfinished work from surviving message
+    // heads. Retire related data first if the backend has to split the commit.
+    return beforeLogId == null
+        ? (ops..addAll(related))
+        : (related..addAll(ops));
   }
 
   @override
@@ -5198,16 +5209,69 @@ class HiddenVolumeStorage
     int? ownClearAtMs,
     bool fromOwnDevice = false,
   }) => _withMessageErasure(
-    () => _applyRemoteClear(
-      peer,
-      author,
-      seq,
-      watermark,
-      selfHex: selfHex,
-      ownClearAtMs: ownClearAtMs,
-      fromOwnDevice: fromOwnDevice,
-    ),
+    () => _metadataSerialized(_pendingRemoteClearKey, (_) async {
+      await _resumeRemoteClear();
+      await _applyRemoteClear(
+        peer,
+        author,
+        seq,
+        watermark,
+        selfHex: selfHex,
+        ownClearAtMs: ownClearAtMs,
+        fromOwnDevice: fromOwnDevice,
+      );
+    }),
   );
+
+  static const _pendingRemoteClearKey = 'storage.remote_clear.pending.v1';
+
+  /// Already-open views finish interrupted clears during post-unlock
+  /// maintenance, without changing the constant-time space-open path.
+  Future<void> recoverPendingRemoteClear() =>
+      _metadataSerialized(_pendingRemoteClearKey, (_) => _resumeRemoteClear());
+
+  Future<void> _resumeRemoteClear({bool opening = false}) async {
+    final raw = await _as.get(Ns.settings, _sk(_pendingRemoteClearKey));
+    if (raw == null) return;
+    if (opening) {
+      _anchorBeforeDeletionRecovery ??= await readCommitAnchor();
+    }
+    await _withMessageErasure(() => _finishRemoteClear(raw));
+  }
+
+  Future<void> _finishRemoteClear(Uint8List raw) async {
+    final pending = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final before = pending['before'];
+    final event = pending['event'] as Map<String, dynamic>;
+    if (before is! int || before < 1 || event['k'] != EventKind.clear.index) {
+      throw const FormatException('Invalid pending remote clear');
+    }
+    final peer = NodeId.fromHex(event['c'] as String);
+    final blobNames = <String>[];
+    final ops = await _tombstoneAllOps(
+      peer,
+      upTo: Map<String, int>.from(event['wm'] as Map),
+      upToMs: event['ownAt'] as int?,
+      beforeLogId: before,
+      blobNamesOut: blobNames,
+    );
+    try {
+      if (ops.isNotEmpty) await _commitBatched(ops);
+    } finally {
+      await _invalidateScanCache();
+    }
+    await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
+    // The completion event and retirement of the intent are one commit. A
+    // retry can see a pending clear or a finished clear, never neither.
+    final payload = _sk(jsonEncode(event));
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
+        AppendLogOp(namespace, logId, payload),
+        DeleteOp(Ns.settings, _sk(_pendingRemoteClearKey)),
+      ],
+    );
+  }
 
   Future<void> _applyRemoteClear(
     NodeId peer,
@@ -5304,40 +5368,26 @@ class HiddenVolumeStorage
     final ownAt = own
         ? ((ownClearAtMs ?? at) < at ? (ownClearAtMs ?? at) : at)
         : null;
-    // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
-    // loadMessages still lists the to-be-cleared messages.
-    final blobNames = <String>[];
-    final tombstones = await _tombstoneAllOps(
-      peer,
-      upTo: bounded,
-      upToMs: ownAt,
-      blobNamesOut: blobNames,
+    // Keep the approved bounds and the storage cut across interruption. A
+    // later message reusing a sequence must survive recovery of this clear.
+    final pending = _sk(
+      jsonEncode({
+        'before': await _nextLogId(),
+        'event': {
+          'k': EventKind.clear.index,
+          'c': conv,
+          'au': author,
+          'sq': seq,
+          't': at,
+          'ownAt': ?ownAt,
+          'wm': bounded,
+        },
+      }),
     );
-    await _commitAtNextMessageLogId(
-      (namespace, logId) => [
-        AppendLogOp(
-          namespace,
-          logId,
-          _sk(
-            jsonEncode({
-              'k': EventKind.clear.index,
-              'c': conv,
-              'au': author,
-              'sq': seq,
-              't': at,
-              'ownAt': ?ownAt,
-              // The BOUNDED map is what persists, so every later fold — on this
-              // start and every one after it — reads the same bounded value.
-              'wm': bounded,
-            }),
-          ),
-        ),
-      ],
-    );
-    if (tombstones.isNotEmpty) await _commitBatched(tombstones);
-    await _scrubRewrittenMessages();
-    await _deleteBlobFiles(blobNames);
-    await _patchCache(() {});
+    await _as.commit([
+      PutOp(Ns.settings, _sk(_pendingRemoteClearKey), pending),
+    ]);
+    await _finishRemoteClear(pending);
   }
 
   /// Pack a bulk mutation without splitting one message's head/part rewrite.
