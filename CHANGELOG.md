@@ -8,6 +8,27 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.104] - 2026-11-19
+
+### Fixed
+
+- Open Windows profile settings when the app's support folder was created
+  with the Administrators group as its owner. Include a reason code in
+  diagnostic reports if the profile settings still fail to open.
+- Ask for Android notification permission when the app is ready. Keep queued
+  message and chat-clear alerts in sync with the current settings.
+- Preserve contact requests and pending messages after interrupted writes.
+  A response to an older request no longer consumes its replacement.
+- Resume an approved incoming chat clear after a storage interruption,
+  including when several identities are open. Keep messages received later.
+- Keep call previews current when switching cameras or restarting video.
+  Large text fits within incoming-call, preview and unlock controls.
+- Recover relay routes after mobile network changes using Veil 0.11.56.
+  The relay can try another route when a send queue is full.
+
+Audio can still pause during a mobile network change. The startup fix was
+verified on Windows 11. The original Windows 10 report still needs verification.
+
 ## [0.13.103] - 2026-11-18
 
 ### Fixed
