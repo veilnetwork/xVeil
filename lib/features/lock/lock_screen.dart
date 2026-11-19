@@ -178,10 +178,15 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         access is ManagedStorageLocator &&
         access.protection == StorageProtection.unencrypted;
     final canWipe = _canWipe;
-    final hasError = ref.watch(
-      appControllerProvider.select((s) => s.unlockError),
+    final failure = ref.watch(
+      appControllerProvider.select((s) => s.unlockFailure),
     );
-    final canCopyReport = hasError || errorJournal.entries.isNotEmpty;
+    final storageError = switch (failure) {
+      UnlockFailure.storageBusy => l.lockStorageBusy,
+      UnlockFailure.storageUnavailable => l.lockStorageOpenFailed,
+      UnlockFailure.wrongPassword || null => null,
+    };
+    final canCopyReport = failure != null || errorJournal.entries.isNotEmpty;
     return Scaffold(
       body: SafeArea(
         child: LayoutBuilder(
@@ -242,9 +247,21 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                         onSubmitted: (_) => _unlock(),
                         decoration: InputDecoration(
                           labelText: l.lockPasswordHint,
-                          errorText: hasError ? l.lockWrong : null,
+                          errorText: failure == UnlockFailure.wrongPassword
+                              ? l.lockWrong
+                              : null,
                         ),
                       ),
+                    if (storageError != null) ...[
+                      if (!plain) const SizedBox(height: 8),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          storageError,
+                          style: TextStyle(color: scheme.error),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     FilledButton(
                       onPressed: _busy || choiceRequired ? null : _unlock,

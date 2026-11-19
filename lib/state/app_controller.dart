@@ -37,6 +37,7 @@ import '../data/storage/async_kv_log_store.dart'
     show
         ManagedLegacyCompactionResult,
         ManagedLegacyCompactionFailure,
+        ManagedWorkerFailure,
         ManagedWorkerFailureKind;
 import '../core/local_authentication.dart';
 import 'locale_controller.dart';
@@ -134,11 +135,21 @@ enum AppPhase {
 /// identity proof-of-work vs a generic node boot) instead of always "preparing".
 enum PreparingReason { node, unlocking, firstRunMining }
 
+enum UnlockFailure { wrongPassword, storageBusy, storageUnavailable }
+
+UnlockFailure _storageUnlockFailure(Object error) => switch (error) {
+  hv.HvException(kind: 'Busy') ||
+  ManagedWorkerFailure(
+    kind: ManagedWorkerFailureKind.busy,
+  ) => UnlockFailure.storageBusy,
+  _ => UnlockFailure.storageUnavailable,
+};
+
 class AppState {
   const AppState(
     this.phase, {
     this.identity,
-    this.unlockError = false,
+    this.unlockFailure,
     this.identities = const [],
     this.activeIdentity,
     this.preparingReason = PreparingReason.node,
@@ -148,7 +159,8 @@ class AppState {
   final AppPhase phase;
   final bool erasureBusy;
   final Identity? identity;
-  final bool unlockError;
+  final UnlockFailure? unlockFailure;
+  bool get unlockError => unlockFailure != null;
 
   /// Why the preparing screen is up (opening container / first-run mining /
   /// generic). Transient; reset to [PreparingReason.node] on the next state.
@@ -166,10 +178,10 @@ class AppState {
   /// True when the unlocked space is a master managing several identities.
   bool get isMaster => identities.isNotEmpty;
 
+  /// An unlock failure belongs to the previous attempt and is cleared here.
   AppState copyWith({
     AppPhase? phase,
     Identity? identity,
-    bool? unlockError,
     List<String>? identities,
     String? activeIdentity,
     PreparingReason? preparingReason,
@@ -177,7 +189,6 @@ class AppState {
   }) => AppState(
     phase ?? this.phase,
     identity: identity ?? this.identity,
-    unlockError: unlockError ?? false,
     identities: identities ?? this.identities,
     activeIdentity: activeIdentity ?? this.activeIdentity,
     preparingReason: preparingReason ?? PreparingReason.node,
@@ -625,7 +636,7 @@ class AppController extends Notifier<AppState> {
       if (!ref.mounted || _supersededSince(gen)) return false;
       ref.read(screenLockProvider.notifier).forgetSession();
       _forgetAccessVerifier();
-      state = state.copyWith(unlockError: false);
+      state = state.copyWith();
       return true;
     } catch (error, stack) {
       errorJournal.record(
@@ -1486,12 +1497,18 @@ class AppController extends Notifier<AppState> {
             }
           } else {
             _clearMasterSession();
-            state = const AppState(AppPhase.locked, unlockError: true);
+            state = const AppState(
+              AppPhase.locked,
+              unlockFailure: UnlockFailure.storageUnavailable,
+            );
           }
         } catch (_) {
           if (edit.current()) {
             _clearMasterSession();
-            state = const AppState(AppPhase.locked, unlockError: true);
+            state = const AppState(
+              AppPhase.locked,
+              unlockFailure: UnlockFailure.storageUnavailable,
+            );
           }
         }
       }
@@ -1687,7 +1704,10 @@ class AppController extends Notifier<AppState> {
           if (edit.current()) {
             _endLifecycle();
             _clearMasterSession();
-            state = const AppState(AppPhase.locked, unlockError: true);
+            state = const AppState(
+              AppPhase.locked,
+              unlockFailure: UnlockFailure.storageUnavailable,
+            );
           }
         }
       }
@@ -1951,20 +1971,13 @@ class AppController extends Notifier<AppState> {
         return;
       }
       devLog(() => 'xVeil[unlock]: container open -> $ok (+${ms()}ms)');
-    } catch (e) {
-      // Missing or corrupt container, a Busy flock, an FFI/worker fault — never
-      // let unlock throw (that would freeze the lock screen's spinner). Surface
-      // as an error, but LOG THE REAL CAUSE: a swallowed detail here is exactly
-      // how "container won't unlock with the correct password" stays
-      // undiagnosable in the field. (A genuine wrong password is ok=false, not
-      // a throw.)
+    } catch (e, stack) {
+      final failure = _storageUnlockFailure(e);
       devLog(() => 'xVeil[unlock]: container open THREW (+${ms()}ms): $e');
-      // Recorded, unlike a plain wrong password (that is ok=false, not a
-      // throw): "the correct password does not open it" is the report worth
-      // sending, a count of someone's typos is not.
       errorJournal.record(
-        kind: 'unlock',
+        kind: failure == UnlockFailure.storageBusy ? 'unlock-busy' : 'unlock',
         error: e,
+        stack: stack,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
       // Preparation can fail after adopting a worker handle. Release it even
@@ -1973,11 +1986,14 @@ class AppController extends Notifier<AppState> {
         await storage.close();
       } catch (_) {}
       if (!ref.mounted || _supersededSince(gen)) return;
-      ok = false;
+      state = AppState(AppPhase.locked, unlockFailure: failure);
+      return;
     }
     if (!ok) {
-      // Back to the lock screen with the error (we're on preparingNode now).
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.wrongPassword,
+      );
       return;
     }
     // Master vs identity is decided AFTER unlock by inspecting contents (never
@@ -1996,7 +2012,10 @@ class AppController extends Notifier<AppState> {
       if (onOpened != null && !await onOpened()) {
         await storage.close();
         if (ref.mounted && !_supersededSince(gen)) {
-          state = const AppState(AppPhase.locked, unlockError: true);
+          state = const AppState(
+            AppPhase.locked,
+            unlockFailure: UnlockFailure.storageUnavailable,
+          );
         }
         return;
       }
@@ -2209,13 +2228,14 @@ class AppController extends Notifier<AppState> {
         );
       }
     } catch (e, st) {
+      final failure = _storageUnlockFailure(e);
       devLog(
         () =>
             'xVeil[unlock]: post-open classification failed -> lock '
             '(+${ms()}ms): $e\n$st',
       );
       errorJournal.record(
-        kind: 'unlock',
+        kind: failure == UnlockFailure.storageBusy ? 'unlock-busy' : 'unlock',
         error: e,
         stack: st,
         atMs: DateTime.now().millisecondsSinceEpoch,
@@ -2233,7 +2253,7 @@ class AppController extends Notifier<AppState> {
         _clearMasterSession();
         ref.read(screenLockProvider.notifier).forgetSession();
         _forgetAccessVerifier();
-        state = const AppState(AppPhase.locked, unlockError: true);
+        state = AppState(AppPhase.locked, unlockFailure: failure);
       }
     } finally {
       // There is no replacement session in a disposed controller. Release any
@@ -3214,7 +3234,7 @@ class AppController extends Notifier<AppState> {
               state.unlockError) {
             if (publicationFailure == null) {
               // The published rewrite already verified this credential.
-              state = state.copyWith(unlockError: false);
+              state = state.copyWith();
             }
             throw const CompactionReopenIncomplete();
           }
@@ -4145,7 +4165,10 @@ class AppController extends Notifier<AppState> {
         devLog(() => 'xVeil[identity]: selection failed: $error');
         _endLifecycle();
         _clearMasterSession();
-        state = const AppState(AppPhase.locked, unlockError: true);
+        state = const AppState(
+          AppPhase.locked,
+          unlockFailure: UnlockFailure.storageUnavailable,
+        );
       }
     } finally {
       try {
@@ -4189,7 +4212,10 @@ class AppController extends Notifier<AppState> {
       );
       _endLifecycle();
       _clearMasterSession();
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.storageUnavailable,
+      );
       return;
     }
     _activeLabel = label;
@@ -4246,7 +4272,10 @@ class AppController extends Notifier<AppState> {
       );
       _endLifecycle();
       _clearMasterSession();
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.storageUnavailable,
+      );
       return;
     }
     final openedAtMs = watch.elapsedMilliseconds;
@@ -4883,7 +4912,10 @@ class AppController extends Notifier<AppState> {
       }
       _endLifecycle();
       _clearMasterSession();
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.storageUnavailable,
+      );
       return false;
     }
   }
@@ -6061,7 +6093,10 @@ class AppController extends Notifier<AppState> {
     if (!verified || !settled) {
       _endLifecycle();
       _clearMasterSession();
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.storageUnavailable,
+      );
       return false;
     }
     await edit.step(
@@ -6101,7 +6136,10 @@ class AppController extends Notifier<AppState> {
       await edit.step(() => edit.own(ref.read(storageProvider)).close());
       _endLifecycle();
       _clearMasterSession();
-      state = const AppState(AppPhase.locked, unlockError: true);
+      state = const AppState(
+        AppPhase.locked,
+        unlockFailure: UnlockFailure.storageUnavailable,
+      );
     }
   }
 

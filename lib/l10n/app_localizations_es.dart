@@ -173,6 +173,14 @@ class AppL10nEs extends AppL10n {
   String get lockWrong => 'Contraseña incorrecta';
 
   @override
+  String get lockStorageBusy =>
+      'El almacenamiento está ocupado. Vuelve a intentarlo. Si persiste, cierra xVeil por completo y ábrelo de nuevo.';
+
+  @override
+  String get lockStorageOpenFailed =>
+      'No se pudo abrir el almacenamiento. Vuelve a intentarlo. Si persiste, guarda un informe de diagnóstico.';
+
+  @override
   String get lockTeardownIncomplete =>
       'El bloqueo no se completó: un nodo o túnel VPN puede seguir activo hasta cerrar la app por completo. Ciérrala y vuelve a abrirla para asegurarte.';
 

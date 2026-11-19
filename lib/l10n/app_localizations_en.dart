@@ -172,6 +172,14 @@ class AppL10nEn extends AppL10n {
   String get lockWrong => 'Wrong password';
 
   @override
+  String get lockStorageBusy =>
+      'Storage is busy. Try again. If it persists, quit xVeil completely and reopen it.';
+
+  @override
+  String get lockStorageOpenFailed =>
+      'Could not open storage. Try again. If it persists, save a diagnostic report.';
+
+  @override
   String get lockTeardownIncomplete =>
       'This lock did not finish: a node or VPN tunnel may still be running until the app is fully closed. Quit and reopen the app to be sure.';
 
