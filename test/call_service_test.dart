@@ -99,13 +99,18 @@ void main() {
     final first = service.setCameraEnabled(true);
     await pumpEventQueue();
     expect(media.log, contains('cam:true'));
+    wire.sent.clear();
     await service.setCameraEnabled(false);
     await service.setCameraEnabled(true);
     gate.completeError(StateError('retired capture failed'));
     await first;
     expect(service.current?.cameraOn, isTrue);
     expect(media.cameraIntent, isTrue);
-    expect(wire.sent.where((s) => s.capture?.video == false), isEmpty);
+    expect(
+      wire.sent.where((s) => s.capture?.video == false),
+      hasLength(1),
+      reason: 'only the deliberate camera-off may announce video off',
+    );
   });
 
   test(

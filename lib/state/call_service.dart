@@ -1448,6 +1448,12 @@ class CallService {
     _set(c.copyWith(cameraOn: on));
     _media?.updateCameraIntent(on);
     if (!c.screenOn) await _applyCameraIntent(c.callId, on, operation);
+    final current = _current;
+    if (operation == _cameraOperationEpoch &&
+        current?.callId == c.callId &&
+        current?.cameraOn == on) {
+      await _announceCapture();
+    }
   }
 
   Future<void> _applyCameraIntent(String callId, bool on, int operation) async {
@@ -1531,6 +1537,8 @@ class CallService {
         callId: cur.callId,
         type: CallSignalType.renegotiate,
         media: cur.media,
+        capture: _localCapture(cur),
+        sentAtMs: _now().millisecondsSinceEpoch,
         protocolVersion: _signalProtocolVersion,
       ),
     );
