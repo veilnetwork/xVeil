@@ -165,6 +165,9 @@ enum NetworkAttachment { unknown, wifi, cellular, ethernet, offline }
 
 /// Optional control plane for a transport backed by a running local node.
 abstract interface class NetworkChangeTransport {
+  /// Observe the device's latest attachment without waiting on node IPC.
+  void observeNetworkAttachment(NetworkAttachment attachment);
+
   Future<void> networkChanged(NetworkAttachment attachment);
 }
 

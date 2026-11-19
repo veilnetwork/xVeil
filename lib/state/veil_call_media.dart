@@ -1303,7 +1303,7 @@ class VeilCallMediaController implements CallMediaController {
       // sealed peer echo in both directions. Local open/admission is not a
       // delivery observation. The echo's route stays inside the call AEAD.
       final retired = Completer<bool>();
-      final networkChanges = _transport.networkChangeDispatches.listen((_) {
+      final networkChanges = _transport.networkChangeStarts.listen((_) {
         if (!retired.isCompleted) retired.complete(false);
       });
       final bool qualified;

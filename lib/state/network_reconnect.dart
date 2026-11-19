@@ -37,7 +37,7 @@ class NetworkReconnect {
   // Generation distinguishes wifi -> cellular -> wifi from a retry of the
   // same observation. Fanout uses it to retry only failed identity nodes.
   final Future<void> Function(NetworkAttachment, int generation) notify;
-  final void Function()? onAttachmentChanged;
+  final void Function(NetworkAttachment)? onAttachmentChanged;
   StreamSubscription<NetworkObservation>? _subscription;
   NetworkObservation? _desired;
   int _desiredGeneration = 0;
@@ -71,7 +71,7 @@ class NetworkReconnect {
       _desiredGeneration++;
       _retrySeconds = 1;
       try {
-        onAttachmentChanged?.call();
+        onAttachmentChanged?.call(observation.attachment);
       } catch (_) {
         // Optional evidence must not prevent network repair.
       }
@@ -204,6 +204,7 @@ final networkReconnectProvider = Provider<void>((ref) {
       observer = NetworkReconnect.observations(
         current: current,
         changes: observations.stream,
+        onAttachmentChanged: transport.observeNetworkAttachment,
         notify: (attachment, _) async {
           if (disposed || !identical(observers[transport], observer)) return;
           notifying.add(transport);

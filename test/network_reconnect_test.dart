@@ -37,8 +37,14 @@ class _Connectivity implements Connectivity {
 
 class _Transport extends LoopbackTransport implements NetworkChangeTransport {
   final observed = <NetworkAttachment>[];
+  final attachments = <NetworkAttachment>[];
   int failures = 0;
   Completer<void>? notificationGate;
+  @override
+  void observeNetworkAttachment(NetworkAttachment attachment) {
+    attachments.add(attachment);
+  }
+
   @override
   Future<void> networkChanged(NetworkAttachment attachment) async {
     observed.add(attachment);
@@ -163,7 +169,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () async => [ConnectivityResult.wifi],
         changes: changes.stream,
-        onAttachmentChanged: sampler.request,
+        onAttachmentChanged: (_) => sampler.request(),
         notify: (kind, _) async => observed.add(kind),
       );
       await observer.start();
@@ -188,7 +194,7 @@ void main() {
     final observer = NetworkReconnect(
       current: () async => [ConnectivityResult.wifi],
       changes: changes.stream,
-      onAttachmentChanged: () => throw StateError('private-canary'),
+      onAttachmentChanged: (_) => throw StateError('private-canary'),
       notify: (kind, _) async => observed.add(kind),
     );
     await observer.start();
@@ -345,6 +351,52 @@ void main() {
       });
     });
   }
+
+  test('local attachments arrive while an earlier IPC notification is pending', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final gate = Completer<void>();
+      final transport = _Transport()..notificationGate = gate;
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => _stack(transport)),
+        ],
+      );
+      try {
+        container.read(networkReconnectProvider);
+        clock.flushMicrotasks();
+        expect(transport.observed, [NetworkAttachment.wifi]);
+
+        connectivity.changes.add([ConnectivityResult.none]);
+        connectivity.changes.add([ConnectivityResult.none]);
+        clock.flushMicrotasks();
+        expect(transport.attachments, [
+          NetworkAttachment.wifi,
+          NetworkAttachment.offline,
+        ]);
+        expect(transport.observed, [NetworkAttachment.wifi]);
+
+        connectivity.changes.add([ConnectivityResult.mobile]);
+        clock.flushMicrotasks();
+        expect(transport.attachments.last, NetworkAttachment.cellular);
+        expect(transport.observed, [NetworkAttachment.wifi]);
+
+        gate.complete();
+        clock.flushMicrotasks();
+        expect(transport.observed, [
+          NetworkAttachment.wifi,
+          NetworkAttachment.cellular,
+        ]);
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+        container.dispose();
+        unawaited(connectivity.changes.close());
+        unawaited(transport.dispose());
+        clock.flushMicrotasks();
+      }
+    });
+  });
 
   test('fanout retries only failed identities in the same generation', () {
     fakeAsync((clock) {

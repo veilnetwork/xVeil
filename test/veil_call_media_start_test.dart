@@ -28,7 +28,7 @@ class _Transport implements VeilFlutterTransport {
   @override
   int networkChangeGeneration = 0;
   @override
-  Stream<void> get networkChangeDispatches => const Stream.empty();
+  Stream<void> get networkChangeStarts => const Stream.empty();
   @override
   Future<NodeId> peerFacingNodeId({
     Duration timeout = const Duration(seconds: 2),
@@ -233,7 +233,7 @@ class _HandoverTransport extends _RepairingTransport {
   bool? proofAvailable;
 
   @override
-  Stream<void> get networkChangeDispatches => networkDispatches.stream;
+  Stream<void> get networkChangeStarts => networkDispatches.stream;
 
   void dispatchNetworkChange() {
     networkChangeGeneration++;
