@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,36 @@ class _UpMedia extends CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async => true;
 }
 
+class _SwitchCameraMedia extends _UpMedia {
+  final pendingDevices = Completer<List<CallMediaDevice>>();
+  final selected = <String>[];
+
+  @override
+  Future<List<CallMediaDevice>> listCameras() => pendingDevices.future;
+
+  @override
+  Future<bool> selectCamera(String id) async {
+    selected.add(id);
+    return true;
+  }
+
+  void finishListing() => pendingDevices.complete(const [
+    CallMediaDevice(
+      id: 'front',
+      label: 'Front',
+      kind: CallMediaDeviceKind.camera,
+      facing: 'front',
+      selected: true,
+    ),
+    CallMediaDevice(
+      id: 'back',
+      label: 'Back',
+      kind: CallMediaDeviceKind.camera,
+      facing: 'back',
+    ),
+  ]);
+}
+
 class _FakeMessaging implements MessagingService {
   @override
   bool backgroundStashPaused = false;
@@ -83,12 +114,23 @@ class _FakeMessaging implements MessagingService {
 Future<CallService> _activeCall(
   _FakeMessaging messaging, {
   CallMedia media = const CallMedia(audio: true),
+  CallMediaController? controller,
 }) async {
-  final svc = CallService(messaging, media: _UpMedia())..start();
+  final svc = CallService(messaging, media: controller ?? _UpMedia())..start();
+  await _acceptOfferedCall(svc, messaging, 'peer-mute', media);
+  return svc;
+}
+
+Future<void> _acceptOfferedCall(
+  CallService svc,
+  _FakeMessaging messaging,
+  String callId,
+  CallMedia media,
+) async {
   messaging.onCallSignal!(
     _peer(),
     CallSignal(
-      callId: 'peer-mute',
+      callId: callId,
       type: CallSignalType.offer,
       media: media,
       posture: CallPosture.direct,
@@ -97,10 +139,51 @@ Future<CallService> _activeCall(
   await pumpEventQueue();
   await svc.accept();
   await pumpEventQueue();
-  return svc;
 }
 
 void main() {
+  for (final transition in [
+    'off and on',
+    'screen share',
+    'next call',
+    'picker',
+    'none',
+  ]) {
+    test('camera switch during enumeration and $transition', () async {
+      const video = CallMedia(audio: true, video: true);
+      final messaging = _FakeMessaging();
+      final media = _SwitchCameraMedia();
+      final svc = await _activeCall(messaging, media: video, controller: media);
+      addTearDown(svc.dispose);
+      expect(svc.current?.cameraOn, isTrue);
+
+      final switching = svc.switchCameraFacing();
+      switch (transition) {
+        case 'off and on':
+          await svc.setCameraEnabled(false);
+          await svc.setCameraEnabled(true);
+          expect(svc.current?.cameraOn, isTrue);
+        case 'screen share':
+          await svc.setScreenShareEnabled(true);
+          expect(svc.current?.screenOn, isTrue);
+        case 'next call':
+          await svc.hangup();
+          await _acceptOfferedCall(svc, messaging, 'replacement', video);
+          expect(svc.current?.callId, 'replacement');
+          expect(svc.current?.status, CallStatus.active);
+        case 'picker':
+          expect(await svc.selectCamera('front'), isTrue);
+      }
+      media.finishListing();
+
+      expect(await switching, transition == 'none');
+      expect(media.selected, [
+        if (transition == 'none') 'back',
+        if (transition == 'picker') 'front',
+      ]);
+    });
+  }
+
   for (final nativeTexture in [false, true]) {
     testWidgets(
       'remote video waits after an explicit camera stop ($nativeTexture)',
