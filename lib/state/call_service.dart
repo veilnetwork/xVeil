@@ -109,6 +109,7 @@ const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 /// Check the direct path after sustained receive silence. Established audio
 /// has its own deadline: a live parent session does not prove delivery on the
 /// independent audio connection. Unknown/startup audio keeps the normal grace.
+/// A recent handover with confirmed reception can use the same audio deadline.
 const Duration kCallDirectSessionSilence = Duration(seconds: 3);
 
 /// Maximum time call setup waits for endpoint exchange, dialing, and native
@@ -244,7 +245,7 @@ abstract class CallMediaController {
   bool get hasAudioReceiveTelemetry => false;
   DateTime? get lastAudioRxAt => null;
 
-  /// Recheck accepted audio RTP at the engine before abandoning a direct path.
+  /// Recheck accepted audio RTP at the engine before early path recovery.
   /// A periodic cached hint cannot confirm an outage after packets resume.
   /// A null result leaves the separate direct-session admission check in charge.
   Future<DateTime?> readLatestAudioRxAt() async => null;
@@ -506,8 +507,9 @@ class CallService {
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
-  Timer? _directAdmissionTimer;
-  bool _directAdmissionCheckBusy = false;
+  Timer? _mediaWatchdogTimer;
+  bool _mediaWatchdogCheckBusy = false;
+  DateTime? _relayHandoverAt;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
@@ -2316,7 +2318,11 @@ class CallService {
     ignoreCapturePosture: true,
   );
 
-  bool _establishedAudioReceiveStalled(Call call, {DateTime? latestRxAt}) {
+  bool _establishedAudioReceiveStalled(
+    Call call, {
+    DateTime? latestRxAt,
+    DateTime? routeStartedAt,
+  }) {
     final media = _media;
     final audioRx = latestRxAt ?? media?.lastAudioRxAt;
     final expectedSince = _peerAudioExpectedSince;
@@ -2329,6 +2335,9 @@ class CallService {
       return false;
     }
     var since = call.connectedAt ?? call.startedAt;
+    if (routeStartedAt != null && routeStartedAt.isAfter(since)) {
+      since = routeStartedAt;
+    }
     final sessionStart = media.receiveSessionStartedAt;
     if (sessionStart != null && sessionStart.isAfter(since)) {
       since = sessionStart;
@@ -2340,10 +2349,70 @@ class CallService {
         _now().difference(audioRx) >= kCallDirectSessionSilence;
   }
 
+  Future<void> _checkRelayHandoverAudio(Call call) async {
+    final media = _media;
+    final handoverAt = _relayHandoverAt;
+    if (media == null || handoverAt == null || _mediaWatchdogCheckBusy) return;
+
+    bool canCheck() =>
+        !_disposed &&
+        _relayHandoverAt == handoverAt &&
+        _now().difference(handoverAt) < kCallMediaRepairAfter &&
+        !_lateP2PBusy &&
+        !media.isRepairingReceiveSession &&
+        media.activeTransport == CallTransportKind.relay;
+
+    if (!canCheck() ||
+        !_establishedAudioReceiveStalled(call, routeStartedAt: handoverAt)) {
+      return;
+    }
+
+    final epoch = _mediaOperationEpoch;
+    _mediaWatchdogCheckBusy = true;
+    DateTime? latestRxAt;
+    try {
+      latestRxAt = await media.readLatestAudioRxAt().timeout(
+        kCallLivenessSnapshotTimeout,
+        onTimeout: () => null,
+      );
+    } catch (_) {
+      // An unavailable snapshot leaves the ordinary repair deadline in charge.
+    } finally {
+      _mediaWatchdogCheckBusy = false;
+    }
+    final current = _current;
+    if (latestRxAt == null ||
+        epoch != _mediaOperationEpoch ||
+        current == null ||
+        current.callId != call.callId ||
+        current.peer != call.peer ||
+        current.peerDevice != call.peerDevice ||
+        current.status != CallStatus.active ||
+        current.transport != CallTransportKind.relay ||
+        !canCheck() ||
+        !_establishedAudioReceiveStalled(
+          current,
+          latestRxAt: latestRxAt,
+          routeStartedAt: handoverAt,
+        )) {
+      return;
+    }
+
+    // Spend at most one early repair per handover. A rebuilt receive session
+    // starts with the ordinary grace.
+    _relayHandoverAt = null;
+    devLog(
+      () =>
+          'xVeil[call-media]: relay handover audio stalled — early repair '
+          'native_age=${_now().difference(latestRxAt!).inMilliseconds}ms',
+    );
+    await _repairMediaRoute(current.peer, current.callId);
+  }
+
   Future<void> _checkLostDirectSession(Call call) async {
     final media = _media;
     if (media == null ||
-        _directAdmissionCheckBusy ||
+        _mediaWatchdogCheckBusy ||
         !_canInspectDirectSession(call)) {
       return;
     }
@@ -2358,7 +2427,7 @@ class CallService {
     final early = !_directSessionSilent(call);
     if (early && !recentNetworkChange()) return;
     if (_establishedAudioReceiveStalled(call)) {
-      _directAdmissionCheckBusy = true;
+      _mediaWatchdogCheckBusy = true;
       DateTime? latestRxAt;
       try {
         latestRxAt = await media.readLatestAudioRxAt().timeout(
@@ -2368,7 +2437,7 @@ class CallService {
       } catch (_) {
         // An unavailable snapshot cannot confirm the cached outage.
       } finally {
-        _directAdmissionCheckBusy = false;
+        _mediaWatchdogCheckBusy = false;
       }
       final current = _current;
       if (current == null ||
@@ -2403,10 +2472,10 @@ class CallService {
       // Missing audio telemetry cannot confirm an audio outage. A current
       // negative admission can still independently confirm session loss.
     }
-    if (_directAdmissionCheckBusy) return;
+    if (_mediaWatchdogCheckBusy) return;
     final connectionGeneration = _relayConnectionGeneration;
     final mediaEpoch = _mediaOperationEpoch;
-    _directAdmissionCheckBusy = true;
+    _mediaWatchdogCheckBusy = true;
     Future<bool?> readAdmission() => media
         .currentDirectPeerAdmission(call)
         .timeout(const Duration(seconds: 2), onTimeout: () => null);
@@ -2434,7 +2503,7 @@ class CallService {
       // A failed query is not proof of a closed session.
       admitted = null;
     } finally {
-      _directAdmissionCheckBusy = false;
+      _mediaWatchdogCheckBusy = false;
     }
     final current = _current;
     // If the overlay recovered during the probe, let the next tick sample the
@@ -3028,10 +3097,15 @@ class CallService {
     _cancelHeartbeat();
     _lastPeerSignalAt = _now();
     _peerConfirmedAfterConnect = peerAlreadyConfirmed;
-    _directAdmissionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _mediaWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final call = _current;
       if (call != null) {
-        unawaited(_checkLostDirectSession(call));
+        if (call.status == CallStatus.active &&
+            call.transport == CallTransportKind.relay) {
+          unawaited(_checkRelayHandoverAudio(call));
+        } else {
+          unawaited(_checkLostDirectSession(call));
+        }
         if (call.status == CallStatus.active &&
             call.media.audio &&
             _signalProtocolVersion >= kCallAudioPlayoutFeedbackMinVersion &&
@@ -3182,8 +3256,9 @@ class CallService {
   void _cancelHeartbeat() {
     _livenessProbeToken = null;
     _directNetworkHandoverAt = null;
-    _directAdmissionTimer?.cancel();
-    _directAdmissionTimer = null;
+    _relayHandoverAt = null;
+    _mediaWatchdogTimer?.cancel();
+    _mediaWatchdogTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _lastPeerSignalAt = null;
@@ -3241,6 +3316,14 @@ class CallService {
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
       _directNetworkHandoverAt = null;
+      _relayHandoverAt =
+          _current?.callId == call.callId &&
+              _current?.status == CallStatus.active &&
+              _current?.transport == CallTransportKind.p2p &&
+              call.status == CallStatus.active &&
+              call.transport == CallTransportKind.relay
+          ? _now()
+          : null;
     }
     if (_current?.callId != call.callId) {
       _resetLateP2P();
