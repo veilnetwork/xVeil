@@ -524,6 +524,7 @@ class CallService {
   int _microphoneOperationEpoch = 0;
   StreamSubscription<String>? _cameraUnavailableSub;
   int _cameraOperationEpoch = 0;
+  int _cameraSelectionEpoch = 0;
   StreamSubscription<CallSignal>? _peerCallControlSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
@@ -1353,6 +1354,7 @@ class CallService {
   Future<bool> selectCamera(String id) async {
     final c = _current;
     if (c == null || !c.isLive) return false;
+    ++_cameraSelectionEpoch;
     return await _media?.selectCamera(id) ?? false;
   }
 
@@ -1383,14 +1385,33 @@ class CallService {
   /// Phone-oriented one-tap front/back switch. Multiple lenses of the same
   /// facing remain available in the full device picker.
   Future<bool> switchCameraFacing() async {
+    final call = _current;
+    if (call == null || !call.isLive || !call.cameraOn || call.screenOn) {
+      return false;
+    }
+    final selection = ++_cameraSelectionEpoch;
+    final capture = _cameraOperationEpoch;
     final devices = await listCameras();
-    if (devices.length < 2) return false;
-    final current = devices.where((device) => device.selected).firstOrNull;
+    final current = _current;
+    // The platform can list devices after the button that requested them
+    // disappeared or a newer camera selection was made.
+    if (_disposed ||
+        current == null ||
+        current.callId != call.callId ||
+        !current.isLive ||
+        !current.cameraOn ||
+        current.screenOn ||
+        selection != _cameraSelectionEpoch ||
+        capture != _cameraOperationEpoch ||
+        devices.length < 2) {
+      return false;
+    }
+    final selected = devices.where((device) => device.selected).firstOrNull;
     final opposite = devices.where(
       (device) =>
-          current == null ||
-          (current.facing == 'front' && device.facing == 'back') ||
-          (current.facing != 'front' && device.facing == 'front'),
+          selected == null ||
+          (selected.facing == 'front' && device.facing == 'back') ||
+          (selected.facing != 'front' && device.facing == 'front'),
     );
     final next = opposite.isNotEmpty
         ? opposite.first
