@@ -264,10 +264,7 @@ String activeProfilePath(String supportDir) => '$supportDir/xveil.profile';
 /// The remembered profile name, or null when nothing valid is recorded.
 Future<String?> readRememberedProfile(String supportDir) async {
   try {
-    final file = File(activeProfilePath(supportDir));
-    if (!file.existsSync()) return null;
-    final name = (await file.readAsString()).trim();
-    return AppProfiles.isValidName(name) ? name : null;
+    return await readProfileChoice(File(activeProfilePath(supportDir)));
   } catch (_) {
     return null;
   }
@@ -275,8 +272,9 @@ Future<String?> readRememberedProfile(String supportDir) async {
 
 Future<void> _profileChoiceWrites = Future<void>.value();
 
-/// Remember [profile] as the one to launch next time. **False means it was not
-/// recorded** and the next launch will not know about it.
+/// Remember [profile] as the one to launch next time. False means the write
+/// could not be confirmed. With [onlyIfUnset], a valid choice already on disk
+/// also counts as success.
 ///
 /// Written the same way as everything else here: to a temporary name, fsynced,
 /// renamed, the directory fsynced, mode 0600 applied before any content exists
@@ -284,13 +282,18 @@ Future<void> _profileChoiceWrites = Future<void>.value();
 /// way through left a zero-length pointer — which reads as "no profile
 /// remembered" and silently sends the next launch to the default one (audit
 /// X-05).
-Future<bool> writeRememberedProfile(String supportDir, String profile) {
+Future<bool> writeRememberedProfile(
+  String supportDir,
+  String profile, {
+  bool onlyIfUnset = false,
+}) {
   // Each write for this file uses the same temporary name. Queue writes in
   // this isolate so the next one opens it only after the previous one settles.
   final write = _profileChoiceWrites.then(
     (_) => writeProfileChoiceAtomically(
       File(activeProfilePath(supportDir)),
       profile,
+      onlyIfUnset: onlyIfUnset,
     ),
   );
   _profileChoiceWrites = write.then<void>(
@@ -399,7 +402,11 @@ Future<String> installProfilePreferences({
         : null;
     var pointerSafe = true;
     if (carried != null && carried.source == ProfileSource.legacyPointer) {
-      pointerSafe = await writeRememberedProfile(supportDir, carried.name);
+      pointerSafe = await writeRememberedProfile(
+        supportDir,
+        carried.name,
+        onlyIfUnset: true,
+      );
       if (!pointerSafe) {
         devLog(
           () =>

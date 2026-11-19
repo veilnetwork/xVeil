@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
+import 'app_profile.dart';
 import 'managed_fs_windows.dart' as windows;
 
 /// A file owner, not permission to perform local I/O beside its native lease.
@@ -127,9 +129,30 @@ bool _prepareWindowsTemporary(File temp) {
   return windows.createPrivateFile(temp.path);
 }
 
+/// Read a valid installation-wide choice. A read failure on an existing entry
+/// propagates so a migration cannot replace a choice it was unable to read.
+Future<String?> readProfileChoice(File file) async {
+  try {
+    final name = utf8
+        .decode(await file.readAsBytes(), allowMalformed: true)
+        .trim();
+    return AppProfiles.isValidName(name) ? name : null;
+  } on PathNotFoundException {
+    if (FileSystemEntity.typeSync(file.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      rethrow;
+    }
+    return null;
+  }
+}
+
 /// Save the installation-wide profile choice shared by separate app processes.
 /// The empty lock file stays in place so every writer locks the same object.
-Future<bool> writeProfileChoiceAtomically(File file, String contents) async {
+Future<bool> writeProfileChoiceAtomically(
+  File file,
+  String contents, {
+  bool onlyIfUnset = false,
+}) async {
   RandomAccessFile? lock;
   try {
     await _ensurePrivateDir(file.parent);
@@ -170,6 +193,9 @@ Future<bool> writeProfileChoiceAtomically(File file, String contents) async {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
     }
+    // Migration may have resolved the old choice before another process saved
+    // a new one. Read again while holding the same lock used by manual saves.
+    if (onlyIfUnset && await readProfileChoice(file) != null) return true;
     return await writePrivateFileAtomically(file, contents);
   } catch (error) {
     devLog(() => 'xVeil[prefs]: could not save the profile choice: $error');

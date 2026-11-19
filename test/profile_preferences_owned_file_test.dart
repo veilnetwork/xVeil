@@ -115,6 +115,47 @@ void main() {
     },
   );
 
+  test('an upgrade preserves a profile choice saved during startup', () async {
+    final source = InMemorySharedPreferencesStore.withData({
+      'flutter.${AppProfiles.activePref}': 'old',
+      'flutter.locale': 'ru',
+    });
+    final opening = Completer<void>();
+    final resume = Completer<void>();
+    final migration = installProfilePreferences(
+      supportDir: fixture.path,
+      args: const ['--profile', AppProfiles.defaultName],
+      environment: const {},
+      legacyBackend: source,
+      openOwnedFile: (path) async {
+        opening.complete();
+        await resume.future;
+        expect(path, owner.path);
+        return owner;
+      },
+    );
+    await opening.future;
+    try {
+      expect(await writeRememberedProfile(fixture.path, 'new'), isTrue);
+    } finally {
+      resume.complete();
+      expect(await migration, AppProfiles.defaultName);
+    }
+    expect(await readRememberedProfile(fixture.path), 'new');
+    expect(await source.getAll(), isEmpty);
+    await (SharedPreferencesStorePlatform.instance as ProfilePreferencesStore)
+        .releaseFile();
+    expect(
+      await installProfilePreferences(
+        supportDir: fixture.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: source,
+      ),
+      'new',
+    );
+  });
+
   for (final refuseRead in [false, true]) {
     test(
       'a sibling close failure preserves startup and migration source (read refusal: $refuseRead)',
