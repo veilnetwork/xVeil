@@ -273,6 +273,40 @@ void main() {
         callPipMode.value = false;
         await pumpForVideo();
         expect(image, findsOneWidget);
+
+        // The peer switches to camera, then shares a static screen. The first
+        // share frame reaches the notifier after the signal but before draw.
+        capture(const CallMedia(audio: true, video: true), 4000);
+        await tester.pumpAndSettle();
+        frame(4, textureId: 22);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+        capture(const CallMedia(audio: true, screen: true), 5000);
+        await tester.idle();
+        frame(5, textureId: 22);
+        await tester.pumpAndSettle();
+        await pumpForVideo();
+        expect(
+          image,
+          findsOneWidget,
+          reason: 'the only screen frame was already received',
+        );
+
+        // There need not be any cached input at the source change either.
+        capture(const CallMedia(audio: true), 6000);
+        await tester.pumpAndSettle();
+        androidNativeCallVideoTexture.value = null;
+        remoteVideoFrame.value = null;
+        capture(const CallMedia(audio: true, screen: true), 7000);
+        await tester.idle();
+        frame(1, textureId: 23);
+        await tester.pumpAndSettle();
+        await pumpForVideo();
+        expect(
+          image,
+          findsOneWidget,
+          reason: 'the first screen frame had no predecessor',
+        );
       },
       variant: TargetPlatformVariant({
         nativeTexture ? TargetPlatform.android : TargetPlatform.macOS,

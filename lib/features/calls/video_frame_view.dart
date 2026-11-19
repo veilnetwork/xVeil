@@ -18,15 +18,19 @@ import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 /// not a face — nobody expects a mirror of their desktop.
 bool selfViewMirrored({required bool screenSharing}) => !screenSharing;
 
+typedef VideoFrameSourceChange = ({
+  int revision,
+  WeakReference<VeilVideoFrame>? previousFrame,
+});
+
 /// Coalescing RGBA renderer shared by direct and group calls.
 ///
 /// [freshnessToken] identifies the logical source currently expected on the
 /// single video track (for example camera vs screen). When it changes, the
 /// already-decoded image is deliberately discarded and the current notifier
-/// value is ignored until a newer frame arrives. This prevents the last camera
-/// frame from masquerading as a screen share while platform consent is still
-/// open, and likewise prevents a stopped screen from freezing over the resumed
-/// camera.
+/// value is ignored until a newer frame arrives unless [sourceChange] already
+/// identifies it as newer. This prevents the last camera frame from appearing
+/// as the screen share, and the last screen frame from covering the camera.
 class CallVideoFrameView extends StatefulWidget {
   const CallVideoFrameView({
     super.key,
@@ -37,7 +41,7 @@ class CallVideoFrameView extends StatefulWidget {
     this.placeholderIcon = Icons.videocam_outlined,
     this.mirrored = false,
     this.enabled = true,
-    this.frameBeforeSourceChange,
+    this.sourceChange,
     this.staleLabel,
     this.staleAfter = const Duration(seconds: 4),
   });
@@ -55,9 +59,10 @@ class CallVideoFrameView extends StatefulWidget {
   /// Enabling again waits for a frame newer than the value already cached.
   final bool enabled;
 
-  /// The caller observed a source change before this surface was mounted.
-  /// Compare against that frame without retaining its pixel buffer.
-  final WeakReference<VeilVideoFrame>? frameBeforeSourceChange;
+  /// The caller observed the source change before the renderer was updated.
+  /// A change with no previous frame is still evidence that a later frame is
+  /// new. The weak reference does not retain the older pixel buffer.
+  final VideoFrameSourceChange? sourceChange;
 
   /// When set, a stream that STOPS delivering new frames (backgrounded peer
   /// app, stopped camera, stalled route) badges the last frame with this label
@@ -92,13 +97,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     widget.frameListenable.addListener(_onFrame);
     // An already-confirmed static screen may never emit another frame. A new
     // surface may inherit it unless the caller saw a change after that frame.
-    final previous = widget.frameBeforeSourceChange?.target;
-    _resetSource(
-      blockCurrent:
-          !widget.enabled ||
-          (previous != null &&
-              identical(previous, widget.frameListenable.value)),
-    );
+    _resetSource(blockCurrent: !widget.enabled || _isPreviousFrame);
   }
 
   @override
@@ -122,14 +121,20 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     super.didUpdateWidget(oldWidget);
     final listenableChanged =
         oldWidget.frameListenable != widget.frameListenable;
+    final sourceChanged = oldWidget.freshnessToken != widget.freshnessToken;
     if (listenableChanged) {
       oldWidget.frameListenable.removeListener(_onFrame);
       widget.frameListenable.addListener(_onFrame);
     }
     if (listenableChanged ||
         oldWidget.enabled != widget.enabled ||
-        oldWidget.freshnessToken != widget.freshnessToken) {
-      _resetSource(blockCurrent: true);
+        sourceChanged) {
+      final canUseCurrent =
+          !listenableChanged &&
+          sourceChanged &&
+          widget.sourceChange != null &&
+          !_isPreviousFrame;
+      _resetSource(blockCurrent: !widget.enabled || !canUseCurrent);
     }
     if (!widget.enabled || widget.staleLabel == null) _stopStaleTimer();
   }
@@ -153,6 +158,12 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   void _stopStaleTimer() {
     _staleTimer?.cancel();
     _staleTimer = null;
+  }
+
+  bool get _isPreviousFrame {
+    final previous = widget.sourceChange?.previousFrame?.target;
+    return previous != null &&
+        identical(previous, widget.frameListenable.value);
   }
 
   void _resetSource({required bool blockCurrent}) {

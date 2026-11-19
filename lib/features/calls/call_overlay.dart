@@ -5,7 +5,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
@@ -48,8 +47,7 @@ _PeerVideoSource _peerVideoSource(Call call) {
 }
 
 typedef _RemoteVideoSnapshot = ({
-  int revision,
-  WeakReference<VeilVideoFrame>? frame,
+  VideoFrameSourceChange frame,
   AndroidNativeCallVideoTexture? texture,
 });
 
@@ -216,8 +214,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     // The compact and system PiP views can be mounted after a source change.
     // Give every surface the same evidence about the sample it may inherit.
     _videoBeforeSourceChange = (
-      revision: (_videoBeforeSourceChange?.revision ?? 0) + 1,
-      frame: frame == null ? null : WeakReference(frame),
+      frame: (
+        revision: (_videoBeforeSourceChange?.frame.revision ?? 0) + 1,
+        previousFrame: frame == null ? null : WeakReference(frame),
+      ),
       texture: androidNativeCallVideoTexture.value,
     );
   }
@@ -783,7 +783,11 @@ class _RemoteCallVideoView extends StatelessWidget {
     final peerSource = _peerVideoSource(call);
     final screen = peerSource == _PeerVideoSource.screen;
     final enabled = peerSource != _PeerVideoSource.off;
-    final source = (call.callId, peerSource, beforeSourceChange?.revision);
+    final source = (
+      call.callId,
+      peerSource,
+      beforeSourceChange?.frame.revision,
+    );
     final waiting = screen ? l.callScreenWaiting : l.callVideoWaiting;
     final icon = screen ? Icons.screen_share_outlined : Icons.videocam_outlined;
     return Stack(
@@ -802,7 +806,7 @@ class _RemoteCallVideoView extends StatelessWidget {
         else
           CallVideoFrameView(
             enabled: enabled,
-            frameBeforeSourceChange: beforeSourceChange?.frame,
+            sourceChange: beforeSourceChange?.frame,
             frameListenable: remoteVideoFrame,
             freshnessToken: source,
             waitingLabel: waiting,
@@ -851,6 +855,7 @@ class _AndroidNativeRemoteVideoViewState
   @override
   void initState() {
     super.initState();
+    _blockedTexture = widget.beforeSourceChange?.texture;
     androidNativeCallVideoTexture.addListener(_onTexture);
     if (widget.staleLabel != null) {
       _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -864,7 +869,10 @@ class _AndroidNativeRemoteVideoViewState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.enabled != widget.enabled ||
         oldWidget.freshnessToken != widget.freshnessToken) {
-      _blockedTexture = androidNativeCallVideoTexture.value;
+      final before = widget.beforeSourceChange;
+      _blockedTexture = before == null
+          ? androidNativeCallVideoTexture.value
+          : before.texture;
     }
     if ((oldWidget.staleLabel == null) != (widget.staleLabel == null)) {
       _staleTimer?.cancel();
@@ -890,7 +898,7 @@ class _AndroidNativeRemoteVideoViewState
   @override
   Widget build(BuildContext context) {
     final value = androidNativeCallVideoTexture.value;
-    final blocked = _blockedTexture ?? widget.beforeSourceChange?.texture;
+    final blocked = _blockedTexture;
     final visible =
         widget.enabled &&
         value != null &&
@@ -903,7 +911,7 @@ class _AndroidNativeRemoteVideoViewState
       children: [
         CallVideoFrameView(
           enabled: widget.enabled && !visible,
-          frameBeforeSourceChange: widget.beforeSourceChange?.frame,
+          sourceChange: widget.beforeSourceChange?.frame,
           frameListenable: remoteVideoFrame,
           freshnessToken: widget.freshnessToken,
           waitingLabel: widget.waitingLabel,
