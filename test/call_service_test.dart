@@ -1581,15 +1581,22 @@ void main() {
     ({CallService svc, _FakeMessaging wire, _SnapshotMedia media}) snapshotCall(
       FakeAsync async,
       String id,
-      Future<DateTime?> Function() read,
-    ) {
+      Future<DateTime?> Function() read, {
+      Stream<NetworkAttachment>? attachments,
+      int Function()? readNetworkChangeGeneration,
+    }) {
       final wire = _FakeMessaging();
       final media = _SnapshotMedia()
         ..openedTransport = CallTransportKind.relay
         ..rxAt = clock.now()
         ..readSnapshot = read;
-      final svc = CallService(wire, now: () => clock.now(), media: media)
-        ..start();
+      final svc = CallService(
+        wire,
+        now: () => clock.now(),
+        media: media,
+        networkAttachments: attachments,
+        readNetworkChangeGeneration: readNetworkChangeGeneration,
+      )..start();
       wire.onCallSignal!(peer, offer(id));
       svc.accept();
       async.flushMicrotasks();
@@ -1676,6 +1683,84 @@ void main() {
             t.svc.current,
             isNull,
             reason: 'late reads cannot revive a call',
+          );
+        } finally {
+          t.svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    for (final notifyNode in [false, true]) {
+      test('native liveness rechecks after a network change ($notifyNode)', () {
+        fakeAsync((async) {
+          final gate = Completer<DateTime?>();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          var generation = 0;
+          final t = snapshotCall(
+            async,
+            'network-during-liveness',
+            () => gate.future,
+            attachments: network.stream,
+            readNetworkChangeGeneration: () => generation,
+          );
+          try {
+            async.elapse(kCallLivenessTimeout + kCallHeartbeatInterval);
+            expect(t.media.snapshotReads, 1);
+            if (notifyNode) {
+              network.add(NetworkAttachment.cellular);
+            } else {
+              generation++;
+            }
+            t.media.readSnapshot = () async => clock.now();
+            gate.complete(null);
+            async.flushMicrotasks();
+            expect(t.svc.current?.status, CallStatus.active);
+            expect(t.media.snapshotReads, 2);
+            expect(
+              t.wire.sent.where((signal) => signal.type == CallSignalType.end),
+              isEmpty,
+            );
+          } finally {
+            t.svc.dispose();
+            unawaited(network.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
+    test('native liveness bounds retries during repeated network changes', () {
+      fakeAsync((async) {
+        final initial = Completer<DateTime?>();
+        final replacement = Completer<DateTime?>();
+        var generation = 0;
+        final t = snapshotCall(
+          async,
+          'network-flaps-during-liveness',
+          () => initial.future,
+          readNetworkChangeGeneration: () => generation,
+        );
+        try {
+          async.elapse(kCallLivenessTimeout + kCallHeartbeatInterval);
+          expect(t.media.snapshotReads, 1);
+          generation++;
+          t.media.readSnapshot = () => replacement.future;
+          initial.complete(null);
+          async.flushMicrotasks();
+          expect(t.media.snapshotReads, 2);
+          expect(t.svc.current?.status, CallStatus.active);
+
+          generation++;
+          async.elapse(kCallLivenessSnapshotTimeout);
+          expect(t.media.snapshotReads, 2);
+          expect(t.svc.current, isNull);
+          expect(
+            t.wire.sent
+                .where((signal) => signal.type == CallSignalType.end)
+                .single
+                .reason,
+            CallEndReason.timeout,
           );
         } finally {
           t.svc.dispose();

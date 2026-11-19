@@ -3469,52 +3469,61 @@ class CallService {
 
   Future<void> _confirmLivenessTimeout(Call call, Object token) async {
     try {
-      DateTime? fresh;
-      try {
-        fresh = await _media?.readLatestMediaRxAt().timeout(
-          kCallLivenessSnapshotTimeout,
-          onTimeout: () => null,
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final networkVersion = _networkObservationVersion;
+        DateTime? fresh;
+        try {
+          fresh = await _media?.readLatestMediaRxAt().timeout(
+            kCallLivenessSnapshotTimeout,
+            onTimeout: () => null,
+          );
+        } catch (_) {
+          // Unavailable telemetry is not proof of life or a new deadline.
+        }
+        final cur = _current;
+        if (_disposed ||
+            !identical(_livenessProbeToken, token) ||
+            cur == null ||
+            !cur.isLive ||
+            cur.callId != call.callId ||
+            cur.peer != call.peer ||
+            cur.peerDevice != call.peerDevice) {
+          return;
+        }
+        final now = _now();
+        if (fresh != null &&
+            (fresh.isAfter(now) || fresh.isBefore(cur.startedAt))) {
+          fresh = null;
+        }
+        // Activity may have arrived while the snapshot was pending.
+        final alive = _latestPeerActivity(freshMedia: fresh);
+        final timeout = _peerConfirmedAfterConnect
+            ? kCallLivenessTimeout
+            : kCallStartupLivenessTimeout;
+        if (alive == null || now.difference(alive) <= timeout) return;
+        // Recheck on the new network before acting on silence observed on
+        // the old one. Allow one retry so repeated changes cannot keep a
+        // dead call alive indefinitely.
+        if (attempt == 0 && networkVersion != _networkObservationVersion) {
+          continue;
+        }
+        devLog(
+          () =>
+              'xVeil[call]: liveness timeout call=${cur.callId} '
+              'confirmed=$_peerConfirmedAfterConnect silence='
+              '${now.difference(alive).inSeconds}s',
         );
-      } catch (_) {
-        // Unavailable telemetry is not proof of life or a new deadline.
-      }
-      final cur = _current;
-      if (_disposed ||
-          !identical(_livenessProbeToken, token) ||
-          cur == null ||
-          !cur.isLive ||
-          cur.callId != call.callId ||
-          cur.peer != call.peer ||
-          cur.peerDevice != call.peerDevice) {
+        unawaited(
+          _sendControl(
+            cur.peer,
+            cur.callId,
+            CallSignalType.end,
+            CallEndReason.timeout,
+          ),
+        );
+        _end(CallEndReason.timeout, origin: CallEndOrigin.livenessTimeout);
         return;
       }
-      final now = _now();
-      if (fresh != null &&
-          (fresh.isAfter(now) || fresh.isBefore(cur.startedAt))) {
-        fresh = null;
-      }
-      // A peer signal or periodic media sample may have arrived while the
-      // snapshot was pending. Decide from the current evidence, not the tick.
-      final alive = _latestPeerActivity(freshMedia: fresh);
-      final timeout = _peerConfirmedAfterConnect
-          ? kCallLivenessTimeout
-          : kCallStartupLivenessTimeout;
-      if (alive == null || now.difference(alive) <= timeout) return;
-      devLog(
-        () =>
-            'xVeil[call]: liveness timeout call=${cur.callId} '
-            'confirmed=$_peerConfirmedAfterConnect silence='
-            '${now.difference(alive).inSeconds}s',
-      );
-      unawaited(
-        _sendControl(
-          cur.peer,
-          cur.callId,
-          CallSignalType.end,
-          CallEndReason.timeout,
-        ),
-      );
-      _end(CallEndReason.timeout, origin: CallEndOrigin.livenessTimeout);
     } finally {
       if (identical(_livenessProbeToken, token)) _livenessProbeToken = null;
     }
