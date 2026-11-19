@@ -141,7 +141,10 @@ void main() {
               NetworkAttachment.unknown,
             ];
             for (final change in changes) {
-              await adapter.networkChanged(change);
+              final previous = adapter.networkChangeGeneration;
+              final dispatch = adapter.networkChanged(change);
+              expect(adapter.networkChangeGeneration, previous + 1);
+              await dispatch;
             }
             await pumpEventQueue();
             expect(attachments, [if (tcp) initial, ...changes]);
