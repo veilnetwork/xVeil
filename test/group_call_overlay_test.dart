@@ -15,6 +15,7 @@ NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 GroupCall _call({
   required GroupCallStatus status,
   bool video = false,
+  bool peerVideo = true,
   bool peerScreen = false,
 }) {
   final self = _id(1);
@@ -38,7 +39,7 @@ GroupCall _call({
       ),
       peer.hex: GroupCallParticipant(
         nodeId: peer,
-        media: CallMedia(audio: false, video: true, screen: peerScreen),
+        media: CallMedia(audio: false, video: peerVideo, screen: peerScreen),
         joinedAt: now,
         lastSeenAt: now,
       ),
@@ -330,6 +331,61 @@ void main() {
     await showRoom(resumedCamera);
     expect(videoFor(selfId.short).mirrored, isTrue);
     expect(videoFor(_id(2).short).mirrored, isFalse);
+  });
+
+  testWidgets('a restarted group camera waits for a new frame', (tester) async {
+    final frames = ValueNotifier<VeilVideoFrame?>(_videoFrame(20));
+    addTearDown(frames.dispose);
+    final frame = find.descendant(
+      of: find.byKey(const ValueKey('group-call-video-02020202')),
+      matching: find.byKey(const ValueKey('call-video-frame')),
+    );
+
+    Future<void> showRoom({required bool peerVideo}) => tester.pumpWidget(
+      _host(
+        GroupCallRoomView(
+          call: _call(status: GroupCallStatus.active, peerVideo: peerVideo),
+          title: 'Private room',
+          selfId: _id(1),
+          isAdmin: false,
+          onAccept: () {},
+          onDecline: () {},
+          onLeave: () {},
+          onEndEveryone: () {},
+          onMic: () {},
+          onCamera: () {},
+          onScreen: () {},
+          videoFrameFor: (_) => frames,
+        ),
+      ),
+    );
+
+    Future<void> pumpForFrame() async {
+      for (var i = 0; i < 20 && frame.evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+    }
+
+    await showRoom(peerVideo: true);
+    await pumpForFrame();
+    expect(frame, findsOneWidget);
+
+    await showRoom(peerVideo: false);
+    expect(frame, findsNothing);
+    expect(find.byType(CircleAvatar), findsNWidgets(2));
+
+    await showRoom(peerVideo: true);
+    await pumpForFrame();
+    expect(frame, findsNothing);
+    expect(find.text('Waiting for video…'), findsOneWidget);
+
+    frames.value = _videoFrame(21);
+    await pumpForFrame();
+    expect(frame, findsOneWidget);
+    expect(find.text('Waiting for video…'), findsNothing);
   });
 
   testWidgets('screen share badge fits the tile with large text', (
