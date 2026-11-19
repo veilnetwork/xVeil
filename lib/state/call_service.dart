@@ -357,6 +357,10 @@ class CallService {
   final int Function()? _readNetworkChangeGeneration;
   StreamSubscription<NetworkAttachment>? _networkAttachmentsSub;
   int _networkAttachmentGeneration = 0;
+  // The OS observation precedes node IPC. The attachment stream also marks
+  // when an outage or the successful IPC result reaches call recovery.
+  (int, int?) get _networkObservationVersion =>
+      (_networkAttachmentGeneration, _readNetworkChangeGeneration?.call());
   bool _networkOffline = false;
   DateTime? _localNetworkHandoverAt;
   int? _lastOverlaySessions;
@@ -665,8 +669,7 @@ class CallService {
       return;
     }
     final generation = _lateP2PGeneration;
-    final attachmentGeneration = _networkAttachmentGeneration;
-    final networkChangeGeneration = _readNetworkChangeGeneration?.call();
+    final networkVersion = _networkObservationVersion;
     _lateP2PBusy = true;
     bool stillCurrent() =>
         generation == _lateP2PGeneration &&
@@ -679,8 +682,7 @@ class CallService {
     bool sameNetwork() =>
         stillCurrent() &&
         !_networkOffline &&
-        attachmentGeneration == _networkAttachmentGeneration &&
-        networkChangeGeneration == _readNetworkChangeGeneration?.call();
+        networkVersion == _networkObservationVersion;
     try {
       // A forked answer binds media to its device, while contact policy and
       // endpoint discovery still belong to the authenticated identity.
@@ -2496,6 +2498,7 @@ class CallService {
     final media = _media;
     final handover = _relayHandover;
     if (media == null || handover == null || _mediaWatchdogCheckBusy) return;
+    final networkVersion = _networkObservationVersion;
     final handoverAt = handover.at;
     bool canProbe() =>
         !handover.probeRetrySpent &&
@@ -2519,6 +2522,7 @@ class CallService {
 
     bool stillOnHandover() =>
         !_disposed &&
+        networkVersion == _networkObservationVersion &&
         _relayHandover == handover &&
         !_lateP2PBusy &&
         media.activeTransport == CallTransportKind.relay;
@@ -2659,6 +2663,24 @@ class CallService {
         (handoverDeadline == null || !_now().isBefore(handoverDeadline))) {
       return;
     }
+    final networkVersion = _networkObservationVersion;
+    final connectionGeneration = _relayConnectionGeneration;
+    final mediaEpoch = _mediaOperationEpoch;
+    Call? ownedCall() {
+      final current = _current;
+      if (networkVersion != _networkObservationVersion ||
+          connectionGeneration != _relayConnectionGeneration ||
+          mediaEpoch != _mediaOperationEpoch ||
+          current == null ||
+          current.callId != call.callId ||
+          current.peer != call.peer ||
+          current.peerDevice != call.peerDevice ||
+          !_canInspectDirectSession(current)) {
+        return null;
+      }
+      return current;
+    }
+
     if (_establishedAudioReceiveStalled(call)) {
       _mediaWatchdogCheckBusy = true;
       DateTime? latestRxAt;
@@ -2672,13 +2694,8 @@ class CallService {
       } finally {
         _mediaWatchdogCheckBusy = false;
       }
-      final current = _current;
-      if (current == null ||
-          current.callId != call.callId ||
-          current.peer != call.peer ||
-          current.peerDevice != call.peerDevice ||
-          !_canInspectDirectSession(current) ||
-          !_directSessionSilent(current)) {
+      final current = ownedCall();
+      if (current == null || !_directSessionSilent(current)) {
         return;
       }
       if (latestRxAt != null) {
@@ -2706,8 +2723,6 @@ class CallService {
       // negative admission can still independently confirm session loss.
     }
     if (_mediaWatchdogCheckBusy) return;
-    final connectionGeneration = _relayConnectionGeneration;
-    final mediaEpoch = _mediaOperationEpoch;
     _mediaWatchdogCheckBusy = true;
     Future<bool?> readAdmission() => media
         .currentDirectPeerAdmission(call)
@@ -2717,7 +2732,7 @@ class CallService {
       admitted = await readAdmission();
       // The deadline bounds when a check can start. Its bounded replies
       // remain useful for as long as this handover still owns the check.
-      if (early && admitted == false && sameHandover()) {
+      if (early && admitted == false && sameHandover() && ownedCall() != null) {
         DateTime? latestRxAt;
         try {
           latestRxAt = await media.readLatestMediaRxAt().timeout(
@@ -2728,6 +2743,7 @@ class CallService {
           // erase an answer from the outgoing session registry.
         }
         if (sameHandover() &&
+            ownedCall() != null &&
             ((latestRxAt ?? media.lastMediaRxAt)?.isAfter(networkChangedAt!) ??
                 false)) {
           // Inbound activity can be buffered traffic from the old path or a
@@ -2746,17 +2762,11 @@ class CallService {
     } finally {
       _mediaWatchdogCheckBusy = false;
     }
-    final current = _current;
+    final current = ownedCall();
     // If the overlay recovered during the probe, let the next tick sample the
     // current session before starting relay recovery.
     if (admitted != false ||
-        connectionGeneration != _relayConnectionGeneration ||
-        mediaEpoch != _mediaOperationEpoch ||
         current == null ||
-        current.callId != call.callId ||
-        current.peer != call.peer ||
-        current.peerDevice != call.peerDevice ||
-        !_canInspectDirectSession(current) ||
         (early ? !sameHandover() : !_directSessionSilent(current))) {
       return;
     }
