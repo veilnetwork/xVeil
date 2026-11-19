@@ -88,6 +88,74 @@ Future<CallService> _activeCall(_FakeMessaging messaging) async {
 }
 
 void main() {
+  testWidgets('incoming call shows all media labels at large text size', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 830);
+    tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final messaging = _FakeMessaging();
+    late CallService svc;
+    await tester.runAsync(() async {
+      svc = CallService(messaging, media: _UpMedia())..start();
+      messaging.onCallSignal!(
+        _peer(),
+        const CallSignal(
+          callId: 'large-text-incoming',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true, video: true, screen: true),
+          posture: CallPosture.direct,
+        ),
+      );
+    });
+    addTearDown(svc.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appControllerProvider.overrideWith(_ReadyAppController.new),
+          callServiceProvider.overrideWith((ref) => svc),
+        ],
+        child: MaterialApp(
+          locale: const Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          theme: ThemeData.dark(),
+          home: const Stack(children: [CallOverlay()]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(svc.current?.status, CallStatus.ringing);
+    final l = AppL10n.of(tester.element(find.byType(CallOverlay)));
+    for (final label in [l.callAudio, l.callVideo, l.callScreen]) {
+      final chip = find.widgetWithText(Chip, label);
+      expect(chip, findsOneWidget);
+      final bounds = tester.getRect(chip);
+      expect(bounds.left, greaterThanOrEqualTo(0), reason: label);
+      expect(bounds.right, lessThanOrEqualTo(390), reason: label);
+    }
+    expect(tester.takeException(), isNull);
+
+    // Split-screen can reduce the available height while the call is ringing.
+    // The actions must stay on screen even if the media labels need scrolling.
+    tester.view.physicalSize = const Size(390, 430);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    await tester.pumpAndSettle();
+    final screenLabel = find.text(l.callScreen);
+    await tester.ensureVisible(screenLabel);
+    await tester.pumpAndSettle();
+    expect(screenLabel.hitTestable(), findsOneWidget);
+    for (final key in ['call-accept', 'call-decline']) {
+      final button = find.byKey(ValueKey(key));
+      expect(button.hitTestable(), findsOneWidget, reason: key);
+      expect(tester.getRect(button).bottom, lessThanOrEqualTo(430));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the call screen says when the peer mutes, and unsays it', (
     tester,
   ) async {
