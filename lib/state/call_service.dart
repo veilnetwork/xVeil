@@ -2610,15 +2610,18 @@ class CallService {
       return;
     }
     final networkChangedAt = _localNetworkHandoverAt;
-    bool recentNetworkChange() =>
+    final handoverDeadline = networkChangedAt?.add(kCallDirectSessionSilence);
+    bool sameHandover() =>
         networkChangedAt != null &&
-        networkChangedAt == _localNetworkHandoverAt &&
-        _now().difference(networkChangedAt) < kCallDirectSessionSilence;
+        networkChangedAt == _localNetworkHandoverAt;
 
     // A local network change can retire the direct session before the normal
     // silence interval has elapsed. Use it only to ask for current admission.
     final early = !_directSessionSilent(call);
-    if (early && !recentNetworkChange()) return;
+    if (early &&
+        (handoverDeadline == null || !_now().isBefore(handoverDeadline))) {
+      return;
+    }
     if (_establishedAudioReceiveStalled(call)) {
       _mediaWatchdogCheckBusy = true;
       DateTime? latestRxAt;
@@ -2675,7 +2678,9 @@ class CallService {
     bool? admitted;
     try {
       admitted = await readAdmission();
-      if (early && admitted == false && recentNetworkChange()) {
+      // The deadline bounds when a check can start. Its bounded replies
+      // remain useful for as long as this handover still owns the check.
+      if (early && admitted == false && sameHandover()) {
         DateTime? latestRxAt;
         try {
           latestRxAt = await media.readLatestMediaRxAt().timeout(
@@ -2685,7 +2690,7 @@ class CallService {
           // The receive snapshot is supplementary. Its failure does not
           // erase an answer from the outgoing session registry.
         }
-        if (recentNetworkChange() &&
+        if (sameHandover() &&
             ((latestRxAt ?? media.lastMediaRxAt)?.isAfter(networkChangedAt!) ??
                 false)) {
           // Inbound activity can be buffered traffic from the old path or a
@@ -2715,7 +2720,7 @@ class CallService {
         current.peer != call.peer ||
         current.peerDevice != call.peerDevice ||
         !_canInspectDirectSession(current) ||
-        (early ? !recentNetworkChange() : !_directSessionSilent(current))) {
+        (early ? !sameHandover() : !_directSessionSilent(current))) {
       return;
     }
     devLog(
@@ -2727,7 +2732,9 @@ class CallService {
     );
     await _recoverSilentDirect(
       current,
-      retryBy: early ? networkChangedAt?.add(kCallDirectSessionSilence) : null,
+      retryBy: early && _now().isBefore(handoverDeadline!)
+          ? handoverDeadline
+          : null,
     );
   }
 
