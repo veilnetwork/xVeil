@@ -858,6 +858,7 @@ class CallService {
     }
     _networkAttachmentsSub = _networkAttachments?.listen((attachment) {
       if (_disposed) return;
+      final wasOffline = _networkOffline;
       _networkOffline = attachment == NetworkAttachment.offline;
       final call = _current;
       if (call == null || call.status != CallStatus.active) return;
@@ -868,6 +869,11 @@ class CallService {
             ? _now()
             : null;
         return;
+      }
+      if (wasOffline && _relayCandidateRetryTimer == null) {
+        // The timer may have expired during the outage. Keep its retry for
+        // this call and do not advance a deadline that is still pending.
+        _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
       }
       if (attachment == NetworkAttachment.unknown) return;
       if (call.transport == CallTransportKind.relay) {
@@ -2206,7 +2212,7 @@ class CallService {
       _cancelRelayCandidateRetry();
       return;
     }
-    if (_relayFallbackFlight != null) return;
+    if (_networkOffline || _relayFallbackFlight != null) return;
     if (_media?.isRepairingReceiveSession != false) {
       // A native rebuild may outlive the failed candidate. Retain the intent
       // without interrupting that operation or losing the reconnect wake.

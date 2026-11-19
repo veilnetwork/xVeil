@@ -5188,6 +5188,7 @@ void main() {
         bool defer = true,
         bool useAdmissionEvents = false,
         Completer<bool>? gate,
+        Stream<NetworkAttachment>? networkAttachments,
       }) {
         final fake = _FakeMessaging();
         final media = _ReconnectRelayMedia()..firstAttempt = gate;
@@ -5200,6 +5201,7 @@ void main() {
           media: media,
           overlaySessions: counts.stream,
           overlaySessionAdmissions: useAdmissionEvents ? admissions.stream : null,
+          networkAttachments: networkAttachments,
           localAllowsP2P: (_) async => true,
           peerReachableForP2P: (_) async => true,
         )..start();
@@ -5729,6 +5731,49 @@ void main() {
           });
         },
       );
+
+      for (final wake in ['timer', 'admission', 'return before deadline']) {
+        test('deferred relay waits out the local outage: $wake', () {
+          fakeAsync((async) {
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final t = fixture(async, networkAttachments: network.stream);
+            network.add(NetworkAttachment.offline);
+            t.media.proven = true;
+            if (wake == 'admission') t.counts.add(1);
+            async.flushMicrotasks();
+            expect(t.media.switches, [CallTransportKind.relay]);
+
+            const beforeDeadline = Duration(seconds: 1);
+            final earlyReturn = wake == 'return before deadline';
+            async.elapse(
+              earlyReturn
+                  ? kCallRelayCandidateRetry - beforeDeadline
+                  : kCallRelayCandidateRetry,
+            );
+            expect(t.media.switches, [CallTransportKind.relay]);
+            expect(t.svc.current?.transport, CallTransportKind.p2p);
+            expect(t.svc.current?.status, CallStatus.active);
+
+            t.media.rxAt = clock.now();
+            network.add(NetworkAttachment.cellular);
+            async.flushMicrotasks();
+            if (earlyReturn) {
+              expect(t.media.switches, [CallTransportKind.relay]);
+              async.elapse(beforeDeadline);
+            }
+            expect(t.media.switches, [
+              CallTransportKind.relay,
+              CallTransportKind.relay,
+            ]);
+            expect(t.svc.current?.transport, CallTransportKind.relay);
+            expect(t.svc.current?.status, CallStatus.active);
+            t.svc.dispose();
+            unawaited(network.close());
+            unawaited(t.counts.close());
+            async.flushMicrotasks();
+          });
+        });
+      }
 
       test(
         'reconnect wake waits for repair without losing the deferred retry',
