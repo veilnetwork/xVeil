@@ -5,7 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/features/lock/lock_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/routing/router.dart';
@@ -51,6 +55,45 @@ void main() {
           (call) async => <String, Object?>{'phase': 'stopped'},
         );
   });
+
+  for (final error in [
+    hv.HvException('Busy', 'fixture close still in progress'),
+    const ManagedWorkerFailure(ManagedWorkerFailureKind.busy),
+    StateError('fixture backend failure'),
+  ]) {
+    testWidgets('storage refusal is not reported as a wrong password: $error', (
+      tester,
+    ) async {
+      final storage = HiddenVolumeStorage(
+        ({required password, required create}) => throw error,
+      );
+      addTearDown(errorJournal.clear);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
+          child: _appAround(const LockScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+      await tester.enterText(find.byType(TextField), 'test credential');
+      await tester.tap(find.widgetWithText(FilledButton, l.lockUnlock));
+      await tester.pumpAndSettle();
+      // The two storage backends report the same file contention differently.
+      final busy = error is hv.HvException || error is ManagedWorkerFailure;
+      expect(find.text(l.lockWrong), findsNothing);
+      expect(
+        find.text(busy ? l.lockStorageBusy : l.lockStorageOpenFailed),
+        findsOneWidget,
+      );
+      expect(
+        errorJournal.entries.any(
+          (e) => e.kind == (busy ? 'unlock-busy' : 'unlock'),
+        ),
+        isTrue,
+      );
+    });
+  }
 
   for (final unknown in [false, true]) {
     testWidgets('wipe names temporary-copy status (unknown=$unknown)', (
@@ -706,7 +749,10 @@ void main() {
 
 class _LockedErrorController extends AppController {
   @override
-  AppState build() => const AppState(AppPhase.locked, unlockError: true);
+  AppState build() => const AppState(
+    AppPhase.locked,
+    unlockFailure: UnlockFailure.wrongPassword,
+  );
 }
 
 /// A wipe that keeps failing to delete both tiers, and counts how often it was

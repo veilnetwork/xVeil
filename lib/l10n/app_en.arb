@@ -47,6 +47,8 @@
   "lockPasswordHint": "Enter your password",
   "lockUnlock": "Unlock",
   "lockWrong": "Wrong password",
+  "lockStorageBusy": "Storage is busy. Try again. If it persists, quit xVeil completely and reopen it.",
+  "lockStorageOpenFailed": "Could not open storage. Try again. If it persists, save a diagnostic report.",
   "lockTeardownIncomplete": "This lock did not finish: a node or VPN tunnel may still be running until the app is fully closed. Quit and reopen the app to be sure.",
   "lockStartOver": "Start over",
   "lockStartOverBody": "Set up a new identity? Existing data is kept. Keep the passwords for encrypted or hidden identities.",

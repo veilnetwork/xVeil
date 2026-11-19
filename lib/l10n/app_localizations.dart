@@ -381,6 +381,18 @@ abstract class AppL10n {
   /// **'Wrong password'**
   String get lockWrong;
 
+  /// No description provided for @lockStorageBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage is busy. Try again. If it persists, quit xVeil completely and reopen it.'**
+  String get lockStorageBusy;
+
+  /// No description provided for @lockStorageOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open storage. Try again. If it persists, save a diagnostic report.'**
+  String get lockStorageOpenFailed;
+
   /// No description provided for @lockTeardownIncomplete.
   ///
   /// In en, this message translates to:

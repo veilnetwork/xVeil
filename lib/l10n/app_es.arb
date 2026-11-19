@@ -47,6 +47,8 @@
   "lockPasswordHint": "Introduce tu contraseña",
   "lockUnlock": "Desbloquear",
   "lockWrong": "Contraseña incorrecta",
+  "lockStorageBusy": "El almacenamiento está ocupado. Vuelve a intentarlo. Si persiste, cierra xVeil por completo y ábrelo de nuevo.",
+  "lockStorageOpenFailed": "No se pudo abrir el almacenamiento. Vuelve a intentarlo. Si persiste, guarda un informe de diagnóstico.",
   "lockTeardownIncomplete": "El bloqueo no se completó: un nodo o túnel VPN puede seguir activo hasta cerrar la app por completo. Ciérrala y vuelve a abrirla para asegurarte.",
   "lockStartOver": "Empezar de cero",
   "lockStartOverBody": "¿Configurar una identidad nueva? Los datos actuales se conservan. Guarda las contraseñas de las identidades cifradas u ocultas.",
