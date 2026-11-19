@@ -1764,6 +1764,7 @@ class AppController extends Notifier<AppState> {
   /// before the first await, so an in-flight boot cannot slip past it.
   void _endLifecycle() {
     _lifecycle++;
+    _compactionCollectionLease = null;
     if (ref.mounted) ref.read(profileStorageRouterProvider)?.cancelSelections();
   }
 
@@ -2464,7 +2465,8 @@ class AppController extends Notifier<AppState> {
   ///
   /// Whoever calls this OWNS reopening. Cancel, an error, a closed dialog — all
   /// of them have to reach [cancelCompactionCollection], or the app sits torn
-  /// down with no session and no explanation.
+  /// down with no session and no explanation. An accepted preparation that
+  /// cannot finish returns false. Rejection before admission throws.
   Future<bool> beginCompactionCollection() async {
     if (usesManagedStorage) {
       throw StateError('independent storage requires owned maintenance');
@@ -2475,7 +2477,9 @@ class AppController extends Notifier<AppState> {
     }
     // Hosted activation may still publish a new view while phase is ready.
     // It has no single-active view job, but retains this selection admission.
-    if (_endingSessions != 0 ||
+    final collecting = _compactionCollectionLease;
+    if ((collecting != null && holdsIdentity(collecting)) ||
+        _endingSessions != 0 ||
         _identitySelections != 0 ||
         _identityViewInFlight != null ||
         _identityEditInFlight != null ||
@@ -2488,6 +2492,7 @@ class AppController extends Notifier<AppState> {
       throw StateError('container maintenance is already in progress');
     }
     final lease = leaseIdentity();
+    _compactionCollectionLease = lease;
     bool current() => ref.mounted && holdsIdentity(lease);
     final finished = Completer<void>();
     // Teardown is itself maintenance, before the first password is checked.
@@ -2522,6 +2527,16 @@ class AppController extends Notifier<AppState> {
         () => ref.read(storageProvider).close(),
       );
       return current() && released;
+    } catch (_, stack) {
+      if (current()) {
+        errorJournal.record(
+          kind: 'storage-compaction-entry',
+          error: StateError('could not prepare compaction collection'),
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+      return false;
     } finally {
       _compactionCollectionInFlight = null;
       finished.complete();
@@ -2534,20 +2549,28 @@ class AppController extends Notifier<AppState> {
   /// the most likely outcome of a dialog that asks for several passwords. It
   /// must leave them exactly where they were.
   Future<void> cancelCompactionCollection(String reopenWith) async {
-    final lease = leaseIdentity();
+    final collecting = _compactionCollectionLease;
+    final lease = collecting ?? leaseIdentity();
     // A dismissed route can leave its password check awaiting the worker. Its
     // finally owns closing that handle; reopening sooner would let it close
     // the recovered session instead.
     await _compactionCollectionInFlight;
     await _compactionProbeInFlight;
     if (!ref.mounted ||
+        !identical(_compactionCollectionLease, collecting) ||
         !holdsIdentity(lease) ||
         state.phase != AppPhase.preparingNode) {
       return;
     }
     final owner = ref.read(profileStorageRouterOwnerProvider);
     if (owner != null && !owner.isAvailable) return;
-    await _reopenAfterCompaction(reopenWith, lease);
+    try {
+      await _reopenAfterCompaction(reopenWith, lease);
+    } finally {
+      if (identical(_compactionCollectionLease, collecting)) {
+        _compactionCollectionLease = null;
+      }
+    }
   }
 
   // Only this maintenance recovery may restore a hosted selection. Nothing is
@@ -2892,6 +2915,8 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void>? _compactionInFlight;
+  // The dialog still owns recovery after its asynchronous preparation ends.
+  IdentityLease? _compactionCollectionLease;
   Future<void>? _compactionCollectionInFlight;
   Future<void>? _compactionProbeInFlight;
   Future<List<String>>? _wipeInFlight;
@@ -2940,11 +2965,15 @@ class AppController extends Notifier<AppState> {
       throw StateError('container unlock is already in progress');
     }
     final finished = Completer<void>();
+    final collecting = _compactionCollectionLease;
     _compactionInFlight = finished.future;
     _manualCompactionBlocksUnlock = blocksUnlock;
     try {
       return await run();
     } finally {
+      if (identical(_compactionCollectionLease, collecting)) {
+        _compactionCollectionLease = null;
+      }
       _manualCompactionBlocksUnlock = false;
       _compactionInFlight = null;
       // This barrier describes quiescence, including a failed rewrite. Its

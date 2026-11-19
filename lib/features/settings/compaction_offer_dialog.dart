@@ -65,6 +65,15 @@ Future<({int before, int after})?> showCompactionOffer(
   final failure = AppL10n.of(context).settingsStorageCompactFailed;
   final ctrl = ref.read(appControllerProvider.notifier);
   final lease = ctrl.leaseIdentity();
+  void showEntryFailure() {
+    if (navigator.mounted &&
+        messenger != null &&
+        messenger.mounted &&
+        ctrl.holdsIdentity(lease)) {
+      messenger.showSnackBar(SnackBar(content: Text(failure)));
+    }
+  }
+
   final bool opened;
   try {
     await ctrl.noteCompactionOffered();
@@ -77,17 +86,13 @@ Future<({int before, int after})?> showCompactionOffer(
       stack: stack,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
-    if (navigator.mounted &&
-        messenger != null &&
-        messenger.mounted &&
-        ctrl.holdsIdentity(lease)) {
-      messenger.showSnackBar(SnackBar(content: Text(failure)));
-    }
+    showEntryFailure();
     // No collection was acquired. In particular, a rejected second caller
     // must not recover/unlock the first caller's still active collection.
     return null;
   }
   if (!opened || !navigator.mounted || !ctrl.holdsIdentity(lease)) {
+    if (!opened) showEntryFailure();
     await ctrl.recoverCompactionCollection(
       lease: lease,
       reopenWith: currentPassword,

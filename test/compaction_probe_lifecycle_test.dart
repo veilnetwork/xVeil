@@ -583,9 +583,9 @@ void main() {
   });
 
   test(
-    'a second collection cannot close storage during the first teardown',
+    'the first collection owns storage through teardown and cancellation',
     () async {
-      final controller = _Controller();
+      final controller = _RecoveryController();
       final f = await _parkCollection(controller);
       try {
         await expectLater(
@@ -599,10 +599,19 @@ void main() {
       }
       expect(await f.collecting, isTrue);
       expect(f.storage.isOpen, isFalse);
+      await expectLater(
+        controller.beginCompactionCollection(),
+        throwsStateError,
+      );
       expect(
         (await controller.probeCompactionIdentity('fixture')).opened,
         isTrue,
       );
+      await controller.cancelCompactionCollection('fixture');
+      expect(controller.unlocks, 1);
+      expect(await controller.beginCompactionCollection(), isTrue);
+      await controller.cancelCompactionCollection('fixture');
+      expect(controller.unlocks, 2);
     },
   );
 
