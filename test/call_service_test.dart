@@ -2652,6 +2652,9 @@ void main() {
       'relay crosses the next heartbeat',
       'relay rebuild expires',
       'video relay rebuild expires',
+      'admission before the old relay open returns',
+      'admission after the old relay open returns',
+      'replacement admission expires',
       'hangup during relay rebuild',
       'no admission',
     ]) {
@@ -2664,12 +2667,20 @@ void main() {
           final snapshotOutlastsAdmission =
               outcome == 'snapshot outlasts admission';
           final visualRebuild = outcome == 'video relay rebuild expires';
+          final replacementExpires = outcome == 'replacement admission expires';
           final rebuildExpires =
-              outcome == 'relay rebuild expires' || visualRebuild;
+              outcome == 'relay rebuild expires' || visualRebuild ||
+              replacementExpires;
+          final admissionAlreadyAvailable =
+              outcome == 'admission before the old relay open returns';
+          final networkChangesDuringOpen =
+              admissionAlreadyAvailable ||
+              outcome == 'admission after the old relay open returns';
           final relayStillOpening =
               snapshotOutlastsAdmission ||
               outcome == 'relay crosses the next heartbeat' ||
               rebuildExpires ||
+              networkChangesDuringOpen ||
               outcome == 'hangup during relay rebuild';
           final media = _RepairThenRelayMedia()
             ..openedTransport = CallTransportKind.relay
@@ -2743,13 +2754,48 @@ void main() {
             expect(media.repairs, 1);
           }
 
-          if (rebuildExpires || outcome == 'hangup during relay rebuild') {
+          if (networkChangesDuringOpen) {
+            final oldOpen = media.relayGate!;
+            network.add(NetworkAttachment.wifi);
+            if (admissionAlreadyAvailable) admissions.add(null);
+            media.relayGate = Completer<bool>();
+            oldOpen.complete(false);
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            expect(media.switches, hasLength(admissionAlreadyAvailable ? 2 : 1));
+            if (!admissionAlreadyAvailable) {
+              admissions.add(null);
+              async.flushMicrotasks();
+            }
+            expect(media.switches, [
+              CallTransportKind.relay,
+              CallTransportKind.relay,
+            ]);
+            media.relayGate!.complete(true);
+            async.flushMicrotasks();
+            expect(svc.current?.callId, callId);
+            expect(svc.current?.status, CallStatus.active);
+            expect(media.activeTransport, CallTransportKind.relay);
+            expect(wire.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          } else if (rebuildExpires || outcome == 'hangup during relay rebuild') {
             if (rebuildExpires) {
+              var elapsed = offset;
+              if (replacementExpires) {
+                network.add(NetworkAttachment.wifi);
+                const oldOpenDelay = Duration(seconds: 1);
+                async.elapse(oldOpenDelay);
+                elapsed += oldOpenDelay;
+                final oldOpen = media.relayGate!;
+                media.relayGate = Completer<bool>();
+                oldOpen.complete(false);
+                async.flushMicrotasks();
+                expect(svc.current?.status, CallStatus.active);
+              }
               final startBudget = visualRebuild
                   ? kCallVisualMediaStartTimeout
                   : kCallMediaStartTimeout;
               const lastTick = Duration(milliseconds: 1);
-              async.elapse(startBudget - offset - lastTick);
+              async.elapse(startBudget - elapsed - lastTick);
               expect(svc.current?.status, CallStatus.active);
               async.elapse(lastTick);
             } else {
@@ -2757,8 +2803,10 @@ void main() {
               async.flushMicrotasks();
             }
             expect(svc.current, isNull);
+            admissions.add(null);
             media.relayGate!.complete(true);
             async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
             expect(svc.current, isNull);
             expect(
               wire.sent.where((s) => s.type == CallSignalType.end).single.reason,

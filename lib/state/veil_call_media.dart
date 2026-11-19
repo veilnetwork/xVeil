@@ -1145,6 +1145,10 @@ class VeilCallMediaController implements CallMediaController {
     bool requireTarget = false,
   }) async {
     bool sameCall() => _activeCall?.callId == call.callId;
+    final relayRebuildNetworkGeneration =
+        requireTarget && transport == CallTransportKind.relay
+        ? _transport.networkChangeGeneration
+        : null;
     // A newer same-call start owns readiness, including its pending phase.
     // The FSM already treats true + no open channel as converging. A route
     // switch, however, can report success only on its requested transport.
@@ -1168,6 +1172,7 @@ class VeilCallMediaController implements CallMediaController {
         _activeCall!.copyWith(transport: transport),
         startingRequest,
         retryInactiveDirect: requireTarget,
+        relayRebuildNetworkGeneration: relayRebuildNetworkGeneration,
       );
     } catch (_) {
       // An old lookup/engine failure must not end the newer working session.
@@ -1648,8 +1653,13 @@ class VeilCallMediaController implements CallMediaController {
     Call call,
     int request, {
     bool retryInactiveDirect = true,
+    int? relayRebuildNetworkGeneration,
   }) async {
     bool requested() => request == _startOperationEpoch;
+    bool onRebuildNetwork() =>
+        relayRebuildNetworkGeneration == null ||
+        relayRebuildNetworkGeneration == _transport.networkChangeGeneration;
+    if (!onRebuildNetwork()) return false;
     _startedWithoutCamera = false;
     final previousCall = _activeCall;
     final preserveReceiveHistory =
@@ -1708,6 +1718,7 @@ class VeilCallMediaController implements CallMediaController {
     _activeCall = call;
     bool currentStart() =>
         requested() &&
+        onRebuildNetwork() &&
         _mediaEpoch == epoch &&
         _activeCall?.callId == call.callId &&
         _microphoneState.belongsToCall(call.callId);
@@ -1809,7 +1820,9 @@ class VeilCallMediaController implements CallMediaController {
       // channel reuse, receive counters and repairs on that actual address.
       call = call.copyWith(mediaRoutePeer: opened.peer);
     }
-    if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
+    if (!onRebuildNetwork() ||
+        epoch != _mediaEpoch ||
+        _activeCall?.callId != call.callId) {
       _transport.closeMediaChannel(chan);
       return false;
     }
@@ -1827,7 +1840,9 @@ class VeilCallMediaController implements CallMediaController {
       _transport.closeMediaChannel(chan);
       return false;
     }
-    if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
+    if (!onRebuildNetwork() ||
+        epoch != _mediaEpoch ||
+        _activeCall?.callId != call.callId) {
       _transport.closeMediaChannel(chan);
       return false;
     }

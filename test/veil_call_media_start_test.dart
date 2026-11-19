@@ -230,6 +230,8 @@ class _HandoverTransport extends _RepairingTransport {
   int peerAdmissionChecks = 0;
   final probeRequests = <int>[];
   bool failRelayOpen = false;
+  Completer<int>? relayOpenGate;
+  final relayOpening = Completer<void>();
   bool? proofAvailable;
 
   @override
@@ -260,6 +262,10 @@ class _HandoverTransport extends _RepairingTransport {
     if (relay && failRelayOpen) throw StateError('relay open unavailable');
     final channel = opened.length + 42;
     opened.add(channel);
+    if (relay && relayOpenGate != null) {
+      relayOpening.complete();
+      return relayOpenGate!.future;
+    }
     return channel;
   }
 
@@ -2265,6 +2271,47 @@ void main() {
       }
     });
   }
+
+  test('network change retires a relay open after the old engine was lost', () async {
+    final transport = _HandoverTransport();
+    final engineChannels = <int>[];
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory: ({required veilChan, required localId, required peerId}) {
+        engineChannels.add(veilChan);
+        return _HandoverEngine();
+      },
+    );
+    try {
+      expect(await controller.start(_call(direct: true)), isTrue);
+      transport.directOpenFailures.add('synthetic direct open refusal');
+      transport.failRelayOpen = true;
+      expect(await controller.repairRoute(), isFalse);
+      expect(controller.activeTransport, isNull);
+
+      transport.failRelayOpen = false;
+      final gate = transport.relayOpenGate = Completer<int>();
+      final opening = controller.switchRoute(CallTransportKind.relay);
+      await Future.any([
+        transport.relayOpening.future,
+        opening.then((_) => fail('The candidate must reach the relay open')),
+      ]);
+      transport.dispatchNetworkChange();
+      gate.complete(43);
+      expect(await opening, isFalse);
+      expect(transport.closed, [42, 43]);
+      expect(engineChannels, [42]);
+      expect(controller.activeTransport, isNull);
+
+      transport.relayOpenGate = null;
+      expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+      expect(engineChannels, [42, 44]);
+      expect(controller.activeTransport, CallTransportKind.relay);
+    } finally {
+      await controller.stop();
+      await transport.networkDispatches.close();
+    }
+  });
 
   test('network change retires a retained relay candidate before retry', () async {
     final transport = _HandoverTransport()..proofAvailable = false;
