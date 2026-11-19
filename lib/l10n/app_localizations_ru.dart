@@ -136,6 +136,13 @@ class AppL10nRu extends AppL10n {
       'Закройте xVeil и откройте снова. Если сбой повторится, приложите диагностический отчёт к обращению.';
 
   @override
+  String get startupPreferencesBusy =>
+      'Файл настроек занят. Подождите немного и попробуйте снова.';
+
+  @override
+  String get startupRetry => 'Повторить';
+
+  @override
   String get storageTitle => 'Как хранить ваши данные?';
 
   @override

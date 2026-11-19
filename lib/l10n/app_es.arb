@@ -36,6 +36,8 @@
   "storageUnavailableAction": "Esta versión está dañada o incompleta. Instala xVeil de nuevo desde la página de descargas. Nada de lo que ya estaba guardado en este dispositivo se ha tocado.",
   "startupFailedTitle": "xVeil no pudo iniciarse",
   "startupFailedAction": "Cierra xVeil y vuelve a abrirlo. Si el error se repite, adjunta el informe de diagnóstico al pedir ayuda.",
+  "startupPreferencesBusy": "El archivo de ajustes está en uso. Espera un momento y vuelve a intentarlo.",
+  "startupRetry": "Reintentar",
   "storageTitle": "¿Cómo quieres guardar tus datos?",
   "storageHiddenTitle": "Espacio oculto",
   "storageHiddenBody": "Tus chats y tus claves viven en un contenedor cifrado con negación plausible. Un adversario que se apodere de tu dispositivo no puede demostrar siquiera que los datos existen.",

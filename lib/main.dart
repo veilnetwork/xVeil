@@ -94,16 +94,26 @@ Future<void> main([List<String> args = const []]) async {
 /// as an empty window: the process alive, a log written where nobody looks, and
 /// a user with no way to tell whether their data had been touched.
 ///
-/// [boot] and [present] are injectable so the guarantee is testable: an app
-/// that only fails to appear when something goes wrong during startup is not
-/// something a test can arrange from the outside.
+/// [boot] resumes startup after preferences are already installed. The
+/// initial preference load is separate so only that stage can be retried.
 @visibleForTesting
 Future<void> runStartup({
-  Future<void> Function() boot = _bootAndRunApp,
+  Future<void> Function()? boot,
+  Future<ProfilePreferencesBootstrap> Function() loadPreferences =
+      _loadStartupPreferences,
   void Function(Widget) present = runApp,
 }) async {
+  var loadingPreferences = false;
   try {
-    await boot();
+    if (boot != null) {
+      await boot();
+      return;
+    }
+    WidgetsFlutterBinding.ensureInitialized();
+    loadingPreferences = true;
+    final preferences = await loadPreferences();
+    loadingPreferences = false;
+    await _bootAndRunApp(preferences, present);
   } catch (e, st) {
     devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
     if (e is ManagedWorkerFailure && e.preferencesOpenReason != null) {
@@ -130,9 +140,20 @@ Future<void> runStartup({
       stack: st,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
-    // Last resort, and it must not be able to throw on its own: a const widget
-    // over the compiled-in localizations, nothing read, nothing opened.
-    present(const StartupFailedApp());
+    final canRetry =
+        loadingPreferences &&
+        e is ManagedWorkerFailure &&
+        e.kind == ManagedWorkerFailureKind.busy &&
+        (e.preferencesOpenReason == ManagedPreferencesFailureReason.busy ||
+            e.preferencesReadReason == ManagedPreferencesFailureReason.busy);
+    present(
+      StartupFailedApp(
+        retryPreferences: canRetry
+            ? () =>
+                  runStartup(loadPreferences: loadPreferences, present: present)
+            : null,
+      ),
+    );
   }
 }
 
@@ -156,9 +177,7 @@ bool configFileDevBootAllowed({
   required bool isWindows,
 }) => isMacOS || isLinux || isWindows;
 
-Future<void> _bootAndRunApp() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
+Future<ProfilePreferencesBootstrap> _loadStartupPreferences() {
   // FIRST, before anything can read a preference: take the app's
   // preferences out of the platform's system store and into a file in the
   // active profile's own directory (audit XV-16).
@@ -178,7 +197,7 @@ Future<void> _bootAndRunApp() async {
   // Managed profiles must acquire the native preference owner before startup
   // can proceed. Builds using the legacy backend can fall back to ephemeral
   // preferences if a platform path or the preference file is unavailable.
-  final preferences = await bootstrapProfilePreferences(
+  return bootstrapProfilePreferences(
     supportDir: () async => (await getApplicationSupportDirectory()).path,
     args: launchArguments,
     onError: (e, st) {
@@ -196,10 +215,16 @@ Future<void> _bootAndRunApp() async {
       );
     },
   );
+}
+
+Future<void> _bootAndRunApp(
+  ProfilePreferencesBootstrap preferences,
+  void Function(Widget) present,
+) async {
   if (preferences.erasurePending) {
     final source = preferences.legacyPreferences;
     if (source == null) {
-      runApp(const ProfileErasurePendingApp());
+      present(const ProfileErasurePendingApp());
       return;
     }
     final actions = BackgroundServiceActions.platform();
@@ -209,7 +234,7 @@ Future<void> _bootAndRunApp() async {
       authentication: LocalScreenAuthentication(),
       retireBackground: actions.retireForErasure,
     );
-    runApp(
+    present(
       ProfileErasurePendingApp(
         recover: () async {
           try {
@@ -228,7 +253,9 @@ Future<void> _bootAndRunApp() async {
           boot: () => _runBootstrappedApplication(
             profile: source.profile,
             supportDirectory: source.supportDirectory,
+            present: present,
           ),
+          present: present,
         ),
         close: recovery.close,
       ),
@@ -238,12 +265,14 @@ Future<void> _bootAndRunApp() async {
   await _runBootstrappedApplication(
     profile: preferences.profile!,
     supportDirectory: preferences.supportDirectory,
+    present: present,
   );
 }
 
 Future<void> _runBootstrappedApplication({
   required String profile,
   required String? supportDirectory,
+  required void Function(Widget) present,
 }) async {
   activeProfile = profile;
 
@@ -333,7 +362,7 @@ Future<void> _runBootstrappedApplication({
   }
 
   final boot = await _bootstrapOverrides(supportDirectory: supportDirectory);
-  runApp(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
+  present(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
 }
 
 /// Select the startup boundary before constructing ordinary application

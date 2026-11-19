@@ -36,6 +36,8 @@
   "storageUnavailableAction": "This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.",
   "startupFailedTitle": "xVeil could not start",
   "startupFailedAction": "Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.",
+  "startupPreferencesBusy": "The settings file is in use. Wait a moment, then try again.",
+  "startupRetry": "Try again",
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space",
   "storageHiddenBody": "Your chats and keys live in a deniable encrypted container. An adversary who seizes your device cannot prove the data even exists.",

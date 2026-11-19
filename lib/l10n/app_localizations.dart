@@ -315,6 +315,18 @@ abstract class AppL10n {
   /// **'Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.'**
   String get startupFailedAction;
 
+  /// No description provided for @startupPreferencesBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'The settings file is in use. Wait a moment, then try again.'**
+  String get startupPreferencesBusy;
+
+  /// No description provided for @startupRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get startupRetry;
+
   /// No description provided for @storageTitle.
   ///
   /// In en, this message translates to:
