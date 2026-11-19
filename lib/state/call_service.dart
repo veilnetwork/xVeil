@@ -517,7 +517,8 @@ class CallService {
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
   Timer? _mediaWatchdogTimer;
   bool _mediaWatchdogCheckBusy = false;
-  ({DateTime at, bool localNetworkChanged})? _relayHandover;
+  ({DateTime at, bool localNetworkChanged, int? failedProbeGeneration})?
+  _relayHandover;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
@@ -852,7 +853,11 @@ class CallService {
           _media?.activeTransport == CallTransportKind.relay) {
         // Relay can survive as the selected transport while its local network
         // changes. Use the same receive guard as a newly committed relay.
-        _relayHandover = (at: _now(), localNetworkChanged: true);
+        _relayHandover = (
+          at: _now(),
+          localNetworkChanged: true,
+          failedProbeGeneration: null,
+        );
         devLog(() => 'xVeil[call-media]: local network handover on relay');
         return;
       }
@@ -2378,7 +2383,12 @@ class CallService {
   Future<void> _checkRelayHandoverAudio(Call call) async {
     final media = _media;
     final handover = _relayHandover;
-    if (media == null || handover == null || _mediaWatchdogCheckBusy) return;
+    if (media == null ||
+        handover == null ||
+        _mediaWatchdogCheckBusy ||
+        handover.failedProbeGeneration == _relayConnectionGeneration) {
+      return;
+    }
     final handoverAt = handover.at;
 
     // The handover window applies to the last audio before the outage.
@@ -2463,9 +2473,14 @@ class CallService {
     // Before any audio has arrived on the new network, keep the active
     // channel open. Only a candidate with a fresh peer echo may replace it.
     if (latestRxAt.isBefore(handoverAt)) {
+      if (handover.failedProbeGeneration != null) {
+        devLog(() => 'xVeil[call-media]: retrying relay probe after admission');
+      }
+      final probeGeneration = _relayConnectionGeneration;
+      var refreshed = false;
       _mediaWatchdogCheckBusy = true;
       try {
-        await media.refreshRelayRoute(
+        refreshed = await media.refreshRelayRoute(
           canCommit: () async {
             if (ownedCall() == null) return false;
             final latest = await readAudio();
@@ -2476,13 +2491,27 @@ class CallService {
       } catch (_) {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
-        if (_relayHandover == handover) _relayHandover = null;
+        if (_relayHandover == handover) {
+          // Admission during the probe also counts. Keep one retry within
+          // the original window; the new candidate still needs a peer echo.
+          _relayHandover =
+              !refreshed &&
+                  handover.failedProbeGeneration == null &&
+                  ownedCall() != null &&
+                  _now().isBefore(checkUntil)
+              ? (
+                  at: handoverAt,
+                  localNetworkChanged: handover.localNetworkChanged,
+                  failedProbeGeneration: probeGeneration,
+                )
+              : null;
+        }
         _mediaWatchdogCheckBusy = false;
       }
       return;
     }
 
-    // Spend at most one early recovery per handover.
+    // Spend at most one early rebuild per handover.
     _relayHandover = null;
     final ageMs = _now().difference(latestRxAt).inMilliseconds;
     devLog(
@@ -3406,7 +3435,11 @@ class CallService {
               _current?.transport == CallTransportKind.p2p &&
               call.status == CallStatus.active &&
               call.transport == CallTransportKind.relay
-          ? (at: _now(), localNetworkChanged: false)
+          ? (
+              at: _now(),
+              localNetworkChanged: false,
+              failedProbeGeneration: null,
+            )
           : null;
     }
     if (_current?.callId != call.callId) {
