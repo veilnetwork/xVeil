@@ -258,6 +258,7 @@ void main() {
         await owner.retire();
         expect(await Future.wait(saves), [true, true]);
         final pointer = file('xveil.profile');
+        final choiceLock = File(path('xveil.profile.lock'))..createSync();
         final w = await begin(), r = retirement(workers.last);
         await w.removeManagedFiles(retireScopes: r.retire);
         await w.removeAuxiliaryFiles(
@@ -272,6 +273,7 @@ void main() {
           expect(File(path(name)).existsSync(), isFalse);
         }
         expect(pointer.readAsStringSync(), 'synthetic xveil.profile bytes');
+        expect(choiceLock.lengthSync(), 0);
         expect(
           File(path('profiles/unrelated/xveil.prefs.json')).existsSync(),
           isTrue,
