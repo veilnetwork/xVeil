@@ -8,6 +8,8 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/features/calls/call_lifecycle_bridge.dart'
+    show callPipMode;
 import 'package:xveil/features/calls/call_overlay.dart';
 import 'package:xveil/features/calls/call_surface.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -196,7 +198,62 @@ void main() {
         expect(image, findsNothing);
         expect(find.byType(RawImage), findsNothing);
 
+        final previousPipMode = callPipMode.value;
+        addTearDown(() => callPipMode.value = previousPipMode);
+        callPipMode.value = true;
+        await pumpForVideo();
+        expect(image, findsNothing, reason: 'PiP restored a retired frame');
+        callPipMode.value = false;
+        await pumpForVideo();
+        expect(
+          image,
+          findsNothing,
+          reason: 'full screen restored a retired frame',
+        );
+
+        await tester.tap(find.byKey(const ValueKey('call-surface-minimize')));
+        await pumpForVideo();
+        expect(
+          image,
+          findsNothing,
+          reason: 'the call tile restored a retired frame',
+        );
+        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.open_in_full), findsNothing);
+
+        capture(const CallMedia(audio: true), 2200);
+        await tester.pump();
+        frame(10);
+        capture(const CallMedia(audio: true, video: true), 2300);
+        await tester.pump();
+        await tester.tap(find.byIcon(Icons.videocam));
+        await pumpForVideo();
+        expect(find.byIcon(Icons.open_in_full), findsOneWidget);
+        expect(
+          image,
+          findsNothing,
+          reason: 'video changed sources while the tile was hidden',
+        );
+        await tester.tap(find.byIcon(Icons.open_in_full));
+        await pumpForVideo();
+        expect(image, findsNothing);
+
         frame(1, textureId: 22);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+
+        // Both signals can arrive before Flutter draws another frame.
+        capture(const CallMedia(audio: true), 2500);
+        capture(const CallMedia(audio: true, video: true), 2600);
+        await tester.idle();
+        await tester.pumpAndSettle();
+        expect(
+          image,
+          findsNothing,
+          reason: 'a quick camera restart kept the old frame',
+        );
+        frame(2, textureId: 22);
         await pumpForVideo();
         expect(image, findsOneWidget);
 
@@ -205,7 +262,15 @@ void main() {
         expect(image, findsNothing);
         expect(find.text('Waiting for shared screen…'), findsOneWidget);
         await tester.pump(const Duration(milliseconds: 20));
-        frame(2, textureId: 22);
+        frame(3, textureId: 22);
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+
+        // A static screen may not emit another frame after changing surfaces.
+        callPipMode.value = true;
+        await pumpForVideo();
+        expect(image, findsOneWidget);
+        callPipMode.value = false;
         await pumpForVideo();
         expect(image, findsOneWidget);
       },

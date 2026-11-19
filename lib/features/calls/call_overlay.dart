@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
@@ -34,6 +35,24 @@ import 'video_frame_view.dart';
 /// Cancel drive the [CallService] FSM.
 enum _OverlayMode { full, mini, hidden }
 
+enum _PeerVideoSource { camera, screen, off }
+
+_PeerVideoSource _peerVideoSource(Call call) {
+  final capture = call.peerCapture;
+  if (capture?.screen ?? (call.media.screen && !call.screenOn)) {
+    return _PeerVideoSource.screen;
+  }
+  return capture?.video == false
+      ? _PeerVideoSource.off
+      : _PeerVideoSource.camera;
+}
+
+typedef _RemoteVideoSnapshot = ({
+  int revision,
+  WeakReference<VeilVideoFrame>? frame,
+  AndroidNativeCallVideoTexture? texture,
+});
+
 class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
 
@@ -53,6 +72,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   bool _captureDevicesLoading = false;
   List<CallMediaDevice>? _captureDevices;
   bool _startScreenAfterDeviceSelection = false;
+  _RemoteVideoSnapshot? _videoBeforeSourceChange;
 
   Future<void> _openCaptureDevicePicker(
     CallService svc, {
@@ -183,6 +203,25 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     setState(() => _pipActive = callPipMode.value);
   }
 
+  void _observePeerVideo(Call? previous, Call? next) {
+    if (previous == null ||
+        next == null ||
+        previous.callId != next.callId ||
+        !next.isLive) {
+      _videoBeforeSourceChange = null;
+      return;
+    }
+    if (_peerVideoSource(previous) == _peerVideoSource(next)) return;
+    final frame = remoteVideoFrame.value;
+    // The compact and system PiP views can be mounted after a source change.
+    // Give every surface the same evidence about the sample it may inherit.
+    _videoBeforeSourceChange = (
+      revision: (_videoBeforeSourceChange?.revision ?? 0) + 1,
+      frame: frame == null ? null : WeakReference(frame),
+      texture: androidNativeCallVideoTexture.value,
+    );
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (Platform.isAndroid &&
@@ -206,7 +245,11 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     final ready = ref.watch(
       appControllerProvider.select((s) => s.phase == AppPhase.ready),
     );
-    if (!ready) return const SizedBox.shrink();
+    if (!ready) {
+      _videoBeforeSourceChange = null;
+      return const SizedBox.shrink();
+    }
+    ref.listen<Call?>(currentCallProvider, _observePeerVideo);
     final call = ref.watch(currentCallProvider);
     if (call == null || call.status == CallStatus.ended) {
       _callId = null;
@@ -233,6 +276,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
+    final remoteVideo = _RemoteCallVideoView(
+      call: call,
+      beforeSourceChange: _videoBeforeSourceChange,
+    );
     final canMinimize =
         call.status == CallStatus.connecting ||
         call.status == CallStatus.active;
@@ -244,7 +291,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       // the bare default style (yellow underline).
       if (videoStage) {
         return Positioned.fill(
-          child: Material(color: Colors.black, child: _PipVideoView(call)),
+          child: Material(color: Colors.black, child: remoteVideo),
         );
       }
       return const Positioned.fill(child: _PipEndedCover());
@@ -259,6 +306,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
               children: [
                 _CallBody(
                   call,
+                  remoteVideo: remoteVideo,
                   onShowDevices: (svc) => _openCaptureDevicePicker(
                     svc,
                     includeCameras: call.media.video,
@@ -345,6 +393,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     }
     return _FloatingCallTile(
       call: call,
+      remoteVideo: remoteVideo,
       offset: _miniOffset,
       onDrag: (delta) {
         final size = MediaQuery.sizeOf(context);
@@ -378,6 +427,7 @@ class _CallBody extends ConsumerWidget {
   const _CallBody(
     this.call, {
     this.onMinimize,
+    required this.remoteVideo,
     required this.selfPreviewOffset,
     required this.selfPreviewSize,
     required this.selfPreviewHidden,
@@ -389,6 +439,7 @@ class _CallBody extends ConsumerWidget {
     required this.onToggleScreen,
   });
   final Call call;
+  final Widget remoteVideo;
   final VoidCallback? onMinimize;
   final Offset selfPreviewOffset;
   final Size selfPreviewSize;
@@ -491,10 +542,7 @@ class _CallBody extends ConsumerWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        ColoredBox(
-          color: Colors.black,
-          child: _RemoteCallVideoView(call: call),
-        ),
+        ColoredBox(color: Colors.black, child: remoteVideo),
         // Scrims so the white text/controls stay legible over any frame.
         const _Scrim(top: true),
         const _Scrim(top: false),
@@ -721,17 +769,21 @@ class _PipEndedCover extends StatelessWidget {
 }
 
 class _RemoteCallVideoView extends StatelessWidget {
-  const _RemoteCallVideoView({required this.call});
+  const _RemoteCallVideoView({
+    required this.call,
+    required this.beforeSourceChange,
+  });
 
   final Call call;
+  final _RemoteVideoSnapshot? beforeSourceChange;
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final capture = call.peerCapture;
-    final screen = capture?.screen ?? (call.media.screen && !call.screenOn);
-    final enabled = capture == null || capture.video || screen;
-    final source = (call.callId, screen);
+    final peerSource = _peerVideoSource(call);
+    final screen = peerSource == _PeerVideoSource.screen;
+    final enabled = peerSource != _PeerVideoSource.off;
+    final source = (call.callId, peerSource, beforeSourceChange?.revision);
     final waiting = screen ? l.callScreenWaiting : l.callVideoWaiting;
     final icon = screen ? Icons.screen_share_outlined : Icons.videocam_outlined;
     return Stack(
@@ -740,6 +792,7 @@ class _RemoteCallVideoView extends StatelessWidget {
         if (defaultTargetPlatform == TargetPlatform.android)
           _AndroidNativeRemoteVideoView(
             enabled: enabled,
+            beforeSourceChange: beforeSourceChange,
             freshnessToken: source,
             waitingLabel: waiting,
             fit: BoxFit.contain,
@@ -749,6 +802,7 @@ class _RemoteCallVideoView extends StatelessWidget {
         else
           CallVideoFrameView(
             enabled: enabled,
+            frameBeforeSourceChange: beforeSourceChange?.frame,
             frameListenable: remoteVideoFrame,
             freshnessToken: source,
             waitingLabel: waiting,
@@ -768,6 +822,7 @@ class _RemoteCallVideoView extends StatelessWidget {
 class _AndroidNativeRemoteVideoView extends StatefulWidget {
   const _AndroidNativeRemoteVideoView({
     required this.enabled,
+    required this.beforeSourceChange,
     required this.freshnessToken,
     required this.waitingLabel,
     required this.fit,
@@ -776,6 +831,7 @@ class _AndroidNativeRemoteVideoView extends StatefulWidget {
   });
 
   final bool enabled;
+  final _RemoteVideoSnapshot? beforeSourceChange;
   final Object freshnessToken;
   final String waitingLabel;
   final BoxFit fit;
@@ -834,7 +890,7 @@ class _AndroidNativeRemoteVideoViewState
   @override
   Widget build(BuildContext context) {
     final value = androidNativeCallVideoTexture.value;
-    final blocked = _blockedTexture;
+    final blocked = _blockedTexture ?? widget.beforeSourceChange?.texture;
     final visible =
         widget.enabled &&
         value != null &&
@@ -847,6 +903,7 @@ class _AndroidNativeRemoteVideoViewState
       children: [
         CallVideoFrameView(
           enabled: widget.enabled && !visible,
+          frameBeforeSourceChange: widget.beforeSourceChange?.frame,
           frameListenable: remoteVideoFrame,
           freshnessToken: widget.freshnessToken,
           waitingLabel: widget.waitingLabel,
@@ -911,20 +968,6 @@ class _AndroidNativeRemoteVideoViewState
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PipVideoView extends StatelessWidget {
-  const _PipVideoView(this.call);
-
-  final Call call;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black,
-      child: _RemoteCallVideoView(call: call),
     );
   }
 }
@@ -1010,6 +1053,7 @@ class _TransportBadge extends StatelessWidget {
 class _FloatingCallTile extends ConsumerWidget {
   const _FloatingCallTile({
     required this.call,
+    required this.remoteVideo,
     required this.offset,
     required this.onDrag,
     required this.onExpand,
@@ -1017,6 +1061,7 @@ class _FloatingCallTile extends ConsumerWidget {
   });
 
   final Call call;
+  final Widget remoteVideo;
   final Offset offset;
   final ValueChanged<Offset> onDrag;
   final VoidCallback onExpand;
@@ -1044,7 +1089,7 @@ class _FloatingCallTile extends ConsumerWidget {
             fit: StackFit.expand,
             children: [
               if (call.media.video || call.media.screen)
-                _RemoteCallVideoView(call: call)
+                remoteVideo
               else
                 Center(
                   child: CircleAvatar(

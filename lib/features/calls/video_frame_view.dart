@@ -37,6 +37,7 @@ class CallVideoFrameView extends StatefulWidget {
     this.placeholderIcon = Icons.videocam_outlined,
     this.mirrored = false,
     this.enabled = true,
+    this.frameBeforeSourceChange,
     this.staleLabel,
     this.staleAfter = const Duration(seconds: 4),
   });
@@ -53,6 +54,10 @@ class CallVideoFrameView extends StatefulWidget {
   /// Keep the source boundary while a separate surface owns the preview.
   /// Enabling again waits for a frame newer than the value already cached.
   final bool enabled;
+
+  /// The caller observed a source change before this surface was mounted.
+  /// Compare against that frame without retaining its pixel buffer.
+  final WeakReference<VeilVideoFrame>? frameBeforeSourceChange;
 
   /// When set, a stream that STOPS delivering new frames (backgrounded peer
   /// app, stopped camera, stalled route) badges the last frame with this label
@@ -85,10 +90,15 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   void initState() {
     super.initState();
     widget.frameListenable.addListener(_onFrame);
-    // A newly mounted surface (for example mini → full) may inherit an
-    // already-confirmed static screen frame. Only a token transition inside a
-    // living surface proves that its current frame belongs to the old source.
-    _resetSource(blockCurrent: !widget.enabled);
+    // An already-confirmed static screen may never emit another frame. A new
+    // surface may inherit it unless the caller saw a change after that frame.
+    final previous = widget.frameBeforeSourceChange?.target;
+    _resetSource(
+      blockCurrent:
+          !widget.enabled ||
+          (previous != null &&
+              identical(previous, widget.frameListenable.value)),
+    );
   }
 
   @override
