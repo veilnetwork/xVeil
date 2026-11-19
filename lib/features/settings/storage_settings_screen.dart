@@ -48,6 +48,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   String? _hardening;
 
   bool _autoCompact = false;
+  bool _savingAutoCompact = false;
   bool _leanPadding = true;
   bool _loaded = false;
   bool _reclaimingOwned = false;
@@ -163,34 +164,53 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   /// identity deleted by a maintenance job. A switch flipped in passing is not
   /// the right shape for that; turning it OFF needs no ceremony at all.
   Future<void> _setAutoCompact(AppL10n l, bool enable) async {
+    if (_savingAutoCompact) return;
     final ctrl = ref.read(appControllerProvider.notifier);
-    if (!enable) {
-      setState(() => _autoCompact = false);
-      await ctrl.setAutoCompactEnabled(false);
-      return;
+    final lease = ctrl.leaseIdentity();
+    bool current() => mounted && ctrl.holdsIdentity(lease);
+    setState(() => _savingAutoCompact = true);
+    try {
+      if (enable) {
+        final agreed = await showDialog<bool>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text(l.settingsStorageAutoCompactConfirmTitle),
+            content: SingleChildScrollView(
+              child: Text(l.settingsStorageAutoCompactConfirmBody),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(d).pop(false),
+                child: Text(l.actionCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(d).pop(true),
+                child: Text(l.settingsStorageAutoCompactConfirmAction),
+              ),
+            ],
+          ),
+        );
+        if (agreed != true) return;
+      }
+      if (!current() || !ctrl.canCompactStorage) return;
+      var writeFailed = false;
+      try {
+        await ctrl.setAutoCompactEnabled(enable);
+      } catch (_) {
+        writeFailed = true;
+      }
+      if (!current()) return;
+      final saved = await ctrl.autoCompactEnabled();
+      if (!mounted || !ctrl.holdsIdentity(lease)) return;
+      setState(() => _autoCompact = saved);
+      if (writeFailed || saved != enable) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.dhtServeSaveFailed)));
+      }
+    } finally {
+      if (mounted) setState(() => _savingAutoCompact = false);
     }
-    final agreed = await showDialog<bool>(
-      context: context,
-      builder: (d) => AlertDialog(
-        title: Text(l.settingsStorageAutoCompactConfirmTitle),
-        content: SingleChildScrollView(
-          child: Text(l.settingsStorageAutoCompactConfirmBody),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l.settingsStorageAutoCompactConfirmAction),
-          ),
-        ],
-      ),
-    );
-    if (agreed != true || !mounted) return;
-    setState(() => _autoCompact = true);
-    await ctrl.setAutoCompactEnabled(true);
   }
 
   Future<void> _reclaimOwned(AppL10n l) async {
@@ -419,7 +439,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     ),
                     subtitle: Text(l.storageAutoCompactBrief),
                     value: _autoCompact,
-                    onChanged: (v) => _setAutoCompact(l, v),
+                    onChanged: _savingAutoCompact
+                        ? null
+                        : (v) => _setAutoCompact(l, v),
                   ),
                 if (!ctrl.usesManagedStorage && !ctrl.canCompactStorage)
                   ListTile(
