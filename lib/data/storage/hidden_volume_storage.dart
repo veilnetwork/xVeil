@@ -7061,6 +7061,9 @@ class HiddenVolumeStorage
   /// peer, and `gcr:` ids are shared across holders — ACK a frame addressed to
   /// someone else and stop its delivery (audit XV-02).
   Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex}) {
+    if (_store == null || _convSequenceFences > 0) {
+      return Future.error(StateError('storage is closing or locked'));
+    }
     final pending = _pendingOutboxAcks;
     if (pending != null &&
         pending.peer == fromPeerHex &&
@@ -7069,11 +7072,15 @@ class HiddenVolumeStorage
       return pending.result;
     }
     final batch = _PendingOutboxAcks(fromPeerHex)..ids.add(frameId);
-    batch.result = _outboxSerialized(() async {
-      // Seal before the first await: arrivals during commit need another turn.
-      if (identical(_pendingOutboxAcks, batch)) _pendingOutboxAcks = null;
-      await _ackOutboxFramesCritical(batch.ids, fromPeerHex: batch.peer);
-    });
+    // Keep the captured container open from admission through commit, even
+    // while this batch is waiting for an earlier operation on the queue.
+    batch.result = _trackLogWrite(
+      (store) => _outboxSerialized(() async {
+        // Seal before the first await: arrivals during commit need another turn.
+        if (identical(_pendingOutboxAcks, batch)) _pendingOutboxAcks = null;
+        await _ackOutboxFramesCritical(store, batch.ids, fromPeerHex: batch.peer);
+      }),
+    );
     _pendingOutboxAcks = batch;
     return batch.result;
   }
@@ -7082,14 +7089,20 @@ class HiddenVolumeStorage
   Future<List<String>> ackOutboxFrames(
     Iterable<String> frameIds, {
     required String fromPeerHex,
-  }) => _outboxSerialized(
-    () => _ackOutboxFramesCritical(frameIds, fromPeerHex: fromPeerHex),
+  }) => _trackLogWrite(
+    (store) => _outboxSerialized(
+      () => _ackOutboxFramesCritical(store, frameIds, fromPeerHex: fromPeerHex),
+    ),
   );
 
   Future<List<String>> _ackOutboxFramesCritical(
+    AsyncKvLogStore store,
     Iterable<String> frameIds, {
     required String fromPeerHex,
   }) async {
+    if (!identical(store, _store)) {
+      throw StateError('storage session changed before outbox ACK');
+    }
     if (!await _ensureOutboxLoadedCritical()) {
       throw StateError('durable outbox could not be loaded');
     }
@@ -7105,7 +7118,7 @@ class HiddenVolumeStorage
     try {
       // The index is authoritative. Retire all logical rows together; payload
       // garbage may be cleaned in bounded batches after this atomic boundary.
-      await _as.commit([
+      await store.commit([
         for (final id in ids) DeleteOp(Ns.outboxIndex, _outboxIndexKey(id)),
         if (inlineCleanup)
           for (final logId in payloadIds) DeleteLogOp(Ns.outbox, logId),
@@ -7121,8 +7134,8 @@ class HiddenVolumeStorage
     }
     try {
       if (_outboxById.isEmpty) {
-        await _as.eraseNamespace(Ns.outbox);
-        await _as.eraseNamespace(Ns.outboxIndex);
+        await store.eraseNamespace(Ns.outbox);
+        await store.eraseNamespace(Ns.outboxIndex);
       } else if (!inlineCleanup) {
         await _cleanupIndexedOutboxCritical();
       }
@@ -7186,6 +7199,7 @@ class HiddenVolumeStorage
           }
         }
         await _ackOutboxFramesCritical(
+          store,
           old.map((f) => f.frameId),
           fromPeerHex: keep.peerHex,
         );

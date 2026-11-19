@@ -494,10 +494,12 @@ abstract interface class Storage {
   /// Mark [frameId] delivered (recipient acked) so the flush stops re-driving it.
   /// Retire the durable frame [frameId], but only if it was addressed to
   /// [fromPeerHex]. See `HiddenVolumeStorage.ackOutboxFrame` (audit XV-02).
+  /// A retirement accepted before orderly closure settles before the store closes.
   Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex});
 
   /// Retire matching rows in ONE atomic commit. Return only IDs addressed to
   /// [fromPeerHex]. A failure must never expose a partially retired batch.
+  /// Accepted batches settle before orderly closure, like [ackOutboxFrame].
   Future<List<String>> ackOutboxFrames(
     Iterable<String> frameIds, {
     required String fromPeerHex,

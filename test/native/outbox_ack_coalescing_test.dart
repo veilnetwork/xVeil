@@ -1,6 +1,7 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -19,7 +20,8 @@ class _NativeAckStore extends TimedNativeStore {
   _NativeAckStore(AsyncKvLogStore inner)
     : super(inner, Stopwatch()..start(), (_) {});
   int commits = 0, indexDeletes = 0;
-  bool refuse = false, uncertain = false;
+  bool refuse = false, uncertain = false, hold = false;
+  final entered = Completer<void>(), release = Completer<void>();
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
@@ -30,6 +32,11 @@ class _NativeAckStore extends TimedNativeStore {
     if (deletes == 0) return super.commit(ops);
     commits++;
     indexDeletes += deletes;
+    if (hold) {
+      hold = false;
+      entered.complete();
+      await release.future;
+    }
     if (refuse) {
       refuse = false;
       throw StateError('injected native pre-commit refusal');
@@ -73,6 +80,7 @@ void main() {
   });
   tearDown(() async {
     if (!enabled) return;
+    if (!backing.release.isCompleted) backing.release.complete();
     await storage.close();
     if (await directory.exists()) await directory.delete(recursive: true);
   });
@@ -91,6 +99,38 @@ void main() {
     storage = next;
     return next;
   }
+
+  test(
+    'native close drains admitted outbox ACKs before releasing the worker',
+    () async {
+      await put('first');
+      await put('queued');
+      await put('keep', peer: 'other');
+
+      backing.hold = true;
+      final first = storage.ackOutboxFrame('first', fromPeerHex: 'peer');
+      await backing.entered.future;
+      final next = storage.ackOutboxFrames([
+        'queued',
+        'keep',
+      ], fromPeerHex: 'peer');
+      final closing = storage.close();
+      final accepted = Future.wait([
+        first,
+        next.then((retired) => expect(retired, ['queued'])),
+      ]);
+      await pumpEventQueue();
+      final openBeforeCommit = storage.isOpen;
+      backing.release.complete();
+      await accepted;
+      await closing;
+
+      expect(openBeforeCommit, isTrue);
+      expect(backing.commits, 2);
+      expect(await pending(await reopen()), ['keep']);
+    },
+    skip: enabled ? false : 'set XVEIL_HV_DYLIB to the qualified library',
+  );
 
   test(
     'native concurrent ACK burst retains only unrelated rows across reopen',
