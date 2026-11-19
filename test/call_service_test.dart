@@ -2649,6 +2649,10 @@ void main() {
       'already waiting',
       'snapshot pending',
       'snapshot outlasts admission',
+      'relay crosses the next heartbeat',
+      'relay rebuild expires',
+      'video relay rebuild expires',
+      'hangup during relay rebuild',
       'no admission',
     ]) {
       test('liveness lets a bounded relay reconnect finish: $outcome', () {
@@ -2657,12 +2661,20 @@ void main() {
           final network = StreamController<NetworkAttachment>(sync: true);
           final admissions = StreamController<void>(sync: true);
           final snapshot = Completer<DateTime?>();
-          final admissionBeforeSnapshot =
+          final snapshotOutlastsAdmission =
               outcome == 'snapshot outlasts admission';
+          final visualRebuild = outcome == 'video relay rebuild expires';
+          final rebuildExpires =
+              outcome == 'relay rebuild expires' || visualRebuild;
+          final relayStillOpening =
+              snapshotOutlastsAdmission ||
+              outcome == 'relay crosses the next heartbeat' ||
+              rebuildExpires ||
+              outcome == 'hangup during relay rebuild';
           final media = _RepairThenRelayMedia()
             ..openedTransport = CallTransportKind.relay
             ..repairSucceeds = false
-            ..relayGate = admissionBeforeSnapshot ? Completer<bool>() : null
+            ..relayGate = relayStillOpening ? Completer<bool>() : null
             ..readSnapshot = (() => snapshot.future);
           final svc = CallService(
             wire,
@@ -2672,7 +2684,12 @@ void main() {
             overlaySessionAdmissions: admissions.stream,
           )..start();
           const callId = 'relay-rebuild-crosses-liveness';
-          wire.onCallSignal!(peer, offer(callId));
+          wire.onCallSignal!(
+            peer,
+            offer(callId).copyWith(
+              media: CallMedia(audio: true, video: visualRebuild),
+            ),
+          );
           unawaited(svc.accept());
           async.flushMicrotasks();
           media.rxAt = clock.now();
@@ -2681,7 +2698,7 @@ void main() {
           expect(media.activeTransport, isNull);
 
           final snapshotPending =
-              outcome == 'snapshot pending' || admissionBeforeSnapshot;
+              outcome == 'snapshot pending' || snapshotOutlastsAdmission;
           final expiryTick = kCallLivenessTimeout + kCallHeartbeatInterval;
           const offset = Duration(milliseconds: 250);
           async.elapse(
@@ -2693,7 +2710,7 @@ void main() {
           media.cameraStopped.complete();
           async.flushMicrotasks();
           wire.sent.clear();
-          if (admissionBeforeSnapshot) {
+          if (relayStillOpening) {
             admissions.add(null);
             async.flushMicrotasks();
             expect(media.switches, [CallTransportKind.relay]);
@@ -2704,25 +2721,61 @@ void main() {
           async.flushMicrotasks();
           expect(svc.current?.status, CallStatus.active);
           expect(media.switches, [
-            if (admissionBeforeSnapshot) CallTransportKind.relay,
+            if (relayStillOpening) CallTransportKind.relay,
           ]);
           expect(wire.sent.where((s) => s.type == CallSignalType.end), isEmpty);
           if (!snapshotPending) {
             expect(media.snapshotReads, 0);
-            expect(
-              wire.sent.where((s) => s.type == CallSignalType.health),
-              isNotEmpty,
+            final health = wire.sent.where((s) => s.type == CallSignalType.health);
+            expect(health, isNotEmpty);
+            expect(health.any((signal) => signal.mediaRepairRequested), isFalse);
+          }
+          if (relayStillOpening) {
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: callId,
+                type: CallSignalType.health,
+                mediaRepairRequested: true,
+              ),
             );
+            async.flushMicrotasks();
+            expect(media.repairs, 1);
           }
 
-          if (outcome == 'no admission') {
+          if (rebuildExpires || outcome == 'hangup during relay rebuild') {
+            if (rebuildExpires) {
+              final startBudget = visualRebuild
+                  ? kCallVisualMediaStartTimeout
+                  : kCallMediaStartTimeout;
+              const lastTick = Duration(milliseconds: 1);
+              async.elapse(startBudget - offset - lastTick);
+              expect(svc.current?.status, CallStatus.active);
+              async.elapse(lastTick);
+            } else {
+              unawaited(svc.hangup());
+              async.flushMicrotasks();
+            }
+            expect(svc.current, isNull);
+            media.relayGate!.complete(true);
+            async.flushMicrotasks();
+            expect(svc.current, isNull);
+            expect(
+              wire.sent.where((s) => s.type == CallSignalType.end).single.reason,
+              rebuildExpires ? CallEndReason.error : CallEndReason.hangup,
+            );
+            expect(
+              wire.sent.where((s) => s.type == CallSignalType.transportInfo),
+              isEmpty,
+            );
+          } else if (outcome == 'no admission') {
             async.elapse(kCallRelayCandidateRetry - offset);
             expect(svc.current, isNull);
             final end = wire.sent.where((s) => s.type == CallSignalType.end);
             expect(end.single.reason, CallEndReason.error);
             expect(media.switches, isEmpty);
           } else {
-            if (admissionBeforeSnapshot) {
+            if (relayStillOpening) {
               media.relayGate!.complete(true);
             } else {
               admissions.add(null);
