@@ -22,7 +22,18 @@ class _NativeEnqueueStore extends TimedNativeStore {
     : super(inner, Stopwatch()..start(), (_) {});
   final commitFrames = <int>[];
   bool refuse = false, uncertain = false, hold = false;
+  int readsUntilFailure = 0;
   final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  Future<Uint8List?> readLog(int namespace, int logId) async {
+    if (namespace == Ns.outbox &&
+        readsUntilFailure > 0 &&
+        --readsUntilFailure == 0) {
+      throw StateError('fixture native worker read interrupted');
+    }
+    return super.readLog(namespace, logId);
+  }
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
@@ -106,6 +117,35 @@ void main() {
     );
     expect(await storage.open(password: secret), isTrue);
   }
+
+  test(
+    'outbox reload preserves native payload after an interrupted fragment read',
+    () async {
+      await put('queued');
+      await storage.close();
+      final readback = _NativeEnqueueStore(
+        (await workerSpaceOpener('${directory.path}/store.hv')(
+          password: password,
+          create: false,
+        ))!,
+      );
+      storage = HiddenVolumeStorage.async(
+        ({required password, required create}) async => readback,
+      );
+      expect(await storage.open(password: secret), isTrue);
+      final rows = await readback.count(Ns.outbox);
+      expect(rows, greaterThan(1));
+      readback.readsUntilFailure = 2;
+      expect(await ids(), isEmpty);
+      expect(readback.readsUntilFailure, 0);
+      expect(await readback.count(Ns.outboxIndex), 1);
+      expect(await readback.count(Ns.outbox), rows);
+      expect((await storage.pendingOutboxFrames()).single.wire, wire);
+      await reopen();
+      expect(await ids(), ['queued']);
+    },
+    skip: skip,
+  );
 
   test(
     'native enqueue burst preserves every wire and index across reopen',

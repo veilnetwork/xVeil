@@ -13,7 +13,27 @@ class _EnqueueStore extends SyncWrappedAsyncKvLogStore {
   final FakeKvLogStore raw;
   final writes = <List<KvLogOp>>[];
   bool refuse = false, uncertain = false, hold = false;
+  bool refuseIndex = false;
+  int? refusedLogId;
   final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  Future<Uint8List?> get(int namespace, Uint8List key) async {
+    if (namespace == Ns.outboxIndex && refuseIndex) {
+      refuseIndex = false;
+      throw StateError('injected temporary outbox index read failure');
+    }
+    return super.get(namespace, key);
+  }
+
+  @override
+  Future<Uint8List?> readLog(int namespace, int logId) async {
+    if (namespace == Ns.outbox && logId == refusedLogId) {
+      refusedLogId = null;
+      throw const FormatException('injected outbox worker read failure');
+    }
+    return super.readLog(namespace, logId);
+  }
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
@@ -64,6 +84,74 @@ void main() {
       (await (target ?? storage).pendingOutboxFrames())
           .map((f) => f.frameId)
           .toList();
+
+  for (final failure in ['index', 'header', 'fragment']) {
+    test(
+      'outbox reload preserves frames after a temporary $failure failure',
+      () async {
+        final wire = Uint8List.fromList(List.generate(4096, (i) => i % 251));
+        await put('large', wire: wire);
+        final pointer = backing.writes.single.whereType<PutOp>().singleWhere(
+          (op) => op.namespace == Ns.outboxIndex,
+        );
+        final header = int.parse(utf8.decode(pointer.value));
+        final manifest =
+            jsonDecode(utf8.decode(backing.raw.readLog(Ns.outbox, header)!))
+                as Map;
+        await put('other');
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+        final rows = backing.raw.count(Ns.outbox);
+        backing.refuseIndex = failure == 'index';
+        backing.refusedLogId = switch (failure) {
+          'header' => header,
+          'fragment' => manifest['first'] as int,
+          _ => null,
+        };
+        final failed = await ids();
+        expect(backing.raw.kvKeys(Ns.outboxIndex), hasLength(2));
+        expect(backing.raw.count(Ns.outbox), rows);
+        expect(failed, isEmpty, reason: 'do not publish a partial snapshot');
+        final recovered = await storage.pendingOutboxFrames();
+        expect(
+          recovered.map((frame) => frame.frameId),
+          unorderedEquals(['large', 'other']),
+        );
+        expect(
+          recovered.singleWhere((frame) => frame.frameId == 'large').wire,
+          wire,
+        );
+      },
+    );
+  }
+
+  for (final malformed in ['index', 'payload']) {
+    test('outbox reload still reclaims a malformed $malformed', () async {
+      await put('broken');
+      final pointer = backing.writes.single.whereType<PutOp>().singleWhere(
+        (op) => op.namespace == Ns.outboxIndex,
+      );
+      await put('other');
+      final garbage = Uint8List.fromList([0xff]);
+      const garbageLogId = 1000000;
+      backing.raw.commit([
+        if (malformed == 'payload')
+          AppendLogOp(Ns.outbox, garbageLogId, garbage),
+        PutOp(
+          Ns.outboxIndex,
+          pointer.key,
+          malformed == 'index'
+              ? garbage
+              : Uint8List.fromList(utf8.encode('$garbageLogId')),
+        ),
+      ]);
+      await storage.close();
+      expect(await storage.open(password: 'fixture'), isTrue);
+      expect(await ids(), ['other']);
+      expect(backing.raw.kvKeys(Ns.outboxIndex), hasLength(1));
+      expect(backing.raw.count(Ns.outbox), 1);
+    });
+  }
 
   for (final uncertain in [false, true]) {
     test(
