@@ -112,6 +112,18 @@ class ManagedFsPlatform {
     throw const ManagedFsFailure(ManagedFsFailureKind.io);
   }
 
+  /// Reserve a new leaf. On Windows explicitly set its owner and DACL at
+  /// creation, since inherited permissions do not select the default owner.
+  void reserveNewFile(String path) {
+    if (Platform.isWindows) {
+      if (!windows.createPrivateFile(path)) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+      }
+    } else {
+      File(path).createSync(exclusive: true);
+    }
+  }
+
   /// Only for a newly reserved, still-empty file, before writing any payload.
   void restrictNewFile(String path) {
     if (!Platform.isWindows && posixChmod(path, 0x180) != 0) {

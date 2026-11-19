@@ -1007,14 +1007,24 @@ class WorkerKvLogStore
       case _Err(:final kind, :final message):
         abandon();
         throw hv.HvException(kind, message);
-      case _ManagedWorkerErr(:final kind):
+      case _ManagedWorkerErr(:final kind, :final preferencesOpenReason):
         abandon();
-        throw ManagedWorkerFailure(kind);
-      case _ManagedOpenFailed(:final kind, :final cleanup):
+        throw ManagedWorkerFailure(
+          kind,
+          preferencesOpenReason: preferencesOpenReason,
+        );
+      case _ManagedOpenFailed(
+        :final kind,
+        :final cleanup,
+        :final preferencesOpenReason,
+      ):
         // This worker still owns a failed open's native resources. Transfer
         // its close capability instead of abandoning/killing the owner.
         throw _ManagedBootstrapCleanup(
-          kind,
+          ManagedWorkerFailure(
+            kind,
+            preferencesOpenReason: preferencesOpenReason,
+          ),
           WorkerKvLogStore._(isolate, cleanup, death),
         );
       case _Ok(:final value):

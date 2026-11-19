@@ -106,6 +106,15 @@ Future<void> runStartup({
     await boot();
   } catch (e, st) {
     devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
+    if (e is ManagedWorkerFailure && e.preferencesOpenReason != null) {
+      diagnosticJournal.record(
+        DiagnosticEvent.profilePreferencesOpenFailed,
+        values: {
+          DiagnosticMetric.state: e.kind.index,
+          DiagnosticMetric.code: e.preferencesOpenReason!.index,
+        },
+      );
+    }
     errorJournal.record(
       kind: 'startup',
       error: e,
@@ -157,15 +166,9 @@ Future<void> _bootAndRunApp() async {
   // Ordering is load-bearing: `SharedPreferences` caches its map on first
   // use, so this has to win the race with every other reader.
   //
-  // Still never fatal — a launch that dies over a preference is a worse
-  // outcome than one that starts without them — but "not fatal" used to
-  // mean "carry on with the SYSTEM STORE", which is the exact thing being
-  // escaped. The assignment that swaps the backend is the last line of the
-  // installer, so any throw before it (a missing `path_provider`, an
-  // app-support directory that will not create) left everything after this
-  // point writing back into `NSUserDefaults` and back into the backup,
-  // profile roster and all. The fallback now leans the other way: an empty
-  // in-memory store. Settings are lost on exit; nothing leaves the device.
+  // Managed profiles must acquire the native preference owner before startup
+  // can proceed. Builds using the legacy backend can fall back to ephemeral
+  // preferences if a platform path or the preference file is unavailable.
   final preferences = await bootstrapProfilePreferences(
     supportDir: () async => (await getApplicationSupportDirectory()).path,
     args: launchArguments,

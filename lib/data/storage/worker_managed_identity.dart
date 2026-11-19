@@ -15,8 +15,9 @@ enum ManagedWorkerFailureKind {
 
 /// Bounded transport error: never contains native messages, paths, IDs or keys.
 final class ManagedWorkerFailure implements Exception {
-  const ManagedWorkerFailure(this.kind);
+  const ManagedWorkerFailure(this.kind, {this.preferencesOpenReason});
   final ManagedWorkerFailureKind kind;
+  final ManagedPreferencesOpenReason? preferencesOpenReason;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
@@ -39,8 +40,9 @@ final class _OpenManagedIdentity extends _OpenConfig {
 }
 
 final class _ManagedWorkerErr extends _Reply {
-  const _ManagedWorkerErr(this.kind);
+  const _ManagedWorkerErr(this.kind, {this.preferencesOpenReason});
   final ManagedWorkerFailureKind kind;
+  final ManagedPreferencesOpenReason? preferencesOpenReason;
 }
 
 final class _ManagedReclaimReq extends _Req {
@@ -49,14 +51,19 @@ final class _ManagedReclaimReq extends _Req {
 }
 
 final class _ManagedOpenFailed extends _Reply {
-  const _ManagedOpenFailed(this.kind, this.cleanup);
+  const _ManagedOpenFailed(
+    this.kind,
+    this.cleanup, {
+    this.preferencesOpenReason,
+  });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
+  final ManagedPreferencesOpenReason? preferencesOpenReason;
 }
 
 final class _ManagedBootstrapCleanup implements Exception {
-  const _ManagedBootstrapCleanup(this.kind, this.owner);
-  final ManagedWorkerFailureKind kind;
+  const _ManagedBootstrapCleanup(this.failure, this.owner);
+  final ManagedWorkerFailure failure;
   final WorkerKvLogStore owner;
 }
 
@@ -91,7 +98,10 @@ abstract final class ManagedWorkerIdentity {
     _profileKey(profileDirectory),
     id,
     () => Future.error(
-      _ManagedBootstrapCleanup(ManagedWorkerFailureKind.invalid, owner),
+      _ManagedBootstrapCleanup(
+        const ManagedWorkerFailure(ManagedWorkerFailureKind.invalid),
+        owner,
+      ),
     ),
   );
 
@@ -291,7 +301,7 @@ abstract final class ManagedWorkerIdentity {
         // Ownership is retained in the registry, not declared released. A
         // later create/open retries it, with no new filesystem access first.
       }
-      throw ManagedWorkerFailure(failure.kind);
+      throw failure.failure;
     }
   }
 }

@@ -103,6 +103,25 @@ void main() {
     support.deleteSync(recursive: true);
   });
 
+  test('preference admission preserves the typed filesystem reason', () async {
+    Directory(base()).createSync(recursive: true);
+    final marker = File(managed())..writeAsStringSync('fixture');
+    await expectLater(
+      ManagedProfilePreferencesFile.open(prefs()),
+      throwsA(
+        isA<ManagedWorkerFailure>()
+            .having((e) => e.kind, 'kind', ManagedWorkerFailureKind.invalid)
+            .having(
+              (e) => e.preferencesOpenReason,
+              'reason',
+              ManagedPreferencesOpenReason.filesystemUnsafe,
+            ),
+      ),
+    );
+    expect(marker.readAsStringSync(), 'fixture');
+    expect(File(prefs()).existsSync(), isFalse);
+  });
+
   test(
     'pending erasure refuses before preference or pointer migration with no ephemeral fallback',
     () async {
