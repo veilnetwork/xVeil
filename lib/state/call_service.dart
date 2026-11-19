@@ -2045,6 +2045,7 @@ class CallService {
     // repair queue. An obsolete repair failure must not kill that successor.
     final epoch = _mediaOperationEpoch;
     final connections = _relayConnectionGeneration;
+    final networkVersion = _networkObservationVersion;
     Call? repairOwner() {
       final call = _current;
       if (_disposed ||
@@ -2089,13 +2090,17 @@ class CallService {
         cur.transport == CallTransportKind.relay) {
       if (_relayRebuildAdmission != null) return;
       final changedAt = _localNetworkHandoverAt;
+      // The OS may already have switched networks while the notification
+      // to the node is still queued. A failed rebuild can finish in that gap.
+      final handover =
+          networkVersion != _networkObservationVersion ||
+          (changedAt != null &&
+              _now().difference(changedAt) < kCallLivenessTimeout);
       // A rebuild can finish just before the replacement session registers.
       // Keep the current call while that admission can still arrive.
       final reconnected =
-          connections != _relayConnectionGeneration ||
-          (changedAt != null &&
-              _now().difference(changedAt) < kCallLivenessTimeout &&
-              await _waitForRelayRebuildAdmission());
+          (connections != _relayConnectionGeneration && !_networkOffline) ||
+          (handover && await _waitForRelayRebuildAdmission());
       final live = repairOwner();
       if (live == null || media.activeTransport == live.transport) return;
       if (reconnected &&
@@ -2161,7 +2166,9 @@ class CallService {
   }
 
   void _noteOverlayConnectivity(String description) {
-    if (_disposed) return;
+    // A queued admission can be delivered after the local network is gone.
+    // It cannot wake recovery until there is a usable local attachment.
+    if (_disposed || _networkOffline) return;
     _relayConnectionGeneration++;
     final waiting = _relayRebuildAdmission;
     if (waiting != null && !waiting.isCompleted) waiting.complete(true);

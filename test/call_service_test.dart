@@ -2293,6 +2293,9 @@ void main() {
       'admission after earlier handover',
       'admission',
       'admission after offline',
+      'stale admission while offline',
+      'admission while network IPC is pending',
+      'network IPC pending at deadline',
       'deadline',
       'hangup',
     ]) {
@@ -2305,11 +2308,13 @@ void main() {
             ..openedTransport = CallTransportKind.relay
             ..repairSucceeds = false
             ..relayGate = Completer<bool>();
+          var networkChangeGeneration = 0;
           final svc = CallService(
             wire,
             now: () => clock.now(),
             media: media,
             networkAttachments: network.stream,
+            readNetworkChangeGeneration: () => networkChangeGeneration,
             overlaySessionAdmissions: admissions.stream,
           )..start();
           const callId = 'relay-rebuild-before-admission';
@@ -2324,8 +2329,16 @@ void main() {
           expect(media.repairs, 1);
           expect(media.activeTransport, isNull);
 
-          final wentOffline = outcome == 'admission after offline';
-          if (!earlierHandover) {
+          final staleAdmission = outcome == 'stale admission while offline';
+          final wentOffline =
+              outcome == 'admission after offline' || staleAdmission;
+          final ipcPendingAtDeadline = outcome == 'network IPC pending at deadline';
+          final ipcPending =
+              outcome == 'admission while network IPC is pending' ||
+              ipcPendingAtDeadline;
+          if (ipcPending) {
+            networkChangeGeneration++;
+          } else if (!earlierHandover) {
             network.add(
               wentOffline ? NetworkAttachment.offline : NetworkAttachment.cellular,
             );
@@ -2364,11 +2377,20 @@ void main() {
           }
 
           if (outcome == 'hangup') unawaited(svc.hangup());
-          if (outcome == 'deadline') async.elapse(kCallRelayCandidateRetry);
+          if (outcome == 'deadline' || ipcPendingAtDeadline) {
+            async.elapse(kCallRelayCandidateRetry);
+          }
+          if (staleAdmission) {
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+            expect(svc.current?.status, CallStatus.active);
+          }
           if (wentOffline) network.add(NetworkAttachment.cellular);
           admissions.add(null);
           async.flushMicrotasks();
-          if (earlierHandover || wentOffline || outcome == 'admission') {
+          if (earlierHandover || wentOffline || outcome == 'admission' ||
+              (ipcPending && !ipcPendingAtDeadline)) {
             expect(media.switches, [CallTransportKind.relay]);
             admissions.add(null);
             media.relayGate!.complete(true);
