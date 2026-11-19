@@ -1508,7 +1508,7 @@ extension _MessagingInboundDispatch on MessagingService {
           }
         }
         final mine = await myOtherDevices?.call() ?? const <NodeId>[];
-        if (!mine.contains(device)) return;
+        if (_disposed || !mine.contains(device)) return;
         _ownHistory.wake(device);
         if (_outbox.noteHeard(device.hex)) unawaited(_retryFlush());
         // A sibling that is back may have erased what this device still
@@ -1519,6 +1519,7 @@ extension _MessagingInboundDispatch on MessagingService {
           await _send(
             device,
             WireEnvelope.presence(await _selfHex(), reply: true).encode(),
+            cancelOnDispose: true,
           );
         } catch (_) {
           // Best-effort: its own queue to us rewinds at our next frame anyway.

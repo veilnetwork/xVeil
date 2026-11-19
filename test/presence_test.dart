@@ -109,6 +109,25 @@ class _ProjectionCountingStorage extends HiddenVolumeStorage {
   }
 }
 
+class _HeldErasureCursorStorage extends HiddenVolumeStorage {
+  _HeldErasureCursorStorage(super.opener);
+
+  final read = Completer<void>();
+  final release = Completer<void>();
+  String? heldKey;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    final value = await super.getSetting(key);
+    if (heldKey == key) {
+      heldKey = null;
+      read.complete();
+      await release.future;
+    }
+    return value;
+  }
+}
+
 void main() {
   // A device away for over a day no longer gets new frames dialled live; the
   // owner's decision (2026-09-27) is that a device coming online says so to
@@ -145,6 +164,101 @@ void main() {
     await Future.wait([first, second]);
     expect(t.sent.where((e) => e.$2 == WireKind.presence), hasLength(1));
   });
+
+  test(
+    'closing suppresses an announcement whose device lookup returns late',
+    () async {
+      final t = _Capture(_id(0x91));
+      final storage = await _storage();
+      final m = MessagingService(t, storage);
+      addTearDown(storage.close);
+      addTearDown(t.dispose);
+      addTearDown(m.dispose);
+      final lookup = Completer<List<NodeId>>();
+      var reads = 0;
+      m.myOtherDevices = () {
+        reads++;
+        return lookup.future;
+      };
+
+      final first = m.announcePresence();
+      final second = m.announcePresence();
+      expect(reads, 1);
+      await m.dispose();
+      lookup.complete([sibling]);
+      await Future.wait([first, second]);
+      expect(t.sent, isEmpty);
+      expect(reads, 1);
+    },
+  );
+
+  test(
+    'closing during presence send preparation stops transport admission',
+    () async {
+      final t = _Capture(_id(0x91));
+      final storage = await _storage();
+      final m = MessagingService(t, storage);
+      addTearDown(storage.close);
+      addTearDown(t.dispose);
+      addTearDown(m.dispose);
+      m.myOtherDevices = () async => [sibling];
+      final preparing = Completer<void>();
+      m.prepareDirectRoute = (_) => preparing.complete();
+
+      final send = m.announcePresence();
+      await preparing.future;
+      await m.dispose();
+      await send;
+      expect(t.sent, isEmpty);
+    },
+  );
+
+  test(
+    'an erasure cursor read from the closed identity cannot advance its replacement',
+    () async {
+      final oldStore = FakeKvLogStore();
+      final replacement = FakeKvLogStore();
+      final storage = _HeldErasureCursorStorage(
+        ({required password, required create}) =>
+            switch (utf8.decode(password)) {
+              'old' => oldStore,
+              'replacement' => replacement,
+              _ => throw StateError('unexpected fixture password'),
+            },
+      );
+      final t = _Capture(_id(0x91));
+      final m = MessagingService(t, storage);
+      addTearDown(storage.close);
+      addTearDown(t.dispose);
+      addTearDown(m.dispose);
+      addTearDown(() {
+        if (!storage.release.isCompleted) storage.release.complete();
+      });
+      final cursor = 'device.erasure.round.v1:${sibling.hex}';
+      await storage.open(password: 'old', createIfMissing: true);
+      await storage.putSetting(cursor, '7');
+      m.selfIdentityHex = () async => identity.hex;
+      m.myOtherDevices = () async => [sibling];
+      storage.heldKey = cursor;
+      await m.deliverInbound(
+        InboundMessage(
+          src: identity,
+          srcDevice: sibling,
+          payload: WireEnvelope.presence(sibling.hex, reply: true).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await storage.read.future;
+      await m.dispose();
+      await storage.close();
+      await storage.open(password: 'replacement', createIfMissing: true);
+      await storage.putSetting(cursor, '40');
+      storage.release.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(await storage.getSetting(cursor), '40');
+      expect(t.sent, isEmpty);
+    },
+  );
 
   test('an unreachable sibling does not delay another presence send', () async {
     final t = _Capture(_id(0x91));

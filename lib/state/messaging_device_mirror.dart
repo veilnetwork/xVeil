@@ -64,6 +64,7 @@ class _MessagingDeviceMirror {
   /// its route (mine, the peer's unsend, a disappearing window), so a sibling's
   /// tombstone is a delete this device owes.
   Future<void> askSiblingForErasures(NodeId device) async {
+    if (_owner._disposed) return;
     final now = _owner._now();
     final last = _erasureAskedAt[device.hex];
     if (last != null && now.difference(last) < _erasureAskEvery) return;
@@ -74,12 +75,18 @@ class _MessagingDeviceMirror {
       final cursorKey = 'device.erasure.round.v1:${device.hex}';
       final previous =
           int.tryParse(await _owner._storage.getSetting(cursorKey) ?? '') ?? 0;
+      // The storage facade can now belong to a different identity.
+      if (_owner._disposed) return;
       final round = (previous < 0 ? 0 : previous) + 1;
       await _owner._storage.putSetting(cursorKey, '$round');
+      if (_owner._disposed) return;
       final selfHex = await _owner._selfHex();
+      if (_owner._disposed) return;
+      final loaded = await _owner._storage.loadConversations();
+      if (_owner._disposed) return;
       final conversations =
           [
-            for (final c in await _owner._storage.loadConversations())
+            for (final c in loaded)
               if (c.lastMessage != null) c,
           ]..sort(
             (a, b) =>
@@ -92,9 +99,11 @@ class _MessagingDeviceMirror {
         count: conversations.length,
         recent: _erasureConversations,
       )) {
+        if (_owner._disposed) return;
         final c = conversations[index];
         final peer = c.peer.nodeId;
         if (await _owner._isSiblingDevice(peer)) continue;
+        if (_owner._disposed) return;
         // Erasure pages use raw timestamp order, not the UI's causal-time
         // projection. Keep the same fresh folded rows and their overlays.
         final messages = await readMessageRows(_owner._storage, peer.hex)
@@ -108,6 +117,7 @@ class _MessagingDeviceMirror {
               ? 1
               : conversations.length - _erasureConversations,
         )) {
+          if (_owner._disposed) return;
           final keys = [
             for (final m
                 in messages.skip(page * _erasureWindow).take(_erasureWindow))
@@ -121,6 +131,7 @@ class _MessagingDeviceMirror {
             WireEnvelope.deviceGone(
               jsonEncode({'d': selfHex, 'q': peer.hex, 'k': keys}),
             ).encode(),
+            cancelOnDispose: true,
           );
         }
       }
@@ -131,6 +142,7 @@ class _MessagingDeviceMirror {
 
   /// An ask or an answer from one of MY devices (the caller checked that).
   Future<void> handleErasureFrame(InboundMessage m, String body) async {
+    if (_owner._disposed) return;
     try {
       final d = jsonDecode(body);
       if (d is! Map) return;
@@ -141,7 +153,7 @@ class _MessagingDeviceMirror {
       if (device == null && named is String) device = NodeId.fromHex(named);
       if (device == null) return;
       final mine = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
-      if (!mine.contains(device)) return;
+      if (_owner._disposed || !mine.contains(device)) return;
       final ask = d['q'], keys = d['k'];
       if (ask is String && keys is List) {
         final wanted = {
@@ -152,12 +164,14 @@ class _MessagingDeviceMirror {
           for (final id in await _owner._storage.deletedMessageIds(ask))
             if (wanted.contains(ownEchoKey(id))) id,
         ];
-        if (erased.isEmpty) return;
+        if (_owner._disposed || erased.isEmpty) return;
+        final selfHex = await _owner._selfHex();
         await _owner._send(
           device,
           WireEnvelope.deviceGone(
-            jsonEncode({'d': await _owner._selfHex(), 'a': ask, 'ids': erased}),
+            jsonEncode({'d': selfHex, 'a': ask, 'ids': erased}),
           ).encode(),
+          cancelOnDispose: true,
         );
         return;
       }
@@ -174,6 +188,7 @@ class _MessagingDeviceMirror {
       if (requested == null) return;
       var applied = 0;
       for (final id in ids) {
+        if (_owner._disposed) return;
         if (id is! String) continue;
         if (!requested.contains(ownEchoKey(id))) continue;
         if (await _owner._storage.loadMessageById(peer.hex, id) == null) {
