@@ -273,6 +273,8 @@ Future<String?> readRememberedProfile(String supportDir) async {
   }
 }
 
+Future<void> _profileChoiceWrites = Future<void>.value();
+
 /// Remember [profile] as the one to launch next time. **False means it was not
 /// recorded** and the next launch will not know about it.
 ///
@@ -282,8 +284,21 @@ Future<String?> readRememberedProfile(String supportDir) async {
 /// way through left a zero-length pointer — which reads as "no profile
 /// remembered" and silently sends the next launch to the default one (audit
 /// X-05).
-Future<bool> writeRememberedProfile(String supportDir, String profile) =>
-    writePrivateFileAtomically(File(activeProfilePath(supportDir)), profile);
+Future<bool> writeRememberedProfile(String supportDir, String profile) {
+  // Each write for this file uses the same temporary name. Queue writes in
+  // this isolate so the next one opens it only after the previous one settles.
+  final write = _profileChoiceWrites.then(
+    (_) => writePrivateFileAtomically(
+      File(activeProfilePath(supportDir)),
+      profile,
+    ),
+  );
+  _profileChoiceWrites = write.then<void>(
+    (_) {},
+    onError: (Object _, StackTrace _) {},
+  );
+  return write;
+}
 
 /// Install the per-profile file store as the app's preference backend, moving
 /// anything the system store still holds into it first.
