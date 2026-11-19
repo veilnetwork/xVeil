@@ -2504,6 +2504,109 @@ void main() {
     }
 
     for (final outcome in [
+      'new admission',
+      'admission during repair',
+      'deadline',
+      'hangup',
+    ]) {
+      test('failed direct rebuild during a local handover: $outcome', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..repairSucceeds = false
+            ..liveDirectAdmission = false
+            ..relayGate = Completer<bool>();
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const id = 'direct-rebuild-before-admission';
+          try {
+            wire.onCallSignal!(
+              peer,
+              offer(id).copyWith(
+                transport: const CallTransportProposal(CallTransportKind.p2p),
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                mediaRepairRequested: true,
+              ),
+            );
+            async.flushMicrotasks();
+            expect(media.repairs, 1);
+            expect(media.activeTransport, isNull);
+
+            final admittedEarly = outcome == 'admission during repair';
+            network.add(
+              admittedEarly
+                  ? NetworkAttachment.cellular
+                  : NetworkAttachment.offline,
+            );
+            if (admittedEarly) admissions.add(null);
+            media.cameraStopped.complete();
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            if (!admittedEarly) {
+              // Admissions from the old network must not reopen the call.
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.switches, isEmpty);
+              network.add(NetworkAttachment.cellular);
+              async.elapse(const Duration(seconds: 1));
+              expect(media.switches, isEmpty);
+              expect(svc.current?.status, CallStatus.active);
+              if (outcome == 'deadline') {
+                async.elapse(kCallRelayCandidateRetry);
+              } else if (outcome == 'hangup') {
+                unawaited(svc.hangup());
+              }
+              admissions.add(null);
+              async.flushMicrotasks();
+            }
+            final end = wire.sent.where((s) => s.type == CallSignalType.end);
+            if (outcome == 'deadline' || outcome == 'hangup') {
+              expect(svc.current, isNull);
+              expect(media.switches, isEmpty);
+              expect(
+                end.single.reason,
+                outcome == 'hangup' ? CallEndReason.hangup : CallEndReason.error,
+              );
+            } else {
+              expect(media.switches, [CallTransportKind.relay]);
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              media.relayGate!.complete(true);
+              async.flushMicrotasks();
+              expect(svc.current?.callId, id);
+              expect(svc.current?.status, CallStatus.active);
+              expect(svc.current?.transport, CallTransportKind.relay);
+              expect(end, isEmpty);
+            }
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
+    for (final outcome in [
       'already waiting',
       'snapshot pending',
       'snapshot outlasts admission',
