@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,15 +10,17 @@ import 'package:xveil/l10n/app_localizations.dart';
 
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 
-Future<void> _pumpScreen(WidgetTester tester) => tester.pumpWidget(
-  const ProviderScope(
-    child: MaterialApp(
-      localizationsDelegates: AppL10n.localizationsDelegates,
-      supportedLocales: AppL10n.supportedLocales,
-      home: ProfileScreen(),
-    ),
-  ),
-);
+Future<void> _pumpScreen(WidgetTester tester, {Locale? locale}) =>
+    tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          locale: locale,
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: const ProfileScreen(),
+        ),
+      ),
+    );
 
 Future<void> _waitFor(WidgetTester tester, Finder widget) async {
   final elapsed = Stopwatch()..start();
@@ -30,6 +33,63 @@ Future<void> _waitFor(WidgetTester tester, Finder widget) async {
 }
 
 void main() {
+  for (final keyboard in [false, true]) {
+    testWidgets('profile creation supports large text (keyboard=$keyboard)', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 460);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetViewInsets);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final support = Directory.systemTemp.createTempSync('xveil-profile-ui-');
+      addTearDown(() => support.deleteSync(recursive: true));
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        _pathProvider,
+        (_) async => support.path,
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(_pathProvider, null),
+      );
+
+      await tester.runAsync(() async {
+        final createProfile = find.byType(FloatingActionButton);
+        await _pumpScreen(tester, locale: const Locale('ru'));
+        await _waitFor(tester, createProfile);
+        final l = AppL10n.of(tester.element(find.byType(ProfileScreen)));
+        await tester.pumpAndSettle();
+        await tester.tap(createProfile);
+        await tester.pumpAndSettle();
+        if (keyboard) {
+          tester.view.viewInsets = const FakeViewPadding(bottom: 230);
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+        final rule = find.text(l.profileNameRule);
+        await tester.ensureVisible(rule);
+        await tester.pumpAndSettle();
+        final paragraph = tester.renderObject<RenderParagraph>(rule);
+        expect(paragraph.didExceedMaxLines, isFalse);
+
+        final confirm = find.widgetWithText(FilledButton, l.commonCreate);
+        final field = find.byType(TextField);
+        await tester.ensureVisible(field);
+        await tester.enterText(field, 'testing');
+        await tester.pumpAndSettle();
+        expect(confirm.hitTestable(), findsOneWidget);
+        await tester.tap(confirm);
+        tester.view.resetViewInsets();
+        await _waitFor(tester, find.text(l.profileRestartRequired));
+        final choice = File('${support.path}/xveil.profile');
+        expect(choice.readAsStringSync(), 'testing');
+      });
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('reports a failed profile load and offers a retry', (
     tester,
   ) async {
@@ -104,8 +164,8 @@ void main() {
       }
 
       final confirm = find.widgetWithText(FilledButton, 'Create');
-      await openDialog();
       await tester.runAsync(() async {
+        await openDialog();
         await tester.tap(confirm);
         await _waitFor(tester, find.text('Could not create the profile.'));
       });
@@ -115,9 +175,10 @@ void main() {
 
       obstruction.deleteSync();
       await tester.pumpAndSettle();
-      await openDialog();
       await tester.runAsync(() async {
+        await openDialog();
         await tester.tap(confirm);
+        await tester.pumpAndSettle();
         await _waitFor(
           tester,
           find.descendant(
