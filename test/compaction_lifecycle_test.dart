@@ -32,13 +32,17 @@ class _Controller extends AppController {
   final remapped = Completer<void>();
   final continueRemap = Completer<void>();
   final reopened = <String>[];
+  Future<void> Function(String)? restore;
   @override
   AppState build() => const AppState(AppPhase.ready);
 
   @override
   Future<void> unlock(String password) async {
     reopened.add(password);
+    await restore?.call(password);
   }
+
+  Future<void> unlockNormally(String password) => super.unlock(password);
 
   @override
   Future<List<String>> remapRostersAfterCompaction(
@@ -139,9 +143,15 @@ void main() {
   }
 
   final library = Platform.environment['XVEIL_HV_DYLIB'];
-  for (final lockAfterRewrite in [false, true]) {
+  for (final (lockAfterRewrite, switchAfterRestore) in [
+    (false, false),
+    (true, false),
+    (false, true),
+  ]) {
     test(
-      'native rewrite reopens only its live session (lock=$lockAfterRewrite)',
+      switchAfterRestore
+          ? 'native compaction size stays with the identity that requested it'
+          : 'native rewrite reopens only its live session (lock=$lockAfterRewrite)',
       () async {
         expect(ensureHiddenVolumeLoaded(), isTrue);
         final directory = await Directory.systemTemp.createTemp(
@@ -159,12 +169,14 @@ void main() {
         ).close();
         final storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
         final roster = CompactionRoster();
+        const sizeKey = 'storage.lastcompactsize.v1';
         for (var i = 0; i < passwords.length; i++) {
           expect(
             await storage.open(password: passwords[i], createIfMissing: true),
             isTrue,
           );
           await storage.saveProfile(UserProfile(displayName: 'fixture-$i'));
+          await storage.putSetting(sizeKey, '${100 + i}');
           roster.addUnlocked(
             'fixture-$i',
             passwordBytes: utf8.encode(passwords[i]),
@@ -188,6 +200,19 @@ void main() {
         );
         addTearDown(container.dispose);
         container.read(appControllerProvider);
+        final restored = Completer<void>();
+        final finishRestore = Completer<void>();
+        if (!lockAfterRewrite) {
+          controller.debugDeniableStackStarter = (_) async =>
+              throw StateError('network disabled for fixture');
+          controller.restore = (password) async {
+            await controller.unlockNormally(password);
+            if (switchAfterRestore) {
+              restored.complete();
+              await finishRestore.future;
+            }
+          };
+        }
         final compacting = controller.compactStorageKeeping(
           roster: roster,
           reopenWith: passwords.last,
@@ -198,14 +223,37 @@ void main() {
         await controller.remapped.future;
         if (lockAfterRewrite) await controller.lock();
         controller.continueRemap.complete();
+        if (switchAfterRestore) {
+          await restored.future;
+          try {
+            expect(container.read(appControllerProvider).phase, AppPhase.ready);
+            expect((await storage.loadProfile())?.displayName, 'fixture-1');
+            await controller.lock();
+            await controller.unlockNormally(passwords.first);
+            expect(container.read(appControllerProvider).phase, AppPhase.ready);
+            expect((await storage.loadProfile())?.displayName, 'fixture-0');
+            expect(await storage.getSetting(sizeKey), '100');
+          } finally {
+            finishRestore.complete();
+          }
+        }
         await completion;
         expect(
           controller.reopened,
           lockAfterRewrite ? isEmpty : [passwords.last],
         );
+        var expectedOriginSize = '101';
         if (lockAfterRewrite) {
           expect(container.read(appControllerProvider).phase, AppPhase.locked);
           expect(storage.isOpen, isFalse);
+        } else {
+          final sizes = await compacting;
+          if (!switchAfterRestore) expectedOriginSize = '${sizes.after}';
+          expect(
+            await storage.getSetting(sizeKey),
+            switchAfterRestore ? '100' : expectedOriginSize,
+          );
+          await controller.lock();
         }
         // A completed rewrite remains valid; this test changes only whether
         // the application is authorized to open it automatically afterwards.
@@ -214,6 +262,10 @@ void main() {
           try {
             expect(await reader.open(password: passwords[i]), isTrue);
             expect((await reader.loadProfile())?.displayName, 'fixture-$i');
+            expect(
+              await reader.getSetting(sizeKey),
+              i == 0 ? '100' : expectedOriginSize,
+            );
           } finally {
             await reader.close();
           }
