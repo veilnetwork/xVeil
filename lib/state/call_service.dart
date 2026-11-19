@@ -272,6 +272,12 @@ abstract class CallMediaController {
   /// route kind, be idempotent/rate-limited, and return whether media is usable.
   Future<bool> repairRoute() async => true;
 
+  /// Probe a replacement for the live relay before rebinding the engine.
+  /// A failed or superseded probe leaves the active channel in place.
+  Future<bool> refreshRelayRoute({
+    required Future<bool> Function() canCommit,
+  }) async => false;
+
   /// Whether the answering device itself has an admitted native session.
   /// An identity may have another online device, which is insufficient for
   /// opening this call's direct media channel.
@@ -511,7 +517,7 @@ class CallService {
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
   Timer? _mediaWatchdogTimer;
   bool _mediaWatchdogCheckBusy = false;
-  DateTime? _relayHandoverAt;
+  ({DateTime at, bool localNetworkChanged})? _relayHandover;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
@@ -846,7 +852,7 @@ class CallService {
           _media?.activeTransport == CallTransportKind.relay) {
         // Relay can survive as the selected transport while its local network
         // changes. Use the same receive guard as a newly committed relay.
-        _relayHandoverAt = _now();
+        _relayHandover = (at: _now(), localNetworkChanged: true);
         devLog(() => 'xVeil[call-media]: local network handover on relay');
         return;
       }
@@ -2363,8 +2369,9 @@ class CallService {
 
   Future<void> _checkRelayHandoverAudio(Call call) async {
     final media = _media;
-    final handoverAt = _relayHandoverAt;
-    if (media == null || handoverAt == null || _mediaWatchdogCheckBusy) return;
+    final handover = _relayHandover;
+    if (media == null || handover == null || _mediaWatchdogCheckBusy) return;
+    final handoverAt = handover.at;
 
     // The handover window applies to the last audio before the outage.
     // A packet near its end still needs the full silence interval, the
@@ -2376,59 +2383,104 @@ class CallService {
 
     bool stillOnHandover() =>
         !_disposed &&
-        _relayHandoverAt == handoverAt &&
+        _relayHandover == handover &&
         !_lateP2PBusy &&
-        !media.isRepairingReceiveSession &&
         media.activeTransport == CallTransportKind.relay;
 
+    // A recent packet from before a local network change can justify a safe
+    // probe, but only after a full silence interval on the new network.
+    final audioFloor = handover.localNetworkChanged
+        ? handoverAt.subtract(kCallDirectSessionSilence)
+        : handoverAt;
     bool stalled(Call call, DateTime? audioRxAt) =>
         audioRxAt != null &&
         audioRxAt.isBefore(windowEnd) &&
         _establishedAudioReceiveStalled(
           call,
           latestRxAt: audioRxAt,
-          routeStartedAt: handoverAt,
+          routeStartedAt: audioFloor,
         );
 
     if (!_now().isBefore(checkUntil) ||
+        _now().difference(handoverAt) < kCallDirectSessionSilence ||
         !stillOnHandover() ||
+        media.isRepairingReceiveSession ||
         !stalled(call, media.lastAudioRxAt)) {
       return;
     }
 
     final epoch = _mediaOperationEpoch;
+    Call? ownedCall() {
+      final current = _current;
+      if (!stillOnHandover() ||
+          epoch != _mediaOperationEpoch ||
+          current == null ||
+          current.callId != call.callId ||
+          current.peer != call.peer ||
+          current.peerDevice != call.peerDevice ||
+          current.status != CallStatus.active ||
+          current.transport != CallTransportKind.relay) {
+        return null;
+      }
+      return current;
+    }
+
+    Future<DateTime?> readAudio() async {
+      try {
+        return await media.readLatestAudioRxAt().timeout(
+          kCallLivenessSnapshotTimeout,
+          onTimeout: () => null,
+        );
+      } catch (_) {
+        // An unavailable snapshot leaves the ordinary deadline in charge.
+        return null;
+      }
+    }
+
     _mediaWatchdogCheckBusy = true;
-    DateTime? latestRxAt;
+    final DateTime? latestRxAt;
     try {
-      latestRxAt = await media.readLatestAudioRxAt().timeout(
-        kCallLivenessSnapshotTimeout,
-        onTimeout: () => null,
-      );
-    } catch (_) {
-      // An unavailable snapshot leaves the ordinary repair deadline in charge.
+      latestRxAt = await readAudio();
     } finally {
       _mediaWatchdogCheckBusy = false;
     }
-    final current = _current;
-    if (epoch != _mediaOperationEpoch ||
-        current == null ||
-        current.callId != call.callId ||
-        current.peer != call.peer ||
-        current.peerDevice != call.peerDevice ||
-        current.status != CallStatus.active ||
-        current.transport != CallTransportKind.relay ||
-        !stillOnHandover() ||
+    final current = ownedCall();
+    if (current == null ||
+        latestRxAt == null ||
+        media.isRepairingReceiveSession ||
         !stalled(current, latestRxAt)) {
       return;
     }
 
-    // Spend at most one early repair per handover. A rebuilt receive session
-    // starts with the ordinary grace.
-    _relayHandoverAt = null;
+    // Before any audio has arrived on the new network, keep the active
+    // channel open. Only a candidate with a fresh peer echo may replace it.
+    if (latestRxAt.isBefore(handoverAt)) {
+      _mediaWatchdogCheckBusy = true;
+      try {
+        await media.refreshRelayRoute(
+          canCommit: () async {
+            if (ownedCall() == null) return false;
+            final latest = await readAudio();
+            final live = ownedCall();
+            return live != null && stalled(live, latest);
+          },
+        );
+      } catch (_) {
+        devLog(() => 'xVeil[call-media]: early relay probe failed');
+      } finally {
+        if (_relayHandover == handover) _relayHandover = null;
+        _mediaWatchdogCheckBusy = false;
+      }
+      return;
+    }
+
+    // Spend at most one early recovery per handover.
+    _relayHandover = null;
+    final ageMs = _now().difference(latestRxAt).inMilliseconds;
     devLog(
       () =>
           'xVeil[call-media]: relay handover audio stalled — early repair '
-          'native_age=${_now().difference(latestRxAt!).inMilliseconds}ms',
+          'native_age=${ageMs}ms',
     );
     await _repairMediaRoute(current.peer, current.callId);
   }
@@ -3280,7 +3332,7 @@ class CallService {
   void _cancelHeartbeat() {
     _livenessProbeToken = null;
     _directNetworkHandoverAt = null;
-    _relayHandoverAt = null;
+    _relayHandover = null;
     _mediaWatchdogTimer?.cancel();
     _mediaWatchdogTimer = null;
     _heartbeatTimer?.cancel();
@@ -3340,13 +3392,13 @@ class CallService {
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
       _directNetworkHandoverAt = null;
-      _relayHandoverAt =
+      _relayHandover =
           _current?.callId == call.callId &&
               _current?.status == CallStatus.active &&
               _current?.transport == CallTransportKind.p2p &&
               call.status == CallStatus.active &&
               call.transport == CallTransportKind.relay
-          ? _now()
+          ? (at: _now(), localNetworkChanged: false)
           : null;
     }
     if (_current?.callId != call.callId) {

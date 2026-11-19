@@ -2568,6 +2568,10 @@ void main() {
     for (final mode in [
       'confirmed stall',
       'only pre-change audio',
+      'stale pre-change audio',
+      'no echo for pre-change audio',
+      'audio resumes while probing',
+      'new handover while probing',
       'without a network change',
       'superseded during confirmation',
     ]) {
@@ -2606,18 +2610,36 @@ void main() {
               sentAtMs: clock.now().millisecondsSinceEpoch,
             ),
           );
+          final preChangeAudio = const {
+            'only pre-change audio',
+            'stale pre-change audio',
+            'no echo for pre-change audio',
+            'audio resumes while probing',
+            'new handover while probing',
+          }.contains(mode);
+          if (mode == 'stale pre-change audio') {
+            async.elapse(const Duration(seconds: 4));
+          }
           async.elapse(const Duration(milliseconds: 100));
           if (mode != 'without a network change') network.add(null);
           async.elapse(const Duration(milliseconds: 100));
-          if (mode != 'only pre-change audio') media.audioRxAt = clock.now();
+          if (!preChangeAudio) media.audioRxAt = clock.now();
           media.rxAt = clock.now();
 
+          final probe = Completer<bool>();
+          bool? boundRelay;
+          media.relayRefresh = (canCommit) async {
+            return boundRelay = await probe.future && await canCommit();
+          };
           final snapshot = Completer<DateTime?>();
           media.latestAudioRead = () => snapshot.future;
           async.elapse(const Duration(seconds: 3));
           expect(media.repairs, 0);
+          expect(media.relayRefreshes, 0);
           async.elapse(const Duration(seconds: 1));
+          final shouldProbe = preChangeAudio && mode != 'stale pre-change audio';
           final shouldRead =
+              shouldProbe ||
               mode == 'confirmed stall' ||
               mode == 'superseded during confirmation';
           expect(media.latestAudioReads, shouldRead ? 1 : 0);
@@ -2629,6 +2651,29 @@ void main() {
           snapshot.complete(media.audioRxAt);
           async.flushMicrotasks();
           expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
+          expect(media.relayRefreshes, shouldProbe ? 1 : 0);
+
+          if (mode == 'audio resumes while probing') {
+            media.audioRxAt = clock.now();
+          }
+          media.latestAudioRead = () async => media.audioRxAt;
+          if (mode == 'new handover while probing') {
+            async.elapse(const Duration(milliseconds: 100));
+            network.add(null);
+            async.flushMicrotasks();
+          }
+          probe.complete(mode != 'no echo for pre-change audio');
+          async.flushMicrotasks();
+          expect(
+            boundRelay,
+            shouldProbe ? mode == 'only pre-change audio' : null,
+          );
+          expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
+          if (mode == 'no echo for pre-change audio') {
+            async.elapse(const Duration(seconds: 6));
+            expect(media.relayRefreshes, 1);
+            expect(media.repairs, 1, reason: 'ordinary recovery is still armed');
+          }
 
           if (mode == 'superseded during confirmation') {
             async.elapse(const Duration(milliseconds: 100));
@@ -9169,6 +9214,8 @@ class _FakeMedia extends CallMediaController {
   CallAudioPlayoutFeedback? playout;
   final List<CallAudioPlayoutFeedback> peerPlayout = [];
   int repairs = 0;
+  int relayRefreshes = 0;
+  Future<bool> Function(Future<bool> Function())? relayRefresh;
   Completer<bool>? startGate;
   final List<CallTransportKind> switches = [];
   final List<String> log = [];
@@ -9297,6 +9344,14 @@ class _FakeMedia extends CallMediaController {
     repairs++;
     if (repairTo != null) openedTransport = repairTo;
     return true;
+  }
+
+  @override
+  Future<bool> refreshRelayRoute({
+    required Future<bool> Function() canCommit,
+  }) async {
+    relayRefreshes++;
+    return await relayRefresh?.call(canCommit) ?? false;
   }
 
   @override
