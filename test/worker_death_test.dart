@@ -31,7 +31,67 @@ void _silentExitWorker(SendPort _) {
   // no error to report, only an absence.
 }
 
+void _refusedWorker(ReceivePort _) {
+  throw StateError('an unsendable message started a worker');
+}
+
+Future<void> _ownerAfterRefusedSpawn(SendPort result) async {
+  final unsendable = ReceivePort();
+  try {
+    await WorkerDeath.spawn(
+      _refusedWorker,
+      (_) => unsendable,
+      worker: 'storage worker',
+    );
+    result.send(false);
+  } on StorageWorkerSpawnFailure {
+    result.send(true);
+  } finally {
+    unsendable.close();
+  }
+}
+
 void main() {
+  test('exit after starting remains an unwitnessed open failure', () async {
+    await expectLater(
+      WorkerDeath.spawn(
+        _silentExitWorker,
+        (reply) => reply,
+        worker: 'storage worker',
+      ),
+      throwsA(
+        allOf(
+          isA<hv.HvException>().having(
+            (error) => error.message,
+            'message',
+            contains('died during open'),
+          ),
+          isNot(isA<StorageWorkerSpawnFailure>()),
+        ),
+      ),
+    );
+  });
+
+  test('a refused storage startup closes its owner-side ports', () async {
+    final result = ReceivePort();
+    final exit = ReceivePort();
+    final owner = await Isolate.spawn(
+      _ownerAfterRefusedSpawn,
+      result.sendPort,
+      onExit: exit.sendPort,
+    );
+    try {
+      expect(await result.first.timeout(const Duration(seconds: 5)), isTrue);
+      // The fixture returns normally. Only leaked receive ports could keep
+      // it alive after it has reported the refused launch.
+      await exit.first.timeout(const Duration(seconds: 5));
+    } finally {
+      owner.kill(priority: Isolate.immediate);
+      result.close();
+      exit.close();
+    }
+  });
+
   test('an isolate that throws reports through onError AND onExit', () async {
     final reply = ReceivePort();
     final errors = ReceivePort();
