@@ -2698,6 +2698,98 @@ void main() {
       });
     }
 
+    for (final timing in ['during probe', 'after failure', 'audio resumed']) {
+      test('a relay refresh observes admission $timing', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final wire = _FakeMessaging();
+          final first = Completer<bool>();
+          final media = _FakeMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..audioTelemetry = true;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkHandovers: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            localAllowsP2P: (_) async => false,
+          )..start();
+          const callId = 'relay-refresh-new-admission';
+          wire.onCallSignal!(
+            peer,
+            offer(callId).copyWith(
+              transport: const CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: const CallMedia(audio: true),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          media.audioRxAt = clock.now();
+          media.rxAt = clock.now();
+          media.latestAudioRead = () async => media.audioRxAt;
+          var qualified = 0;
+          media.relayRefresh = (canCommit) async {
+            if (media.relayRefreshes == 1) return first.future;
+            if (!await canCommit()) return false;
+            qualified++;
+            return timing == 'during probe';
+          };
+
+          async.elapse(const Duration(milliseconds: 100));
+          network.add(null);
+          async.elapse(const Duration(seconds: 4));
+          expect(media.relayRefreshes, 1);
+          if (timing == 'during probe') {
+            admissions.add(null);
+            async.elapse(const Duration(seconds: 1));
+            expect(media.relayRefreshes, 1, reason: 'do not overlap probes');
+          }
+          first.complete(false);
+          async.flushMicrotasks();
+          if (timing != 'during probe') {
+            async.elapse(const Duration(seconds: 1));
+            expect(
+              media.relayRefreshes,
+              1,
+              reason: 'admission has not changed',
+            );
+            if (timing == 'audio resumed') media.audioRxAt = clock.now();
+            admissions.add(null);
+          }
+          async.elapse(const Duration(seconds: 1));
+          final expected = timing == 'audio resumed' ? 1 : 2;
+          expect(media.relayRefreshes, expected);
+          expect(qualified, expected - 1);
+          if (timing != 'audio resumed') {
+            admissions.add(null);
+            async.elapse(const Duration(seconds: 1));
+            expect(
+              media.relayRefreshes,
+              2,
+              reason: 'at most one admission retry',
+            );
+          }
+          expect(media.repairs, 0);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test(
       'answer racing a slow durable offer never arms a timer on the active call',
       () {
