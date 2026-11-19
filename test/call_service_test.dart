@@ -4193,6 +4193,51 @@ void main() {
       });
     }
 
+    test('keeps the P2P handover observation while media is repairing', () {
+      fakeAsync((async) {
+        final network = StreamController<void>(sync: true);
+        final wire = _FakeMessaging();
+        final media = _SnapshotMedia()..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          wire,
+          now: () => clock.now(),
+          media: media,
+          networkHandovers: network.stream,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        final device = NodeId.fromHex('b' * 64);
+        wire.onCallSignal!(
+          peer,
+          offer('network-change-during-repair').copyWith(
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+            replyDevice: device.hex,
+          ),
+        );
+        unawaited(svc.accept());
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.p2p);
+
+        media.rxAt = clock.now();
+        media.receiveRepairing = true;
+        media.liveDirectAdmission = false;
+        network.add(null);
+        async.elapse(const Duration(seconds: 1));
+        expect(media.liveAdmissionChecks, isEmpty);
+        expect(media.switches, isEmpty);
+
+        media.receiveRepairing = false;
+        async.elapse(const Duration(seconds: 1));
+        expect(media.liveAdmissionChecks, [device]);
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.status, CallStatus.active);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        svc.dispose();
+        unawaited(network.close());
+        async.flushMicrotasks();
+      });
+    });
+
     test('unproven early relay keeps the ordinary recovery opportunity', () {
       fakeAsync((async) {
         final network = StreamController<void>(sync: true);
