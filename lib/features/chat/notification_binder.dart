@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -90,6 +91,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// service signal rebuilds it — does not re-announce a question the person
   /// has already been shown. Cleared on identity switch with everything else.
   final Set<String> _announcedClearRequests = {};
+  Set<String> _liveClearRequests = const {};
+  int? _clearRequestPostGeneration;
   final _pendingSpaceComments =
       <
         String,
@@ -168,7 +171,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       _clearRequestListener = ref
           .listenManual<AsyncValue<List<PendingClearRequest>>>(
             pendingClearRequestsProvider,
-            (_, next) => unawaited(_onClearRequests(next.value ?? const [])),
+            (_, next) {
+              final requests = next.asData?.value;
+              if (requests != null) unawaited(_onClearRequests(requests));
+            },
             fireImmediately: true,
           );
     });
@@ -208,6 +214,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
     _announcedClearRequests.clear();
+    _liveClearRequests = const {};
     _pendingSpaceComments.clear();
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
@@ -962,9 +969,6 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     );
   }
 
-  /// Post the single latest-message notification. Every conversation reuses the
-  /// same OS id, so mailbox replay and background bursts replace rather than
-  /// stack alerts. Honours the hidden/full preview.
   /// Announce requests that have not been announced yet.
   ///
   /// The list re-emits on every service signal, so the set of keys already
@@ -976,36 +980,52 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   Future<void> _onClearRequests(List<PendingClearRequest> requests) async {
     if (!mounted) return;
     final live = {for (final request in requests) request.key};
-    // Answered or expired questions stop being owed an alert, so a LATER
-    // request from the same chat is announced again rather than swallowed.
-    _announcedClearRequests.removeWhere((key) => !live.contains(key));
-    final fresh = [
-      for (final request in requests)
-        if (!_announcedClearRequests.contains(request.key)) request,
-    ];
-    if (fresh.isEmpty) return;
+    if (!setEquals(_liveClearRequests, live)) {
+      _liveClearRequests = live;
+      _clearRequestGeneration++;
+      _announcedClearRequests.retainAll(live);
+      if (live.isEmpty) {
+        await ref
+            .read(notificationServiceProvider)
+            .cancelAfterPosts(kNotificationIdClearRequests);
+        return;
+      }
+    }
     final generation = _clearRequestGeneration;
+    if (_clearRequestPostGeneration == generation ||
+        !ref.read(notificationSettingsProvider).enabled) {
+      return;
+    }
+    final fresh = live.difference(_announcedClearRequests);
+    if (fresh.isEmpty) return;
     final identity = ref.read(appControllerProvider).identity?.nodeId;
-    if (!ref.read(notificationSettingsProvider).enabled) return;
     final l = AppL10n.of(context);
-    final posted = await ref
-        .read(notificationServiceProvider)
-        .showIfCurrent(
-          isCurrent: () =>
-              mounted &&
-              generation == _clearRequestGeneration &&
-              ref.read(appControllerProvider).identity?.nodeId == identity &&
-              ref.read(notificationSettingsProvider).enabled,
-          id: kNotificationIdClearRequests,
-          title: l.clearRequestsNotificationTitle,
-          body: l.clearRequestsNotificationBody(live.length),
-          payload: kNotificationPayloadClearRequests,
-        );
-    if (!posted) return;
-    if (!mounted || generation != _clearRequestGeneration) return;
-    _announcedClearRequests.addAll(fresh.map((request) => request.key));
+    bool current() =>
+        mounted &&
+        generation == _clearRequestGeneration &&
+        ref.read(appControllerProvider).identity?.nodeId == identity &&
+        ref.read(notificationSettingsProvider).enabled;
+
+    _clearRequestPostGeneration = generation;
+    try {
+      final posted = await ref
+          .read(notificationServiceProvider)
+          .showIfCurrent(
+            isCurrent: current,
+            id: kNotificationIdClearRequests,
+            title: l.clearRequestsNotificationTitle,
+            body: l.clearRequestsNotificationBody(live.length),
+            payload: kNotificationPayloadClearRequests,
+          );
+      if (posted && current()) _announcedClearRequests.addAll(fresh);
+    } finally {
+      if (_clearRequestPostGeneration == generation) {
+        _clearRequestPostGeneration = null;
+      }
+    }
   }
 
+  /// Post the single latest-message notification with the configured preview.
   Future<void> _show({
     required _MessageAlertAttempt attempt,
     required String convHex,
