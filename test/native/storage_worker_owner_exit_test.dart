@@ -8,7 +8,13 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/managed_directory_catalog.dart';
+import 'package:xveil/data/storage/managed_fs_platform.dart';
+import 'package:xveil/data/storage/managed_identity_catalog.dart';
+import 'package:xveil/data/storage/managed_identity_lease.dart';
 import 'package:xveil/data/storage/worker_multi_space.dart';
+import 'package:xveil/domain/profile_preferences_layout.dart';
+import 'package:xveil/domain/storage_protection.dart';
 
 typedef _WorkerFixture = ({
   SendPort ready,
@@ -45,7 +51,144 @@ Future<void> _openFixture(_WorkerFixture fixture) async {
   Isolate.exit();
 }
 
+Future<void> _writePreferences((String, SendPort, SendPort) fixture) async {
+  final (path, gate, ready) = fixture;
+  final file = await ManagedProfilePreferencesFile.openWithWriteGateForTesting(
+    path,
+    gate,
+  );
+  ready.send(true);
+  await file.write('abandoned');
+  await file.close();
+}
+
+Future<void> _eraseIdentity(
+  (String, ManagedIdentityId, SendPort) fixture,
+) async {
+  final (profile, id, ready) = fixture;
+  final catalog = await ManagedCatalogWorker.open(profile);
+  await catalog.erase(
+    ManagedIdentityEntry(id: id, protection: StorageProtection.unencrypted),
+    beforeErase: () async {
+      final decision = ReceivePort();
+      ready.send(decision.sendPort);
+      try {
+        await decision.first;
+        throw StateError('erase refused by fixture');
+      } finally {
+        decision.close();
+      }
+    },
+  );
+  await catalog.close();
+}
+
+StorageProfileCoordinator? _openExclusive(String profile) =>
+    StorageProfileCoordinator.openExisting(profile, exclusive: true);
+
+Future<void> _waitForLeaseRelease(String profile) async {
+  final limit = Stopwatch()..start();
+  while (true) {
+    try {
+      _openExclusive(profile)!.close();
+      return;
+    } on ManagedLeaseFailure catch (error) {
+      if (error.kind != ManagedLeaseFailureKind.busy ||
+          limit.elapsed > const Duration(seconds: 3)) {
+        rethrow;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+}
+
 void main() {
+  test(
+    'owner exit releases a preferences grant while awaiting admission',
+    () async {
+      expect(ensureHiddenVolumeLoaded(), isTrue);
+      final fixture = Directory.systemTemp.createTempSync(
+        'xveil-owner-admission-',
+      );
+      final path = '${fixture.path}/${ProfilePreferencesLayout.file}';
+      final profile = '${fixture.path}/visible-storage';
+      final ready = ReceivePort();
+      final gate = ReceivePort();
+      final exited = ReceivePort();
+      final owner = await Isolate.spawn(_writePreferences, (
+        path,
+        gate.sendPort,
+        ready.sendPort,
+      ), onExit: exited.sendPort);
+      SendPort? admissionReply;
+      try {
+        expect(await ready.first.timeout(const Duration(seconds: 5)), isTrue);
+        admissionReply =
+            await gate.first.timeout(const Duration(seconds: 5)) as SendPort;
+        expect(
+          () => _openExclusive(profile)?.close(),
+          throwsA(isA<ManagedLeaseFailure>()),
+        );
+        owner.kill(priority: Isolate.immediate);
+        await exited.first.timeout(const Duration(seconds: 5));
+        await _waitForLeaseRelease(profile);
+        expect(File(path).existsSync(), isFalse);
+      } finally {
+        owner.kill(priority: Isolate.immediate);
+        // Release the worker in the control run with the old implementation.
+        admissionReply?.send(false);
+        ready.close();
+        gate.close();
+        exited.close();
+        fixture.deleteSync(recursive: true);
+      }
+    },
+  );
+
+  test('owner exit aborts identity erasure before admission', () async {
+    expect(ensureHiddenVolumeLoaded(), isTrue);
+    final fixture = Directory.systemTemp.createTempSync('xveil-owner-erase-');
+    final profile = '${fixture.path}/visible-storage';
+    expect(const ManagedFsPlatform().createPrivateDirectory(profile), isTrue);
+    final id = ManagedIdentityId('1' * 32);
+    final original = await ManagedWorkerIdentity.createUnencrypted(
+      profileDirectory: profile,
+      id: id,
+      initial: [PutOp(1, _key, _value)],
+    );
+    await original.close();
+    final ready = ReceivePort();
+    final exited = ReceivePort();
+    final owner = await Isolate.spawn(_eraseIdentity, (
+      profile,
+      id,
+      ready.sendPort,
+    ), onExit: exited.sendPort);
+    try {
+      expect(
+        await ready.first.timeout(const Duration(seconds: 5)),
+        isA<SendPort>(),
+      );
+      owner.kill(priority: Isolate.immediate);
+      await exited.first.timeout(const Duration(seconds: 5));
+      await _waitForLeaseRelease(profile);
+      final reopened = await ManagedWorkerIdentity.openUnencrypted(
+        profileDirectory: profile,
+        id: id,
+      );
+      try {
+        expect(await reopened.get(1, _key), _value);
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      owner.kill(priority: Isolate.immediate);
+      ready.close();
+      exited.close();
+      fixture.deleteSync(recursive: true);
+    }
+  });
+
   for (final multi in [false, true]) {
     test(
       '${multi ? 'multi' : 'single'} worker drains writes on owner exit',
@@ -91,7 +234,7 @@ void main() {
             try {
               final reopened = open();
               try {
-              expect(reopened.get(1, _key), _value);
+                expect(reopened.get(1, _key), _value);
               } finally {
                 reopened.close();
               }
