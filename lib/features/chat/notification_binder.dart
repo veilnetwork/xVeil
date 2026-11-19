@@ -91,6 +91,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   // Clear requests have a separate OS id. An ordinary message supersedes the
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
+  bool _permissionRequestPending = false;
+  bool _permissionRequested = false;
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
@@ -105,7 +107,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // fully settled before we attach any listener.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(ref.read(notificationServiceProvider).requestPermission());
+      unawaited(_requestNotificationPermission());
       _subscribe(ref.read(messagingServiceProvider));
       // Re-subscribe when the active identity's service changes (manual listen,
       // NOT in build).
@@ -131,6 +133,30 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             fireImmediately: true,
           );
     });
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    if (_permissionRequested || _permissionRequestPending || !_foreground) {
+      return;
+    }
+    _permissionRequestPending = true;
+    try {
+      final service = ref.read(notificationServiceProvider);
+      // Reading the provider starts native initialization. Its permission
+      // method cannot ask Android/iOS until that initialization has finished.
+      if (!await service.waitUntilReady() ||
+          !mounted ||
+          !_foreground ||
+          ref.read(appControllerProvider).phase != AppPhase.ready) {
+        return;
+      }
+      // The system prompt itself may briefly make the app inactive. Mark the
+      // request before invoking it so a resume never repeats a denied prompt.
+      _permissionRequested = true;
+      await service.requestPermission();
+    } finally {
+      _permissionRequestPending = false;
+    }
   }
 
   void _subscribe(MessagingService service) {
@@ -587,6 +613,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       _clearRequestGeneration++;
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
+      unawaited(_requestNotificationPermission());
       // And drain the mailbox promptly: after a background stint the idle
       // back-off can be minutes deep, and "open the app" is exactly when the
       // user expects parked messages to appear. Guarded: locked → no service.

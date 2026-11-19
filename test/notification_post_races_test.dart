@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +30,10 @@ class _App extends AppController {
       AppState(AppPhase.ready, identity: Identity(nodeId: _id(1)));
   void changeIdentity() {
     state = AppState(AppPhase.ready, identity: Identity(nodeId: _id(7)));
+  }
+
+  void lockPhase() {
+    state = const AppState(AppPhase.locked);
   }
 }
 
@@ -105,6 +110,39 @@ class _Notifications extends NotificationService {
       throw StateError('fixture response lost after OS post');
     }
     return true;
+  }
+}
+
+class _PermissionStartupPlugin extends Fake
+    implements FlutterLocalNotificationsPlugin {
+  final startup = Completer<bool>();
+
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) => startup.future;
+
+  @override
+  Future<NotificationAppLaunchDetails?>
+  getNotificationAppLaunchDetails() async => null;
+
+  @override
+  Future<void> cancelAll() async {}
+}
+
+class _PermissionNotifications extends NotificationService {
+  _PermissionNotifications(_PermissionStartupPlugin plugin)
+    : super(plugin: plugin);
+
+  int prompts = 0;
+
+  @override
+  Future<bool> requestPermission() async {
+    if (isReady) prompts++;
+    return false;
   }
 }
 
@@ -277,7 +315,32 @@ void main() {
   late _Notifications notifications;
   late StreamController<List<PendingClearRequest>> requests;
   late ProviderContainer container;
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> lifecycle(
+    WidgetTester tester,
+    List<AppLifecycleState> states,
+  ) async {
+    for (final state in states) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await _pump(tester);
+    }
+  }
+
+  const background = [
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+  ];
+  const foreground = [
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ];
+
+  Future<void> mount(
+    WidgetTester tester, {
+    NotificationService? service,
+    bool minimize = true,
+  }) async {
     SharedPreferences.setMockInitialValues({});
     messaging = _Messaging();
     notifications = _Notifications();
@@ -288,7 +351,9 @@ void main() {
           storageProvider.overrideWithValue(_Storage()),
           messagingServiceProvider.overrideWithValue(messaging),
           groupServiceProvider.overrideWith((ref) => ref.watch(_groupSource)),
-          notificationServiceProvider.overrideWithValue(notifications),
+          notificationServiceProvider.overrideWithValue(
+            service ?? notifications,
+          ),
           appControllerProvider.overrideWith(_App.new),
           pendingClearRequestsProvider.overrideWith((_) => requests.stream),
         ],
@@ -303,28 +368,14 @@ void main() {
     container = ProviderScope.containerOf(
       tester.element(find.byType(MaterialApp)),
     );
-    for (final state in [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-    ]) {
-      tester.binding.handleAppLifecycleStateChanged(state);
-      await _pump(tester);
-    }
+    if (minimize) await lifecycle(tester, background);
   }
 
   Future<void> cleanup(WidgetTester tester) async {
     if (!notifications.release.isCompleted) notifications.release.complete();
     await _pump(tester);
     await tester.pumpWidget(const SizedBox());
-    for (final state in [
-      AppLifecycleState.hidden,
-      AppLifecycleState.inactive,
-      AppLifecycleState.resumed,
-    ]) {
-      tester.binding.handleAppLifecycleStateChanged(state);
-      await tester.pump();
-    }
+    await lifecycle(tester, foreground);
     await messaging.notices.close();
     await requests.close();
   }
@@ -332,6 +383,54 @@ void main() {
   void message(int peer) => messaging.notices.add(
     IncomingNotice(from: _id(peer), preview: 'fixture', isFile: false),
   );
+
+  for (final duringStartup in [
+    'visible',
+    'background',
+    'locked',
+    'unmounted',
+  ]) {
+    testWidgets('notification permission waits for startup ($duringStartup)', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = _PermissionNotifications(plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service, minimize: false);
+      try {
+        expect(service.isReady, isFalse);
+        expect(service.prompts, 0);
+        if (duringStartup == 'visible') {
+          await lifecycle(tester, background);
+          await lifecycle(tester, foreground);
+          expect(service.prompts, 0);
+        } else if (duringStartup == 'background') {
+          await lifecycle(tester, background);
+        } else if (duringStartup == 'locked') {
+          (container.read(appControllerProvider.notifier) as _App).lockPhase();
+        } else if (duringStartup == 'unmounted') {
+          await tester.pumpWidget(const SizedBox());
+        }
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(service.prompts, duringStartup == 'visible' ? 1 : 0);
+        if (duringStartup == 'background') {
+          await lifecycle(tester, foreground);
+          expect(service.prompts, 1);
+        }
+        if (duringStartup == 'visible' || duringStartup == 'background') {
+          await lifecycle(tester, background);
+          await lifecycle(tester, foreground);
+          expect(service.prompts, 1, reason: 'do not repeat a denied prompt');
+        }
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    });
+  }
 
   testWidgets(
     'an incoming message cannot cancel a pending clear-request alert',
