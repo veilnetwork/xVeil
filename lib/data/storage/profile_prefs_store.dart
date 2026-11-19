@@ -288,7 +288,7 @@ Future<bool> writeRememberedProfile(String supportDir, String profile) {
   // Each write for this file uses the same temporary name. Queue writes in
   // this isolate so the next one opens it only after the previous one settles.
   final write = _profileChoiceWrites.then(
-    (_) => writePrivateFileAtomically(
+    (_) => writeProfileChoiceAtomically(
       File(activeProfilePath(supportDir)),
       profile,
     ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -187,6 +188,59 @@ void main() {
       expect(await writeRememberedProfile(support.path, 'last'), isFalse);
       expect(await readRememberedProfile(support.path), 'first');
       temporary.deleteSync();
+      expect(await writeRememberedProfile(support.path, 'last'), isTrue);
+      expect(await readRememberedProfile(support.path), 'last');
+    });
+
+    test('another process can hold the profile choice lock', () async {
+      expect(await writeRememberedProfile(support.path, 'first'), isTrue);
+      final fixture = File('${support.path}/hold-choice-lock.dart')
+        ..writeAsStringSync(r'''
+import 'dart:io';
+
+Future<void> main(List<String> args) async {
+  final file = await File(args.single).open(mode: FileMode.append);
+  try {
+    await file.lock();
+    stdout.writeln('held');
+    await stdin.drain<void>();
+  } finally {
+    await file.close();
+  }
+}
+''');
+      final child = await Process.start(
+        'dart',
+        [fixture.path, '${activeProfilePath(support.path)}.lock'],
+        environment: {if (Platform.isMacOS) 'TMPDIR': '/private/tmp/'},
+        runInShell: Platform.isWindows,
+      );
+      final output = StreamIterator(
+        child.stdout.transform(utf8.decoder).transform(const LineSplitter()),
+      );
+      final stderr = child.stderr.drain<void>();
+      try {
+        expect(
+          await output.moveNext().timeout(const Duration(seconds: 10)),
+          isTrue,
+        );
+        expect(output.current, 'held');
+        expect(await writeRememberedProfile(support.path, 'last'), isFalse);
+        expect(await readRememberedProfile(support.path), 'first');
+      } finally {
+        await child.stdin.close();
+        final status = await child.exitCode.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            child.kill();
+            return child.exitCode;
+          },
+        );
+        await output.cancel();
+        await stderr;
+        expect(status, 0);
+      }
+
       expect(await writeRememberedProfile(support.path, 'last'), isTrue);
       expect(await readRememberedProfile(support.path), 'last');
     });

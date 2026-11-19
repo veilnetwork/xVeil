@@ -127,6 +127,64 @@ bool _prepareWindowsTemporary(File temp) {
   return windows.createPrivateFile(temp.path);
 }
 
+/// Save the installation-wide profile choice shared by separate app processes.
+/// The empty lock file stays in place so every writer locks the same object.
+Future<bool> writeProfileChoiceAtomically(File file, String contents) async {
+  RandomAccessFile? lock;
+  try {
+    await _ensurePrivateDir(file.parent);
+    final lockFile = File('${file.path}.lock');
+    if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      if (Platform.isWindows) {
+        windows.createPrivateFile(lockFile.path);
+      } else {
+        try {
+          lockFile.createSync(exclusive: true);
+        } on PathExistsException {
+          // Another process reserved the same file between the two checks.
+        }
+      }
+    }
+    if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) !=
+            FileSystemEntityType.file ||
+        !_restrictToOwner(lockFile.path) ||
+        lockFile.lengthSync() != 0) {
+      return false;
+    }
+
+    lock = await lockFile.open(mode: FileMode.append);
+    final elapsed = Stopwatch()..start();
+    while (true) {
+      try {
+        await lock.lock();
+        break;
+      } on FileSystemException catch (error) {
+        final code = error.osError?.errorCode;
+        // EAGAIN differs between Darwin and Linux.
+        final tryAgain = Platform.isMacOS || Platform.isIOS ? 35 : 11;
+        final busy = Platform.isWindows
+            ? code == 33
+            : code == 13 || code == tryAgain;
+        if (!busy || elapsed.elapsed >= const Duration(seconds: 2)) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+    return await writePrivateFileAtomically(file, contents);
+  } catch (error) {
+    devLog(() => 'xVeil[prefs]: could not save the profile choice: $error');
+    return false;
+  } finally {
+    try {
+      await lock?.close();
+    } catch (error) {
+      devLog(
+        () => 'xVeil[prefs]: could not close the profile choice lock: $error',
+      );
+    }
+  }
+}
+
 /// Write [contents] to [file] durably, privately and atomically — or return
 /// **false**, which is the entire point of the function.
 ///
