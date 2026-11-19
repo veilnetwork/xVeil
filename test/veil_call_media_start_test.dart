@@ -28,6 +28,8 @@ class _Transport implements VeilFlutterTransport {
   @override
   int networkChangeGeneration = 0;
   @override
+  Stream<void> get networkChangeDispatches => const Stream.empty();
+  @override
   Future<NodeId> peerFacingNodeId({
     Duration timeout = const Duration(seconds: 2),
   }) async => _id(1);
@@ -219,6 +221,7 @@ class _RepairingTransport extends _Transport {
 }
 
 class _HandoverTransport extends _RepairingTransport {
+  final networkDispatches = StreamController<void>.broadcast(sync: true);
   final qualifying = Completer<int>();
   final echo = Completer<bool>();
   final opened = <int>[];
@@ -228,6 +231,14 @@ class _HandoverTransport extends _RepairingTransport {
   final probeRequests = <int>[];
   bool failRelayOpen = false;
   bool? proofAvailable;
+
+  @override
+  Stream<void> get networkChangeDispatches => networkDispatches.stream;
+
+  void dispatchNetworkChange() {
+    networkChangeGeneration++;
+    networkDispatches.add(null);
+  }
 
   @override
   Future<int> openMediaChannel(
@@ -2215,19 +2226,24 @@ void main() {
             ({required veilChan, required localId, required peerId}) => engine,
       );
       Future<bool>? switching;
+      bool? firstResult;
       try {
         expect(
           await controller.start(_call(direct: true).copyWith(transport: from)),
           isTrue,
         );
-        switching = controller.switchRoute(target);
+        switching = controller.switchRoute(target).then((result) {
+          firstResult = result;
+          return result;
+        });
         await Future.any([
           transport.qualifying.future.then((_) {}),
           switching.then((_) => fail('The candidate must reach its probe')),
         ]);
-        transport.networkChangeGeneration++;
-        transport.echo.complete(true);
-        expect(await switching, isFalse);
+        transport.dispatchNetworkChange();
+        await pumpEventQueue();
+        expect(firstResult, isFalse, reason: 'no need to wait for the old echo');
+        expect(transport.networkDispatches.hasListener, isFalse);
         expect(transport.closed, [43]);
         expect(engine.rebound, isEmpty);
         expect(controller.activeTransport, from);
@@ -2238,10 +2254,14 @@ void main() {
         expect(transport.probeRequests, [43, 44]);
         expect(engine.rebound, [44]);
         expect(controller.activeTransport, target);
+        transport.echo.complete(true);
+        await pumpEventQueue();
+        expect(engine.rebound, [44], reason: 'the late echo is ignored');
       } finally {
         if (!transport.echo.isCompleted) transport.echo.complete(false);
         await switching;
         await controller.stop();
+        await transport.networkDispatches.close();
       }
     });
   }

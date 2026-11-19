@@ -125,6 +125,10 @@ void main() {
           final subscription = adapter.networkAttachments.listen(
             attachments.add,
           );
+          var dispatches = 0;
+          final starts = adapter.networkChangeDispatches.listen((_) {
+            dispatches++;
+          });
           try {
             // An initial usable snapshot is not a handover. An initial
             // offline snapshot still matters to the call watchdog.
@@ -133,6 +137,7 @@ void main() {
                 : NetworkAttachment.wifi;
             await adapter.networkChanged(initial);
             await pumpEventQueue();
+            expect(dispatches, 1);
             expect(attachments, tcp ? [NetworkAttachment.offline] : isEmpty);
             const changes = [
               NetworkAttachment.cellular,
@@ -142,13 +147,16 @@ void main() {
             ];
             for (final change in changes) {
               final previous = adapter.networkChangeGeneration;
+              final previousDispatches = dispatches;
               final dispatch = adapter.networkChanged(change);
               expect(adapter.networkChangeGeneration, previous + 1);
+              expect(dispatches, previousDispatches + 1);
               await dispatch;
             }
             await pumpEventQueue();
             expect(attachments, [if (tcp) initial, ...changes]);
           } finally {
+            await starts.cancel();
             await subscription.cancel();
             await adapter.dispose();
           }

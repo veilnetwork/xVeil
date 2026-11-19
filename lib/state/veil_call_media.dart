@@ -1302,20 +1302,33 @@ class VeilCallMediaController implements CallMediaController {
       // Keep the old sender/receiver alive until the candidate has carried a
       // sealed peer echo in both directions. Local open/admission is not a
       // delivery observation. The echo's route stays inside the call AEAD.
-      if (!await qualifyCallMediaHandover(
-        from: previousTransport,
-        to: target,
-        stillOwned: stillOwned,
-        qualify: () {
-          observations++;
-          devLog(
-            () =>
-                'xVeil[call-media]: ${target.name} candidate '
-                'delivery observation=$observations',
-          );
-          return _transport.qualifyMediaRoute(opened.channel);
-        },
-      )) {
+      final retired = Completer<bool>();
+      final networkChanges = _transport.networkChangeDispatches.listen((_) {
+        if (!retired.isCompleted) retired.complete(false);
+      });
+      final bool qualified;
+      try {
+        qualified = await Future.any([
+          qualifyCallMediaHandover(
+            from: previousTransport,
+            to: target,
+            stillOwned: stillOwned,
+            qualify: () {
+              observations++;
+              devLog(
+                () =>
+                    'xVeil[call-media]: ${target.name} candidate '
+                    'delivery observation=$observations',
+              );
+              return _transport.qualifyMediaRoute(opened.channel);
+            },
+          ),
+          retired.future,
+        ]);
+      } finally {
+        unawaited(networkChanges.cancel());
+      }
+      if (!qualified) {
         devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
         if (!reused &&
             previousTransport == CallTransportKind.p2p &&
