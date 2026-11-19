@@ -687,7 +687,14 @@ class MultiIdentitySession {
         if (host != null) {
           await host.vacuum();
         } else {
-          await _backing.vacuumOrphans(spec.spaceId);
+          try {
+            final storage = _storages[spec.label];
+            if (storage is HiddenVolumeStorage) {
+              await storage.recoverPendingRemoteClear();
+            }
+          } finally {
+            await _backing.vacuumOrphans(spec.spaceId);
+          }
         }
       } catch (_) {
         /* the space is open and usable; the scrub retries next unlock */

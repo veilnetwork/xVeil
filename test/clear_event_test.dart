@@ -64,6 +64,38 @@ SpaceOpener _mem() {
   return ({required password, required bool create}) => s;
 }
 
+class _ClearRecoveryStore extends FakeKvLogStore {
+  bool refuseTombstone = false;
+  bool refuseScrub = false;
+
+  @override
+  int commit(List<KvLogOp> ops) {
+    if (refuseTombstone &&
+        ops.whereType<AppendLogOp>().any((op) {
+          final row = jsonDecode(utf8.decode(op.payload));
+          return row is Map && row['op'] == 'del';
+        })) {
+      refuseTombstone = false;
+      throw StateError('fixture tombstone write interrupted');
+    }
+    return super.commit(ops);
+  }
+
+  @override
+  void scrub() {
+    if (refuseScrub) throw StateError('fixture scrub interrupted');
+    super.scrub();
+  }
+
+  Iterable<Map<String, dynamic>> get rows sync* {
+    for (var ns = Ns.messageLogShardFirst; ns <= Ns.messageLogShardLast; ns++) {
+      for (final row in iterLogRange(namespace: ns, limit: 512)) {
+        yield jsonDecode(utf8.decode(row.payload)) as Map<String, dynamic>;
+      }
+    }
+  }
+}
+
 class _ClearRequestStorage extends HiddenVolumeStorage {
   _ClearRequestStorage() : super(_mem());
   final entered = Completer<void>(), release = Completer<void>();
@@ -632,13 +664,15 @@ void main() {
     late NodeId conv;
     late SpaceOpener opener;
     late HiddenVolumeStorage s;
+    late _ClearRecoveryStore raw;
     // Our own author id — the one stream a peer's clear may not reach past
     // what we actually hold.
     final selfHex = _id(1).hex;
 
     setUp(() async {
       conv = _id(9);
-      opener = _mem();
+      raw = _ClearRecoveryStore();
+      opener = ({required password, required create}) => raw;
       s = HiddenVolumeStorage(opener);
       await s.open(password: 'p', createIfMissing: true);
       await s.upsertContact(
@@ -658,6 +692,72 @@ void main() {
         seq: seq,
       ),
     );
+
+    for (final reopen in [false, true]) {
+      test(
+        'interrupted peer clear finishes deleting the stored body (reopen=$reopen)',
+        () async {
+          await incoming(1, 'erased body fixture');
+          await incoming(2, 'keep body fixture');
+          await s.putSetting('msg.translation.v1:en:m1', 'first translation');
+          await s.putSetting('msg.translation.v1:en:m2', 'second translation');
+          Future<void> clear() => s.applyRemoteClear(conv, conv.hex, 9, {
+            conv.hex: 1,
+          }, selfHex: selfHex);
+
+          raw.refuseTombstone = true;
+          await expectLater(clear(), throwsStateError);
+          await s.appendMessage(
+            Message(
+              id: 'later-m1',
+              conversationId: conv.hex,
+              direction: MessageDirection.incoming,
+              body: 'later body fixture',
+              timestamp: DateTime.now().add(const Duration(minutes: 1)),
+              status: MessageStatus.delivered,
+              author: conv.hex,
+              seq: 1,
+            ),
+          );
+          if (reopen) {
+            await s.close();
+            expect(await s.open(password: 'p'), isTrue);
+          } else {
+            await clear();
+          }
+
+          expect(
+            raw.rows.map((r) => r['b']),
+            isNot(contains('erased body fixture')),
+          );
+          expect(raw.rows.where((r) => r['op'] == 'del').map((r) => r['id']), [
+            'm1',
+          ]);
+          expect(await s.getSetting('msg.translation.v1:en:m1'), isNull);
+          expect(
+            await s.getSetting('msg.translation.v1:en:m2'),
+            'second translation',
+          );
+          expect(
+            (await s.loadMessages(conv.hex)).map((m) => m.id),
+            unorderedEquals(['m2', 'later-m1']),
+          );
+        },
+      );
+    }
+
+    test('peer clear retry still reports a failed physical scrub', () async {
+      await incoming(1, 'erased body fixture');
+      Future<void> clear() => s.applyRemoteClear(conv, conv.hex, 9, {
+        conv.hex: 1,
+      }, selfHex: selfHex);
+      raw.refuseScrub = true;
+      await expectLater(clear(), throwsStateError);
+      await expectLater(clear(), throwsStateError);
+      raw.refuseScrub = false;
+      await clear();
+      expect(await s.loadMessages(conv.hex), isEmpty);
+    });
 
     /// One of OUR messages, by the honest local route: no seq is supplied, so
     /// storage allocates the next slot in our own stream.

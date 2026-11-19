@@ -4,16 +4,31 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/chat.dart';
 
 class _Store extends HvKvLogStore {
   _Store(super.space);
   bool refuseScrub = false;
+  bool refuseTombstone = false;
   int completedScrubs = 0;
+  @override
+  int commit(List<KvLogOp> ops) {
+    if (refuseTombstone &&
+        ops.whereType<AppendLogOp>().any((op) {
+          final row = jsonDecode(utf8.decode(op.payload)) as Map;
+          return row['op'] == 'del';
+        })) {
+      throw StateError('fixture tombstone refusal');
+    }
+    return super.commit(ops);
+  }
+
   @override
   void scrub() {
     if (refuseScrub) throw StateError('fixture scrub refusal');
@@ -25,6 +40,65 @@ class _Store extends HvKvLogStore {
 void main() {
   final enabled = Platform.environment['XVEIL_HV_DYLIB']?.isNotEmpty ?? false;
   final available = enabled && ensureHiddenVolumeLoaded();
+  test(
+    'the worker completes a prior interrupted remote clear on open',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('xveil-peer-clear-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/fixture.hv';
+      const password = 'fixture-password';
+      final raw = _Store(
+        hv.HvSpace.create(
+          path: path,
+          password: Uint8List.fromList(utf8.encode(password)),
+          argon: hv.ArgonPreset.min,
+        ),
+      );
+      final first = HiddenVolumeStorage.fromStore(raw);
+      addTearDown(first.close);
+      final peer = NodeId.fromHex('39' * 32);
+      final self = NodeId.fromHex('63' * 32);
+      for (final seq in [1, 2]) {
+        await first.appendMessage(
+          Message(
+            id: 'post-$seq',
+            conversationId: peer.hex,
+            direction: MessageDirection.incoming,
+            body: 'fixture body $seq',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(seq * 1000),
+            author: peer.hex,
+            seq: seq,
+          ),
+        );
+      }
+      await first.putSetting('msg.translation.v1:en:post-1', 'fixture removed');
+      await first.putSetting('msg.translation.v1:en:post-2', 'fixture kept');
+      raw.refuseTombstone = true;
+      await expectLater(
+        first.applyRemoteClear(peer, peer.hex, 3, {
+          peer.hex: 1,
+        }, selfHex: self.hex),
+        throwsStateError,
+      );
+      await first.close();
+
+      final storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+      addTearDown(storage.close);
+      expect(await storage.open(password: password), isTrue);
+      expect(await storage.isMessageDeleted(peer.hex, 'post-1'), isTrue);
+      expect((await storage.loadMessages(peer.hex)).single.id, 'post-2');
+      expect(await storage.getSetting('msg.translation.v1:en:post-1'), isNull);
+      expect(
+        await storage.getSetting('msg.translation.v1:en:post-2'),
+        'fixture kept',
+      );
+      await storage.close();
+      expect(await storage.open(password: password), isTrue);
+      expect((await storage.loadMessages(peer.hex)).single.id, 'post-2');
+    },
+    skip: available ? null : 'set XVEIL_HV_DYLIB to a verified current library',
+  );
+
   for (final mode in ['password', 'keys', 'async-view']) {
     test(
       'native unfinished delete recovers through $mode without repeated vacuum',

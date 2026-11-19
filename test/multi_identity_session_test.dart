@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
@@ -39,6 +41,23 @@ NodeId _nid(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 RosterEntry _e(String label, int seed, {bool anonymous = false}) =>
     RosterEntry(label: label, spaceKeys: _keys(seed), anonymous: anonymous);
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 20));
+
+class _InterruptedClearBacking extends FakeMultiSpaceBacking {
+  bool interrupt = false;
+
+  @override
+  int commit(int id, List<KvLogOp> ops) {
+    if (interrupt &&
+        ops.whereType<AppendLogOp>().any((op) {
+          final row = jsonDecode(utf8.decode(op.payload)) as Map;
+          return row['op'] == 'del';
+        })) {
+      interrupt = false;
+      throw StateError('fixture interrupted the clear');
+    }
+    return super.commit(id, ops);
+  }
+}
 
 /// Fake transport with a manual inbound feed, so a test can deliver a message
 /// to one identity's pipeline.
@@ -515,6 +534,53 @@ void main() {
       fake.opened.toSet(),
       reason: 'a space that opened but was never scrubbed keeps deleted data',
     );
+  });
+
+  test('bootAll resumes an interrupted clear only in its own space', () async {
+    final raw = _InterruptedClearBacking();
+    final backing = SyncWrappedAsyncMultiSpaceBacking(raw);
+    final peer = _nid(9);
+    final first = _viewOf(backing, await backing.openSpace(_keys(1)));
+    final second = _viewOf(backing, await backing.openSpace(_keys(2)));
+    for (final storage in [first, second]) {
+      await storage.appendMessage(
+        Message(
+          id: 'post',
+          conversationId: peer.hex,
+          direction: MessageDirection.incoming,
+          body: 'synthetic message',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+          author: peer.hex,
+          seq: 1,
+        ),
+      );
+    }
+    raw.interrupt = true;
+    await expectLater(
+      first.applyRemoteClear(peer, peer.hex, 2, {
+        peer.hex: 1,
+      }, selfHex: _nid(1).hex),
+      throwsStateError,
+    );
+    await first.close();
+    await second.close();
+    final session = MultiIdentitySession(
+      backing,
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      boot: (_, _) async => throw StateError('no node in fixture'),
+    );
+    addTearDown(session.disposeAll);
+    await session.bootAll([_e('alice', 1), _e('bob', 2)]);
+    final firstRecovered = session.storageFor('alice')!;
+    final secondRecovered = session.storageFor('bob')!;
+    expect(await firstRecovered.isMessageDeleted(peer.hex, 'post'), isTrue);
+    expect(await firstRecovered.loadMessages(peer.hex), isEmpty);
+    expect(
+      (await secondRecovered.loadMessages(peer.hex)).single.body,
+      'synthetic message',
+    );
+    expect(raw.vacuumed, raw.opened.skip(2));
   });
 
   test(
