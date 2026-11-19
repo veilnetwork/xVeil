@@ -17,7 +17,7 @@ final class ManagedProfileLease {
   final bool exclusive;
   final ManagedProfileLeaseRole role;
   bool _closed = false, _closing = false, _transactionHeld = false;
-  _PosixIdentityLock? _posixLock;
+  PosixSidecarLock? _posixLock;
   late final _connectionRelease = NativeHandleClose(_connection.close);
 
   static const fileName = 'profile.meta';
@@ -50,7 +50,7 @@ final class ManagedProfileLease {
           throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
         }
       });
-      lease._posixLock = _PosixIdentityLock.acquire(
+      lease._posixLock = PosixSidecarLock.acquire(
         connection.filePath,
         create: true,
       );
@@ -95,7 +95,7 @@ final class ManagedProfileLease {
     );
     try {
       lease._configure();
-      lease._posixLock = _PosixIdentityLock.acquire(
+      lease._posixLock = PosixSidecarLock.acquire(
         connection.filePath,
         shared: !exclusive,
       );

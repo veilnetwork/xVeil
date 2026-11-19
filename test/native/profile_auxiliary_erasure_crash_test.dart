@@ -44,6 +44,7 @@ void main() {
             f.parent.createSync(recursive: true);
             f.writeAsStringSync('synthetic $name bytes');
           }
+          File('${fixture.path}/xveil.prefs.json.lock').createSync();
           final role = '$profile/${StorageProfileCoordinator.directoryName}';
           await killErasureWriter(
             fixture.path,
@@ -159,6 +160,7 @@ void main() {
             'xveil.store',
             'xveil.prefs.json',
             'xveil.prefs.json.tmp',
+            'xveil.prefs.json.lock',
             'blobs',
             ProfileModelLayout.speechFile,
             'translate',

@@ -349,6 +349,14 @@ class _FileOwner implements ProfilePreferencesFile {
   }
 
   @override
+  Future<bool?> compareAndWrite(String? expected, String contents) async {
+    if (this.contents != expected) return null;
+    final saved = await write(contents);
+    if (saved) this.contents = contents;
+    return saved;
+  }
+
+  @override
   Future<void> close() async {
     closes++;
     if (closeFailures > 0) {

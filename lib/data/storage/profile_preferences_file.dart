@@ -1,16 +1,23 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
 import 'app_profile.dart';
+import 'managed_fs_platform.dart';
 import 'managed_fs_windows.dart' as windows;
+import 'managed_identity_lease.dart'
+    show ManagedLeaseFailure, ManagedLeaseFailureKind, PosixSidecarLock;
 
 /// A file owner, not permission to perform local I/O beside its native lease.
 abstract interface class ProfilePreferencesFile {
   String get path;
   Future<String?> read();
   Future<bool> write(String contents);
+
+  /// Null means another writer changed the file. False means a write refusal.
+  Future<bool?> compareAndWrite(String? expected, String contents);
   Future<void> close();
 }
 
@@ -208,6 +215,96 @@ Future<bool> writeProfileChoiceAtomically(
         () => 'xVeil[prefs]: could not close the profile choice lock: $error',
       );
     }
+  }
+}
+
+/// All preference writers use an empty, stable lock beside the replaced file.
+/// On POSIX flock also excludes other isolates of this process.
+Future<T> withProfilePreferencesWriteLock<T>(
+  File file,
+  FutureOr<T> Function() work,
+) async {
+  await _ensurePrivateDir(file.parent);
+  final sidecar = File('${file.path}.lock');
+  if (FileSystemEntity.typeSync(sidecar.path, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    if (Platform.isWindows) {
+      windows.createPrivateFile(sidecar.path);
+    } else {
+      try {
+        sidecar.createSync(exclusive: true);
+      } on PathExistsException {
+        // A concurrent writer reserved the same empty leaf.
+      }
+    }
+  }
+  const fs = ManagedFsPlatform();
+  final original = fs.inspect(sidecar.path);
+  if (original.directory ||
+      !original.ownedByCurrentUser ||
+      sidecar.lengthSync() != 0 ||
+      (!original.ownerOnly && !_restrictToOwner(sidecar.path))) {
+    throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+  }
+
+  final elapsed = Stopwatch()..start();
+  RandomAccessFile? windowsLock;
+  PosixSidecarLock? posixLock;
+  try {
+    while (true) {
+      try {
+        if (Platform.isWindows) {
+          windowsLock ??= sidecar.openSync(mode: FileMode.append);
+          windowsLock.lockSync();
+        } else {
+          posixLock = PosixSidecarLock.acquire(file.path)!;
+        }
+        break;
+      } catch (error) {
+        final busy = switch (error) {
+          ManagedLeaseFailure(kind: ManagedLeaseFailureKind.busy) => true,
+          FileSystemException(:final osError) when Platform.isWindows =>
+            osError?.errorCode == 32 || osError?.errorCode == 33,
+          _ => false,
+        };
+        if (!busy) rethrow;
+        if (elapsed.elapsed >= const Duration(seconds: 2)) {
+          throw const ManagedLeaseFailure(ManagedLeaseFailureKind.busy);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+    if (!original.sameObject(fs.requirePrivateFile(sidecar.path))) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    return await work();
+  } finally {
+    windowsLock?.closeSync();
+    posixLock?.close();
+  }
+}
+
+Future<bool?> compareAndWritePrivatePreferences(
+  File file,
+  String? expected,
+  String contents,
+) async {
+  try {
+    return await withProfilePreferencesWriteLock<bool?>(file, () async {
+      final type = FileSystemEntity.typeSync(file.path, followLinks: false);
+      if (type != FileSystemEntityType.notFound &&
+          type != FileSystemEntityType.file) {
+        return false;
+      }
+      final current = type == FileSystemEntityType.file
+          ? await file.readAsString()
+          : null;
+      if (current != expected) return null;
+      return writePrivateFileAtomically(file, contents);
+    });
+  } catch (error) {
+    devLog(() => 'xVeil[prefs]: could not publish legacy preferences: $error');
+    return false;
   }
 }
 

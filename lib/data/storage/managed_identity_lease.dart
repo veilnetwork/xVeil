@@ -38,7 +38,7 @@ final class ManagedIdentityLease {
   bool _closing = false;
   bool _closed = false;
   bool _transactionHeld = false;
-  _PosixIdentityLock? _posixLock;
+  PosixSidecarLock? _posixLock;
   late final _connectionRelease = NativeHandleClose(_connection.close);
 
   static const _applicationId = 0x58564c53;
@@ -63,7 +63,7 @@ final class ManagedIdentityLease {
           throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
         }
       });
-      lease._posixLock = _PosixIdentityLock.acquire(
+      lease._posixLock = PosixSidecarLock.acquire(
         connection.filePath,
         create: true,
       );
@@ -104,7 +104,7 @@ final class ManagedIdentityLease {
   }) {
     final lease = ManagedIdentityLease._(connection, expected);
     try {
-      lease._posixLock = _PosixIdentityLock.acquire(connection.filePath);
+      lease._posixLock = PosixSidecarLock.acquire(connection.filePath);
       lease._configure();
       lease._acquire();
       return lease;
@@ -201,8 +201,8 @@ final class ManagedIdentityLease {
 /// inode on BSD hosts. FILE* supplies a native finalizer with the correct
 /// pointer argument. GC finalization is a fallback, not a prompt worker-close
 /// barrier: worker teardown must explicitly close all native owners.
-final class _PosixIdentityLock implements Finalizable {
-  _PosixIdentityLock(this._fd, this._stream, this._flock, this._fclose) {
+final class PosixSidecarLock implements Finalizable {
+  PosixSidecarLock._(this._fd, this._stream, this._flock, this._fclose) {
     _finalizer.attach(this, _stream, detach: this);
   }
   int _fd;
@@ -217,12 +217,12 @@ final class _PosixIdentityLock implements Finalizable {
         .cast(),
   );
 
-  static _PosixIdentityLock? acquire(
-    String database, {
+  static PosixSidecarLock? acquire(
+    String file, {
     bool create = false,
     bool shared = false,
   }) {
-    final path = '$database.lock';
+    final path = '$file.lock';
     if (create) {
       const ManagedFsPlatform().reserveNewFile(path);
       if (!Platform.isWindows && posixChmod(path, 0x180) != 0) {
@@ -308,9 +308,9 @@ final class _PosixIdentityLock implements Finalizable {
       if (stream == nullptr) {
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }
-      final _PosixIdentityLock result;
+      final PosixSidecarLock result;
       try {
-        result = _PosixIdentityLock(fd, stream, flock, fclose);
+        result = PosixSidecarLock._(fd, stream, flock, fclose);
       } catch (_) {
         fd = -1;
         fclose(stream);

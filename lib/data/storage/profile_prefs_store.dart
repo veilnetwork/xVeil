@@ -15,6 +15,8 @@ import 'profile_preferences_routing.dart';
 export 'profile_preferences_file.dart';
 export 'profile_preferences_routing.dart';
 
+typedef _PreferenceEntries = Map<String, ({String type, Object value})>;
+
 /// App preferences, held in a FILE under the app-support directory instead of
 /// the platform's system preference store (audit XV-16).
 ///
@@ -59,7 +61,6 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     this._file,
     this._entries,
     this._ownedFile,
-    this._loadedSnapshot,
     this.legacyPreferences,
   );
 
@@ -69,14 +70,13 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   final File _file;
   final ProfilePreferencesFile? _ownedFile;
-  final bool _loadedSnapshot;
   final LegacyProfilePreferences? legacyPreferences;
 
   /// value type (the `valueType` tag the plugin already hands to [setValue]) →
   /// value. Kept rather than inferred: a `double` that happens to hold 2.0 and
   /// an `int` holding 2 are the same JSON number, and `getDouble` on the wrong
   /// one throws a cast error at some unrelated call site later.
-  final Map<String, ({String type, Object value})> _entries;
+  _PreferenceEntries _entries;
 
   /// Settlement of every admitted write. Individual results go to callers.
   Future<void> _writes = Future<void>.value();
@@ -115,26 +115,35 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       throw StateError('profile preference file owner mismatch');
     }
     final file = File(path);
-    final (entries, loadedSnapshot) = await _readSnapshot(file, ownedFile);
+    // Admission failures from a native owner must propagate. The legacy
+    // backend still tolerates unreadable preferences during startup.
+    final contents = ownedFile != null
+        ? await ownedFile.read()
+        : await _readUnowned(file).onError<FileSystemException>((_, _) => null);
+    final (entries, _) = _decodeSnapshot(file, contents);
     return ProfilePreferencesStore._(
       file,
       entries,
       ownedFile,
-      loadedSnapshot,
       legacyPreferences,
     );
   }
 
-  static Future<(Map<String, ({String type, Object value})>, bool)>
-  _readSnapshot(File file, ProfilePreferencesFile? ownedFile) async {
-    // Native admission failure is not a corrupt optional setting. Do not turn
-    // a refused/dead owner into an unguarded local read or an empty backend.
-    final ownedContents = ownedFile == null ? null : await ownedFile.read();
-    final entries = <String, ({String type, Object value})>{};
+  static Future<String?> _readUnowned(File file) async {
+    return file.existsSync() ? file.readAsString() : null;
+  }
+
+  Future<String?> _readContents() => _ownedFile?.read() ?? _readUnowned(_file);
+
+  static (_PreferenceEntries, bool) _decodeSnapshot(
+    File file,
+    String? contents,
+  ) {
+    final entries = _PreferenceEntries();
     var loadedSnapshot = false;
     try {
-      if (ownedFile != null ? ownedContents != null : file.existsSync()) {
-        final json = jsonDecode(ownedContents ?? await file.readAsString());
+      if (contents != null) {
+        final json = jsonDecode(contents);
         if (json is Map<String, dynamic> && json['v'] == _version) {
           final raw = json['e'];
           if (raw is Map<String, dynamic>) {
@@ -158,7 +167,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     _requireWritable();
     await _writes;
     _requireWritable();
-    final (entries, _) = await _readSnapshot(_file, _ownedFile);
+    final (entries, _) = _decodeSnapshot(_file, await _readContents());
     final entry = entries['$_defaultPrefix$key'];
     return entry?.type == 'String' ? entry!.value as String : null;
   }
@@ -184,47 +193,60 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     };
   }
 
-  /// Persist the current entries. **False means nothing reached the disk.**
-  ///
-  /// This used to catch every exception, log it and hand its caller a `true`
-  /// anyway — so a full disk, a read-only mount or a permission error read as a
-  /// successful save, and the migration below emptied the only other copy on
-  /// the strength of it (audit X-02).
-  Future<bool> _flush() {
+  /// Apply one operation to the latest file. A concurrent commit invalidates
+  /// the comparison, so retry the operation against a fresh snapshot.
+  Future<bool> _edit(
+    bool Function(_PreferenceEntries entries) change, {
+    bool ensureFile = false,
+  }) {
     _requireWritable();
-    final snapshot = <String, Object>{
-      'v': _version,
-      'e': {
-        for (final entry in _entries.entries)
-          entry.key: {'t': entry.value.type, 'v': entry.value.value},
-      },
-    };
-    final encoded = jsonEncode(snapshot);
-    final next = _writes.then(
-      (_) =>
-          _ownedFile?.write(encoded) ??
-          writePrivateFileAtomically(_file, encoded),
-    );
+    final next = _writes.then((_) async {
+      final elapsed = Stopwatch()..start();
+      while (true) {
+        final raw = await _readContents();
+        final (entries, loaded) = _decodeSnapshot(_file, raw);
+        if (!change(entries) && (!ensureFile || loaded)) {
+          _entries = entries;
+          return true;
+        }
+        final encoded = jsonEncode({
+          'v': _version,
+          'e': {
+            for (final entry in entries.entries)
+              entry.key: {'t': entry.value.type, 'v': entry.value.value},
+          },
+        });
+        final saved =
+            await (_ownedFile?.compareAndWrite(raw, encoded) ??
+                compareAndWritePrivatePreferences(_file, raw, encoded));
+        if (saved != null) {
+          if (saved) _entries = entries;
+          return saved;
+        }
+        if (elapsed.elapsed >= const Duration(seconds: 2)) return false;
+      }
+    });
     _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return next;
   }
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) {
-    _requireWritable();
-    _entries[key] = (
+    final entry = (
       type: valueType,
       value: value is List<String> ? List<String>.of(value) : value,
     );
-    return _flush();
+    return _edit((entries) {
+      entries[key] = entry;
+      return true;
+    });
   }
 
   @override
-  Future<bool> remove(String key) {
-    _requireWritable();
-    _entries.remove(key);
-    return _flush();
-  }
+  Future<bool> remove(String key) => _edit((entries) {
+    entries.remove(key);
+    return true;
+  });
 
   @override
   Future<bool> clear() => clearWithParameters(
@@ -233,15 +255,28 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   @override
   Future<bool> clearWithParameters(ClearParameters parameters) {
-    _requireWritable();
     final filter = parameters.filter;
-    _entries.removeWhere(
-      (key, _) =>
-          key.startsWith(filter.prefix) &&
-          (filter.allowList == null || filter.allowList!.contains(key)),
-    );
-    return _flush();
+    final allowList = filter.allowList?.toSet();
+    return _edit((entries) {
+      entries.removeWhere(
+        (key, _) =>
+            key.startsWith(filter.prefix) &&
+            (allowList == null || allowList.contains(key)),
+      );
+      return true;
+    });
   }
+
+  Future<bool> _importMissing(
+    _PreferenceEntries imported, {
+    bool ensureFile = false,
+  }) => _edit((entries) {
+    final count = entries.length;
+    for (final entry in imported.entries) {
+      entries.putIfAbsent(entry.key, () => entry.value);
+    }
+    return entries.length != count;
+  }, ensureFile: ensureFile);
 
   @override
   Future<Map<String, Object>> getAll() => getAllWithParameters(
@@ -576,8 +611,8 @@ Future<void> _migrateLegacy(
     }
   }
 
-  final selectedCount = into._entries.length;
-  final elsewhere = <String, Map<String, ({String type, Object value})>>{};
+  final selected = _PreferenceEntries();
+  final elsewhere = <String, _PreferenceEntries>{};
   final migratedKeys = <String>{};
   for (final entry in snapshot.entries) {
     final full = entry.key;
@@ -590,19 +625,15 @@ Future<void> _migrateLegacy(
 
     final routed = routeLegacyKey(bare, known);
     final typed = (type: _typeOf(entry.value), value: entry.value);
-    if (routed.owner == profile) {
-      // Never overwrite: a value already in the file is newer than one the
-      // system store kept from before the move.
-      into._entries.putIfAbsent('flutter.${routed.key}', () => typed);
-    } else {
-      (elsewhere[routed.owner] ??= {})['flutter.${routed.key}'] = typed;
-    }
+    final destination = routed.owner == profile
+        ? selected
+        : (elsewhere[routed.owner] ??= {});
+    destination.putIfAbsent('flutter.${routed.key}', () => typed);
   }
 
   // All newly imported keys require a successful write before the legacy
   // source can be cleared. An unchanged snapshot needs no second write.
-  final current = into._loadedSnapshot && into._entries.length == selectedCount;
-  var migrated = current || await into._flush();
+  var migrated = await into._importMissing(selected, ensureFile: true);
   for (final other in elsewhere.entries) {
     final path = profilePrefsPath(supportDir, other.key);
     ProfilePreferencesFile? owner;
@@ -610,11 +641,7 @@ Future<void> _migrateLegacy(
     try {
       owner = await openOwnedFile?.call(path);
       store = await ProfilePreferencesStore.load(path, ownedFile: owner);
-      final persistedCount = store._entries.length;
-      for (final kv in other.value.entries) {
-        store._entries.putIfAbsent(kv.key, () => kv.value);
-      }
-      if (store._entries.length != persistedCount && !await store._flush()) {
+      if (!await store._importMissing(other.value)) {
         migrated = false;
       }
     } catch (_) {

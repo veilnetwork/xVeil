@@ -618,6 +618,92 @@ void main() {
     // Lifetime-role metadata may be initialized, but no preference data is created.
   });
 
+  test('concurrent preference owners retain each other’s changes', () async {
+    final aFile = await open(prefs());
+    final bFile = await open(prefs());
+    final a = await ProfilePreferencesStore.load(prefs(), ownedFile: aFile);
+    final b = await ProfilePreferencesStore.load(prefs(), ownedFile: bFile);
+    stores.addAll([a, b]);
+    expect(await a.setValue('String', 'flutter.prior', 'value'), isTrue);
+    final prior = (await aFile.read())!;
+    expect(await b.remove('flutter.prior'), isTrue);
+    final current = await bFile.read();
+    expect(await aFile.compareAndWrite(prior, prior), isNull);
+    expect(await aFile.read(), current);
+    expect(
+      await Future.wait([
+        a.setValue('Bool', 'flutter.first', true),
+        b.setValue('Int', 'flutter.second', 2),
+      ]),
+      [true, true],
+    );
+    final reopened = await ProfilePreferencesStore.load(
+      prefs(),
+      ownedFile: await open(prefs()),
+    );
+    stores.add(reopened);
+    expect(await reopened.getAll(), {
+      'flutter.first': true,
+      'flutter.second': 2,
+    });
+  });
+
+  test(
+    'a separate process blocks publication until its write lock is released',
+    () async {
+      final owner = await open(prefs());
+      const original = '{"v":1,"e":{}}';
+      const next = '{"v":1,"e":{"flutter.flag":{"t":"Bool","v":true}}}';
+      expect(await owner.write(original), isTrue);
+      final child = await Process.start('dart', [
+        'run',
+        'test/native/profile_preferences_admission_probe.dart',
+        managed(),
+        'hold-write',
+      ]);
+      final held = Completer<void>();
+      final output = child.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .forEach((line) {
+            if (line.contains('"state":"write-locked"')) held.complete();
+          });
+      final errors = child.stderr.transform(utf8.decoder).join();
+      var exited = false;
+      final done = child.exitCode.then((code) {
+        exited = true;
+        return code;
+      });
+      try {
+        await Future.any([
+          held.future,
+          done.then((_) => throw StateError('write lock probe exited')),
+        ]).timeout(const Duration(seconds: 30));
+        await expectLater(
+          owner.compareAndWrite(original, next),
+          throwsA(
+            isA<ManagedWorkerFailure>().having(
+              (error) => error.kind,
+              'kind',
+              ManagedWorkerFailureKind.busy,
+            ),
+          ),
+        );
+        expect(await owner.read(), original);
+        child.stdin.writeln('release');
+        await child.stdin.close();
+        expect(await done.timeout(const Duration(seconds: 10)), 0);
+        expect(await owner.compareAndWrite(original, next), isTrue);
+        expect(await owner.read(), next);
+      } finally {
+        if (!exited) child.kill(ProcessSignal.sigkill);
+        await done;
+        await output;
+        await errors;
+      }
+    },
+  );
+
   test(
     'the same preference owner writes after a temporary file refusal',
     () async {

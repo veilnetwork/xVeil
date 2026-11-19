@@ -73,14 +73,16 @@ void main() {
         'start-over',
         'other-instance',
         'other-instance-after-close',
+        'other-instance-stale-write',
         'old-consent',
       ],
     ]) {
       final restoring = scenario == 'cancel' || scenario == 'abandoned';
       final startOver = scenario == 'start-over';
       final otherInstanceAfterClose = scenario == 'other-instance-after-close';
+      final staleWrite = scenario == 'other-instance-stale-write';
       final otherInstance =
-          scenario == 'other-instance' || otherInstanceAfterClose;
+          scenario == 'other-instance' || otherInstanceAfterClose || staleWrite;
       final corruption = switch (scenario) {
         'setting' || 'file' => scenario,
         _ => 'none',
@@ -100,6 +102,8 @@ void main() {
             'an older preference snapshot cannot compact away a later space',
           'other-instance-after-close' =>
             'new space after source close cancels the prepared publication',
+          'other-instance-stale-write' =>
+            'saving an unrelated old preference cannot restore compaction consent',
           'old-consent' =>
             'unbound automatic compaction consent cannot delete a space',
           _ => 'native solo admission: automatic=$automatic roster=$corruption',
@@ -293,6 +297,19 @@ void main() {
                 prefs.getString('storage.autoCompactSetup.v1'),
                 'fixture-setup',
               );
+              if (staleWrite) {
+                expect(
+                  await prefs.setBool('unrelated-fixture-setting', true),
+                  isTrue,
+                );
+                final saved = await ProfilePreferencesStore.load(
+                  preferencesPath,
+                );
+                expect(
+                  (await saved.getAll())['flutter.unrelated-fixture-setting'],
+                  isTrue,
+                );
+              }
               await controller.unlock('root-fixture');
             } else if (restoring || startOver) {
               controller.debugDeniableStackStarter = (_) async =>
