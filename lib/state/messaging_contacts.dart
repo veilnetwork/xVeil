@@ -629,21 +629,35 @@ class _MessagingContacts {
   /// have seen it), but our side is cleaned up.
   Future<bool> cancelRequest(NodeId peer) async {
     if (_owner._disposed) throw StateError('messaging service is closed');
+    final consent = _owner._realtimeControl;
+    final requested = consent._consentEpoch(peer);
     // Avoid touching a stale action's queue. This read is only an early exit;
     // the storage operation rechecks under the contact write lane after all
     // asynchronous retirement work. Retire first so a failed forensic scrub
     // cannot leave a request retrying after its contact has been erased.
-    if ((await _owner._storage.getContact(peer))?.hasOutgoingRequest != true) {
+    if ((await _owner._storage.getContact(peer))?.hasOutgoingRequest != true ||
+        !consent._consentCurrent(peer, requested)) {
       return false;
     }
-    final removed = await _withConsentWrite(
-      peer,
-      () async {
-        await _owner._outbox.retireRequests(peer);
-        return _owner._storage.cancelPendingContactRequest(peer);
-      },
-    );
-    if (!removed) return false;
+    consent.revoke(peer);
+    final cancelling = consent._consentEpoch(peer);
+    bool isCurrent() => consent._consentCurrent(peer, cancelling);
+    try {
+      await _owner._outbox.retireRequests(peer, isCurrent: isCurrent);
+      if (!isCurrent() ||
+          !await _owner._storage.cancelPendingContactRequest(
+            peer,
+            isCurrent: isCurrent,
+          )) {
+        return false;
+      }
+    } finally {
+      // A refused earlier action must not invalidate preparation of the
+      // replacement. Reads started during our own write still need revocation.
+      if (consent._consentRevisionCurrent(peer, cancelling)) {
+        consent.revoke(peer);
+      }
+    }
     // A retracted request makes the peer unknown again, so any session the
     // request itself opened has to go too — otherwise a "fresh" relationship
     // later resumes a chain from before it was withdrawn.
