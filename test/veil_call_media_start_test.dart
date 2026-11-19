@@ -26,6 +26,8 @@ NodeId _id(int value) => NodeId(Uint8List.fromList(List.filled(32, value)));
 class _Transport implements VeilFlutterTransport {
   final closed = <int>[];
   @override
+  int networkChangeGeneration = 0;
+  @override
   Future<NodeId> peerFacingNodeId({
     Duration timeout = const Duration(seconds: 2),
   }) async => _id(1);
@@ -2199,6 +2201,76 @@ void main() {
       }
     });
   }
+
+  for (final target in [CallTransportKind.relay, CallTransportKind.p2p]) {
+    test('network change retires a pending $target candidate', () async {
+      final transport = _HandoverTransport();
+      final engine = _HandoverEngine();
+      final from = target == CallTransportKind.relay
+          ? CallTransportKind.p2p
+          : CallTransportKind.relay;
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      Future<bool>? switching;
+      try {
+        expect(
+          await controller.start(_call(direct: true).copyWith(transport: from)),
+          isTrue,
+        );
+        switching = controller.switchRoute(target);
+        await Future.any([
+          transport.qualifying.future.then((_) {}),
+          switching.then((_) => fail('The candidate must reach its probe')),
+        ]);
+        transport.networkChangeGeneration++;
+        transport.echo.complete(true);
+        expect(await switching, isFalse);
+        expect(transport.closed, [43]);
+        expect(engine.rebound, isEmpty);
+        expect(controller.activeTransport, from);
+
+        transport.proofAvailable = true;
+        expect(await controller.switchRoute(target), isTrue);
+        expect(transport.opened, [42, 43, 44]);
+        expect(transport.probeRequests, [43, 44]);
+        expect(engine.rebound, [44]);
+        expect(controller.activeTransport, target);
+      } finally {
+        if (!transport.echo.isCompleted) transport.echo.complete(false);
+        await switching;
+        await controller.stop();
+      }
+    });
+  }
+
+  test('network change retires a retained relay candidate before retry', () async {
+    final transport = _HandoverTransport()..proofAvailable = false;
+    final engine = _HandoverEngine();
+    final controller = VeilCallMediaController(
+      transport,
+      engineFactory:
+          ({required veilChan, required localId, required peerId}) => engine,
+    );
+    try {
+      expect(await controller.start(_call(direct: true)), isTrue);
+      expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
+      expect(transport.closed, isEmpty);
+      expect(transport.probeRequests, [43, 43, 43]);
+
+      transport.networkChangeGeneration++;
+      transport.proofAvailable = true;
+      expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+      expect(transport.closed, contains(43));
+      expect(transport.opened, [42, 43, 44]);
+      expect(transport.probeRequests, [43, 43, 43, 44]);
+      expect(engine.rebound, [44]);
+    } finally {
+      await controller.stop();
+    }
+  });
 
   test('an unused relay candidate expires after the retry window', () async {
     final transport = _HandoverTransport()..proofAvailable = false;

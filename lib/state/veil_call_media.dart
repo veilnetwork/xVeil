@@ -600,7 +600,7 @@ class VeilCallMediaController implements CallMediaController {
   CallTransportKind? _chanTransport;
   bool _handoverPacketSizeReady = false;
   final Map<int, Timer> _retiringChannels = {};
-  ({int channel, int previous, NodeId peer, Timer expiry})?
+  ({int channel, int previous, NodeId peer, int networkGeneration, Timer expiry})?
   _retainedRelayCandidate;
   // Incoming and outgoing routes are independent. Keep one authenticated
   // receive binding per older physical peer until that peer is replaced or
@@ -1215,6 +1215,7 @@ class VeilCallMediaController implements CallMediaController {
       channel: channel,
       previous: previous,
       peer: peer,
+      networkGeneration: _transport.networkChangeGeneration,
       expiry: expiry,
     );
   }
@@ -1229,6 +1230,7 @@ class VeilCallMediaController implements CallMediaController {
     final previousPeer = _chanPeer;
     final previousTransport = _chanTransport;
     final epoch = _mediaEpoch;
+    final networkGeneration = _transport.networkChangeGeneration;
     if (previous == null || previousPeer == null || previousTransport == null) {
       return false;
     }
@@ -1253,6 +1255,7 @@ class VeilCallMediaController implements CallMediaController {
           retained != null &&
           target == CallTransportKind.relay &&
           retained.previous == previous &&
+          retained.networkGeneration == networkGeneration &&
           retained.peer == (next.peerDevice ?? next.peer);
       if (reused) {
         _retainedRelayCandidate = null;
@@ -1284,6 +1287,7 @@ class VeilCallMediaController implements CallMediaController {
       bool stillOwned() =>
           _engine == engine &&
           epoch == _mediaEpoch &&
+          networkGeneration == _transport.networkChangeGeneration &&
           _chan == previous &&
           _chanTransport == previousTransport &&
           _activeCall?.callId == call.callId &&

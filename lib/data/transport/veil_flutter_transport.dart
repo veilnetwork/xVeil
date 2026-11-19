@@ -229,6 +229,10 @@ class VeilFlutterTransport
   final VeilClient _mailboxClient;
   final _networkAttachments = StreamController<NetworkAttachment>.broadcast();
   bool _notifiedInitialNetwork = false;
+  int _networkChangeGeneration = 0;
+
+  /// Invalidates media candidates as soon as local network dispatch begins.
+  int get networkChangeGeneration => _networkChangeGeneration;
 
   /// Network changes dispatched to this node, including loss of connectivity.
   Stream<NetworkAttachment> get networkAttachments => _networkAttachments.stream;
@@ -236,6 +240,7 @@ class VeilFlutterTransport
   @override
   Future<void> networkChanged(NetworkAttachment attachment) async {
     if (_disposing) return;
+    _networkChangeGeneration++;
     // A fresh control connection cannot queue behind a mailbox resolve or a
     // media sender's writer lock. The node owns reconnecting its existing
     // peers: do not add public seeds or bypass this identity's routing policy.
