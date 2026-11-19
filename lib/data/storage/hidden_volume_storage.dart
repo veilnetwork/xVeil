@@ -10,6 +10,7 @@ import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/contact_preferences.dart';
 import '../../domain/clear_policy.dart';
+import '../../domain/clear_request.dart' show kPendingClearRequestsKey;
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
@@ -576,7 +577,7 @@ class HiddenVolumeStorage
     // the very first launch and stayed stale.
     final json = jsonEncode({'dn': profile.displayName, 'u': profile.username});
     final bytes = _sk(json);
-    return _metadataWrite('identity', (store) async {
+    return _metadataSerialized('identity', (store) async {
       final existing = await store.get(Ns.settings, _sk('identity'));
       if (_bytesEqual(existing, bytes)) return;
       await store.commit([PutOp(Ns.settings, _sk('identity'), bytes)]);
@@ -605,13 +606,13 @@ class HiddenVolumeStorage
 
   // --- Settings ----------------------------------------------------------
 
-  // Active writes only. Keep read/compare/commit ordered for one key, without
+  // Active operations only. Keep read/compare/commit ordered for one key, without
   // putting unrelated settings behind its IO or caching a completed value.
   final _metadataTails = <String, Future<void>>{};
 
-  Future<void> _metadataWrite(
+  Future<T> _metadataSerialized<T>(
     String key,
-    Future<void> Function(AsyncKvLogStore) write,
+    Future<T> Function(AsyncKvLogStore) write,
   ) => _trackLogWrite((store) {
     final previous = _metadataTails[key] ?? Future<void>.value();
     final result = previous.then((_) => write(store));
@@ -624,7 +625,7 @@ class HiddenVolumeStorage
   });
 
   @override
-  Future<void> putSetting(String key, String value) => _metadataWrite(
+  Future<void> putSetting(String key, String value) => _metadataSerialized(
     'set:$key',
     (store) async {
       // Idempotent-write chokepoint: every commit is padded to a full bucket
@@ -633,25 +634,134 @@ class HiddenVolumeStorage
       // write, or every caller pays for another permanent bucket.
       // Pin this accepted operation to its space across both awaits; close and
       // erase drain it before replacing or clearing that space.
-      final existing = await store.get(Ns.settings, _sk('set:$key'));
+      final settingKey = _sk('set:$key');
+      final existing = await store.get(Ns.settings, settingKey);
+      if (key == kPendingClearRequestsKey) {
+        return _putClearRequests(store, settingKey, existing, _sk(value));
+      }
       if (existing != null &&
           utf8.decode(existing, allowMalformed: true) == value) {
         return;
       }
-      await store.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
+      await store.commit([PutOp(Ns.settings, settingKey, _sk(value))]);
     },
   );
 
   @override
   Future<String?> getSetting(String key) async {
+    if (key == kPendingClearRequestsKey) {
+      // The head and its parts must be read from the same committed revision.
+      return _metadataSerialized('set:$key', (store) async {
+        final raw = await store.get(Ns.settings, _sk('set:$key'));
+        if (raw == null) return null;
+        final value = utf8.decode(raw);
+        final length = _clearRequestsChunkLength(value);
+        if (length == null) return value;
+        return utf8.decode(await _readClearRequestsChunks(store, length));
+      });
+    }
     final raw = await _as.get(Ns.settings, _sk('set:$key'));
     return raw == null ? null : utf8.decode(raw);
+  }
+
+  static const _clearRequestsChunkPrefix = 'chunks:v2:';
+  static const _clearRequestsMaxBytes = 4 * 1024 * 1024;
+
+  static int? _clearRequestsChunkLength(String? value) {
+    if (value == null || !value.startsWith(_clearRequestsChunkPrefix)) {
+      return null;
+    }
+    final length = int.tryParse(
+      value.substring(_clearRequestsChunkPrefix.length),
+    );
+    if (length == null ||
+        length <= _maxSettingValueBytes ||
+        length > _clearRequestsMaxBytes) {
+      throw const FormatException('Invalid pending clear requests length');
+    }
+    return length;
+  }
+
+  static int _clearRequestsChunkCount(int length) =>
+      (length + _maxSettingValueBytes - 1) ~/ _maxSettingValueBytes;
+
+  static Uint8List _clearRequestsChunkKey(int index) =>
+      _sk('clear.requests.chunk.v2:$index');
+
+  Future<Uint8List> _readClearRequestsChunks(
+    AsyncKvLogStore store,
+    int length,
+  ) async {
+    final bytes = Uint8List(length);
+    for (
+      var i = 0, offset = 0;
+      offset < length;
+      i++, offset += _maxSettingValueBytes
+    ) {
+      final part = await store.get(Ns.settings, _clearRequestsChunkKey(i));
+      final end = min(offset + _maxSettingValueBytes, length);
+      if (part == null || part.length != end - offset) {
+        throw const FormatException('Incomplete pending clear requests');
+      }
+      bytes.setRange(offset, end, part);
+    }
+    return bytes;
+  }
+
+  Future<void> _putClearRequests(
+    AsyncKvLogStore store,
+    Uint8List key,
+    Uint8List? existing,
+    Uint8List bytes,
+  ) async {
+    if (bytes.length > _clearRequestsMaxBytes) {
+      throw ArgumentError('Pending clear requests exceed their storage limit');
+    }
+    final oldLength = _clearRequestsChunkLength(
+      existing == null ? null : utf8.decode(existing),
+    );
+    if (_bytesEqual(existing, bytes) ||
+        (oldLength != null &&
+            oldLength == bytes.length &&
+            _bytesEqual(
+              await _readClearRequestsChunks(store, oldLength),
+              bytes,
+            ))) {
+      return;
+    }
+    final count = bytes.length <= _maxSettingValueBytes
+        ? 0
+        : _clearRequestsChunkCount(bytes.length);
+    final oldCount = oldLength == null
+        ? 0
+        : _clearRequestsChunkCount(oldLength);
+    // Keep large lists in the same settings namespace, outside the file
+    // store. Publish the head, parts and any old-part deletions together.
+    await store.commit([
+      PutOp(
+        Ns.settings,
+        key,
+        count == 0 ? bytes : _sk('$_clearRequestsChunkPrefix${bytes.length}'),
+      ),
+      for (var i = 0; i < count; i++)
+        PutOp(
+          Ns.settings,
+          _clearRequestsChunkKey(i),
+          Uint8List.sublistView(
+            bytes,
+            i * _maxSettingValueBytes,
+            min((i + 1) * _maxSettingValueBytes, bytes.length),
+          ),
+        ),
+      for (var i = count; i < oldCount; i++)
+        DeleteOp(Ns.settings, _clearRequestsChunkKey(i)),
+    ]);
   }
 
   // The node config (with the keypair) is just another SETTINGS-namespace KV
   // entry, so it inherits the space's deniability — no plaintext config file.
   @override
-  Future<void> saveNodeConfig(String configToml) => _metadataWrite(
+  Future<void> saveNodeConfig(String configToml) => _metadataSerialized(
     'node:config',
     (store) async {
       // Same no-op-write shield as putSetting: the config is re-saved on every
@@ -1667,7 +1777,7 @@ class HiddenVolumeStorage
 
   @override
   Future<void> markRead(String conversationId) =>
-      _metadataWrite('read:$conversationId', (store) async {
+      _metadataSerialized('read:$conversationId', (store) async {
         var latest = 0;
         for (final m in await _scanLog()) {
           if (m.conversationId == conversationId) {
@@ -1700,7 +1810,7 @@ class HiddenVolumeStorage
 
   @override
   Future<void> setReadMarker(String conversationId, int tsMs) =>
-      _metadataWrite('read:$conversationId', (store) async {
+      _metadataSerialized('read:$conversationId', (store) async {
         // Both writers share the same read/compare/commit turn. A delayed lower
         // mark cannot replace a newer one, enter another identity or outlive an
         // erase; accepted writes drain before maintenance replaces their store.
