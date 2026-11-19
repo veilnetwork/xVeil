@@ -371,11 +371,13 @@ class SpaceJoinOutboxEntry {
     required this.ticket,
     required this.request,
     this.decision,
+    this.requestEnqueued = false,
   });
 
   final SpaceJoinTicket ticket;
   final SpaceJoinRequest request;
   final SpaceJoinDecision? decision;
+  final bool requestEnqueued;
 
   bool get approved => decision?.accepted == true;
   bool get declined => decision?.accepted == false;
@@ -399,6 +401,7 @@ class SpaceJoinOutboxEntry {
     'ticket': ticket.toJson(),
     'request': request.toJson(),
     if (decision != null) 'decision': decision!.toJson(),
+    if (requestEnqueued) 'requestEnqueued': true,
   };
 
   static SpaceJoinOutboxEntry? fromJson(Object? value) {
@@ -417,6 +420,7 @@ class SpaceJoinOutboxEntry {
       ticket: ticket,
       request: request,
       decision: decision,
+      requestEnqueued: value['requestEnqueued'] == true,
     );
     return entry.isStructurallyValid ? entry : null;
   }

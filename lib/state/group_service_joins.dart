@@ -22,6 +22,7 @@ class _SpaceJoins {
   static const String _spaceJoinRequestsSetting = 'spaces.join_requests.v1';
   static const int _maxSpaceJoinRecords = 256;
   Future<void> _spaceJoinMutationTail = Future<void>.value();
+  final Map<String, Future<bool>> _requestEnqueues = {};
   Timer? _retryTimer;
   bool _retrying = false;
 
@@ -41,13 +42,16 @@ class _SpaceJoins {
     if (_retrying || _owner._disposed) return;
     _retrying = true;
     try {
-      final entries = await _serializeSpaceJoins(
-        () async => (await _loadSpaceJoins()).incoming
-            .where((entry) => !entry.decisionEnqueued)
-            .toList(),
-      );
-      for (final entry in entries) {
+      final store = await _serializeSpaceJoins(_loadSpaceJoins);
+      for (final entry in store.outgoing) {
         if (_owner._disposed) break;
+        if (!entry.requestEnqueued && entry.decision == null) {
+          await _enqueueRequest(entry.request.requestId);
+        }
+      }
+      for (final entry in store.incoming) {
+        if (_owner._disposed) break;
+        if (entry.decisionEnqueued) continue;
         try {
           await decideSpaceJoinRequest(
             entry.request.requestId,
@@ -316,16 +320,77 @@ class _SpaceJoins {
       return entry;
     });
     if (prepared == null) return false;
-    try {
-      await _owner.sendSpaceJoinRequest!(
-        prepared.request.approver,
-        prepared.request.requestId,
-        jsonEncode(prepared.request.toJson()),
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return _enqueueRequest(prepared.request.requestId, retryEnqueued: true);
+  }
+
+  // Consent is persisted before the messaging outbox handoff. Retry that
+  // handoff after a write failure or restart with the same frame ID, including
+  // when the outbox committed but saving the handoff receipt failed.
+  Future<bool> _enqueueRequest(String requestId, {bool retryEnqueued = false}) {
+    final sender = _owner.sendSpaceJoinRequest;
+    if (sender == null || _owner._disposed) return Future.value(false);
+    return _requestEnqueues.putIfAbsent(requestId, () async {
+      try {
+        final entry = await _serializeSpaceJoins(() async {
+          final store = await _loadSpaceJoins();
+          final entry = store.outgoing
+              .where((item) => item.request.requestId == requestId)
+              .firstOrNull;
+          final now = _owner._now();
+          if (entry == null ||
+              entry.ticket.isExpiredAt(now) ||
+              (await _owner._storage.getContact(
+                    entry.request.approver,
+                  ))?.status ==
+                  ContactStatus.blocked) {
+            return null;
+          }
+          return entry;
+        });
+        if (entry == null || _owner._disposed) return false;
+        if (!retryEnqueued &&
+            (entry.requestEnqueued || entry.decision != null)) {
+          return true;
+        }
+        if (!await _owner._canStartSpaceMembershipProposal(
+              entry.request.spaceId,
+              _owner._now(),
+            ) ||
+            _owner._disposed) {
+          return false;
+        }
+        await sender(
+          entry.request.approver,
+          requestId,
+          jsonEncode(entry.request.toJson()),
+        );
+        await _serializeSpaceJoins(() async {
+          if (_owner._disposed) return;
+          final store = await _loadSpaceJoins();
+          final index = store.outgoing.indexWhere(
+            (item) => item.request.requestId == requestId,
+          );
+          if (index < 0 || store.outgoing[index].requestEnqueued) return;
+          final current = store.outgoing[index];
+          store.outgoing[index] = SpaceJoinOutboxEntry(
+            ticket: current.ticket,
+            request: current.request,
+            decision: current.decision,
+            requestEnqueued: true,
+          );
+          await _saveSpaceJoins(
+            tickets: store.tickets,
+            incoming: store.incoming,
+            outgoing: store.outgoing,
+          );
+        });
+        return true;
+      } catch (_) {
+        return false;
+      } finally {
+        _requestEnqueues.remove(requestId);
+      }
+    });
   }
 
   Future<List<SpaceJoinOutboxEntry>> outgoingSpaceJoinRequests() async {
@@ -779,6 +844,7 @@ class _SpaceJoins {
                 ticket: entry.ticket,
                 request: entry.request,
                 decision: acceptedDecision,
+                requestEnqueued: entry.requestEnqueued,
               )
             else
               entry,
