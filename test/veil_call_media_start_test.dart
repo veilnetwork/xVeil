@@ -2103,6 +2103,59 @@ void main() {
     }
   }
 
+  for (final mode in ['confirmed', 'no echo', 'no longer needed', 'hangup']) {
+    test('refresh live relay with peer proof: $mode', () async {
+      final transport = _HandoverTransport();
+      final engine = _HandoverEngine();
+      var engines = 0;
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory: ({required veilChan, required localId, required peerId}) {
+          engines++;
+          return engine;
+        },
+      );
+      Future<bool>? refreshing;
+      try {
+        final call = _call(
+          direct: true,
+        ).copyWith(transport: CallTransportKind.relay);
+        expect(await controller.start(call), isTrue);
+        var stillNeeded = true;
+        refreshing = controller.refreshRelayRoute(
+          canCommit: () async => stillNeeded,
+        );
+        await Future.any([
+          transport.qualifying.future.then((_) {}),
+          refreshing.then((_) => fail('The candidate must be probed')),
+        ]);
+        expect(transport.opened, [42, 43]);
+        expect(transport.closed, isEmpty);
+        expect(engine.rebound, isEmpty);
+        expect(controller.activeTransport, CallTransportKind.relay);
+
+        if (mode == 'hangup') await controller.stop();
+        stillNeeded = mode != 'no longer needed';
+        transport.echo.complete(mode != 'no echo');
+        expect(await refreshing, mode == 'confirmed');
+        expect(transport.probeRequests, [43]);
+        expect(engines, 1);
+        expect(engine.rebound, mode == 'confirmed' ? [43] : isEmpty);
+        if (mode != 'hangup') {
+          expect(engine.disposed, isFalse);
+          expect(controller.activeTransport, CallTransportKind.relay);
+          if (mode != 'confirmed') expect(transport.closed, [43]);
+        }
+        await controller.stop();
+        expect(transport.closed, unorderedEquals([42, 43]));
+      } finally {
+        if (!transport.echo.isCompleted) transport.echo.complete(false);
+        await refreshing;
+        await controller.stop();
+      }
+    });
+  }
+
   for (final retrySucceeds in [false, true]) {
     test('relay retry reuses one opened candidate: $retrySucceeds', () async {
       final transport = _HandoverTransport()..proofAvailable = false;

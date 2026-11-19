@@ -1065,9 +1065,24 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
+  Future<bool> refreshRelayRoute({
+    required Future<bool> Function() canCommit,
+  }) => _switchRoute(
+    CallTransportKind.relay,
+    canCommit: canCommit,
+    refresh: true,
+  );
+
+  @override
   Future<bool> switchRoute(
     CallTransportKind transport, {
     Future<bool> Function()? canCommit,
+  }) => _switchRoute(transport, canCommit: canCommit);
+
+  Future<bool> _switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+    bool refresh = false,
   }) async {
     final call = _activeCall;
     if (call == null ||
@@ -1086,13 +1101,22 @@ class VeilCallMediaController implements CallMediaController {
         if (operations.retired || _activeCall?.callId != call.callId) {
           return false;
         }
-        if (activeTransport == transport) return true;
+        final active = activeTransport;
+        if (refresh) {
+          if (active != CallTransportKind.relay ||
+              call.localPosture != CallPosture.direct ||
+              call.peerPosture != CallPosture.direct) {
+            return false;
+          }
+        } else if (active == transport) {
+          return true;
+        }
         final engine = _engine;
         if (engine != null &&
             engine.supportsChannelRebind &&
             _handoverPacketSizeReady &&
-            (activeTransport == CallTransportKind.relay ||
-                activeTransport == CallTransportKind.p2p)) {
+            (active == CallTransportKind.relay ||
+                active == CallTransportKind.p2p)) {
           return _switchRoutePreservingEngine(
             call,
             transport,
@@ -1100,6 +1124,7 @@ class VeilCallMediaController implements CallMediaController {
             canCommit: canCommit,
           );
         }
+        if (refresh) return false;
         if (engine != null &&
             (activeTransport == CallTransportKind.p2p ||
                 activeTransport == CallTransportKind.relay)) {
