@@ -2646,6 +2646,103 @@ void main() {
     }
 
     for (final outcome in [
+      'recovery',
+      'expired repair',
+      'stable network',
+      'snapshot overlaps handover',
+    ]) {
+      test('liveness during local route repair: $outcome', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final lateHandover = outcome == 'snapshot overlaps handover';
+          final snapshot = Completer<DateTime?>();
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..repairSucceeds = false
+            ..readSnapshot = (() async => lateHandover ? snapshot.future : null);
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const callId = 'local-repair-crosses-liveness';
+          try {
+            wire.onCallSignal!(
+              peer,
+              offer(callId).copyWith(media: CallMedia(audio: true, video: true)),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            media.rxAt = clock.now();
+            async.elapse(kCallMediaRepairAfter);
+            expect(media.repairs, 1);
+            expect(media.activeTransport, isNull);
+            if (outcome != 'stable network' && !lateHandover) {
+              network.add(NetworkAttachment.wifi);
+              admissions.add(null);
+            }
+
+            final livenessTick = kCallLivenessTimeout + kCallHeartbeatInterval;
+            wire.sent.clear();
+            async.elapse(livenessTick - kCallMediaRepairAfter);
+            if (lateHandover) {
+              expect(media.snapshotReads, 1);
+              network.add(NetworkAttachment.wifi);
+              admissions.add(null);
+              snapshot.complete(null);
+              async.flushMicrotasks();
+              expect(media.snapshotReads, 1);
+            }
+            final ends = wire.sent.where((s) => s.type == CallSignalType.end);
+            if (outcome == 'stable network') {
+              expect(svc.current, isNull);
+              expect(ends.single.reason, CallEndReason.timeout);
+              return;
+            }
+            expect(svc.current?.status, CallStatus.active);
+            expect(ends, isEmpty);
+            if (!lateHandover) {
+              expect(wire.sent.any((s) => s.type == CallSignalType.health), isTrue);
+            }
+            expect(media.switches, isEmpty);
+
+            if (outcome == 'expired repair') {
+              final remaining =
+                  kCallMediaRepairAfter + kCallVisualMediaStartTimeout -
+                  livenessTick;
+              async.elapse(remaining - kCallHeartbeatInterval);
+              // A subsequent attachment change cannot extend this repair.
+              network.add(NetworkAttachment.cellular);
+              async.elapse(kCallHeartbeatInterval);
+              expect(svc.current, isNull);
+              expect(ends.single.reason, CallEndReason.timeout);
+              return;
+            }
+            media.cameraStopped.complete();
+            async.flushMicrotasks();
+            expect(svc.current?.callId, callId);
+            expect(svc.current?.status, CallStatus.active);
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(media.activeTransport, CallTransportKind.relay);
+            expect(ends, isEmpty);
+          } finally {
+            svc.dispose();
+            if (!snapshot.isCompleted) snapshot.complete(null);
+            if (!media.cameraStopped.isCompleted) media.cameraStopped.complete();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
+    for (final outcome in [
       'already waiting',
       'snapshot pending',
       'snapshot outlasts admission',
