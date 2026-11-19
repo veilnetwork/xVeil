@@ -4430,22 +4430,27 @@ void main() {
         CallService svc,
         _ReconnectRelayMedia media,
         StreamController<int> counts,
+        StreamController<void> admissions,
         _FakeMessaging wire,
       })
       fixture(
         FakeAsync async, {
         bool seedOffline = true,
         bool defer = true,
+        bool useAdmissionEvents = false,
         Completer<bool>? gate,
       }) {
         final fake = _FakeMessaging();
         final media = _ReconnectRelayMedia()..firstAttempt = gate;
         final counts = StreamController<int>();
+        final admissions = StreamController<void>();
+        if (!useAdmissionEvents) unawaited(admissions.close());
         final svc = CallService(
           fake,
           now: () => clock.now(),
           media: media,
           overlaySessions: counts.stream,
+          overlaySessionAdmissions: useAdmissionEvents ? admissions.stream : null,
           localAllowsP2P: (_) async => true,
           peerReachableForP2P: (_) async => true,
         )..start();
@@ -4465,8 +4470,70 @@ void main() {
         if (defer) svc.requestRelayRecoveryForDiagnostics();
         async.flushMicrotasks();
         expect(media.switches, defer ? [CallTransportKind.relay] : isEmpty);
-        return (svc: svc, media: media, counts: counts, wire: fake);
+        return (
+          svc: svc,
+          media: media,
+          counts: counts,
+          admissions: admissions,
+          wire: fake,
+        );
       }
+
+      test('a second real admission wakes retries with the count unchanged', () {
+        fakeAsync((async) {
+          final t = fixture(async, defer: false, useAdmissionEvents: true);
+          t.counts.add(3);
+          t.admissions.add(null);
+          async.flushMicrotasks();
+          expect(t.media.switches, isEmpty, reason: 'no pending handover');
+          t.svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          t.admissions.add(null);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+
+          t.media.proven = true;
+          t.counts.add(3);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          final before = clock.now();
+          t.admissions.add(null);
+          async.flushMicrotasks();
+          expect(clock.now(), before);
+          expect(t.media.switches, hasLength(3));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          expect(t.admissions.hasListener, isFalse);
+          t.admissions.close();
+          // This stream was intentionally not subscribed in this mode.
+          unawaited(t.counts.close());
+          async.flushMicrotasks();
+        });
+      });
+
+      test('admissions during one candidate coalesce until verification ends', () {
+        fakeAsync((async) {
+          final gate = Completer<bool>();
+          final t = fixture(async, gate: gate, useAdmissionEvents: true);
+          for (var i = 0; i < 3; i++) {
+            t.admissions.add(null);
+          }
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          gate.complete(false);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+
+          t.svc.dispose();
+          expect(t.admissions.hasListener, isFalse);
+          t.admissions.close();
+          unawaited(t.counts.close());
+          async.flushMicrotasks();
+        });
+      });
 
       test('wakes a deferred candidate without advancing the retry clock', () {
         fakeAsync((async) {
