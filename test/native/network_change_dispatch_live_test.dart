@@ -126,7 +126,7 @@ void main() {
             attachments.add,
           );
           var dispatches = 0;
-          final starts = adapter.networkChangeDispatches.listen((_) {
+          final starts = adapter.networkChangeStarts.listen((_) {
             dispatches++;
           });
           try {
@@ -171,6 +171,33 @@ void main() {
             }
             await pumpEventQueue();
             expect(attachments, [NetworkAttachment.offline, ...changes]);
+
+            final stale = adapter.networkChanged(NetworkAttachment.ethernet);
+            adapter.observeNetworkAttachment(NetworkAttachment.offline);
+            await stale;
+            await waitUntil(
+              () async => (await log.readAsLines()).any(
+                (line) => line.contains(
+                  'ipc.mobile.network_changed kind=Ethernet mtu_hint=0',
+                ),
+              ),
+              what: 'the previous online notification was applied by the node',
+              timeout: const Duration(seconds: 10),
+            );
+            await pumpEventQueue();
+            final whileOffline = [
+              NetworkAttachment.offline,
+              ...changes,
+              NetworkAttachment.offline,
+            ];
+            expect(attachments, whileOffline);
+
+            adapter.observeNetworkAttachment(NetworkAttachment.cellular);
+            await pumpEventQueue();
+            expect(attachments, whileOffline);
+            await adapter.networkChanged(NetworkAttachment.cellular);
+            await pumpEventQueue();
+            expect(attachments, [...whileOffline, NetworkAttachment.cellular]);
           } finally {
             await starts.cancel();
             await subscription.cancel();

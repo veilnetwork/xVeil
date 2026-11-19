@@ -228,31 +228,41 @@ class VeilFlutterTransport
   final VeilClient _mediaClient;
   final VeilClient _mailboxClient;
   final _networkAttachments = StreamController<NetworkAttachment>.broadcast();
-  final _networkChangeDispatches = StreamController<void>.broadcast(sync: true);
+  final _networkChangeStarts = StreamController<void>.broadcast(sync: true);
   NetworkAttachment? _lastNetworkAttachment;
   int _networkChangeGeneration = 0;
 
-  /// Invalidates media candidates as soon as local network dispatch begins.
+  /// Invalidates media candidates when a new attachment is observed or sent.
   int get networkChangeGeneration => _networkChangeGeneration;
 
   /// Wakes pending media checks before notification IPC can block.
-  Stream<void> get networkChangeDispatches => _networkChangeDispatches.stream;
+  Stream<void> get networkChangeStarts => _networkChangeStarts.stream;
 
   /// Known local outages, followed by network changes dispatched to the node.
   Stream<NetworkAttachment> get networkAttachments => _networkAttachments.stream;
 
-  @override
-  Future<void> networkChanged(NetworkAttachment attachment) async {
-    if (_disposing) return;
-    _networkChangeGeneration++;
-    _networkChangeDispatches.add(null);
-    final offline = attachment == NetworkAttachment.offline;
-    if (offline && _lastNetworkAttachment != attachment) {
+  int _recordNetworkChange(NetworkAttachment attachment) {
+    final generation = ++_networkChangeGeneration;
+    if (attachment == NetworkAttachment.offline &&
+        _lastNetworkAttachment != attachment) {
       // The call can suspend repair now, even if the node misses this update.
       // A retry of the same outage must not refresh its recovery deadline.
       _lastNetworkAttachment = attachment;
       _networkAttachments.add(attachment);
     }
+    _networkChangeStarts.add(null);
+    return generation;
+  }
+
+  @override
+  void observeNetworkAttachment(NetworkAttachment attachment) {
+    if (!_disposing) _recordNetworkChange(attachment);
+  }
+
+  @override
+  Future<void> networkChanged(NetworkAttachment attachment) async {
+    if (_disposing) return;
+    final generation = _recordNetworkChange(attachment);
     // A fresh control connection cannot queue behind a mailbox resolve or a
     // media sender's writer lock. The node owns reconnecting its existing
     // peers: do not add public seeds or bypass this identity's routing policy.
@@ -269,7 +279,11 @@ class VeilFlutterTransport
     } finally {
       await client.close();
     }
-    if (_disposing || offline) return;
+    if (_disposing ||
+        generation != _networkChangeGeneration ||
+        attachment == NetworkAttachment.offline) {
+      return;
+    }
     if (_lastNetworkAttachment != null) {
       _networkAttachments.add(attachment);
     }
@@ -1677,7 +1691,7 @@ class VeilFlutterTransport
   Future<void> dispose() async {
     _disposing = true;
     unawaited(_networkAttachments.close());
-    unawaited(_networkChangeDispatches.close());
+    unawaited(_networkChangeStarts.close());
     _configuredControlChannels.clear();
     for (final pending in [
       ..._callControlSenders.values,
