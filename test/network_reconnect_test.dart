@@ -465,22 +465,52 @@ void main() {
       expect(b.observed, [NetworkAttachment.wifi]);
       container.read(sessionProvider.notifier).state = _Session({'a': stackA});
       clock.flushMicrotasks();
-      connectivity.changes.add([ConnectivityResult.mobile]);
+      connectivity.changes.add([ConnectivityResult.none]);
       clock.flushMicrotasks();
+      expect(b.attachments, [NetworkAttachment.wifi]);
       container.read(sessionProvider.notifier).state = _Session({
         'a': stackA,
         'b': stackB,
       });
       clock.flushMicrotasks();
+      expect(b.attachments, [NetworkAttachment.wifi, NetworkAttachment.offline]);
       expect(
         b.observed,
         [NetworkAttachment.wifi],
         reason: 'the returning node still owns its original native operation',
       );
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      expect(b.attachments.last, NetworkAttachment.cellular);
+      container.read(sessionProvider.notifier).state = _Session({'a': stackA});
+      clock.flushMicrotasks();
+      connectivity.changes.add([ConnectivityResult.ethernet]);
+      clock.flushMicrotasks();
+      expect(b.attachments.last, NetworkAttachment.cellular);
+      container.read(sessionProvider.notifier).state = _Session({
+        'a': stackA,
+        'b': stackB,
+      });
+      clock.flushMicrotasks();
+      expect(b.attachments.last, NetworkAttachment.ethernet);
+      expect(b.observed, [NetworkAttachment.wifi]);
+
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      expect(b.attachments.last, NetworkAttachment.cellular);
+      expect(b.observed, [NetworkAttachment.wifi]);
+
+      b.failures = 1;
       gate.complete();
       clock.flushMicrotasks();
       expect(b.observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
-      expect(a.observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      expect(a.observed, [
+        NetworkAttachment.wifi,
+        NetworkAttachment.offline,
+        NetworkAttachment.cellular,
+        NetworkAttachment.ethernet,
+        NetworkAttachment.cellular,
+      ]);
       container.dispose();
       unawaited(connectivity.changes.close());
       unawaited(a.dispose());

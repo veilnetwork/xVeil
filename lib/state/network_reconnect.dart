@@ -22,7 +22,8 @@ class NetworkReconnect {
     required Stream<List<ConnectivityResult>> changes,
     required this.notify,
     this.onAttachmentChanged,
-  }) : current = (() async => NetworkObservation.types(await current())),
+  }) : pendingNotification = null,
+       current = (() async => NetworkObservation.types(await current())),
        changes = changes.map(NetworkObservation.types);
 
   NetworkReconnect.observations({
@@ -30,6 +31,7 @@ class NetworkReconnect {
     required this.changes,
     required this.notify,
     this.onAttachmentChanged,
+    this.pendingNotification,
   });
 
   final Future<NetworkObservation> Function() current;
@@ -38,6 +40,8 @@ class NetworkReconnect {
   // same observation. Fanout uses it to retry only failed identity nodes.
   final Future<void> Function(NetworkAttachment, int generation) notify;
   final void Function(NetworkAttachment)? onAttachmentChanged;
+  // A retired observer may still own the same transport's IPC operation.
+  final Future<void>? Function()? pendingNotification;
   StreamSubscription<NetworkObservation>? _subscription;
   NetworkObservation? _desired;
   int _desiredGeneration = 0;
@@ -94,6 +98,12 @@ class NetworkReconnect {
     _busy = true;
     try {
       while (!_disposed && _desiredGeneration != _appliedGeneration) {
+        final pending = pendingNotification?.call();
+        if (pending != null) {
+          await pending;
+          // A newer observation may have arrived while this transport waited.
+          continue;
+        }
         final next = _desired!.attachment;
         final generation = _desiredGeneration;
         final timing = Stopwatch()..start();
@@ -143,7 +153,7 @@ final networkReconnectProvider = Provider<void>((ref) {
     sync: true,
   );
   final observers = Map<NetworkChangeTransport, NetworkReconnect>.identity();
-  final notifying = Set<NetworkChangeTransport>.identity();
+  final notifying = Map<NetworkChangeTransport, Future<void>>.identity();
   NetworkObservation? latest;
   Future<NetworkObservation>? initialQuery;
   NetworkAttachment? diagnosticAttachment;
@@ -193,9 +203,7 @@ final networkReconnectProvider = Provider<void>((ref) {
       }
     }
     for (final transport in transports) {
-      if (observers.containsKey(transport) || notifying.contains(transport)) {
-        continue;
-      }
+      if (observers.containsKey(transport)) continue;
       // Separate identity nodes need independent receipt/retry queues. A slow
       // node must not hold the next handover of an otherwise healthy node.
       // Reuse the same OS subscription/snapshot and deduplicate an active node
@@ -205,17 +213,16 @@ final networkReconnectProvider = Provider<void>((ref) {
         current: current,
         changes: observations.stream,
         onAttachmentChanged: transport.observeNetworkAttachment,
+        pendingNotification: () => notifying[transport],
         notify: (attachment, _) async {
           if (disposed || !identical(observers[transport], observer)) return;
-          notifying.add(transport);
+          final completed = Completer<void>();
+          notifying[transport] = completed.future;
           try {
             await transport.networkChanged(attachment);
           } finally {
             notifying.remove(transport);
-            // Removal retires its observer, not the already admitted native
-            // operation. If that same node returns before completion, start
-            // its fresh observer only once this operation has settled.
-            if (!disposed && !observers.containsKey(transport)) synchronize();
+            completed.complete();
           }
         },
       );
