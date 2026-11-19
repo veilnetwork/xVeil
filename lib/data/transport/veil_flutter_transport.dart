@@ -229,7 +229,7 @@ class VeilFlutterTransport
   final VeilClient _mailboxClient;
   final _networkAttachments = StreamController<NetworkAttachment>.broadcast();
   final _networkChangeDispatches = StreamController<void>.broadcast(sync: true);
-  bool _notifiedInitialNetwork = false;
+  NetworkAttachment? _lastNetworkAttachment;
   int _networkChangeGeneration = 0;
 
   /// Invalidates media candidates as soon as local network dispatch begins.
@@ -238,7 +238,7 @@ class VeilFlutterTransport
   /// Wakes pending media checks before notification IPC can block.
   Stream<void> get networkChangeDispatches => _networkChangeDispatches.stream;
 
-  /// Network changes dispatched to this node, including loss of connectivity.
+  /// Known local outages, followed by network changes dispatched to the node.
   Stream<NetworkAttachment> get networkAttachments => _networkAttachments.stream;
 
   @override
@@ -246,6 +246,13 @@ class VeilFlutterTransport
     if (_disposing) return;
     _networkChangeGeneration++;
     _networkChangeDispatches.add(null);
+    final offline = attachment == NetworkAttachment.offline;
+    if (offline && _lastNetworkAttachment != attachment) {
+      // The call can suspend repair now, even if the node misses this update.
+      // A retry of the same outage must not refresh its recovery deadline.
+      _lastNetworkAttachment = attachment;
+      _networkAttachments.add(attachment);
+    }
     // A fresh control connection cannot queue behind a mailbox resolve or a
     // media sender's writer lock. The node owns reconnecting its existing
     // peers: do not add public seeds or bypass this identity's routing policy.
@@ -262,11 +269,11 @@ class VeilFlutterTransport
     } finally {
       await client.close();
     }
-    if (_disposing) return;
-    if (_notifiedInitialNetwork || attachment == NetworkAttachment.offline) {
+    if (_disposing || offline) return;
+    if (_lastNetworkAttachment != null) {
       _networkAttachments.add(attachment);
     }
-    _notifiedInitialNetwork = true;
+    _lastNetworkAttachment = attachment;
   }
   final AppHandle _app;
   // Sender-only binding with the same chat app identity. A file's remote
