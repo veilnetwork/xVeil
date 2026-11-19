@@ -484,6 +484,62 @@ void main() {
           );
         }
 
+        for (final next in [
+          ContactStatus.pendingIncoming,
+          ContactStatus.pendingOutgoing,
+          ContactStatus.accepted,
+        ]) {
+          test(
+            'restart retries an acceptance only while contact is accepted ($next)',
+            () async {
+              await mB.sendRequest(a, 'first request');
+              await _deliver(
+                mA,
+                b,
+                tB.sent.singleWhere((e) => e.kind == WireKind.request),
+              );
+              await mA.acceptContact(b);
+              final answer = (await sA.pendingOutboxFrames()).single;
+              expect(WireEnvelope.decode(answer.wire).kind, WireKind.accept);
+              if (next != ContactStatus.accepted) {
+                await mA.deleteConversation(b);
+                if (next == ContactStatus.pendingOutgoing) {
+                  expect(
+                    (await mA.submitContactRequest(b, 'new greeting')).admitted,
+                    isTrue,
+                  );
+                } else {
+                  await mB.sendRequest(a, 'another incoming request');
+                  await _deliver(
+                    mA,
+                    b,
+                    tB.sent.lastWhere((e) => e.kind == WireKind.request),
+                  );
+                }
+                // A retained row from an older version has no consent revision.
+                await sA.enqueueOutboxFrame(
+                  answer.frameId,
+                  answer.peerHex,
+                  answer.wire,
+                );
+              }
+              expect((await sA.getContact(b))?.status, next);
+              await mA.dispose();
+              await sA.close();
+              expect(await sA.open(password: 'fixture'), isTrue);
+              mA = MessagingService(tA, sA);
+
+              tA.sent.clear();
+              await mA.flushOutbox();
+              expect(tA.sent.map((e) => e.kind), [
+                if (next == ContactStatus.accepted) WireKind.accept,
+                if (next == ContactStatus.pendingOutgoing) WireKind.request,
+              ]);
+              expect((await sA.getContact(b))?.status, next);
+            },
+          );
+        }
+
         test(
           'initial request carries the committed greeting position',
           () async {

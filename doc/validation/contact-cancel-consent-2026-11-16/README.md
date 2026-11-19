@@ -114,3 +114,18 @@ cold reopen. The peer test delivers a captured answer through the regular
 inbound service. The related suite passed 793 tests without skips, and the
 targeted analyzer reported no issues. The original Windows user's connection
 remains unverified.
+
+## Retrying a stored acceptance after reopening
+
+An acceptance from the previous relationship can still be present in the
+durable queue. After reopening storage, the generic retry pass used to send
+it even when the current relationship was pending. The retry pass now
+requires an accepted contact before either offering that frame to a mailbox
+or scheduling its live transmission.
+
+Incoming and outgoing pending contacts reproduced the extra acceptance before
+the fix on both ordinary and native worker storage. The current outgoing
+request still retries after reopening. Controls confirmed that an accepted
+contact's queued answer also retries. The tests close and reopen storage and
+exercise the usual outbox entry point with a controlled transport. The
+related suite passed 799 tests without skips. The analyzer reported no issues.
