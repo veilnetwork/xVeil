@@ -131,12 +131,8 @@ class AppL10nEn extends AppL10n {
   String get startupFailedTitle => 'xVeil could not start';
 
   @override
-  String get startupFailedBody =>
-      'Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.';
-
-  @override
   String get startupFailedAction =>
-      'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.';
+      'Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.';
 
   @override
   String get storageTitle => 'How should we store your data?';

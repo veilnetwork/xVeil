@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 
 void main() {
@@ -69,6 +71,35 @@ void main() {
       expect(File('${local.path}.tmp').existsSync(), isFalse);
     });
   }
+  test(
+    'startup preserves its read error if closing the file also fails',
+    () async {
+      const readFailure = ManagedWorkerFailure(
+        ManagedWorkerFailureKind.invalid,
+        preferencesReadReason: ManagedPreferencesFailureReason.filePermissions,
+      );
+      owner
+        ..readFailure = readFailure
+        ..closeFailures = 1;
+      final backend = SharedPreferencesStorePlatform.instance;
+      await expectLater(
+        installProfilePreferences(
+          supportDir: fixture.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: InMemorySharedPreferencesStore.empty(),
+          openOwnedFile: (_) async => owner,
+        ),
+        throwsA(same(readFailure)),
+      );
+      expect(owner.closes, 1);
+      expect(owner.writes, isEmpty);
+      expect(SharedPreferencesStorePlatform.instance, same(backend));
+      expect(local.readAsStringSync(), original);
+      await owner.close();
+    },
+  );
+
   test('file owner mismatch refuses before any read', () async {
     final wrong = _FileOwner('${fixture.path}/other.json');
     await expectLater(

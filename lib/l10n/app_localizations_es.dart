@@ -132,12 +132,8 @@ class AppL10nEs extends AppL10n {
   String get startupFailedTitle => 'xVeil no pudo iniciarse';
 
   @override
-  String get startupFailedBody =>
-      'Algo falló mientras la aplicación se preparaba, antes de tocar ninguno de tus datos. No se abrió nada, no se escribió nada y no se envió nada.';
-
-  @override
   String get startupFailedAction =>
-      'Cierra xVeil y vuelve a abrirlo. Si sigue ocurriendo, reinstálalo desde la página de descargas.';
+      'Cierra xVeil y vuelve a abrirlo. Si el error se repite, adjunta el informe de diagnóstico al pedir ayuda.';
 
   @override
   String get storageTitle => '¿Cómo quieres guardar tus datos?';

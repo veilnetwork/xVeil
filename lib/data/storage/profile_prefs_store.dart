@@ -342,6 +342,11 @@ Future<String> installProfilePreferences({
   final ownedFile = await openOwnedFile?.call(selectedPath);
   ProfilePreferencesStore? installed;
   try {
+    final store = installed = await ProfilePreferencesStore.load(
+      selectedPath,
+      ownedFile: ownedFile,
+      legacyPreferences: legacySource,
+    );
     // CARRY THE OLD POINTER ACROSS, before anything empties the store it lives
     // in. Skipping this is what audit X-01 found: the first launch after the
     // upgrade read `profile.active.v1` from the system store and picked the right
@@ -383,11 +388,6 @@ Future<String> installProfilePreferences({
       }
     }
 
-    final store = installed = await ProfilePreferencesStore.load(
-      selectedPath,
-      ownedFile: ownedFile,
-      legacyPreferences: legacySource,
-    );
     await _migrateLegacy(
       legacy,
       supportDir,
@@ -399,10 +399,15 @@ Future<String> installProfilePreferences({
     SharedPreferencesStorePlatform.instance = store;
     return profile;
   } catch (_) {
-    if (installed != null) {
-      await installed.releaseFile();
-    } else {
-      await ownedFile?.close();
+    try {
+      await (installed?.releaseFile() ?? ownedFile?.close());
+    } catch (closeError, closeStack) {
+      // The native owner retains a failed close for the next retirement
+      // attempt. Keep the original failure for startup diagnostics.
+      devLog(
+        () =>
+            'xVeil[prefs]: close after failed install: $closeError\n$closeStack',
+      );
     }
     rethrow;
   }
