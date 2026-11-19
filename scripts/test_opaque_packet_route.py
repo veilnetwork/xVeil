@@ -65,6 +65,16 @@ class OpaqueRouteTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.analyze(rows)
 
+    def test_queue_observations_neither_invalidate_nor_replace_hops(self):
+        rows = self.fixture()
+        admitted = dict(rows[2], stage='queue_admission', node='-', registration='1')
+        dequeued = dict(admitted, stage='queue_dequeued')
+        closed = dict(stage='queue_state', node='-', registration='1')
+        extra = [admitted, dequeued, closed]
+        self.assertEqual(self.analyze(rows + extra), self.analyze(rows))
+        with self.assertRaises(ValueError):
+            self.analyze(rows[:2] + rows[3:] + extra)
+
     def test_dispatch_return_can_follow_authentication_without_extending_hop(self):
         rows = self.fixture()
         rows[-1]['monotonic_us'] = '310'
