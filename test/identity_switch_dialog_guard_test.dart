@@ -238,55 +238,28 @@ void main() {
     );
   });
 
-  /// A notification that started under one identity must not finish under
-  /// another, and re-subscribing IS the switch.
-  test('the notification path invalidates across a switch', () {
+  /// Service replacement retires attempts in its own scope. The widget tests
+  /// in notification_post_races_test.dart exercise changes of identity even
+  /// before rebind, and the ordering of late posts in the OS queue.
+  test('notification rebinds retire the corresponding attempts', () {
     final source = read('lib/features/chat/notification_binder.dart');
-
-    for (final name in ['_subscribe', '_subscribeGroups']) {
+    const generations = {
+      '_subscribe': '_notificationGeneration',
+      '_subscribeGroups': '_groupNotificationGeneration',
+    };
+    final retire = RegExp(
+      r'(_notificationGeneration|_groupNotificationGeneration)\+\+',
+    );
+    for (final MapEntry(key: name, value: generation) in generations.entries) {
       final at = source.indexOf('void $name(');
       expect(at, isNot(-1), reason: '$name moved; re-aim this guard');
       final body = source.substring(at, source.indexOf('\n  }', at));
       expect(
-        body.contains('_notificationGeneration++'),
-        isTrue,
-        reason:
-            'switching identity re-subscribes here, so it has to invalidate '
-            'the notices already in flight — $name did not',
+        retire.allMatches(body).map((match) => match.group(1)),
+        [generation],
+        reason: '$name must retire pending notifications for its own service',
       );
     }
-
-    final at = source.indexOf('Future<void> _show(');
-    expect(at, isNot(-1), reason: '_show moved; re-aim this guard');
-    // Past the named-parameter list: `}) async {` starts with the same
-    // sequence the body's closing brace does, and taking the first one cut
-    // the body off at the signature.
-    final bodyAt = source.indexOf('async {', at);
-    expect(bodyAt, isNot(-1), reason: '_show is no longer async; re-aim this');
-    final show = source.substring(bodyAt, source.indexOf('\n  }', bodyAt));
-    expect(
-      show.contains('final generation = _notificationGeneration;'),
-      isTrue,
-      reason: '_show takes no ticket, so it cannot tell it went stale',
-    );
-    expect(
-      RegExp('generation != _notificationGeneration').allMatches(show).length,
-      greaterThanOrEqualTo(3),
-      reason:
-          '_show awaits mention resolution and then the OS post; each await '
-          'and the post itself need the ticket compared',
-    );
-    expect(
-      show.contains('.showIfCurrent(') &&
-          RegExp(
-            r'isCurrent: \(\) =>\s+mounted &&\s+generation == _notificationGeneration &&',
-          ).hasMatch(show) &&
-          show.contains('identity?.nodeId.hex == owner'),
-      isTrue,
-      reason:
-          'the OS post must use the service queue with the original ticket; '
-          'a late take-down there finishes before any newer post of that id',
-    );
   });
 
   /// The guard helper itself must keep saying what it is for; a lease that is
