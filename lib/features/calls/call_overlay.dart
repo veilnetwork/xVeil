@@ -72,40 +72,55 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   bool _startScreenAfterDeviceSelection = false;
   _RemoteVideoSnapshot? _videoBeforeSourceChange;
 
-  Future<void> _openCaptureDevicePicker(
-    CallService svc, {
-    required bool includeCameras,
-    required bool includeScreens,
-  }) async {
-    if (_captureDevicesLoading) return;
-    setState(() {
-      _captureDevicesLoading = true;
-      _startScreenAfterDeviceSelection = false;
+  bool _ownsDeviceAction(CallService svc, String callId) {
+    final current = svc.current;
+    return mounted &&
+        _callId == callId &&
+        current != null &&
+        current.callId == callId &&
+        current.isLive &&
+        ref.read(appControllerProvider).phase == AppPhase.ready &&
+        identical(ref.read(callServiceProvider), svc);
+  }
+
+  void _showDeviceFailure() {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
+    );
+  }
+
+  Future<List<CallMediaDevice>?> _loadCaptureDevices(
+    CallService svc,
+    String callId,
+    Future<List<CallMediaDevice>> Function() load,
+  ) async {
+    if (_captureDevicesLoading || !_ownsDeviceAction(svc, callId)) return null;
+    setState(() => _captureDevicesLoading = true);
+    try {
+      return await load();
+    } catch (_) {
+      if (_ownsDeviceAction(svc, callId)) _showDeviceFailure();
+      return null;
+    } finally {
+      if (_ownsDeviceAction(svc, callId)) {
+        setState(() => _captureDevicesLoading = false);
+      }
+    }
+  }
+
+  Future<void> _openCaptureDevicePicker(CallService svc, Call call) async {
+    final devices = await _loadCaptureDevices(svc, call.callId, () async {
+      final results = await Future.wait([
+        if (call.media.video) svc.listCameras(),
+        svc.listMicrophones(),
+        svc.listSpeakers(),
+        if (call.media.video && Platform.isMacOS) svc.listScreens(),
+      ]);
+      return [for (final list in results) ...list];
     });
-    final results = await Future.wait([
-      if (includeCameras)
-        svc.listCameras()
-      else
-        Future.value(const <CallMediaDevice>[]),
-      svc.listMicrophones(),
-      // The OUTPUT list. It was never asked for, so the sheet offered a
-      // microphone and a camera and no way to say where the call should be
-      // heard — and nothing in the app ever called selectAudioOutput.
-      svc.listSpeakers(),
-      if (includeScreens)
-        svc.listScreens()
-      else
-        Future.value(const <CallMediaDevice>[]),
-    ]);
-    if (!mounted) return;
-    final devices = [
-      ...results[0],
-      ...results[1],
-      ...results[2],
-      ...results[3],
-    ];
+    if (devices == null || !_ownsDeviceAction(svc, call.callId)) return;
     setState(() {
-      _captureDevicesLoading = false;
+      _startScreenAfterDeviceSelection = false;
       // The settings sheet remains useful even without enumerable capture
       // devices: it also owns speaker/earpiece routing.
       _captureDevices = devices;
@@ -114,8 +129,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
 
   Future<void> _selectCaptureDevice(
     CallService svc,
+    String callId,
     CallMediaDevice device,
   ) async {
+    if (!_ownsDeviceAction(svc, callId)) return;
     final startScreen =
         _startScreenAfterDeviceSelection &&
         (device.kind == CallMediaDeviceKind.screen ||
@@ -131,18 +148,16 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       CallMediaDeviceKind.screen ||
       CallMediaDeviceKind.window => await svc.selectScreen(device.id),
     };
+    if (!_ownsDeviceAction(svc, callId)) return;
     if (ok && startScreen) {
       await svc.setScreenShareEnabled(true);
       ok = svc.current?.screenOn == true;
     }
-    if (!ok && mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
-      );
-    }
+    if (!ok && _ownsDeviceAction(svc, callId)) _showDeviceFailure();
   }
 
   Future<void> _toggleScreen(CallService svc, Call call) async {
+    if (!_ownsDeviceAction(svc, call.callId)) return;
     if (call.screenOn) {
       await svc.setScreenShareEnabled(false);
       return;
@@ -157,21 +172,22 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       }
       return;
     }
-    if (_captureDevicesLoading) return;
-    setState(() => _captureDevicesLoading = true);
-    final devices = await svc.listScreens();
-    if (!mounted) return;
-    setState(() => _captureDevicesLoading = false);
+    final devices = await _loadCaptureDevices(
+      svc,
+      call.callId,
+      svc.listScreens,
+    );
+    if (devices == null || !_ownsDeviceAction(svc, call.callId)) return;
     if (devices.length <= 1) {
       var selected = true;
       if (devices case [final only]) {
         selected = await svc.selectScreen(only.id);
       }
+      if (!_ownsDeviceAction(svc, call.callId)) return;
       if (selected) await svc.setScreenShareEnabled(true);
-      if (svc.current?.screenOn != true && mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
-        );
+      if (_ownsDeviceAction(svc, call.callId) &&
+          svc.current?.screenOn != true) {
+        _showDeviceFailure();
       }
       return;
     }
@@ -246,6 +262,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       appControllerProvider.select((s) => s.phase == AppPhase.ready),
     );
     if (!ready) {
+      _callId = null;
       _videoBeforeSourceChange = null;
       return const SizedBox.shrink();
     }
@@ -307,11 +324,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                 _CallBody(
                   call,
                   remoteVideo: remoteVideo,
-                  onShowDevices: (svc) => _openCaptureDevicePicker(
-                    svc,
-                    includeCameras: call.media.video,
-                    includeScreens: call.media.video && Platform.isMacOS,
-                  ),
+                  onShowDevices: (svc) => _openCaptureDevicePicker(svc, call),
                   onToggleScreen: (svc) => _toggleScreen(svc, call),
                   onMinimize: canMinimize
                       ? () => setState(() => _mode = _OverlayMode.mini)
@@ -376,6 +389,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                     }),
                     onSelect: (device) => _selectCaptureDevice(
                       ref.read(callServiceProvider),
+                      call.callId,
                       device,
                     ),
                   ),
