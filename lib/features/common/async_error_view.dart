@@ -22,6 +22,7 @@ class AsyncErrorView extends StatefulWidget {
     required this.error,
     required this.where,
     this.stack,
+    this.onRetry,
   });
 
   final Object error;
@@ -31,6 +32,7 @@ class AsyncErrorView extends StatefulWidget {
   final String where;
 
   final StackTrace? stack;
+  final VoidCallback? onRetry;
 
   @override
   State<AsyncErrorView> createState() => _AsyncErrorViewState();
@@ -76,6 +78,18 @@ class _AsyncErrorViewState extends State<AsyncErrorView> {
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
+            if (widget.onRetry case final retry?) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: retry,
+                icon: const Icon(Icons.refresh),
+                label: Text(
+                  MaterialLocalizations.of(
+                    context,
+                  ).refreshIndicatorSemanticLabel,
+                ),
+              ),
+            ],
           ],
         ),
       ),

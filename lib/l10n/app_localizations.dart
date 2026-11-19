@@ -11891,7 +11891,7 @@ abstract class AppL10n {
   /// Shown when the active-profile pointer file could not be written durably; the selection is not applied so the screen never claims a switch that will not happen.
   ///
   /// In en, this message translates to:
-  /// **'The choice could not be saved — the next launch will use the current profile'**
+  /// **'Could not save the profile choice.'**
   String get profileChoiceNotSaved;
 
   /// No description provided for @profileRestartRequired.
@@ -11911,6 +11911,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'New profile'**
   String get profileCreateTitle;
+
+  /// No description provided for @profileCreateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create the profile.'**
+  String get profileCreateFailed;
 
   /// No description provided for @profileNameHint.
   ///

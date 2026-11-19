@@ -6810,8 +6810,7 @@ class AppL10nRu extends AppL10n {
   String get profileRunningNow => 'Сейчас запущен';
 
   @override
-  String get profileChoiceNotSaved =>
-      'Не удалось сохранить выбор — следующий запуск будет на текущем профиле';
+  String get profileChoiceNotSaved => 'Не удалось сохранить выбор профиля.';
 
   @override
   String get profileRestartRequired =>
@@ -6823,6 +6822,9 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get profileCreateTitle => 'Новый профиль';
+
+  @override
+  String get profileCreateFailed => 'Не удалось создать профиль.';
 
   @override
   String get profileNameHint => 'например: testing';

@@ -6841,7 +6841,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get profileChoiceNotSaved =>
-      'No se pudo guardar la elección: el próximo inicio usará el perfil actual';
+      'No se pudo guardar la elección de perfil.';
 
   @override
   String get profileRestartRequired => 'Reinicia xVeil para cambiar de perfil';
@@ -6852,6 +6852,9 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get profileCreateTitle => 'Nuevo perfil';
+
+  @override
+  String get profileCreateFailed => 'No se pudo crear el perfil.';
 
   @override
   String get profileNameHint => 'por ejemplo: pruebas';
