@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 
@@ -100,6 +101,56 @@ void main() {
       await owner.close();
     },
   );
+
+  for (final refuseRead in [false, true]) {
+    test(
+      'a sibling close failure preserves startup and migration source (read refusal: $refuseRead)',
+      () async {
+        final previous = SharedPreferencesStorePlatform.instance;
+        addTearDown(() async {
+          final installed = SharedPreferencesStorePlatform.instance;
+          SharedPreferencesStorePlatform.instance = previous;
+          if (installed is ProfilePreferencesStore && installed != previous) {
+            await installed.releaseFile();
+          }
+        });
+        final siblingPath = profilePrefsPath(fixture.path, 'decoy');
+        Directory(
+          AppProfiles.directory(fixture.path, 'decoy'),
+        ).createSync(recursive: true);
+        final sibling = _FileOwner(siblingPath)
+          ..contents = original
+          ..closeFailures = 1;
+        if (refuseRead) {
+          sibling.readFailure = StateError('synthetic sibling read refusal');
+        }
+        const source = {'flutter.locale': 'ru', 'flutter.locale.decoy': 'es'};
+        final legacy = InMemorySharedPreferencesStore.withData(Map.of(source));
+
+        final profile = await installProfilePreferencesOrFallback(
+          supportDir: () async => fixture.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: legacy,
+          openOwnedFile: (path) async => path == siblingPath ? sibling : owner,
+        );
+        expect(profile, AppProfiles.defaultName);
+        final installed = SharedPreferencesStorePlatform.instance;
+        expect(installed, isA<ProfilePreferencesStore>());
+        expect((await installed.getAll())['flutter.locale'], 'ru');
+        expect(await legacy.getAll(), source);
+        expect(owner.closes, 0);
+        expect(sibling.closes, 1);
+        expect(sibling.writes, hasLength(refuseRead ? 0 : 1));
+        if (!refuseRead) {
+          expect(
+            jsonDecode(sibling.writes.single)['e']['flutter.locale']['v'],
+            'es',
+          );
+        }
+      },
+    );
+  }
 
   test(
     'queued settings survive an earlier write error and drain before close',
