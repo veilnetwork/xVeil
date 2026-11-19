@@ -351,11 +351,12 @@ class CallService {
   StreamSubscription<void>? _overlaySessionAdmissionsSub;
   final Stream<void>? _networkHandovers;
   StreamSubscription<void>? _networkHandoversSub;
-  DateTime? _directNetworkHandoverAt;
+  DateTime? _localNetworkHandoverAt;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
   bool _overlaySessionGrowthObserved = false;
   int _relayConnectionGeneration = 0;
+  Completer<bool>? _relayRebuildAdmission;
 
   final Future<List<CallLogEntry>> Function()? _loadFinishedCalls;
   Future<void>? _historyReady;
@@ -646,6 +647,7 @@ class CallService {
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
         _relayFallbackFlight != null ||
+        _relayRebuildAdmission != null ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
         media.isRepairingReceiveSession ||
         (c.transport == CallTransportKind.p2p && _lateP2PPeerActive) ||
@@ -855,12 +857,14 @@ class CallService {
       final call = _current;
       if (_disposed || call == null) return;
       if (call.status == CallStatus.active &&
-          call.transport == CallTransportKind.relay &&
-          _media?.activeTransport == CallTransportKind.relay) {
+          call.transport == CallTransportKind.relay) {
+        final at = _localNetworkHandoverAt = _now();
+        // The rebuild can have released its old channel already.
+        if (_media?.activeTransport != CallTransportKind.relay) return;
         // Relay can survive as the selected transport while its local network
         // changes. Use the same receive guard as a newly committed relay.
         _relayHandover = (
-          at: _now(),
+          at: at,
           localNetworkChanged: true,
           failedProbeGeneration: null,
           probeRetrySpent: false,
@@ -871,7 +875,7 @@ class CallService {
       if (!_isActiveDirectCall(call)) return;
       // A route operation can still be running when the network changes.
       // Keep the observation for the watchdog once it can inspect the route.
-      _directNetworkHandoverAt = _now();
+      _localNetworkHandoverAt = _now();
       unawaited(_checkLostDirectSession(call));
     }, onError: (Object _) {});
     if (_loadFinishedCalls == null) {
@@ -1974,6 +1978,7 @@ class CallService {
         before.peer != peer ||
         !before.isLive ||
         before.status != CallStatus.active ||
+        _relayRebuildAdmission != null ||
         _lateP2PBusy) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
@@ -2002,21 +2007,28 @@ class CallService {
     // repair queue. An obsolete repair failure must not kill that successor.
     final epoch = _mediaOperationEpoch;
     final connections = _relayConnectionGeneration;
+    Call? repairOwner() {
+      final call = _current;
+      if (_disposed ||
+          epoch != _mediaOperationEpoch ||
+          call == null ||
+          call.callId != callId ||
+          call.peer != peer ||
+          call.peerDevice != before.peerDevice ||
+          call.status != CallStatus.active) {
+        return null;
+      }
+      return call;
+    }
+
     var repaired = false;
     try {
       repaired = await media.repairRoute();
     } catch (e) {
       devLog(() => 'xVeil[call-media]: route repair failed call=$callId: $e');
     }
-    final cur = _current;
-    if (_disposed ||
-        epoch != _mediaOperationEpoch ||
-        cur == null ||
-        cur.callId != callId ||
-        cur.peer != peer ||
-        !cur.isLive) {
-      return;
-    }
+    final cur = repairOwner();
+    if (cur == null) return;
     final actual = media.activeTransport;
     if (repaired && actual == cur.transport) return;
     // repaired with NO open channel = a rebuild is still converging (repair
@@ -2036,13 +2048,27 @@ class CallService {
     }
     if (!repaired &&
         actual == null &&
-        cur.transport == CallTransportKind.relay &&
-        connections != _relayConnectionGeneration) {
-      // The failed rebuild left no channel, so repairRoute cannot retry it.
-      // Reopen the same negotiated route once after the observed reconnect.
-      devLog(() => 'xVeil[call-media]: retrying relay rebuild after reconnect');
-      await _followRelayFallback(peer, callId);
-      return;
+        cur.transport == CallTransportKind.relay) {
+      if (_relayRebuildAdmission != null) return;
+      final changedAt = _localNetworkHandoverAt;
+      // A rebuild can finish just before the replacement session registers.
+      // Keep the current call while that admission can still arrive.
+      final reconnected =
+          connections != _relayConnectionGeneration ||
+          (changedAt != null &&
+              _now().difference(changedAt) < kCallLivenessTimeout &&
+              await _waitForRelayRebuildAdmission());
+      final live = repairOwner();
+      if (live == null || media.activeTransport == live.transport) return;
+      if (reconnected &&
+          live.transport == CallTransportKind.relay &&
+          media.activeTransport == null) {
+        devLog(
+          () => 'xVeil[call-media]: retrying relay rebuild after reconnect',
+        );
+        await _followRelayFallback(peer, callId);
+        return;
+      }
     }
     // Fail closed. A broken route must not silently become onion (or any other
     // route) merely to keep the call UI alive.
@@ -2050,6 +2076,21 @@ class CallService {
       _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
     );
     _end(CallEndReason.error, origin: CallEndOrigin.mediaRepairFailure);
+  }
+
+  Future<bool> _waitForRelayRebuildAdmission() async {
+    final wait = Completer<bool>();
+    _relayRebuildAdmission = wait;
+    try {
+      return await wait.future.timeout(
+        kCallRelayCandidateRetry,
+        onTimeout: () => false,
+      );
+    } finally {
+      if (identical(_relayRebuildAdmission, wait)) {
+        _relayRebuildAdmission = null;
+      }
+    }
   }
 
   void _observeOverlaySessions(int count) {
@@ -2084,6 +2125,8 @@ class CallService {
   void _noteOverlayConnectivity(String description) {
     if (_disposed) return;
     _relayConnectionGeneration++;
+    final waiting = _relayRebuildAdmission;
+    if (waiting != null && !waiting.isCompleted) waiting.complete(true);
     final call = _current;
     if (call != null) {
       devLog(() => 'xVeil[call-media]: $description');
@@ -2566,10 +2609,10 @@ class CallService {
         !_canInspectDirectSession(call)) {
       return;
     }
-    final networkChangedAt = _directNetworkHandoverAt;
+    final networkChangedAt = _localNetworkHandoverAt;
     bool recentNetworkChange() =>
         networkChangedAt != null &&
-        networkChangedAt == _directNetworkHandoverAt &&
+        networkChangedAt == _localNetworkHandoverAt &&
         _now().difference(networkChangedAt) < kCallDirectSessionSilence;
 
     // A local network change can retire the direct session before the normal
@@ -3405,7 +3448,10 @@ class CallService {
 
   void _cancelHeartbeat() {
     _livenessProbeToken = null;
-    _directNetworkHandoverAt = null;
+    _localNetworkHandoverAt = null;
+    final waiting = _relayRebuildAdmission;
+    _relayRebuildAdmission = null;
+    if (waiting != null && !waiting.isCompleted) waiting.complete(false);
     _relayHandover = null;
     _mediaWatchdogTimer?.cancel();
     _mediaWatchdogTimer = null;
@@ -3425,7 +3471,10 @@ class CallService {
     bool ignoreCapturePosture = false,
   }) {
     final media = _media;
-    if (media?.isRepairingReceiveSession == true) return false;
+    if (_relayRebuildAdmission != null ||
+        media?.isRepairingReceiveSession == true) {
+      return false;
+    }
     // A receive-only peer can still hear us and send authenticated control.
     // Lack of media alone then cannot request a rebuild or a route change.
     // The direct-session query still runs and can confirm actual closure.
@@ -3465,7 +3514,7 @@ class CallService {
     }
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
-      _directNetworkHandoverAt = null;
+      _localNetworkHandoverAt = null;
       _relayHandover =
           _current?.callId == call.callId &&
               _current?.status == CallStatus.active &&
