@@ -6322,20 +6322,6 @@ class HiddenVolumeStorage
     return logIds;
   }
 
-  // Legacy stamp maintenance retains its existing single-record tracking.
-  Future<({int logId, List<int> logIds})> _persistOutboxPayload(
-    String frameId,
-    Uint8List payload,
-  ) => _trackLogWrite((store) async {
-    final count = _outboxPartCount(payload) + 1;
-    final logId = await _allocLogIds(store, count: count);
-    final ops = <KvLogOp>[];
-    final logIds = _appendOutboxPayloadOps(frameId, payload, logId, ops);
-    await store.commit(ops);
-    _noteLogCommit(store, logId + count - 1);
-    return (logId: logId, logIds: logIds);
-  });
-
   // Caller owns the outbox lane and tracks the entire admitted operation,
   // including its queue wait. Each payload/index keeps its existing format.
   Future<List<({OutboxFrame frame, int logId, List<int> logIds})>>
@@ -6501,24 +6487,33 @@ class HiddenVolumeStorage
 
   /// Give rows written before stamping a queue time, once.
   ///
-  /// Runs after the load rather than inside it: the load is on the critical
-  /// path and this is bookkeeping. Each rewrite is the same commit an enqueue
-  /// performs — a fresh log entry plus an index update — so a crash midway
-  /// leaves every frame either as it was or stamped, never missing.
-  Future<void> _stampLegacyOutboxFrames(List<OutboxFrame> frames) async {
+  /// Each background rewrite takes its own turn with ACKs and enqueues.
+  Future<void> _stampLegacyOutboxFrames(
+    AsyncKvLogStore store,
+    List<OutboxFrame> frames,
+  ) async {
     for (final frame in frames) {
       try {
-        final payload = jsonEncode({
-          'id': frame.frameId,
-          'p': frame.peerHex,
-          'w': base64.encode(frame.wire),
-          't': frame.enqueuedAtMs ?? DateTime.now().millisecondsSinceEpoch,
-        });
-        final record = await _persistOutboxPayload(frame.frameId, _sk(payload));
-        _outboxById[frame.frameId] = (
-          frame: frame,
-          logId: record.logId,
-          logIds: record.logIds,
+        await _trackLogWrite(
+          (_) => _outboxSerialized(() async {
+            // An ACK, replacement or reload can supersede the loaded row.
+            if (!identical(store, _store) ||
+                !identical(_outboxById[frame.frameId]?.frame, frame)) {
+              return;
+            }
+            final payload = _sk(
+              jsonEncode({
+                'id': frame.frameId,
+                'p': frame.peerHex,
+                'w': base64.encode(frame.wire),
+                't': frame.enqueuedAtMs,
+              }),
+            );
+            final persisted = await _persistOutboxPayloadsCritical(store, [
+              (frame: frame, payload: payload),
+            ]);
+            _outboxById[frame.frameId] = persisted.single;
+          }),
         );
       } catch (_) {
         // Best-effort: an unstamped frame is still bounded by the age its
@@ -6555,7 +6550,8 @@ class HiddenVolumeStorage
   }
 
   Future<void> _loadIndexedOutboxCritical() async {
-    final keys = await _as.kvKeys(Ns.outboxIndex);
+    final store = _as;
+    final keys = await store.kvKeys(Ns.outboxIndex);
     final badKeys = <Uint8List>[];
     final unstamped = <OutboxFrame>[];
     final loaded =
@@ -6563,7 +6559,7 @@ class HiddenVolumeStorage
     // A read failure leaves this snapshot incomplete. Abort before publishing
     // it or reclaiming rows; the next load must still see the whole queue.
     for (final key in keys) {
-      final rawLogId = await _as.get(Ns.outboxIndex, key);
+      final rawLogId = await store.get(Ns.outboxIndex, key);
       final logId = rawLogId == null
           ? null
           : int.tryParse(utf8.decode(rawLogId, allowMalformed: true));
@@ -6595,7 +6591,7 @@ class HiddenVolumeStorage
     _outboxLoaded = true;
     if (unstamped.isNotEmpty) {
       // Detached on purpose: bookkeeping must not delay the unlock path.
-      _stampLegacyOutboxFrames(unstamped).ignore();
+      _stampLegacyOutboxFrames(store, unstamped).ignore();
     }
     if (badKeys.isNotEmpty) {
       try {
