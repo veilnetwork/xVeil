@@ -20501,6 +20501,75 @@ void main() {
     },
   );
 
+  test('public Space join retries a failed enqueue after reopening', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final requesterContainer = FakeHvContainer();
+    final requesterStorage = requesterContainer.storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await requesterStorage.open(password: 'requester', createIfMissing: true);
+    final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+    addTearDown(ownerStorage.close);
+    addTearDown(ownerService.dispose);
+    final space = await ownerService.createSpace(
+      'Retry laboratory',
+      visibility: SpaceVisibility.public,
+    );
+    final code = (await ownerService.createSpaceJoinCode(space))!;
+    final attempts = <(NodeId, String, String)>[];
+    final requester = GroupService(
+      requesterStorage,
+      _FakeSigner(bob),
+      sendSpaceJoinRequest: (peer, id, json) async {
+        attempts.add((peer, id, json));
+        throw StateError('outbox unavailable');
+      },
+    );
+    try {
+      expect(await requester.requestToJoinSpace(code), isFalse);
+      final pending = (await requester.outgoingSpaceJoinRequests()).single;
+      expect(attempts.single.$2, pending.request.requestId);
+    } finally {
+      await requester.dispose();
+      await requesterStorage.close();
+    }
+
+    final reopenedStorage = requesterContainer.storage();
+    addTearDown(reopenedStorage.close);
+    await reopenedStorage.open(password: 'requester', createIfMissing: false);
+    final enqueueStarted = Completer<void>();
+    final enqueueRelease = Completer<void>();
+    final reopened = GroupService(
+      reopenedStorage,
+      _FakeSigner(bob),
+      sendSpaceJoinRequest: (peer, id, json) async {
+        attempts.add((peer, id, json));
+        if (!enqueueStarted.isCompleted) enqueueStarted.complete();
+        await enqueueRelease.future;
+      },
+    );
+    addTearDown(reopened.dispose);
+    final retry = reopened.retryPendingSpaceJoins();
+    // If maintenance skipped the request entirely, fail without a timer.
+    final started = await Future.any([
+      enqueueStarted.future.then((_) => true),
+      retry.then((_) => false),
+    ]);
+    expect(started, isTrue);
+    try {
+      final repeat = reopened.requestToJoinSpace(code);
+      await pump();
+      expect(attempts, [attempts.first, attempts.first]);
+      enqueueRelease.complete();
+      await retry;
+      expect(await repeat, isTrue);
+    } finally {
+      if (!enqueueRelease.isCompleted) enqueueRelease.complete();
+      await retry;
+    }
+    await reopened.retryPendingSpaceJoins();
+    expect(attempts, [attempts.first, attempts.first]);
+  });
+
   test('pending public join admits bounded chunks only from its approver', () async {
     final ownerStorage = FakeHvContainer().storage();
     final requesterStorage = FakeHvContainer().storage();

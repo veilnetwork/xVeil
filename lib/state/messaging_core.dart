@@ -959,6 +959,7 @@ class MessagingService {
     dst,
     'space-join-request:$requestId',
     WireEnvelope.spaceJoinRequest(requestJson),
+    awaitLive: false,
   );
 
   Future<void> sendSpaceJoinDecision(
