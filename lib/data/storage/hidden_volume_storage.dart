@@ -6447,7 +6447,12 @@ class HiddenVolumeStorage
   ) async {
     final raw = await _as.readLog(Ns.outbox, logId);
     if (raw == null) return null;
-    final decoded = jsonDecode(utf8.decode(raw));
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(raw));
+    } on FormatException {
+      return null;
+    }
     if (decoded is! Map || !decoded.containsKey('outboxParts')) {
       return (payload: raw, logIds: [logId]); // old single-row format
     }
@@ -6555,36 +6560,33 @@ class HiddenVolumeStorage
     final unstamped = <OutboxFrame>[];
     final loaded =
         <String, ({OutboxFrame frame, int logId, List<int> logIds})>{};
+    // A read failure leaves this snapshot incomplete. Abort before publishing
+    // it or reclaiming rows; the next load must still see the whole queue.
     for (final key in keys) {
-      try {
-        final rawLogId = await _as.get(Ns.outboxIndex, key);
-        final logId = rawLogId == null
-            ? null
-            : int.tryParse(utf8.decode(rawLogId));
-        final record = logId == null ? null : await _readOutboxPayload(logId);
-        final payload = record?.payload;
-        final frame = payload == null
-            ? null
-            : _decodePendingOutboxPayload(payload);
-        if (frame == null ||
-            !_bytesEqual(key, _outboxIndexKey(frame.frameId))) {
-          badKeys.add(key);
-          continue;
-        }
-        loaded[frame.frameId] = (
-          frame: frame,
-          logId: logId!,
-          logIds: record!.logIds,
-        );
-        // A row from before stamping carries no time of its own. Decoding gave
-        // it "now", which bounds it — but only until the next start, and a
-        // backlog that resets its own clock on every launch is immortal again.
-        // Write the stamp back so the clock starts once and stays started.
-        if (!_payloadCarriesStamp(payload!)) {
-          unstamped.add(frame);
-        }
-      } catch (_) {
+      final rawLogId = await _as.get(Ns.outboxIndex, key);
+      final logId = rawLogId == null
+          ? null
+          : int.tryParse(utf8.decode(rawLogId, allowMalformed: true));
+      final record = logId == null || logId < 0
+          ? null
+          : await _readOutboxPayload(logId);
+      final payload = record?.payload;
+      final frame = payload == null ? null : _decodePendingOutboxPayload(payload);
+      if (frame == null || !_bytesEqual(key, _outboxIndexKey(frame.frameId))) {
         badKeys.add(key);
+        continue;
+      }
+      loaded[frame.frameId] = (
+        frame: frame,
+        logId: logId!,
+        logIds: record!.logIds,
+      );
+      // A row from before stamping carries no time of its own. Decoding gave
+      // it "now", which bounds it — but only until the next start, and a
+      // backlog that resets its own clock on every launch is immortal again.
+      // Write the stamp back so the clock starts once and stays started.
+      if (!_payloadCarriesStamp(payload!)) {
+        unstamped.add(frame);
       }
     }
     _outboxById
