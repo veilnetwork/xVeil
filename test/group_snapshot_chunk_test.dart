@@ -106,11 +106,15 @@ class _AckSpyStorage extends HiddenVolumeStorage {
   int singleCalls = 0, batchCalls = 0, reads = 0;
   final batchEntered = Completer<void>();
   final releaseBatch = Completer<void>();
+  Future<void> Function()? beforeOutboxRead;
 
   @override
   Future<List<OutboxFrame>> pendingOutboxFrames() {
     reads++;
-    return super.pendingOutboxFrames();
+    final gate = beforeOutboxRead;
+    return gate == null
+        ? super.pendingOutboxFrames()
+        : gate().then((_) => super.pendingOutboxFrames());
   }
 
   @override
@@ -1178,6 +1182,83 @@ void main() {
       expect(await source.store.pendingOutboxFrames(), isEmpty);
     },
   );
+
+  for (final mode in ['legacy', 'committed', 'partial']) {
+    test(
+      'shutdown preserves an admitted $mode group ACK',
+      () async {
+        final storage = _AckSpyStorage();
+        await storage.open(password: 'fixture', createIfMissing: true);
+        await storage.upsertContact(Contact(nodeId: b));
+        final link = _Link(a);
+        final service = MessagingService(link, storage);
+        final tid = 'grp:aa11:${'a' * 64}:${b.hex}';
+        for (var index = 0; index < 2; index++) {
+          final id = 'grpc:$tid:$index';
+          await storage.enqueueOutboxFrame(
+            id,
+            b.hex,
+            groupEntryChunkEnvelope(
+              transferId: tid,
+              index: index,
+              count: 2,
+              data: Uint8List.fromList([index]),
+              transferAck: mode != 'legacy',
+            ).withFrameId(id).encode(),
+          );
+        }
+        storage.releaseBatch.complete();
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        storage.beforeOutboxRead = () {
+          storage.beforeOutboxRead = null;
+          entered.complete();
+          return release.future;
+        };
+        addTearDown(() async {
+          if (!release.isCompleted) release.complete();
+          await service.dispose();
+          await link.dispose();
+          await storage.close();
+        });
+        final ingress = service.deliverInbound(
+          InboundMessage(
+            src: b,
+            payload: WireEnvelope.ack(
+              mode == 'committed' ? 'grpa:$tid' : 'grpc:$tid:0',
+            ).encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await entered.future;
+        var closed = false;
+        final closing = service.dispose().then<void>((_) => closed = true);
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(closed, isFalse);
+        } finally {
+          release.complete();
+          await Future.wait([ingress, closing]);
+        }
+        await storage.close();
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: false),
+          isTrue,
+        );
+        final remaining = (await storage.pendingOutboxFrames()).map(
+          (frame) => frame.frameId,
+        );
+        expect(
+          remaining,
+          unorderedEquals(switch (mode) {
+            'committed' => <String>[],
+            'legacy' => ['grpc:$tid:1'],
+            _ => ['grpc:$tid:0', 'grpc:$tid:1'],
+          }),
+        );
+      },
+    );
+  }
 
   test(
     'mixed-version final slice ACK retires atomically and preserves another transfer',
