@@ -181,6 +181,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final hasError = ref.watch(
       appControllerProvider.select((s) => s.unlockError),
     );
+    final canCopyReport = hasError || errorJournal.entries.isNotEmpty;
     return Scaffold(
       body: SafeArea(
         child: LayoutBuilder(
@@ -301,60 +302,57 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                     // reporting, and Settings is on the other side of the lock.
                     // Shown only once something has actually gone wrong, so a
                     // working lock screen stays a lock screen.
-                    Row(
+                    Wrap(
+                      alignment: !canCopyReport
+                          ? WrapAlignment.end
+                          : canWipe
+                          ? WrapAlignment.spaceBetween
+                          : WrapAlignment.start,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
-                        if (hasError || errorJournal.entries.isNotEmpty)
-                          Flexible(
-                            child: TextButton.icon(
-                              onPressed: _busy
-                                  ? null
-                                  : () => copyErrorReport(
-                                      context,
-                                      phase: 'locked',
-                                    ),
-                              icon: const Icon(
-                                Icons.bug_report_outlined,
-                                size: 16,
-                              ),
-                              label: Text(
-                                l.settingsCopyErrors,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
+                        if (canCopyReport)
+                          TextButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () =>
+                                      copyErrorReport(context, phase: 'locked'),
+                            icon: const Icon(
+                              Icons.bug_report_outlined,
+                              size: 16,
+                            ),
+                            label: Text(
+                              l.settingsCopyErrors,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
                               ),
                             ),
                           ),
-                        const Spacer(),
-                        // Low-emphasis, corner-tucked destructive action
-                        // (typed-phrase gated) so it can't be hit by an
-                        // accidental double-tap.
+                        // Low-emphasis destructive action, gated by a typed
+                        // phrase to prevent accidental deletion.
                         if (canWipe)
-                          Flexible(
-                            child: TextButton.icon(
-                              onPressed: _busy ? null : _wipe,
-                              icon: Icon(
-                                Icons.delete_forever_outlined,
-                                size: 16,
+                          TextButton.icon(
+                            onPressed: _busy ? null : _wipe,
+                            icon: Icon(
+                              Icons.delete_forever_outlined,
+                              size: 16,
+                              color: scheme.error.withValues(alpha: 0.7),
+                            ),
+                            label: Text(
+                              l.lockWipe,
+                              style: TextStyle(
+                                fontSize: 12,
                                 color: scheme.error.withValues(alpha: 0.7),
                               ),
-                              label: Text(
-                                l.lockWipe,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: scheme.error.withValues(alpha: 0.7),
-                                ),
-                              ),
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
+                            ),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
                               ),
                             ),
                           ),

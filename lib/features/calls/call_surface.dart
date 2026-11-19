@@ -29,37 +29,44 @@ class CallSurfaceHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-    child: SizedBox(
-      height: 54,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: double.infinity,
+        minHeight: 54,
+      ),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: onMinimize == null
-                ? const SizedBox(width: 48)
-                : Semantics(
-                    container: true,
-                    label: minimizeLabel,
-                    button: true,
-                    child: ExcludeSemantics(
-                      child: IconButton(
-                        key:
-                            minimizeKey ??
-                            const ValueKey('call-surface-minimize'),
-                        onPressed: onMinimize,
-                        color: Colors.white,
-                        icon: const Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          size: 30,
-                        ),
+          if (onMinimize != null)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Semantics(
+                  container: true,
+                  label: minimizeLabel,
+                  button: true,
+                  child: ExcludeSemantics(
+                    child: IconButton(
+                      key:
+                          minimizeKey ??
+                          const ValueKey('call-surface-minimize'),
+                      onPressed: onMinimize,
+                      color: Colors.white,
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 30,
                       ),
                     ),
                   ),
-          ),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 54),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Row(
@@ -97,13 +104,17 @@ class CallSurfaceHeader extends StatelessWidget {
             ),
           ),
           if (onSettings != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: IconButton(
-                key: const ValueKey('call-surface-settings'),
-                onPressed: onSettings,
-                color: Colors.white,
-                icon: const Icon(Icons.more_vert),
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: IconButton(
+                  key: const ValueKey('call-surface-settings'),
+                  onPressed: onSettings,
+                  color: Colors.white,
+                  icon: const Icon(Icons.more_vert),
+                ),
               ),
             ),
         ],

@@ -427,42 +427,57 @@ class _CallBody extends ConsumerWidget {
           onMinimize: onMinimize,
           onSettings: () => onShowDevices(svc),
         ),
-        const Spacer(),
-        CircleAvatar(
-          radius: 72,
-          backgroundColor: const Color(0xFF171B22),
-          child: Text(
-            call.mediaIdentity.short.characters.first.toUpperCase(),
-            style: const TextStyle(fontSize: 48, color: Colors.white38),
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              primary: false,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 72,
+                    backgroundColor: const Color(0xFF171B22),
+                    child: Text(
+                      call.mediaIdentity.short.characters.first.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 48,
+                        color: Colors.white38,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    call.mediaIdentity.short,
+                    style: Theme.of(context).textTheme.titleLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    callStatusLabel(l, call),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 12),
+                  _MediaChips(call.media),
+                  if (call.transport != null) ...[
+                    const SizedBox(height: 10),
+                    _TransportBadge(
+                      call.transport!,
+                      fallbackReason:
+                          call.transport == CallTransportKind.relay &&
+                              svc.transportFallbackReason != null
+                          ? l.callPathNoDirectSession
+                          : null,
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          call.mediaIdentity.short,
-          style: Theme.of(context).textTheme.titleLarge,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          callStatusLabel(l, call),
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
-        ),
-        const SizedBox(height: 12),
-        _MediaChips(call.media),
-        if (call.transport != null) ...[
-          const SizedBox(height: 10),
-          _TransportBadge(
-            call.transport!,
-            fallbackReason:
-                call.transport == CallTransportKind.relay &&
-                    svc.transportFallbackReason != null
-                ? l.callPathNoDirectSession
-                : null,
-          ),
-        ],
-        const Spacer(),
         _Controls(
           call: call,
           svc: svc,
@@ -919,8 +934,10 @@ class _MediaChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 4,
       children: [
         if (media.audio) _chip(Icons.mic, l.callAudio),
         if (media.video) _chip(Icons.videocam, l.callVideo),
@@ -929,13 +946,10 @@ class _MediaChips extends StatelessWidget {
     );
   }
 
-  Widget _chip(IconData icon, String label) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 4),
-    child: Chip(
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
-      visualDensity: VisualDensity.compact,
-    ),
+  Widget _chip(IconData icon, String label) => Chip(
+    avatar: Icon(icon, size: 16),
+    label: Text(label),
+    visualDensity: VisualDensity.compact,
   );
 }
 
