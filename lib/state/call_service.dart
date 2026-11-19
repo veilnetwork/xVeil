@@ -8,6 +8,7 @@ import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/veil_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_log.dart';
 import '../domain/call_signal.dart';
@@ -322,7 +323,7 @@ class CallService {
     Future<List<CallLogEntry>> Function()? loadFinishedCalls,
     Stream<int>? overlaySessions,
     Stream<void>? overlaySessionAdmissions,
-    Stream<void>? networkHandovers,
+    Stream<NetworkAttachment>? networkAttachments,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -343,14 +344,15 @@ class CallService {
        // ignore: prefer_initializing_formals — public stream → private field.
        _overlaySessionAdmissions = overlaySessionAdmissions,
        // ignore: prefer_initializing_formals — public stream → private field.
-       _networkHandovers = networkHandovers;
+       _networkAttachments = networkAttachments;
 
   final Stream<int>? _overlaySessions;
   StreamSubscription<int>? _overlaySessionsSub;
   final Stream<void>? _overlaySessionAdmissions;
   StreamSubscription<void>? _overlaySessionAdmissionsSub;
-  final Stream<void>? _networkHandovers;
-  StreamSubscription<void>? _networkHandoversSub;
+  final Stream<NetworkAttachment>? _networkAttachments;
+  StreamSubscription<NetworkAttachment>? _networkAttachmentsSub;
+  bool _networkOffline = false;
   DateTime? _localNetworkHandoverAt;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
@@ -644,6 +646,7 @@ class CallService {
     final media = _media;
     if (c == null ||
         media == null ||
+        _networkOffline ||
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
         _relayFallbackFlight != null ||
@@ -853,11 +856,21 @@ class CallService {
         onError: (Object _) {},
       );
     }
-    _networkHandoversSub = _networkHandovers?.listen((_) {
+    _networkAttachmentsSub = _networkAttachments?.listen((attachment) {
+      if (_disposed) return;
+      _networkOffline = attachment == NetworkAttachment.offline;
       final call = _current;
-      if (_disposed || call == null) return;
-      if (call.status == CallStatus.active &&
-          call.transport == CallTransportKind.relay) {
+      if (call == null || call.status != CallStatus.active) return;
+      if (_networkOffline) {
+        _relayHandover = null;
+        // A relay rebuild may already be in flight when the interface drops.
+        _localNetworkHandoverAt = call.transport == CallTransportKind.relay
+            ? _now()
+            : null;
+        return;
+      }
+      if (attachment == NetworkAttachment.unknown) return;
+      if (call.transport == CallTransportKind.relay) {
         final at = _localNetworkHandoverAt = _now();
         // The rebuild can have released its old channel already.
         if (_media?.activeTransport != CallTransportKind.relay) return;
@@ -1978,6 +1991,7 @@ class CallService {
         before.peer != peer ||
         !before.isLive ||
         before.status != CallStatus.active ||
+        _networkOffline ||
         _relayRebuildAdmission != null ||
         _lateP2PBusy) {
       // A peer can become active first and request repair while this side is
@@ -2414,6 +2428,7 @@ class CallService {
 
   bool _canInspectDirectSession(Call call) =>
       !_disposed &&
+      !_networkOffline &&
       _isActiveDirectCall(call) &&
       _relayFallbackFlight == null &&
       _media?.isRepairingReceiveSession == false;
@@ -3484,7 +3499,8 @@ class CallService {
     bool ignoreCapturePosture = false,
   }) {
     final media = _media;
-    if (_relayRebuildAdmission != null ||
+    if (_networkOffline ||
+        _relayRebuildAdmission != null ||
         media?.isRepairingReceiveSession == true) {
       return false;
     }
@@ -3913,8 +3929,8 @@ class CallService {
     _overlaySessionsSub = null;
     unawaited(_overlaySessionAdmissionsSub?.cancel());
     _overlaySessionAdmissionsSub = null;
-    unawaited(_networkHandoversSub?.cancel());
-    _networkHandoversSub = null;
+    unawaited(_networkAttachmentsSub?.cancel());
+    _networkAttachmentsSub = null;
     if (_media == null) {
       _releaseSlot();
     } else {
@@ -3968,8 +3984,8 @@ final callServiceProvider = Provider<CallService>((ref) {
     overlaySessionAdmissions: transport is VeilFlutterTransport
         ? transport.overlaySessionAdmissions
         : null,
-    networkHandovers: transport is VeilFlutterTransport
-        ? transport.networkHandovers
+    networkAttachments: transport is VeilFlutterTransport
+        ? transport.networkAttachments
         : null,
     // Calls start UNMUTED on every platform. Android used to pass
     // `Platform.isAndroid` here, so every call on a phone connected with the
