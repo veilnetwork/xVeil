@@ -442,6 +442,8 @@ class _ParticipantCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final l = AppL10n.of(context);
+    final frames = videoFrame;
+    final showVideo = frames != null && (media.video || media.screen);
     return Semantics(
       label: label,
       child: DecoratedBox(
@@ -455,11 +457,14 @@ class _ParticipantCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if ((media.video || media.screen) && videoFrame != null)
+              if (frames != null)
                 CallVideoFrameView(
+                  // Keep the renderer mounted while the camera is off so it
+                  // can discard the frame cached by the media engine.
+                  enabled: showVideo,
                   mirrored: mirrored,
                   key: ValueKey('group-call-video-${participant.nodeId.short}'),
-                  frameListenable: videoFrame!,
+                  frameListenable: frames,
                   freshnessToken: (participant.nodeId.hex, media.screen),
                   waitingLabel: media.screen
                       ? l.callScreenWaiting
@@ -469,8 +474,8 @@ class _ParticipantCard extends StatelessWidget {
                       ? Icons.screen_share_outlined
                       : Icons.videocam_outlined,
                   fit: BoxFit.cover,
-                )
-              else
+                ),
+              if (!showVideo)
                 Center(
                   child: CircleAvatar(
                     radius: 28,

@@ -78,7 +78,6 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   // Whole seconds of the 1 s stale timer since the last accepted frame.
   // Tick-counted (not wall-clock) so the widget-test fake clock drives it.
   int _ticksSinceFrame = 0;
-  bool _hasFrameSource = false;
   bool _stale = false;
   Timer? _staleTimer;
 
@@ -90,11 +89,6 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     // already-confirmed static screen frame. Only a token transition inside a
     // living surface proves that its current frame belongs to the old source.
     _resetSource(blockCurrent: !widget.enabled);
-    if (widget.staleLabel != null) {
-      _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        _refreshStale();
-      });
-    }
   }
 
   @override
@@ -127,34 +121,38 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
         oldWidget.freshnessToken != widget.freshnessToken) {
       _resetSource(blockCurrent: true);
     }
+    if (!widget.enabled || widget.staleLabel == null) _stopStaleTimer();
   }
 
   @override
   void dispose() {
     widget.frameListenable.removeListener(_onFrame);
     _decodeTimer?.cancel();
-    _staleTimer?.cancel();
+    _stopStaleTimer();
     _image?.dispose();
     super.dispose();
   }
 
   void _refreshStale() {
-    if (_hasFrameSource) _ticksSinceFrame++;
+    _ticksSinceFrame++;
     final stale =
-        _image != null &&
-        _hasFrameSource &&
-        _ticksSinceFrame >= widget.staleAfter.inSeconds;
+        _image != null && _ticksSinceFrame >= widget.staleAfter.inSeconds;
     if (stale != _stale && mounted) setState(() => _stale = stale);
+  }
+
+  void _stopStaleTimer() {
+    _staleTimer?.cancel();
+    _staleTimer = null;
   }
 
   void _resetSource({required bool blockCurrent}) {
     _generation++;
     _decodeTimer?.cancel();
     _decodeTimer = null;
+    _stopStaleTimer();
     _pending = null;
     _lastDecodeAt = null;
     _ticksSinceFrame = 0;
-    _hasFrameSource = false;
     _stale = false;
     _image?.dispose();
     _image = null;
@@ -175,9 +173,9 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
       _generation++;
       _decodeTimer?.cancel();
       _decodeTimer = null;
+      _stopStaleTimer();
       _pending = null;
       _ticksSinceFrame = 0;
-      _hasFrameSource = false;
       _stale = false;
       if (!_waitingForFreshFrame && _image != null && mounted) {
         setState(() {
@@ -191,7 +189,11 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     _blockedFrame = null;
     _waitingForFreshFrame = false;
     _ticksSinceFrame = 0;
-    _hasFrameSource = true;
+    if (widget.staleLabel != null) {
+      _staleTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        _refreshStale();
+      });
+    }
     if (_stale && mounted) setState(() => _stale = false);
     _pending = frame;
     _scheduleDrain();
