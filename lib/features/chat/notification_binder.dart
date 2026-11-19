@@ -967,7 +967,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           isCurrent: () =>
               mounted &&
               generation == _clearRequestGeneration &&
-              ref.read(appControllerProvider).identity?.nodeId == identity,
+              ref.read(appControllerProvider).identity?.nodeId == identity &&
+              ref.read(notificationSettingsProvider).enabled,
           id: kNotificationIdClearRequests,
           title: l.clearRequestsNotificationTitle,
           body: l.clearRequestsNotificationBody(live.length),
@@ -989,26 +990,22 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     bool isMention = false,
   }) async {
     if (!_canContinueMessageAlert(attempt)) return;
+    final liveSettings = ref.read(notificationSettingsProvider);
+    if (!liveSettings.enabled) return;
     // An arrival can replace the pending alert only after passing policy.
     // Compare arrival order so even if an older lookup finishes after a
     // newer eligible one, the OS keeps the newer message.
     _latestEligibleSequence = attempt.sequence;
     final l = AppL10n.of(context);
-    final full = settings.preview == NotificationPreview.full;
+    final mayShowFull =
+        settings.preview == NotificationPreview.full &&
+        liveSettings.preview == NotificationPreview.full;
     // Mentions only resolve for a FULL preview — the hidden branch must not
     // even touch the message text.
-    final resolved = full
+    final resolved = mayShowFull
         ? await resolveMentionsForLocalDisplay(ref, preview)
         : '';
     if (!_canContinueMessageAlert(attempt)) return;
-    final content = notificationContent(
-      mode: settings.preview,
-      contactName: name,
-      shortId: shortId,
-      preview: resolved,
-      // Hidden: no sender, no text — just that something arrived.
-      hiddenBody: isMention ? l.notificationMention : l.notificationNewMessage,
-    );
     // Whose notification this is, so a reply can only go out from that
     // identity. Recorded against the RESOLVED payload — the reply callback
     // resolves an opaque token back to this before it looks.
@@ -1027,32 +1024,55 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final owners = ref.read(notificationOwnersProvider);
     final owner = attempt.owner?.hex;
     final id = notificationIdForIncomingMessage(convHex);
+    var postedFull = false;
+    bool current() {
+      if (!_canContinueMessageAlert(attempt)) return false;
+      final settings = ref.read(notificationSettingsProvider);
+      return settings.enabled &&
+          (!postedFull || settings.preview == NotificationPreview.full);
+    }
+
     final posted = await ref
         .read(notificationServiceProvider)
-        .showIfCurrent(
-          isCurrent: () => _canContinueMessageAlert(attempt),
+        .showPreparedIfCurrent(
+          isCurrent: current,
           id: id,
-          title: content.title,
-          body: content.body,
-          // HIDDEN mode hands the OS a token, not the conversation (audit
-          // XV-03). Neutralising the title while still passing `convHex` left
-          // the system notification database holding who the user talks to —
-          // outside the volume, and long after the app is locked. Full preview
-          // keeps the real payload: the title already names the sender, so an
-          // indirection there would cost tap-routing and buy nothing.
-          payload: full
-              ? convHex
-              : ref.read(opaqueNotificationPayloadsProvider).mint(convHex),
-          // Offer inline reply ONLY when the sender is visible (full preview) —
-          // replying to an anonymous "new message" would be confusing, and it
-          // keeps the hidden-preview lock-screen surface minimal.
-          replyLabel: full && allowReply ? l.notificationReply : null,
-          replyHint: full && allowReply ? l.notificationReplyHint : null,
+          prepare: () {
+            // A downgrade applies immediately. An alert that opted out of
+            // full text earlier cannot gain it while queued.
+            postedFull =
+                mayShowFull &&
+                ref.read(notificationSettingsProvider).preview ==
+                    NotificationPreview.full;
+            final content = notificationContent(
+              mode: postedFull
+                  ? NotificationPreview.full
+                  : NotificationPreview.hidden,
+              contactName: name,
+              shortId: shortId,
+              preview: resolved,
+              hiddenBody: isMention
+                  ? l.notificationMention
+                  : l.notificationNewMessage,
+            );
+            return (
+              title: content.title,
+              body: content.body,
+              // Keep conversation IDs out of the OS database in hidden mode.
+              payload: postedFull
+                  ? convHex
+                  : ref.read(opaqueNotificationPayloadsProvider).mint(convHex),
+              replyLabel: postedFull && allowReply ? l.notificationReply : null,
+              replyHint: postedFull && allowReply
+                  ? l.notificationReplyHint
+                  : null,
+            );
+          },
         );
     if (!posted) return;
     // The service orders a stale post's take-down BEFORE a newer post using
     // this id. Never cancel here: the id may already belong to a later alert.
-    if (!_canContinueMessageAlert(attempt)) return;
+    if (!current()) return;
     owners.remember(convHex, owner);
   }
 

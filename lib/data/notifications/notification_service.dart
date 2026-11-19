@@ -35,6 +35,14 @@ WindowsInitializationSettings windowsNotificationSettingsForNamespace(
   );
 }
 
+typedef NotificationPost = ({
+  String title,
+  String body,
+  String? payload,
+  String? replyLabel,
+  String? replyHint,
+});
+
 /// Thin wrapper over `flutter_local_notifications` for incoming-message alerts.
 ///
 /// Deniability note: this only DISPLAYS what the caller passes. The decision of
@@ -55,6 +63,24 @@ class NotificationService {
     String? payload,
     String? replyLabel,
     String? replyHint,
+  }) => showPreparedIfCurrent(
+    isCurrent: isCurrent,
+    id: id,
+    prepare: () => (
+      title: title,
+      body: body,
+      payload: payload,
+      replyLabel: replyLabel,
+      replyHint: replyHint,
+    ),
+  );
+
+  /// Apply presentation policy after queue, startup and clear waits, just
+  /// before handing the post to the OS. [prepare] must be synchronous.
+  Future<bool> showPreparedIfCurrent({
+    required bool Function() isCurrent,
+    required int id,
+    required NotificationPost Function() prepare,
   }) {
     final result = (_posts[id] ?? Future<void>.value()).then((_) async {
       if (!isCurrent()) return false;
@@ -68,14 +94,15 @@ class NotificationService {
       // every OS id; otherwise a queued clear can erase a fresh accepted alert.
       await _waitForNativeClears();
       if (!isCurrent() || _clearWanted) return false;
+      final post = prepare();
       try {
         final posted = await show(
           id: id,
-          title: title,
-          body: body,
-          payload: payload,
-          replyLabel: replyLabel,
-          replyHint: replyHint,
+          title: post.title,
+          body: post.body,
+          payload: post.payload,
+          replyLabel: post.replyLabel,
+          replyHint: post.replyHint,
         );
         return posted && isCurrent();
       } finally {
