@@ -2404,18 +2404,25 @@ class CallService {
     }
 
     final deadline = Completer<bool>();
+    bool needsRelayRebuild() =>
+        !deadline.isCompleted &&
+        fallbackOwner() != null &&
+        media.activeTransport == null;
+
     Future<bool> rebuildRelay() async {
-      final connections = _relayConnectionGeneration;
-      final network = _overlayAdmissionNetwork;
-      final opened = await openRelay();
-      if (opened || network == _overlayAdmissionNetwork) return opened;
-      // The old open failed across a network change. One replacement can use
-      // fresh admission, with the same deadline as the original open.
-      while (!deadline.isCompleted &&
-          fallbackOwner() != null &&
-          media.activeTransport == null) {
-        if (_hasCurrentRelayAdmissionSince(connections)) return openRelay();
-        if (!await _waitForRelayRebuildAdmission(deadline.future)) break;
+      while (needsRelayRebuild()) {
+        final connections = _relayConnectionGeneration;
+        final network = _overlayAdmissionNetwork;
+        final opened = await openRelay();
+        if (opened || network == _overlayAdmissionNetwork) return opened;
+        // An open overtaken by a network change can be replaced after a
+        // current registration. Every attempt shares the original deadline.
+        while (needsRelayRebuild() &&
+            !_hasCurrentRelayAdmissionSince(connections)) {
+          if (!await _waitForRelayRebuildAdmission(deadline.future)) {
+            return false;
+          }
+        }
       }
       return false;
     }
