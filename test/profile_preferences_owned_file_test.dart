@@ -11,15 +11,28 @@ void main() {
   late Directory fixture;
   late File local;
   late _FileOwner owner;
+  late SharedPreferencesStorePlatform originalBackend;
   const original =
       '{"v":1,"e":{"flutter.original":{"t":"String","v":"synthetic"}}}';
   setUp(() {
+    originalBackend = SharedPreferencesStorePlatform.instance;
     fixture = Directory.systemTemp.createTempSync('xveil-owned-prefs-port-');
     local = File('${fixture.path}/xveil.prefs.json')
       ..writeAsStringSync(original);
     owner = _FileOwner(local.path);
   });
-  tearDown(() => fixture.deleteSync(recursive: true));
+  tearDown(() async {
+    final installed = SharedPreferencesStorePlatform.instance;
+    SharedPreferencesStorePlatform.instance = originalBackend;
+    try {
+      if (installed is ProfilePreferencesStore &&
+          installed != originalBackend) {
+        await installed.releaseFile();
+      }
+    } finally {
+      fixture.deleteSync(recursive: true);
+    }
+  });
 
   test('owned absence never falls through to an existing local file', () async {
     final store = await ProfilePreferencesStore.load(
@@ -106,14 +119,6 @@ void main() {
     test(
       'a sibling close failure preserves startup and migration source (read refusal: $refuseRead)',
       () async {
-        final previous = SharedPreferencesStorePlatform.instance;
-        addTearDown(() async {
-          final installed = SharedPreferencesStorePlatform.instance;
-          SharedPreferencesStorePlatform.instance = previous;
-          if (installed is ProfilePreferencesStore && installed != previous) {
-            await installed.releaseFile();
-          }
-        });
         final siblingPath = profilePrefsPath(fixture.path, 'decoy');
         Directory(
           AppProfiles.directory(fixture.path, 'decoy'),
@@ -148,6 +153,48 @@ void main() {
             'es',
           );
         }
+      },
+    );
+  }
+
+  for (final selected in [true, false]) {
+    test(
+      'migration does not rewrite an up-to-date ${selected ? 'selected' : 'sibling'} file',
+      () async {
+        final siblingPath = profilePrefsPath(fixture.path, 'decoy');
+        Directory(
+          AppProfiles.directory(fixture.path, 'decoy'),
+        ).createSync(recursive: true);
+        final sibling = _FileOwner(siblingPath);
+        final upToDate = selected ? owner : sibling;
+        final pending = selected ? sibling : owner;
+        upToDate
+          ..contents = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}'
+          ..writeFailure = StateError('synthetic write refusal');
+        final legacy = InMemorySharedPreferencesStore.withData({
+          'flutter.locale': 'ru',
+          'flutter.locale.decoy': 'de',
+        });
+        final profile = await installProfilePreferencesOrFallback(
+          supportDir: () async => fixture.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: legacy,
+          openOwnedFile: (path) async => path == siblingPath ? sibling : owner,
+        );
+        final installed = SharedPreferencesStorePlatform.instance;
+        expect(profile, AppProfiles.defaultName);
+        expect(
+          (await installed.getAll())['flutter.locale'],
+          selected ? 'es' : 'ru',
+        );
+        expect(upToDate.writes, isEmpty);
+        expect(
+          jsonDecode(pending.writes.single)['e']['flutter.locale']['v'],
+          selected ? 'de' : 'ru',
+        );
+        expect(sibling.closes, 1);
+        expect(await legacy.getAll(), isEmpty);
       },
     );
   }
