@@ -86,6 +86,7 @@ class _MessagingOutbox {
 
   final MessagingService _owner;
   late final _editExpiry = _MessageEditExpiry(this);
+  final _retirements = AsyncTasks();
 
   _OutboxFlushSnapshot? _flushSnapshot;
 
@@ -1535,20 +1536,32 @@ class _MessagingOutbox {
   /// guessed the frameId could ACK it and retire a frame addressed to someone
   /// else, suppressing that delivery entirely (audit XV-02).
   void retire(String peerHex, String frameId) {
-    unawaited(
-      _retirePersisted(peerHex, frameId).catchError((Object error) {
+    _retirements.start(() async {
+      try {
+        await _retirePersisted(peerHex, frameId);
+      } catch (error) {
         devLog(() => 'xVeil[durable]: outbox ACK deferred (${error.runtimeType})');
-      }),
-    );
+      }
+    });
   }
 
   Future<bool> retireGroupTransfer(
     NodeId source,
     String tid, {
     required bool ownDeviceAck,
+  }) {
+    if (_retirements.isClosed) return Future.value(false);
+    return _retirements.runRequired(
+      () => _retireGroupTransfer(source, tid, ownDeviceAck: ownDeviceAck),
+    );
+  }
+
+  Future<bool> _retireGroupTransfer(
+    NodeId source,
+    String tid, {
+    required bool ownDeviceAck,
     int? requireSliceCount,
   }) async {
-    if (_owner._disposed) return false;
     final destination = NodeId.fromHex(tid.split(':').last);
     if (source != destination &&
         !(ownDeviceAck &&
@@ -1556,7 +1569,6 @@ class _MessagingOutbox {
       return false;
     }
     final pending = await _owner._storage.pendingOutboxFrames();
-    if (_owner._disposed) return false;
     final ids = <String>[];
     for (final frame in pending) {
       if (frame.peerHex != destination.hex ||
@@ -1659,7 +1671,6 @@ class _MessagingOutbox {
       // known set too, so a receiver that ACKs during enqueue need not make
       // every ACK decode the whole transfer again.
       final pending = await _owner._storage.pendingOutboxFrames();
-      if (_owner._disposed) return true;
       ({String tid, int index, int count})? target;
       for (final frame in pending) {
         if (frame.peerHex == peerHex && frame.frameId == frameId) {
@@ -1693,7 +1704,7 @@ class _MessagingOutbox {
     if (progress.ackCount == progress.count) {
       // A final authoritative scan also refuses pre-upgrade orphaned tails or
       // an ACK racing rows that have not all become durable yet.
-      await retireGroupTransfer(
+      await _retireGroupTransfer(
         NodeId.fromHex(peerHex),
         tid,
         ownDeviceAck: false,
@@ -1759,12 +1770,24 @@ class _MessagingOutbox {
 
   void dispose() {
     _callReceiptKeys.clear();
-    _groupSliceAcks.clear();
     _flushSnapshot?.cancel();
     _activeLivePeers.clear();
     for (final timer in _fastCallRetryTimers.values) {
       timer.cancel();
     }
     _fastCallRetryTimers.clear();
+  }
+
+  /// Accepted ACKs can require metadata reads before storage admits the actual
+  /// write. Stop new retirements after ingress settles and join those reads
+  /// and commits before the host releases the container.
+  Future<void> quiesceRetirements() async {
+    try {
+      await _retirements.close();
+    } catch (error) {
+      devLog(() => 'xVeil[durable]: ACK drain failed (${error.runtimeType})');
+    } finally {
+      _groupSliceAcks.clear();
+    }
   }
 }

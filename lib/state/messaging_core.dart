@@ -4771,6 +4771,7 @@ class MessagingService {
     await historyClosed;
     await readStateClosed;
     await _mutations.quiesce();
+    await _outbox.quiesceRetirements();
     Object? shutdownError;
     StackTrace? shutdownTrace;
     try {
