@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/storage.dart' show OutboxFrame;
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -39,16 +40,30 @@ class _DecisionGateStorage extends HiddenVolumeStorage {
   _DecisionGateStorage.async(super.opener) : super.async();
   bool holdDecision = false;
   bool holdCancellationDecision = false;
+  bool holdOutbox = false;
   final decisionEntered = Completer<void>();
   final decisionRelease = Completer<void>();
 
   @override
-  Future<bool> cancelPendingContactRequest(NodeId peer) {
+  Future<List<OutboxFrame>> pendingOutboxFrames() async {
+    if (holdOutbox) {
+      holdOutbox = false;
+      decisionEntered.complete();
+      await decisionRelease.future;
+    }
+    return super.pendingOutboxFrames();
+  }
+
+  @override
+  Future<bool> cancelPendingContactRequest(
+    NodeId peer, {
+    required bool Function() isCurrent,
+  }) {
     if (holdCancellationDecision) {
       holdCancellationDecision = false;
       holdDecision = true;
     }
-    return super.cancelPendingContactRequest(peer);
+    return super.cancelPendingContactRequest(peer, isCurrent: isCurrent);
   }
 
   @override
@@ -358,6 +373,46 @@ void main() {
           );
           expect((await sA.loadMessages(b.hex)).single.body, 'incoming only');
         });
+
+        for (final hold in ['contact read', 'outbox listing']) {
+          test(
+            'stale cancellation waiting for $hold preserves replacement',
+            () async {
+              await mA.sendRequest(b, 'old greeting');
+              final gated = sA as _DecisionGateStorage;
+              gated.holdDecision = hold == 'contact read';
+              gated.holdOutbox = hold == 'outbox listing';
+              final old = mA.cancelRequest(b);
+              try {
+                await gated.decisionEntered.future;
+                expect(await mA.cancelRequest(b), isTrue);
+                expect(
+                  (await mA.submitContactRequest(b, 'fresh greeting')).admitted,
+                  isTrue,
+                );
+              } finally {
+                gated.decisionRelease.complete();
+              }
+              expect(await old, isFalse);
+              expect(
+                (await sA.getContact(b))?.status,
+                ContactStatus.pendingOutgoing,
+              );
+              expect(
+                (await sA.loadMessages(b.hex)).single.body,
+                'fresh greeting',
+              );
+              final queued = (await sA.pendingOutboxFrames()).single;
+              expect(WireEnvelope.decode(queued.wire).body, 'fresh greeting');
+              await sA.close();
+              expect(await sA.open(password: 'fixture'), isTrue);
+              expect(
+                (await sA.pendingOutboxFrames()).single.frameId,
+                queued.frameId,
+              );
+            },
+          );
+        }
 
         test(
           'initial request carries the committed greeting position',

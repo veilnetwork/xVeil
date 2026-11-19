@@ -71,3 +71,24 @@ with a captured synthetic transport, not a physical Windows/Android session.
 All Flutter tests run with the required temporary-directory override. No user
 app is opened or activated, no keyboard/mouse input is injected, and no user
 container, phone, production relay or Windows installation is modified.
+
+## Replacement request during a cancellation
+
+A cancellation already running can pause on the contact read or on the
+durable queue listing. A second cancellation can finish and a fresh request
+to the same contact can be submitted in that interval. The earlier action
+previously retired the fresh request and erased its greeting when it resumed.
+
+The action now carries the consent revision across the read, the queue scan
+and the guarded storage write. The contact writer checks it again after
+reading the contact. An obsolete cancellation leaves the replacement and its
+queued frame intact. A refusal also preserves the newer revision so it cannot
+invalidate a replacement still being prepared.
+
+Both delays reproduced destructive cancellation with ordinary storage before
+the fix. The final tests use the same service API with ordinary and native
+worker storage. They compare the new greeting and its durable frame, then
+reopen the container and check that the same frame is still pending. The
+transport is controlled by the tests. All 771 related tests passed without
+skips and the targeted analyzer reported no issues. The cause of the original
+one-way delivery report remains open.

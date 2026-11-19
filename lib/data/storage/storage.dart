@@ -638,10 +638,14 @@ abstract interface class Storage {
   /// Retract only a still-pending local outgoing request. Check consent and erase
   /// under the same contact write serialization: a delayed cancel action must
   /// not delete an accepted conversation, an incoming-only request or a block.
+  /// [isCurrent] keeps an action waiting in this lane tied to its own request.
   /// Returns false without modifying storage when the request is no longer
   /// locally requested (including crossed requests). Explicit conversation
   /// deletion remains unconditional.
-  Future<bool> cancelPendingContactRequest(NodeId peer);
+  Future<bool> cancelPendingContactRequest(
+    NodeId peer, {
+    required bool Function() isCurrent,
+  });
 
   /// Forensically delete every message of [peer]'s conversation whose ORIGINAL
   /// post time is older than [retentionDays] days (edits do NOT refresh the

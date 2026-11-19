@@ -4855,10 +4855,15 @@ class HiddenVolumeStorage
   );
 
   @override
-  Future<bool> cancelPendingContactRequest(NodeId peer) => _trackLogWrite(
+  Future<bool> cancelPendingContactRequest(
+    NodeId peer, {
+    required bool Function() isCurrent,
+  }) => _trackLogWrite(
     (_) => _withMessageErasure(
       () => _contactSerialized(() async {
-        if ((await getContact(peer))?.hasOutgoingRequest != true) {
+        if (!isCurrent() ||
+            (await getContact(peer))?.hasOutgoingRequest != true ||
+            !isCurrent()) {
           return false;
         }
         // Keep the decision lane through destructive discovery and commit.
