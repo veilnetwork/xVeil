@@ -324,6 +324,7 @@ class CallService {
     Stream<int>? overlaySessions,
     Stream<void>? overlaySessionAdmissions,
     Stream<NetworkAttachment>? networkAttachments,
+    int Function()? readNetworkChangeGeneration,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -344,14 +345,18 @@ class CallService {
        // ignore: prefer_initializing_formals — public stream → private field.
        _overlaySessionAdmissions = overlaySessionAdmissions,
        // ignore: prefer_initializing_formals — public stream → private field.
-       _networkAttachments = networkAttachments;
+       _networkAttachments = networkAttachments,
+       // ignore: prefer_initializing_formals — public callback → private field.
+       _readNetworkChangeGeneration = readNetworkChangeGeneration;
 
   final Stream<int>? _overlaySessions;
   StreamSubscription<int>? _overlaySessionsSub;
   final Stream<void>? _overlaySessionAdmissions;
   StreamSubscription<void>? _overlaySessionAdmissionsSub;
   final Stream<NetworkAttachment>? _networkAttachments;
+  final int Function()? _readNetworkChangeGeneration;
   StreamSubscription<NetworkAttachment>? _networkAttachmentsSub;
+  int _networkAttachmentGeneration = 0;
   bool _networkOffline = false;
   DateTime? _localNetworkHandoverAt;
   int? _lastOverlaySessions;
@@ -660,17 +665,27 @@ class CallService {
       return;
     }
     final generation = _lateP2PGeneration;
+    final attachmentGeneration = _networkAttachmentGeneration;
+    final networkChangeGeneration = _readNetworkChangeGeneration?.call();
     _lateP2PBusy = true;
     bool stillCurrent() =>
         generation == _lateP2PGeneration &&
         _current?.callId == c.callId &&
         _current?.peer == c.peer &&
         _current?.status == CallStatus.active;
+    // A native network notification and the resulting attachment event can
+    // straddle admission. Keep their validity separate from call ownership,
+    // which still settles a rejected candidate on the surviving relay.
+    bool sameNetwork() =>
+        stillCurrent() &&
+        !_networkOffline &&
+        attachmentGeneration == _networkAttachmentGeneration &&
+        networkChangeGeneration == _readNetworkChangeGeneration?.call();
     try {
       // A forked answer binds media to its device, while contact policy and
       // endpoint discovery still belong to the authenticated identity.
       if (!await _localAllowsP2P(c.mediaIdentity) ||
-          !stillCurrent() ||
+          !sameNetwork() ||
           !_lateP2PConsent) {
         return;
       }
@@ -683,7 +698,7 @@ class CallService {
           } catch (_) {
             // An unavailable local snapshot keeps the endpoint-exchange path.
           }
-          if (!stillCurrent() || !_lateP2PConsent) return;
+          if (!sameNetwork() || !_lateP2PConsent) return;
         }
         // After a network handover the answering device can already have a
         // new admitted session while endpoint discovery still waits on stale
@@ -692,7 +707,7 @@ class CallService {
         // admission, both consent checks and sealed route qualification below.
         if (alreadyAdmitted != true &&
             (!await _peerReachableWithoutBlockingSignal(c.mediaIdentity) ||
-                !stillCurrent())) {
+                !sameNetwork())) {
           return;
         }
         if (alreadyAdmitted == true) {
@@ -706,19 +721,19 @@ class CallService {
       // Admission can disappear between heartbeats while we await the peer.
       // Withdraw local readiness before announcing or opening a stale route.
       final admitted = await media.isDirectPeerAdmitted(c);
-      if (!stillCurrent()) return;
+      if (!sameNetwork()) return;
       if (!admitted || !_lateP2PConsent) {
         _lateP2PLocalReady = false;
         return;
       }
       if (!await _localAllowsP2P(c.mediaIdentity) ||
-          !stillCurrent() ||
+          !sameNetwork() ||
           !_lateP2PConsent) {
         return;
       }
       _lateP2PLocalReady = true;
       _announceCallRoute(c, CallTransportKind.p2p);
-      if (!stillCurrent() ||
+      if (!sameNetwork() ||
           !_lateP2PPeerReady ||
           _lateP2PAttempted ||
           _current?.transport != CallTransportKind.relay) {
@@ -729,13 +744,13 @@ class CallService {
       final ok = await media.switchRoute(
         CallTransportKind.p2p,
         canCommit: () async {
-          if (!stillCurrent() ||
+          if (!sameNetwork() ||
               epoch != _mediaOperationEpoch ||
               !_lateP2PConsent) {
             return false;
           }
           final allowed = await _localAllowsP2P(c.mediaIdentity);
-          if (!stillCurrent() ||
+          if (!sameNetwork() ||
               epoch != _mediaOperationEpoch ||
               !_lateP2PConsent) {
             return false;
@@ -858,6 +873,7 @@ class CallService {
     }
     _networkAttachmentsSub = _networkAttachments?.listen((attachment) {
       if (_disposed) return;
+      _networkAttachmentGeneration++;
       final wasOffline = _networkOffline;
       _networkOffline = attachment == NetworkAttachment.offline;
       final call = _current;
@@ -3992,6 +4008,9 @@ final callServiceProvider = Provider<CallService>((ref) {
         : null,
     networkAttachments: transport is VeilFlutterTransport
         ? transport.networkAttachments
+        : null,
+    readNetworkChangeGeneration: transport is VeilFlutterTransport
+        ? () => transport.networkChangeGeneration
         : null,
     // Calls start UNMUTED on every platform. Android used to pass
     // `Platform.isAndroid` here, so every call on a phone connected with the
