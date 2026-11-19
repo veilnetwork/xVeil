@@ -520,16 +520,21 @@ Future<void> _migrateLegacy(
   // without this its own keys would be filed under the default profile, i.e.
   // handed to the very profile they must stay away from.
   final known = <String>{AppProfiles.defaultName, profile};
+  final dir = Directory('$supportDir/profiles');
   try {
-    final dir = Directory('$supportDir/profiles');
-    if (dir.existsSync()) {
-      for (final entry in dir.listSync()) {
-        final name = lastPathSegment(entry.path);
-        if (AppProfiles.isValidName(name)) known.add(name);
-      }
+    for (final entry in dir.listSync(followLinks: false)) {
+      final name = lastPathSegment(entry.path);
+      if (AppProfiles.isValidName(name)) known.add(name);
     }
-  } catch (_) {
-    /* an unreadable profiles dir just means no suffixes to strip */
+  } on FileSystemException catch (error) {
+    // An absent directory is normal on a first launch. If listing was
+    // refused, keep the legacy values until their profile can be determined.
+    if (error is! PathNotFoundException ||
+        FileSystemEntity.typeSync(dir.path, followLinks: false) !=
+            FileSystemEntityType.notFound) {
+      devLog(() => 'xVeil[prefs]: deferring migration: profiles unavailable');
+      return;
+    }
   }
 
   final selectedCount = into._entries.length;
