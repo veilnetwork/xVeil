@@ -116,12 +116,15 @@ class WorkerMultiSpaceBacking
     // FAST — most often on the very first FFI call — and a watcher attached
     // afterwards would miss exactly that case.
     final death = WorkerDeath();
-    final isolate = await Isolate.spawn<_MOpenConfig>(
+    final isolate = await Isolate.spawn<(Isolate, _MOpenConfig)>(
       _multiWorkerEntry,
-      _MOpenConfig(
-        path: _path,
-        paddingPresetTag: paddingPreset.tag,
-        reply: boot.sendPort,
+      (
+        Isolate.current,
+        _MOpenConfig(
+          path: _path,
+          paddingPresetTag: paddingPreset.tag,
+          reply: boot.sendPort,
+        ),
       ),
       errorsAreFatal: true,
       onExit: death.exitPort.sendPort,
@@ -148,9 +151,9 @@ class WorkerMultiSpaceBacking
     switch (first) {
       case _MErr(:final kind, :final message):
         // The production bootstrap reports this before handing out a backing:
-        // opening failed, so there is no live container owner to close.
+        // opening failed, so let the worker unregister its listener and exit.
         _bootstrapFailedCleanly = true;
-        abandon();
+        death.dispose();
         throw hv.HvException(kind, message);
       case _MOk(:final value):
         return (isolate: isolate, port: value as SendPort, watch: death);
@@ -498,7 +501,21 @@ class _MErr extends _MReply {
   final String message;
 }
 
-void _multiWorkerEntry(_MOpenConfig cfg) {
+Future<void> _multiWorkerEntry((Isolate, _MOpenConfig) launch) async {
+  final (owner, config) = launch;
+  final inbox = StorageWorkerInbox(owner);
+  try {
+    if (!await inbox.confirmOwner()) {
+      config.reply.send(const _MErr('Internal', 'storage owner unavailable'));
+      return;
+    }
+    _openAndServeMultiWorker(config, inbox);
+  } finally {
+    inbox.closeIfUnserved();
+  }
+}
+
+void _openAndServeMultiWorker(_MOpenConfig cfg, StorageWorkerInbox inbox) {
   // hidden-volume symbols are process-global once the main isolate preloaded
   // them; call the idempotent loader so the worker is self-sufficient (Android
   // opens by soname per isolate).
@@ -518,14 +535,22 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
     return;
   }
 
-  cfg.reply.send(_MOk(_serveMultiWorker(backing)));
+  cfg.reply.send(
+    _MOk(
+      _serveMultiWorker(backing, inbox: inbox, ownerExit: _MClose(cfg.reply)),
+    ),
+  );
 }
 
-SendPort _serveMultiWorker(MultiSpaceBacking backing) {
-  final rx = ReceivePort();
+SendPort _serveMultiWorker(
+  MultiSpaceBacking backing, {
+  StorageWorkerInbox? inbox,
+  _MClose? ownerExit,
+}) {
+  final requests = inbox ?? StorageWorkerInbox();
   var closing = false;
 
-  rx.listen((dynamic msg) {
+  requests.listen(ownerExit, (dynamic msg) {
     if (msg is! _MReq) return;
     if (closing && msg is! _MClose) {
       msg.reply.send(const _MErr('Internal', 'storage worker is closing'));
@@ -596,7 +621,7 @@ SendPort _serveMultiWorker(MultiSpaceBacking backing) {
         try {
           backing.close();
           msg.reply.send(const _MOk(null));
-          rx.close();
+          requests.close();
           Isolate.current.kill(priority: Isolate.immediate);
         } on hv.HvException catch (e) {
           msg.reply.send(_MErr(e.kind, e.message));
@@ -607,5 +632,5 @@ SendPort _serveMultiWorker(MultiSpaceBacking backing) {
         }
     }
   });
-  return rx.sendPort;
+  return requests.sendPort;
 }

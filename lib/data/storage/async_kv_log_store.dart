@@ -538,21 +538,38 @@ class _Err extends _Reply {
   final String message;
 }
 
-void _workerEntry(_OpenConfig cfg) {
+Future<void> _workerEntry((Isolate, _OpenConfig) launch) async {
+  final (owner, config) = launch;
+  final inbox = StorageWorkerInbox(owner);
+  try {
+    if (!await inbox.confirmOwner()) {
+      config.reply.send(const _Err('Internal', 'storage owner unavailable'));
+      return;
+    }
+    await _openAndServeWorker(config, inbox);
+  } finally {
+    inbox.closeIfUnserved();
+  }
+}
+
+Future<void> _openAndServeWorker(
+  _OpenConfig cfg,
+  StorageWorkerInbox inbox,
+) async {
   if (cfg is _OpenManagedLegacyCompaction) {
-    _managedLegacyCompactionEntry(cfg);
+    _managedLegacyCompactionEntry(cfg, inbox);
     return;
   }
   if (cfg is _OpenManagedErasure) {
-    unawaited(_managedErasureEntry(cfg));
+    await _managedErasureEntry(cfg, inbox);
     return;
   }
   if (cfg is _OpenProfilePreferences) {
-    _profilePreferencesEntry(cfg);
+    _profilePreferencesEntry(cfg, inbox);
     return;
   }
   if (cfg is _OpenManagedCatalog) {
-    _managedCatalogEntry(cfg);
+    _managedCatalogEntry(cfg, inbox);
     return;
   }
   // The hidden-volume symbols are process-global once the main isolate's
@@ -598,7 +615,10 @@ void _workerEntry(_OpenConfig cfg) {
       final failure = opened.failure;
       if (failure != null) {
         cfg.reply.send(
-          _ManagedOpenFailed(failure, _serveManagedCleanup(opened.close)),
+          _ManagedOpenFailed(
+            failure,
+            _serveManagedCleanup(cfg, inbox, opened.close),
+          ),
         );
         return;
       }
@@ -620,6 +640,8 @@ void _workerEntry(_OpenConfig cfg) {
     _Ok(
       _serveWorker(
         store,
+        inbox: inbox,
+        ownerExit: _CloseReq(cfg.reply),
         closeOwner: closeOwner,
         reclaim: reclaimOwner,
         managed: cfg is _OpenManagedIdentity,
@@ -630,11 +652,13 @@ void _workerEntry(_OpenConfig cfg) {
 
 SendPort _serveWorker(
   KvLogStore store, {
+  StorageWorkerInbox? inbox,
+  _CloseReq? ownerExit,
   void Function()? closeOwner,
   Future<ManagedReclaimReport> Function(bool force)? reclaim,
   bool managed = false,
 }) {
-  final rx = ReceivePort();
+  final requests = inbox ?? StorageWorkerInbox();
   var closing = false;
   var mutationDebt = 0;
   var reclamationFailed = false;
@@ -663,7 +687,7 @@ SendPort _serveWorker(
     }());
   }
 
-  subscription = rx.listen((dynamic msg) {
+  subscription = requests.listen(ownerExit, (dynamic msg) {
     if (msg is! _Req) return;
     if (closing && msg is! _CloseReq) {
       msg.reply.send(
@@ -836,7 +860,7 @@ SendPort _serveWorker(
         try {
           (closeOwner ?? store.close)();
           msg.reply.send(const _Ok(null));
-          rx.close();
+          requests.close();
           Isolate.current.kill(priority: Isolate.immediate);
         } catch (e) {
           // Retain the owner and serving port: native close may be retryable.
@@ -851,7 +875,7 @@ SendPort _serveWorker(
       maintain(false);
     }
   });
-  return rx.sendPort;
+  return requests.sendPort;
 }
 
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
@@ -979,9 +1003,9 @@ class WorkerKvLogStore
     // container fails FAST — most often on the very first FFI call — and a
     // watcher attached afterwards would miss exactly that case.
     final death = WorkerDeath();
-    final isolate = await Isolate.spawn<_OpenConfig>(
+    final isolate = await Isolate.spawn<(Isolate, _OpenConfig)>(
       _workerEntry,
-      build(boot.sendPort),
+      (Isolate.current, build(boot.sendPort)),
       errorsAreFatal: true,
       onExit: death.exitPort.sendPort,
       onError: death.errorPort.sendPort,
@@ -1003,13 +1027,15 @@ class WorkerKvLogStore
 
     switch (first) {
       case _Null():
-        abandon();
+        death.dispose();
         return null;
       case _Err(:final kind, :final message):
-        abandon();
+        // The worker returns from bootstrap on terminal replies. Let it
+        // unregister its owner-exit listener before its isolate stops.
+        death.dispose();
         throw hv.HvException(kind, message);
       case _ManagedWorkerErr(:final kind, :final preferencesOpenReason):
-        abandon();
+        death.dispose();
         throw ManagedWorkerFailure(
           kind,
           preferencesOpenReason: preferencesOpenReason,

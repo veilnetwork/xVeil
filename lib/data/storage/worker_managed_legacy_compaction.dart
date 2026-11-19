@@ -263,7 +263,10 @@ void _wipeLegacyCompactionCredentials(
   }
 }
 
-void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
+void _managedLegacyCompactionEntry(
+  _OpenManagedLegacyCompaction config,
+  StorageWorkerInbox inbox,
+) {
   ManagedDirectoryCatalog? root;
   var poisoned = false;
   void close() {
@@ -294,7 +297,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
       config.reply.send(
         _ManagedOpenFailed(
           _managedFailureKind(error),
-          _serveManagedCleanup(close),
+          _serveManagedCleanup(config, inbox, close),
         ),
       );
       return;
@@ -498,10 +501,9 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
     return (before: before, after: source.lengthSync(), recovery: recovery);
   }
 
-  final rx = ReceivePort();
   late final StreamSubscription<dynamic> subscription;
   var started = false, closing = false;
-  subscription = rx.listen((dynamic message) {
+  subscription = inbox.listen(_CloseReq(config.reply), (dynamic message) {
     if (message is! _Req) return;
     subscription.pause();
     unawaited(() async {
@@ -521,7 +523,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
             closing = true;
             close();
             message.reply.send(const _Ok(null));
-            rx.close();
+            inbox.close();
             Isolate.current.kill(priority: Isolate.immediate);
           default:
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
@@ -546,7 +548,7 @@ void _managedLegacyCompactionEntry(_OpenManagedLegacyCompaction config) {
       }
     }());
   });
-  config.reply.send(_Ok(rx.sendPort));
+  config.reply.send(_Ok(inbox.sendPort));
 }
 
 String _legacyKeyTag(List<int> bytes) =>

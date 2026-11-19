@@ -6,6 +6,56 @@ import 'dart:isolate';
 import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
+/// An isolate can survive the Flutter engine that started it. Queue owner
+/// exit on the same inbox as writes so the ordinary close path drains them.
+class StorageWorkerInbox {
+  StorageWorkerInbox([this._owner]);
+
+  final Isolate? _owner;
+  final _port = ReceivePort();
+  bool _serving = false;
+
+  SendPort get sendPort => _port.sendPort;
+
+  /// Wait for the caller to process the exit registration before taking any
+  /// file locks. The deadline only matters if the caller vanishes during
+  /// startup, before it can process either control message.
+  Future<bool> confirmOwner() async {
+    final owner = _owner!;
+    final acknowledged = ReceivePort();
+    owner.addOnExitListener(sendPort);
+    owner.ping(acknowledged.sendPort);
+    try {
+      await acknowledged.first.timeout(const Duration(seconds: 10));
+      return true;
+    } on TimeoutException {
+      return false;
+    } finally {
+      acknowledged.close();
+    }
+  }
+
+  StreamSubscription<dynamic> listen(
+    Object? ownerExit,
+    void Function(dynamic) handle,
+  ) {
+    final subscription = _port.listen(
+      (message) => handle(message ?? ownerExit),
+    );
+    _serving = true;
+    return subscription;
+  }
+
+  void closeIfUnserved() {
+    if (!_serving) close();
+  }
+
+  void close() {
+    _owner?.removeOnExitListener(sendPort);
+    _port.close();
+  }
+}
+
 /// Watches a worker isolate and turns its death into a failed future.
 ///
 /// `onExit` fires for any termination; `onError` fires first when the isolate

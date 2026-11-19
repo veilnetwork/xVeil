@@ -203,7 +203,10 @@ final class ManagedCatalogWorker {
   Future<void> close() => _worker.close();
 }
 
-void _managedCatalogEntry(_OpenManagedCatalog config) {
+void _managedCatalogEntry(
+  _OpenManagedCatalog config,
+  StorageWorkerInbox inbox,
+) {
   ManagedDirectoryCatalog? root;
   StorageProfileCoordinator? coordinator;
   void cleanup() {
@@ -221,7 +224,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
       config.reply.send(
         _ManagedOpenFailed(
           _managedFailureKind(error),
-          _serveManagedCleanup(cleanup),
+          _serveManagedCleanup(config, inbox, cleanup),
         ),
       );
       return;
@@ -229,7 +232,6 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
     config.reply.send(_workerErrorReply(error, managed: true));
     return;
   }
-  final rx = ReceivePort();
   var closing = false;
   // Root.close retries failed identity cleanup; the consuming catalog release
   // is separately guarded INSIDE that owner, not around the entire protocol.
@@ -319,7 +321,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
   }
 
   late final StreamSubscription<dynamic> subscription;
-  subscription = rx.listen((dynamic message) {
+  subscription = inbox.listen(_CloseReq(config.reply), (dynamic message) {
     if (message is! _Req) return;
     if (closing && message is! _CloseReq) {
       if (message is _CatalogEraseReq) {
@@ -434,7 +436,7 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
           closing = true;
           cleanup();
           message.reply.send(const _Ok(null));
-          rx.close();
+          inbox.close();
           Isolate.current.kill(priority: Isolate.immediate);
         default:
           throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
@@ -443,5 +445,5 @@ void _managedCatalogEntry(_OpenManagedCatalog config) {
       message.reply.send(_workerErrorReply(error, managed: true));
     }
   });
-  config.reply.send(_Ok(rx.sendPort));
+  config.reply.send(_Ok(inbox.sendPort));
 }
