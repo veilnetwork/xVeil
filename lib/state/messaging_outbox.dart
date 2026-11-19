@@ -931,9 +931,12 @@ class _MessagingOutbox {
       // Contact handshake frames use these stable prefixes. Avoid parsing
       // each queued group snapshot on every three-second flush just to skip it.
       // The deposit gate still validates the actual wire kind.
+      final isAcceptance = frame.frameId.startsWith('accept:');
+      // The durable response can outlive a deleted and re-added contact.
+      // Its presence in the queue is never authority to grant consent again.
+      if (isAcceptance && contact?.status != ContactStatus.accepted) continue;
       final mailboxEligible =
-          frame.frameId.startsWith('accept:') ||
-          frame.frameId.startsWith('request:');
+          isAcceptance || frame.frameId.startsWith('request:');
       if (mailboxEligible &&
           _owner._mailboxDelivery.suppressedByBackoff(
             frame.peerHex,
