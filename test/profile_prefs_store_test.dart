@@ -172,6 +172,48 @@ void main() {
   });
 
   group('migration off the system store', () {
+    for (final addDuringClear in [false, true]) {
+      test(
+        'preserves keys added during migration (during clear: $addDuringClear)',
+        () async {
+          final legacy = _AddsPreferencesDuringMigration({
+            'flutter.locale': 'ru',
+          }, addDuringClear: addDuringClear);
+          expect(
+            await installProfilePreferences(
+              supportDir: support.path,
+              args: const [],
+              environment: const {},
+              legacyBackend: legacy,
+            ),
+            AppProfiles.defaultName,
+          );
+          expect(await legacy.getAll(), _AddsPreferencesDuringMigration.added);
+          final values = _fileEntries(
+            profilePrefsPath(support.path, 'default'),
+          );
+          expect(values, {'flutter.locale': 'ru'});
+
+          // The next launch can pick up the retained choice and the new setting.
+          expect(
+            await installProfilePreferences(
+              supportDir: support.path,
+              args: const [],
+              environment: const {},
+              legacyBackend: legacy,
+            ),
+            'decoy',
+          );
+          expect(await readRememberedProfile(support.path), 'decoy');
+          expect(_fileEntries(profilePrefsPath(support.path, 'default')), {
+            'flutter.locale': 'ru',
+            'flutter.theme': 'dark',
+          });
+          expect(await legacy.getAll(), isEmpty);
+        },
+      );
+    }
+
     test('moves each value to its profile and EMPTIES the old store', () async {
       // What an existing install looks like: everything in one system store,
       // with the profile glued onto the key.
@@ -791,6 +833,40 @@ void main() {
 /// leaves behind.
 class _SystemStoreStandIn extends InMemorySharedPreferencesStore {
   _SystemStoreStandIn() : super.empty();
+}
+
+class _AddsPreferencesDuringMigration extends InMemorySharedPreferencesStore {
+  _AddsPreferencesDuringMigration(super.data, {required this.addDuringClear})
+    : super.withData();
+
+  final bool addDuringClear;
+
+  static const added = {
+    'flutter.theme': 'dark',
+    'flutter.${AppProfiles.activePref}': 'decoy',
+  };
+  bool _added = false;
+
+  Future<void> _add() async {
+    if (_added) return;
+    _added = true;
+    for (final entry in added.entries) {
+      await setValue('String', entry.key, entry.value);
+    }
+  }
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    final snapshot = await super.getAll();
+    if (!addDuringClear) await _add();
+    return snapshot;
+  }
+
+  @override
+  Future<bool> clearWithParameters(ClearParameters parameters) async {
+    if (addDuringClear) await _add();
+    return super.clearWithParameters(parameters);
+  }
 }
 
 /// A system store that accepts everything and clears nothing — the case the old

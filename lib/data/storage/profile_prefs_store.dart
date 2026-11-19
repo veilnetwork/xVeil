@@ -319,7 +319,9 @@ Future<String> installProfilePreferences({
 }) async {
   final legacy = legacyBackend ?? SharedPreferencesStorePlatform.instance;
   final pointer = await readRememberedProfile(supportDir);
-  final legacyPointer = await _legacyString(legacy, AppProfiles.activePref);
+  final legacySnapshot = await _readLegacyPreferences(legacy);
+  final savedChoice = legacySnapshot['flutter.${AppProfiles.activePref}'];
+  final legacyPointer = savedChoice is String ? savedChoice : null;
   final resolved = AppProfiles.resolveWithSource(
     args: args,
     environment: environment,
@@ -395,6 +397,7 @@ Future<String> installProfilePreferences({
 
     await _migrateLegacy(
       legacy,
+      legacySnapshot,
       supportDir,
       profile,
       store,
@@ -487,34 +490,27 @@ void installEphemeralPreferences() {
       InMemorySharedPreferencesStore.empty();
 }
 
-Future<String?> _legacyString(
+Future<Map<String, Object>> _readLegacyPreferences(
   SharedPreferencesStorePlatform legacy,
-  String key,
 ) async {
   try {
-    final value = (await legacy.getAll())['flutter.$key'];
-    return value is String ? value : null;
-  } catch (_) {
-    return null;
+    return Map.of(await legacy.getAll());
+  } catch (error) {
+    devLog(() => 'xVeil[prefs]: no legacy store to migrate: $error');
+    return const {};
   }
 }
 
 Future<void> _migrateLegacy(
   SharedPreferencesStorePlatform legacy,
+  Map<String, Object> snapshot,
   String supportDir,
   String profile,
   ProfilePreferencesStore into, {
   required bool mayClearLegacy,
   OpenProfilePreferencesFile? openOwnedFile,
 }) async {
-  Map<String, Object> all;
-  try {
-    all = await legacy.getAll();
-  } catch (e) {
-    devLog(() => 'xVeil[prefs]: no legacy store to migrate: $e');
-    return;
-  }
-  if (all.isEmpty) return;
+  if (snapshot.isEmpty) return;
 
   // Only names that exist on disk count as profile suffixes. Guessing would
   // mistake a version suffix for a profile and file the value under a profile
@@ -538,9 +534,11 @@ Future<void> _migrateLegacy(
 
   final selectedCount = into._entries.length;
   final elsewhere = <String, Map<String, ({String type, Object value})>>{};
-  for (final entry in all.entries) {
+  final migratedKeys = <String>{};
+  for (final entry in snapshot.entries) {
     final full = entry.key;
     if (!full.startsWith('flutter.')) continue;
+    migratedKeys.add(full);
     final bare = full.substring('flutter.'.length);
     // The active-profile pointer has its own file and was carried there before
     // this ran; the rest is settings.
@@ -604,13 +602,18 @@ Future<void> _migrateLegacy(
     return;
   }
 
-  // Now empty the system store. This is the half that actually closes the
-  // leak: everything above only made a second copy.
+  // Remove only the keys covered by this migration. The platform store can
+  // have gained new keys while the destination files were being written.
+  if (migratedKeys.isEmpty) return;
   try {
-    if (await legacy.clear()) {
+    if (await legacy.clearWithParameters(
+      ClearParameters(
+        filter: PreferencesFilter(prefix: 'flutter.', allowList: migratedKeys),
+      ),
+    )) {
       devLog(
         () =>
-            'xVeil[prefs]: moved ${all.length} preference(s) out of the system '
+            'xVeil[prefs]: moved ${migratedKeys.length} preference(s) out of the system '
             'store into per-profile files',
       );
     } else {
