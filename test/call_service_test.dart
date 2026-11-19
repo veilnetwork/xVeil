@@ -4318,6 +4318,106 @@ void main() {
       });
     }
 
+    for (final outcome in [
+      'late first reply',
+      'late confirmation',
+      'unproven relay',
+      'sender recovered',
+      'new overlay admission',
+      'new handover',
+    ]) {
+      test('P2P admission started within the handover window: $outcome', () {
+        fakeAsync((async) {
+          final network = StreamController<void>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final wire = _FakeMessaging();
+          final media = _ReconnectRelayMedia()
+            ..liveDirectAdmission = true
+            ..proven = outcome != 'unproven relay';
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkHandovers: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          final device = NodeId.fromHex('b' * 64);
+          wire.onCallSignal!(
+            peer,
+            offer('late-handover-admission').copyWith(
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+              replyDevice: device.hex,
+            ),
+          );
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+
+          media.rxAt = clock.now();
+          network.add(null);
+          const offset = Duration(milliseconds: 100);
+          async.elapse(
+            kCallDirectSessionSilence - const Duration(seconds: 1) - offset,
+          );
+          media.rxAt = clock.now();
+          final first = Completer<bool?>();
+          final confirmation = Completer<bool?>();
+          media.liveAdmissionGate = first;
+          async.elapse(offset);
+          expect(media.liveAdmissionChecks, [device, device, device]);
+
+          final delayFirst = outcome == 'late first reply';
+          if (!delayFirst) {
+            media.liveAdmissionGate = confirmation;
+            first.complete(false);
+            async.flushMicrotasks();
+            expect(media.liveAdmissionChecks, hasLength(4));
+          }
+          async.elapse(const Duration(seconds: 1) + offset);
+          expect(media.switches, isEmpty);
+
+          if (outcome == 'new overlay admission') admissions.add(null);
+          if (outcome == 'new handover') network.add(null);
+          media.liveAdmissionGate = null;
+          media.liveDirectAdmission = outcome == 'sender recovered';
+          if (delayFirst) {
+            first.complete(false);
+          } else {
+            confirmation.complete(media.liveDirectAdmission);
+          }
+          async.flushMicrotasks();
+          async.elapse(Duration.zero);
+          final startRelay = const {
+            'late first reply',
+            'late confirmation',
+            'unproven relay',
+          }.contains(outcome);
+          expect(media.liveAdmissionChecks, [device, device, device, device]);
+          expect(media.switches, startRelay ? [CallTransportKind.relay] : []);
+          expect(svc.current?.status, CallStatus.active);
+
+          if (outcome == 'unproven relay') {
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            media.proven = true;
+            async.elapse(kCallRelayCandidateRetry - offset);
+            expect(media.switches, [CallTransportKind.relay]);
+            async.elapse(offset);
+            expect(media.switches, [
+              CallTransportKind.relay,
+              CallTransportKind.relay,
+            ]);
+            expect(svc.current?.transport, CallTransportKind.relay);
+          }
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('keeps the P2P handover observation while media is repairing', () {
       fakeAsync((async) {
         final network = StreamController<void>(sync: true);
