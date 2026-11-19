@@ -288,32 +288,49 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
             : frame,
       );
     }
-    return Semantics(
-      label: widget.waitingLabel,
-      liveRegion: true,
-      excludeSemantics: true,
-      child: Center(
-        key: const ValueKey('call-video-waiting'),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              widget.placeholderIcon,
-              color: Colors.white.withValues(alpha: 0.42),
-              size: 38,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              widget.waitingLabel,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.68),
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return CallVideoWaitingView(
+      waitingLabel: widget.waitingLabel,
+      placeholderIcon: widget.placeholderIcon,
     );
   }
+}
+
+class CallVideoWaitingView extends StatelessWidget {
+  const CallVideoWaitingView({
+    super.key,
+    required this.waitingLabel,
+    this.placeholderIcon = Icons.videocam_outlined,
+  });
+
+  final String waitingLabel;
+  final IconData placeholderIcon;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: waitingLabel,
+    liveRegion: true,
+    excludeSemantics: true,
+    child: Center(
+      key: const ValueKey('call-video-waiting'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            placeholderIcon,
+            color: Colors.white.withValues(alpha: 0.42),
+            size: 38,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            waitingLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.68),
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
