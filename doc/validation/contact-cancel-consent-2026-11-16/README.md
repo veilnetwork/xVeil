@@ -92,3 +92,25 @@ reopen the container and check that the same frame is still pending. The
 transport is controlled by the tests. All 771 related tests passed without
 skips and the targeted analyzer reported no issues. The cause of the original
 one-way delivery report remains open.
+
+## Acceptance cleanup after replacing the contact
+
+Local acceptance, acceptance mirrored from a sibling, and a peer's acceptance
+all retire pending request frames. If this queue scan paused while the owner
+deleted and re-added the contact, the old acceptance could remove the new
+request from the outbox. The peer path could also mark the new greeting as
+delivered before the peer had received it.
+
+Acceptance cleanup now checks the durable accepted state and keeps its consent
+revision through the queue scan. Explicit deletion retires the old request
+and invalidates the old consent. The peer path checks the relationship again
+before reading and updating the greeting. The accepted contact's ordinary
+receipt path remains available while its decision is current.
+
+All three entry points reproduced the defect on both ordinary and native
+worker storage. The tests use the real delete and re-add commands. The new
+greeting keeps its pending status, and its exact request frame survives a
+cold reopen. The peer test delivers a captured answer through the regular
+inbound service. The related suite passed 793 tests without skips, and the
+targeted analyzer reported no issues. The original Windows user's connection
+remains unverified.

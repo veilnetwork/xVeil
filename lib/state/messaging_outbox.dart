@@ -485,9 +485,12 @@ class _MessagingOutbox {
     );
   }
 
-  Future<void> retireRequests(NodeId peer, {bool Function()? isCurrent}) async {
+  Future<void> retireRequests(
+    NodeId peer, {
+    required bool Function() isCurrent,
+  }) async {
     for (final frame in await _owner._storage.pendingOutboxFrames()) {
-      if (isCurrent?.call() == false) return;
+      if (!isCurrent()) return;
       if (frame.peerHex != peer.hex || !frame.frameId.startsWith('request:')) {
         continue;
       }

@@ -110,28 +110,20 @@ class _MessagingContacts {
     }
   }
 
-  Future<void> _afterStatusSaved(NodeId peer, ContactStatus status) async {
-    if (_owner._disposed) return;
-    if (status == ContactStatus.accepted) {
-      await _owner._outbox.retireRequests(peer);
-      if (_owner._disposed) return;
-    }
-    await _publishSavedStatus(peer, status, local: true);
-  }
-
-  Future<void> _publishSavedStatus(
+  Future<void> _afterStatusSaved(
     NodeId peer,
     ContactStatus status, {
-    required bool local,
+    bool local = true,
   }) async {
-    // Cleanup/storage waits can outlive another consent decision. A status
-    // event describes the current durable relationship, not the operation
-    // that happened to finish last. The read also checks consent revisions
-    // so a decision committed during the read cannot publish its old snapshot.
-    final current = await _owner._realtimeControl._readContactConsent(peer);
-    if (current?.contact?.status != status ||
-        !_owner._realtimeControl._consentCurrent(peer, current?.epoch)) {
-      return;
+    // Cleanup and publication belong to the current durable relationship.
+    // Listing the queue can finish after deletion and a replacement request.
+    final consent = _owner._realtimeControl;
+    final current = await consent._readContactConsent(peer);
+    bool isCurrent() => consent._consentCurrent(peer, current?.epoch);
+    if (current?.contact?.status != status || !isCurrent()) return;
+    if (status == ContactStatus.accepted) {
+      await _owner._outbox.retireRequests(peer, isCurrent: isCurrent);
+      if (!isCurrent()) return;
     }
     _owner._contactStatusChanges.add((peer: peer, status: status));
     if (local) _owner.onContactStatusChanged?.call(peer, status);
@@ -195,12 +187,8 @@ class _MessagingContacts {
         ),
       );
     }
+    await _afterStatusSaved(peer, status, local: false);
     if (_owner._disposed) return false;
-    if (status == ContactStatus.accepted) {
-      await _owner._outbox.retireRequests(peer);
-    }
-    if (_owner._disposed) return false;
-    await _publishSavedStatus(peer, status, local: false);
     _owner._signal();
     return true;
   }

@@ -406,7 +406,17 @@ class _MessagingConversationAdmin {
     // the guard below pass, so the ordering is a tidiness rule and the tests do
     // not pretend to prove more.
     await _tellMyDevicesToEmpty(peer);
-    await _owner._storage.removeConversation(peer);
+    await _owner._contacts._withConsentWrite(peer, () async {
+      final consent = _owner._realtimeControl;
+      final epoch = consent._consentEpoch(peer);
+      // The old greeting must not remain queued after the contact is gone.
+      // Revoking this consent also invalidates cleanup started by an accept.
+      await _owner._outbox.retireRequests(
+        peer,
+        isCurrent: () => consent._consentCurrent(peer, epoch),
+      );
+      await _owner._storage.removeConversation(peer);
+    });
     await _owner._contacts.discardHeld(peer);
     // The chat is gone; its ratchet must go with it. AFTER the farewell, which
     // is itself a send and would re-open a session we were about to drop.
