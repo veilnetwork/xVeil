@@ -76,7 +76,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// one throws a cast error at some unrelated call site later.
   final Map<String, ({String type, Object value})> _entries;
 
-  /// Serializes writes so two rapid sets cannot interleave their file writes.
+  /// Settlement of every admitted write. Individual results go to callers.
   Future<void> _writes = Future<void>.value();
   bool _retired = false;
 
@@ -84,7 +84,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// Settlement is not proof of persistence; callers retain each save result.
   Future<void> retire() {
     _retired = true;
-    return _writes.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return _writes;
   }
 
   /// Separate from retirement: successful settlement does not prove native
@@ -183,7 +183,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           _ownedFile?.write(encoded) ??
           writePrivateFileAtomically(_file, encoded),
     );
-    _writes = next;
+    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return next;
   }
 

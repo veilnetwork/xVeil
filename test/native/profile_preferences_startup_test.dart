@@ -512,6 +512,35 @@ void main() {
   });
 
   test(
+    'the same preference owner writes after a temporary file refusal',
+    () async {
+      final owner = await open(prefs());
+      final store = await ProfilePreferencesStore.load(
+        prefs(),
+        ownedFile: owner,
+      );
+      stores.add(store);
+      const key = 'flutter.locale';
+      final blocked = Directory(prefs())..createSync();
+      await expectLater(
+        store.setValue('String', key, 'ru'),
+        throwsA(isA<ManagedWorkerFailure>()),
+      );
+      blocked.deleteSync();
+      expect(await store.setValue('String', key, 'es'), isTrue);
+      await store.releaseFile();
+
+      final reopened = await open(prefs());
+      final loaded = await ProfilePreferencesStore.load(
+        prefs(),
+        ownedFile: reopened,
+      );
+      stores.add(loaded);
+      expect((await loaded.getAll())[key], 'es');
+    },
+  );
+
+  test(
     'a refused preference read leaves the legacy profile choice in place',
     () async {
       final key = 'flutter.${AppProfiles.activePref}';
