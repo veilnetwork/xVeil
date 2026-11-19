@@ -90,7 +90,11 @@ enum _Stage { closeFailure, nativeSuccess, nativeFailure }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({
+      'storage.autoCompactSetup.v1': 'fixture-setup',
+    }),
+  );
   test('an old unlock cannot start auto-compaction after a lock', () async {
     final directory = await Directory.systemTemp.createTemp('xveil-auto-');
     addTearDown(() => directory.delete(recursive: true));
@@ -100,7 +104,7 @@ void main() {
     await file.close();
     final storage = _BeforeOpenGate(FakeHvContainer().passwordOpener);
     await storage.open(password: 'fixture', createIfMissing: true);
-    await storage.putSetting('storage.autocompact.v1', '1');
+    await storage.putSetting('storage.autocompact.v1', 'v2:fixture-setup');
     await storage.close();
     storage.opened.clear();
     storage.parkNextOpen = true;
@@ -151,7 +155,7 @@ void main() {
         // Only a size witness. This branch must fail before native rewrite.
         final storage = _CloseFailure(FakeHvContainer().passwordOpener);
         await storage.open(password: 'fixture', createIfMissing: true);
-        await storage.putSetting('storage.autocompact.v1', '1');
+        await storage.putSetting('storage.autocompact.v1', 'v2:fixture-setup');
         await storage.close();
         storage.opened.clear();
         storage.armed = stage == _Stage.closeFailure;

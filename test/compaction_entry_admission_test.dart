@@ -104,7 +104,7 @@ class _Fixture {
           RosterEntry(label: 'child-$i', spaceKeys: childKeys),
       ]);
     }
-    await seed.putSetting('storage.autocompact.v1', '1');
+    await seed.putSetting('storage.autocompact.v1', 'v2:fixture-setup');
     rootKeys = await seed.exportSpaceKeys();
     await seed.close();
     final raw = fake.rawStoreFor('root')!;
@@ -166,7 +166,9 @@ class _Fixture {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() => SharedPreferences.setMockInitialValues({
+    'storage.autoCompactSetup.v1': 'fixture-setup',
+  }));
 
   for (final corruption in ['setting', 'file']) {
     test(

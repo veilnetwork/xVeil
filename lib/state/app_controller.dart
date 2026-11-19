@@ -10,6 +10,7 @@ import '../core/secret_wipe.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:uuid/uuid.dart';
 
 import '../data/node/sovereign_identity_material.dart'
     show
@@ -816,6 +817,19 @@ class AppController extends Notifier<AppState> {
       requireCurrent();
       await _drainRetiringSessions();
       requireCurrent();
+      if (recovery == null && ref.read(deniableBootProvider)?.storePath != null) {
+        // Rotate before an opener can add a space. Use the same random value
+        // scheme for every setup attempt, regardless of what storage exists.
+        final prefs = await ref.read(prefsProvider.future);
+        requireCurrent();
+        if (!await prefs.setString(
+          _autoCompactSetupRevision,
+          const Uuid().v4(),
+        )) {
+          throw StateError('could not retire old automatic compaction consent');
+        }
+        requireCurrent();
+      }
       if (protection != null && recovery == null) {
         final router = ref.read(profileStorageRouterProvider);
         if (router == null) {
@@ -3370,6 +3384,7 @@ class AppController extends Notifier<AppState> {
   }
 
   static const String _autoCompactKey = 'storage.autocompact.v1';
+  static const String _autoCompactSetupRevision = 'storage.autoCompactSetup.v1';
   static const String _lastCompactSizeKey = 'storage.lastcompactsize.v1';
 
   /// Auto-compaction floor: below this on-disk size the padding overhead is
@@ -3391,19 +3406,46 @@ class AppController extends Notifier<AppState> {
   /// (no roster — [canCompactStorage] cannot see it BY DESIGN) would be
   /// silently destroyed. Enabling this is the user's attestation that no other
   /// hidden identity lives in this container — same contract as the manual
-  /// compact button, made durable.
+  /// compact button, made durable. Require a fresh confirmation for settings
+  /// from versions that did not bind consent to the current setup.
   Future<bool> autoCompactEnabled() async {
     try {
-      return await ref.read(storageProvider).getSetting(_autoCompactKey) == '1';
+      final storage = ref.read(storageProvider);
+      final consent = await storage.getSetting(_autoCompactKey);
+      if (consent == null || !consent.startsWith('v2:') || !ref.mounted) {
+        return false;
+      }
+      final prefs = await ref.read(prefsProvider.future);
+      final revision = prefs.getString(_autoCompactSetupRevision);
+      return revision != null && consent == 'v2:$revision';
     } catch (_) {
       return false;
     }
   }
 
   Future<void> setAutoCompactEnabled(bool enabled) async {
-    await ref
-        .read(storageProvider)
-        .putSetting(_autoCompactKey, enabled ? '1' : '0');
+    final storage = ref.read(storageProvider);
+    if (!enabled) {
+      await storage.putSetting(_autoCompactKey, '0');
+      return;
+    }
+    final lease = leaseIdentity();
+    final prefs = await ref.read(prefsProvider.future);
+    if (!ref.mounted || !holdsIdentity(lease)) return;
+    var revision = prefs.getString(_autoCompactSetupRevision);
+    if (revision == null) {
+      revision = const Uuid().v4();
+      if (!await prefs.setString(_autoCompactSetupRevision, revision)) {
+        throw StateError('could not save automatic compaction consent');
+      }
+    }
+    if (!ref.mounted ||
+        !holdsIdentity(lease) ||
+        !identical(storage, ref.read(storageProvider)) ||
+        prefs.getString(_autoCompactSetupRevision) != revision) {
+      return;
+    }
+    await storage.putSetting(_autoCompactKey, 'v2:$revision');
   }
 
   /// One-time pref: the identities already in this container have had their
@@ -3510,7 +3552,7 @@ class AppController extends Notifier<AppState> {
           unsettled.add(entry.label);
           continue;
         }
-        if (enabled == '1') {
+        if (enabled == '1' || enabled?.startsWith('v2:') == true) {
           await storage.putSetting(_autoCompactKey, '0');
           if (!current()) {
             unsettled.add(entry.label);
@@ -7320,6 +7362,7 @@ class AppController extends Notifier<AppState> {
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
+    await prefs.remove(_autoCompactSetupRevision);
     // The NETWORK POSTURE goes too (audit XV-15). A wipe that leaves the proxy
     // exit, the VPN app list, CIDR and DNS, the preview mode and the
     // always-online choice behind is not the wipe the confirmation promised:

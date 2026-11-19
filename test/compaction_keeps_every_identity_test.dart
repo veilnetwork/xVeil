@@ -511,7 +511,6 @@ void main() {
       final solo = container.storage();
       await solo.open(password: 'solopw', createIfMissing: true);
       await solo.saveProfile(const UserProfile(displayName: 'Solo'));
-      await solo.putSetting('storage.autocompact.v1', '1');
       final soloKeys = await solo.exportSpaceKeys();
       await solo.close();
 
@@ -526,6 +525,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       await ctrl.unlock('solopw');
+      await ctrl.setAutoCompactEnabled(true);
       expect(await ctrl.autoCompactEnabled(), isTrue);
 
       expect(
