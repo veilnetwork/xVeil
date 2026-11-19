@@ -1325,13 +1325,10 @@ bool _workerOpenUsable = true;
 /// Builds an [AsyncSpaceOpener] over the hidden-volume container at [path] whose
 /// open + every operation run on a worker isolate (UI thread never blocks).
 ///
-/// SELF-HEALING: if the worker itself fails to open (a THROW from
-/// [WorkerKvLogStore.open] — a genuine wrong-password/no-space comes back as
-/// `null`, NOT a throw), fall back to opening the space INLINE on the calling
-/// isolate, where the native lib was already loaded at startup
-/// (`ensureHiddenVolumeLoaded`). Off-isolate is forfeited for the rest of the
-/// run, but the user can still UNLOCK — critical: a worker that can't load the
-/// lib otherwise surfaces as "wrong password" and locks the user out.
+/// When the worker fails to open on a device with a broken worker-side native
+/// loader, the calling isolate can still open using its startup preload.
+/// File lock contention goes back to the caller so a later attempt still
+/// uses a worker. A wrong password or absent space returns `null`.
 AsyncSpaceOpener workerSpaceOpener(
   String path, {
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
@@ -1346,18 +1343,15 @@ AsyncSpaceOpener workerSpaceOpener(
           paddingPreset: paddingPreset,
         );
       } on hv.HvException catch (e) {
+        // A previous owner can release this lock just after the worker
+        // answers. Then an inline open would succeed and misclassify the
+        // available worker as broken, moving the KDF and I/O to the UI.
+        if (e.kind == 'Busy' || e.kind == 'WouldBlock') rethrow;
         devLog(
           () =>
               'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
               'trying INLINE open',
         );
-        // A CONTAINER-level failure (Busy from a still-held flock, a corrupt
-        // file) hits the inline path identically — it throws out of here to the
-        // caller (which must surface it, not report "wrong password"), and the
-        // worker path stays enabled for the next attempt. Only when the inline
-        // open SUCCEEDS where the worker failed is the worker itself proven
-        // defective (e.g. a spawned isolate that can't load the native lib —
-        // observed on Android) — then disable it for the rest of the run.
         final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(
           password: password,
           create: create,
@@ -1420,13 +1414,8 @@ AsyncKeysSpaceOpener syncWrappedKeysOpener(KeysSpaceOpener inner) {
 /// master and child strictly one at a time), so the container's exclusive flock
 /// is never wanted by two isolates at once (audit XV-14).
 ///
-/// SELF-HEALING, and deliberately the same rule as [workerSpaceOpener]: a THROW
-/// from the worker (not `null`, which is the "these keys match no space"
-/// answer) is retried INLINE, and only an inline open that SUCCEEDS where the
-/// worker failed proves the worker itself defective — then off-isolate is
-/// forfeited for the rest of the run, for both openers, via the shared
-/// [_workerOpenUsable]. A container-level failure (a still-held flock, a
-/// corrupt file) fails the same way inline and propagates to the caller.
+/// Uses the same conditional inline fallback as [workerSpaceOpener].
+/// Contention propagates to the caller and keeps worker opens available.
 AsyncKeysSpaceOpener workerKeysSpaceOpener(
   String path, {
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
@@ -1445,6 +1434,7 @@ AsyncKeysSpaceOpener workerKeysSpaceOpener(
           paddingPreset: paddingPreset,
         );
       } on hv.HvException catch (e) {
+        if (e.kind == 'Busy' || e.kind == 'WouldBlock') rethrow;
         devLog(
           () =>
               'xVeil[storage]: worker keys-open FAILED (${e.kind}: ${e.message})'
