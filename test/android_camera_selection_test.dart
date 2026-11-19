@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/state/android_camera_capture.dart';
 
 class _Cameras extends CameraPlatform {
@@ -85,6 +86,7 @@ void main() {
   late CameraPlatform previous;
   late _Cameras platform;
   setUp(() {
+    diagnosticJournal.clear();
     previous = CameraPlatform.instance;
     platform = _Cameras();
     CameraPlatform.instance = platform;
@@ -116,6 +118,13 @@ void main() {
           androidCallCameraPreviewController.value!.description.name,
           requested ?? 'front',
         );
+      }
+      if (diagnosticJournal.enabled) {
+        final rows = diagnosticJournal.toJson()['events'] as List;
+        expect(rows.map((row) => row['values']), [
+          if (ok)
+            {'previewBackend': 1, 'previewLens': requested == 'back' ? 2 : 1},
+        ]);
       }
       await capture.stop();
       expect(capture.cameraId, isNull);

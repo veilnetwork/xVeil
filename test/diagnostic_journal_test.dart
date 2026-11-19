@@ -164,6 +164,44 @@ void main() {
     },
   );
 
+  test('Android camera preview records only bounded configuration', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 2);
+    journal.recordAndroidCameraPreview(
+      backend: AndroidCameraPreviewBackend.camera2,
+      lens: AndroidCameraPreviewLens.front,
+      quarterTurns: 3,
+      extraMirror: false,
+    );
+    journal.recordAndroidCameraPreview(
+      backend: AndroidCameraPreviewBackend.cameraX,
+      lens: AndroidCameraPreviewLens.back,
+    );
+    final first = {
+      'previewBackend': 0,
+      'previewLens': 1,
+      'previewQuarterTurns': 3,
+      'previewExtraMirror': 0,
+    };
+    final second = {'previewBackend': 1, 'previewLens': 2};
+    expect((journal.toJson()['events'] as List).map((e) => e['values']), [
+      first,
+      second,
+    ]);
+    journal.record(DiagnosticEvent.transportReceived);
+    journal.record(DiagnosticEvent.transportReceived);
+    final evidence = journal.toJson()['last_evidence'] as Map;
+    expect(evidence['androidCameraPreview']['values'], second);
+    journal.recordAndroidCameraPreview(
+      backend: AndroidCameraPreviewBackend.camera2,
+      lens: AndroidCameraPreviewLens.unknown,
+      quarterTurns: 4,
+    );
+    expect((journal.toJson()['events'] as List).last['values'], {
+      'previewBackend': 0,
+      'previewLens': 0,
+    });
+  });
+
   test('camera capture evidence accepts only bounded native state', () {
     for (final state in <Object?>[-1, 0, 1, 2, -2, 0.0, '0', _PrivateValue()]) {
       final journal = DiagnosticJournal(enabled: true);
