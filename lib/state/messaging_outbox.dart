@@ -1535,7 +1535,11 @@ class _MessagingOutbox {
   /// guessed the frameId could ACK it and retire a frame addressed to someone
   /// else, suppressing that delivery entirely (audit XV-02).
   void retire(String peerHex, String frameId) {
-    unawaited(_retirePersisted(peerHex, frameId));
+    unawaited(
+      _retirePersisted(peerHex, frameId).catchError((Object error) {
+        devLog(() => 'xVeil[durable]: outbox ACK deferred (${error.runtimeType})');
+      }),
+    );
   }
 
   Future<bool> retireGroupTransfer(
@@ -1713,16 +1717,9 @@ class _MessagingOutbox {
         _ackedWhileUnpersisted.add(key);
         return;
       }
-      try {
-        if (await _collectGroupSliceAck(peerHex, frameId)) return;
-      } catch (error) {
-        // Without the stored ACK mode, a single-slice ACK cannot retire the
-        // row. The retained copy can earn another ACK on a later retry.
-        devLog(
-          () => 'xVeil[durable]: group slice ACK deferred (${error.runtimeType})',
-        );
-        return;
-      }
+      // A failed read leaves the ACK mode unknown. Let the caller handle the
+      // error before falling through to single-row retirement.
+      if (await _collectGroupSliceAck(peerHex, frameId)) return;
     }
     _forgetRetiredFrame(peerHex, frameId);
     try {

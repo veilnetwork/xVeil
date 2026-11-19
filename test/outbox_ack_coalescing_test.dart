@@ -7,12 +7,15 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/transport/loopback_transport.dart';
+import 'package:xveil/state/messaging.dart';
 
 class _AckStore extends SyncWrappedAsyncKvLogStore {
   _AckStore(this.raw) : super(raw);
   final FakeKvLogStore raw;
   final retirements = <List<KvLogOp>>[];
   bool refuse = false, uncertain = false, hold = false;
+  bool closed = false;
   final entered = Completer<void>(), release = Completer<void>();
 
   @override
@@ -24,6 +27,7 @@ class _AckStore extends SyncWrappedAsyncKvLogStore {
         entered.complete();
         await release.future;
       }
+      if (closed) throw StateError('container closed before ACK commit');
       if (refuse) {
         refuse = false;
         throw StateError('refused before commit');
@@ -36,6 +40,12 @@ class _AckStore extends SyncWrappedAsyncKvLogStore {
       return result;
     }
     return super.commit(ops);
+  }
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await super.close();
   }
 }
 
@@ -59,6 +69,78 @@ void main() {
       storage.enqueueOutboxFrame(id, peer, Uint8List.fromList(utf8.encode(id)));
   Future<Set<String>> pending() async =>
       (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet();
+
+  for (final batch in [false, true]) {
+    test('close drains admitted outbox ACKs (batch=$batch)', () async {
+      for (final id in ['first', 'queued', 'coalesced', 'late']) {
+        await put(id);
+      }
+      Future<void> ack(String id) async {
+        if (batch) {
+          expect(await storage.ackOutboxFrames([id], fromPeerHex: 'peer'), [
+            id,
+          ]);
+        } else {
+          await storage.ackOutboxFrame(id, fromPeerHex: 'peer');
+        }
+      }
+
+      backing.hold = true;
+      final first = ack('first');
+      await backing.entered.future;
+      final queued = ack('queued');
+      final coalesced = ack('coalesced');
+      final closing = storage.close();
+      final late = ack(
+        'late',
+      ).then<Object?>((_) => null, onError: (Object error) => error);
+      final accepted = Future.wait([
+        first,
+        queued,
+        coalesced,
+      ]).then<Object?>((_) => null, onError: (Object error) => error);
+      await pumpEventQueue();
+      final closedBeforeCommit = backing.closed;
+      backing.release.complete();
+      final failure = await accepted;
+      final refused = await late;
+      await closing;
+      expect(closedBeforeCommit, isFalse, reason: 'close ran before the ACK');
+      expect(failure, isNull);
+      expect(refused, isA<StateError>());
+
+      storage = HiddenVolumeStorage(
+        ({required password, required create}) => backing.raw,
+      );
+      expect(await storage.open(password: 'fixture'), isTrue);
+      expect(await pending(), {'late'});
+    });
+  }
+
+  test(
+    'a refused background ACK leaves the frame available for retry',
+    () async {
+      await put('queued');
+      final link = LoopbackTransport();
+      final service = MessagingService(link, storage);
+      addTearDown(link.dispose);
+      addTearDown(service.dispose);
+
+      final uncaught = <Object>[];
+      backing.refuse = true;
+      await runZonedGuarded(() async {
+        service.debugRetireOutboxFrame('peer', 'queued');
+        await pumpEventQueue();
+      }, (error, _) => uncaught.add(error));
+      expect(backing.retirements, hasLength(1));
+      expect(await pending(), {'queued'});
+      expect(uncaught, isEmpty);
+
+      service.debugRetireOutboxFrame('peer', 'queued');
+      await pumpEventQueue();
+      expect(await pending(), isEmpty);
+    },
+  );
 
   for (final uncertain in [false, true]) {
     test(
