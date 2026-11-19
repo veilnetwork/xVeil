@@ -2441,6 +2441,96 @@ void main() {
       });
     });
 
+    for (final mode in [
+      'confirmed stall',
+      'stale cache',
+      'missing snapshot',
+      'only direct audio',
+      'muted while reading',
+      'replaced while reading',
+    ]) {
+      test('relay audio after handover: $mode', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()..audioTelemetry = true;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const callId = 'relay-after-handover';
+          wire.onCallSignal!(
+            peer,
+            offer(callId).copyWith(
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          void capture(bool on) => wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              capture: CallMedia(audio: on),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          media.audioRxAt = clock.now();
+          capture(true);
+          async.elapse(const Duration(milliseconds: 100));
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.transportInfo,
+              transport: CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          if (mode != 'only direct audio') {
+            async.elapse(const Duration(milliseconds: 100));
+            media.audioRxAt = clock.now();
+          }
+          final snapshot = Completer<DateTime?>();
+          media.latestAudioRead = () => snapshot.future;
+          // RTCP can keep aggregate ingress fresh while speech stops.
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 3));
+          expect(media.repairs, 0);
+          async.elapse(const Duration(seconds: 1));
+          if (mode != 'only direct audio') {
+            expect(media.latestAudioReads, 1);
+          } else {
+            expect(media.latestAudioReads, 0);
+          }
+          if (mode == 'muted while reading') capture(false);
+          if (mode == 'replaced while reading') {
+            media.receiveStartedAt = clock.now();
+          }
+          snapshot.complete(switch (mode) {
+            'stale cache' => clock.now(),
+            'missing snapshot' => null,
+            _ => media.audioRxAt,
+          });
+          async.flushMicrotasks();
+          expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
+          expect(svc.current?.status, CallStatus.active);
+          expect(media.switches, [CallTransportKind.relay]);
+          if (mode == 'confirmed stall') {
+            async.elapse(const Duration(seconds: 2));
+            expect(media.repairs, 1, reason: 'one early repair per handover');
+          }
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test(
       'answer racing a slow durable offer never arms a timer on the active call',
       () {
