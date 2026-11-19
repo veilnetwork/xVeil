@@ -1842,6 +1842,7 @@ class MessagingService {
   /// is exactly when a peer may have missed our events while we were down), then
   /// flush the outbox (which sends the beacons + re-sends un-acked messages).
   Future<void> reconcileOnConnect() async {
+    if (_disposed) return;
     _ownHistory.nudge();
     _peerSync.resetSession();
     _fileTransfer.resetSession();

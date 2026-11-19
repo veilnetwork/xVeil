@@ -225,6 +225,15 @@ class _MessagingMessageDelivery {
   Future<void> quiesce() async {
     _pendingAckStatus.clear(); // dispose already stopped admission
     try {
+      // A retry may be committing a failure status or repairing the durable
+      // device log. Keep its storage alive until that admitted work settles.
+      await _conversationPass;
+    } catch (error) {
+      devLog(
+        () => 'xVeil[retry]: conversation pass failed (${error.runtimeType})',
+      );
+    }
+    try {
       await Future.wait<void>([
         ?_ackRetryPass,
         for (final write in _ackStatusWrites.values) write.then<void>((_) {}),
@@ -357,6 +366,7 @@ class _MessagingMessageDelivery {
     final peer = conversation.peer.nodeId;
     _owner._sendSyncBestEffort(peer);
     final cutoff = await _owner.disappearingCutoffOf(peer);
+    if (_owner._disposed) return;
     final messages = [
       for (final message in await _owner._storage.loadMessages(conversation.id))
         if (cutoff == null || message.timestamp.isAfter(cutoff)) message,
@@ -506,6 +516,7 @@ class _MessagingMessageDelivery {
     final failed = <String>{};
     var anyTrying = false;
     for (final message in messages) {
+      if (_owner._disposed) break;
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
@@ -526,6 +537,7 @@ class _MessagingMessageDelivery {
       }
     }
     if (failedAny) _owner._signal();
+    if (_owner._disposed) return failed;
 
     final reconnectFrameId = 'reconnect:${peer.hex}';
     if (!anyTrying) {
