@@ -1176,6 +1176,9 @@ class CallService {
         localMediaKey: localMediaKey,
       ),
     );
+    // Bound dialing even while the policy, local address, or durable offer
+    // is pending. An accepted answer cancels this timer.
+    _armRingTimeout(callId);
     bool stillDialing() =>
         _current?.callId == callId &&
         _current?.peer == peer &&
@@ -1201,9 +1204,6 @@ class CallService {
     if (!stillDialing()) return;
     _directSessionUnavailable = false;
     _outgoingProposal = proposal.kind;
-    // The realtime leg can reach the peer before durable enqueue completes.
-    // Start the deadline at submission. An accepted answer cancels it.
-    _armRingTimeout(callId);
     final sendOffer = _sendCallSignal(
       peer,
       CallSignal(
