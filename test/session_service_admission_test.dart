@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,12 +9,15 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/cloud_document_providers.dart';
 import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/messaging_providers.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
@@ -30,6 +34,63 @@ class _ConversationProbe extends HiddenVolumeStorage {
   Future<List<Conversation>> loadConversations() {
     reads++;
     return super.loadConversations();
+  }
+}
+
+class _MessagingSnapshotStorage extends Fake implements Storage {
+  final firstRead = Completer<List<Conversation>>();
+  final entered = Completer<void>();
+  final firstContactRead = Completer<Contact?>();
+  final contactReadEntered = Completer<void>();
+  final firstMessageRead = Completer<List<Message>>();
+  List<Conversation> conversations = [];
+  Contact? contact;
+  List<Message> messages = [];
+  int messageReads = 0;
+
+  @override
+  Future<List<Conversation>> loadConversations() async {
+    if (entered.isCompleted) return conversations;
+    entered.complete();
+    return firstRead.future;
+  }
+
+  @override
+  Future<Contact?> getContact(NodeId id) async {
+    if (contactReadEntered.isCompleted) return contact;
+    contactReadEntered.complete();
+    return firstContactRead.future;
+  }
+
+  @override
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async {
+    return ++messageReads == 1 ? firstMessageRead.future : messages;
+  }
+}
+
+class _MessagingSnapshotService extends Fake implements MessagingService {
+  final updates = StreamController<void>.broadcast();
+  final firstRead = Completer<List<PendingClearRequest>>();
+  final entered = Completer<void>();
+  List<PendingClearRequest> requests = [];
+
+  @override
+  Stream<void> get changes => updates.stream;
+
+  @override
+  Future<DateTime?> disappearingCutoffOf(NodeId peer) async => null;
+
+  @override
+  Future<int> hiddenThroughTs(NodeId peer) async => 0;
+
+  @override
+  Future<List<PendingClearRequest>> pendingClearRequests() async {
+    if (entered.isCompleted) return requests;
+    entered.complete();
+    return firstRead.future;
   }
 }
 
@@ -213,6 +274,134 @@ void main() {
       expect(c.read(pendingClearRequestsProvider).value, isEmpty);
     },
   );
+
+  for (final clearRequests in [false, true]) {
+    test(
+      'a change during the first ${clearRequests ? 'request' : 'chat'} read is visible',
+      () async {
+        final storage = _MessagingSnapshotStorage();
+        final service = _MessagingSnapshotService();
+        final c = ProviderContainer(
+          overrides: [
+            appControllerProvider.overrideWith(_Application.new),
+            messagingServiceProvider.overrideWithValue(service),
+            storageProvider.overrideWithValue(storage),
+          ],
+        );
+        addTearDown(service.updates.close);
+        addTearDown(c.dispose);
+        final provider = clearRequests
+            ? pendingClearRequestsProvider
+            : conversationsProvider;
+        final closedSnapshot = Completer<void>();
+        var ending = false;
+        c.listen(provider, (_, next) {
+          if (ending &&
+              (next.asData?.value.isEmpty ?? false) &&
+              !closedSnapshot.isCompleted) {
+            closedSnapshot.complete();
+          }
+        });
+        await (clearRequests ? service.entered.future : storage.entered.future);
+
+        final conversation = Conversation(peer: Contact(nodeId: _other));
+        final request = PendingClearRequest(
+          chatHex: _other.hex,
+          requesterHex: _other.hex,
+          atMs: 1,
+          seq: 1,
+          watermark: const {},
+        );
+        storage.conversations = [conversation];
+        service.requests = [request];
+        service.updates.add(null);
+        // Deliver the one broadcast before either initial read returns.
+        await Future<void>.delayed(Duration.zero);
+        storage.firstRead.complete([]);
+        service.firstRead.complete([]);
+        await Future<void>.delayed(Duration.zero);
+        await c.pump();
+
+        expect(c.read(provider).value, [
+          clearRequests ? request : conversation,
+        ]);
+        ending = true;
+        c.read(sessionEndDepthProvider.notifier).state = 1;
+        await closedSnapshot.future;
+        expect(c.read(provider).value, isEmpty);
+        expect(service.updates.hasListener, isFalse);
+      },
+    );
+  }
+
+  test('contact acceptance during the first read refreshes the chat', () async {
+    final storage = _MessagingSnapshotStorage();
+    final service = _MessagingSnapshotService();
+    final c = ProviderContainer(
+      overrides: [
+        appControllerProvider.overrideWith(_Application.new),
+        messagingServiceProvider.overrideWithValue(service),
+        storageProvider.overrideWithValue(storage),
+      ],
+    );
+    addTearDown(service.updates.close);
+    addTearDown(c.dispose);
+    final provider = contactProvider(_other.hex);
+    c.listen(provider, (_, _) {});
+    await storage.contactReadEntered.future;
+
+    storage.contact = Contact(nodeId: _other);
+    service.updates.add(null);
+    await Future<void>.delayed(Duration.zero);
+    storage.firstContactRead.complete(
+      Contact(nodeId: _other, status: ContactStatus.pendingOutgoing),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await c.pump();
+
+    expect(c.read(provider).value?.status, ContactStatus.accepted);
+  });
+
+  test('the first message window retains a burst during its initial read', () {
+    fakeAsync((time) {
+      final storage = _MessagingSnapshotStorage();
+      final service = _MessagingSnapshotService();
+      final c = ProviderContainer(
+        overrides: [
+          appControllerProvider.overrideWith(_Application.new),
+          messagingServiceProvider.overrideWithValue(service),
+          storageProvider.overrideWithValue(storage),
+        ],
+      );
+      try {
+        final provider = messagesProvider(_other.hex);
+        c.listen(provider, (_, _) {});
+        time.flushMicrotasks();
+        expect(storage.messageReads, 1);
+        final message = Message(
+          id: 'incoming',
+          conversationId: _other.hex,
+          direction: MessageDirection.incoming,
+          body: 'Hello',
+          timestamp: DateTime.utc(2026),
+        );
+        storage.messages = [message];
+        for (var i = 0; i < 5; i++) {
+          service.updates.add(null);
+        }
+        time.elapse(const Duration(milliseconds: 200));
+        expect(storage.messageReads, 1);
+        storage.firstMessageRead.complete([]);
+        time.flushMicrotasks();
+        expect(c.read(provider).value, [message]);
+        expect(storage.messageReads, 2);
+      } finally {
+        c.dispose();
+        unawaited(service.updates.close());
+        time.flushMicrotasks();
+      }
+    });
+  });
 
   for (final boundary in [
     'ending',
