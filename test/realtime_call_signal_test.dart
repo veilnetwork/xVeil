@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
@@ -1017,6 +1018,67 @@ void main() {
       transport.realtimeGate.complete();
     },
   );
+
+  for (final rejectContact in [false, true]) {
+    test('a stalled realtime path cannot hold the fast answer retries '
+        '(contact rejected: $rejectContact)', () {
+      fakeAsync((time) {
+        final transport = _RealtimeProbe(me);
+        final storage = HiddenVolumeStorage(_memOpener());
+        final clock = time.getClock(DateTime(2026));
+        transport.blockRealtime = true;
+        if (rejectContact) {
+          transport.onNormalSend = (_, _) =>
+              throw StateError('contact rejected');
+        }
+        final messaging = MessagingService(transport, storage, now: clock.now);
+        try {
+          var persisted = false;
+          unawaited(() async {
+            await storage.open(password: 'pw', createIfMissing: true);
+            await storage.upsertContact(
+              Contact(nodeId: peer, status: ContactStatus.accepted),
+            );
+            await messaging.sendCallSignal(
+              peer,
+              const CallSignal(
+                callId: 'answer-stalled-alternate',
+                type: CallSignalType.answer,
+              ),
+            );
+            persisted = true;
+          }());
+          time.elapse(const Duration(seconds: 1));
+
+          expect(persisted, isTrue);
+          expect(transport.normalSends, 3);
+          expect(transport.relayRealtimeSends, 3);
+          expect(
+            transport.realtimeSends,
+            1,
+            reason: 'keep one outstanding submission on the stalled path',
+          );
+
+          transport.blockRealtime = false;
+          transport.realtimeGate.complete();
+          time.elapse(const Duration(seconds: 1));
+          expect(
+            transport.realtimeSends,
+            greaterThan(1),
+            reason: 'retry the path after its outstanding submission settles',
+          );
+        } finally {
+          if (!transport.realtimeGate.isCompleted) {
+            transport.realtimeGate.complete();
+          }
+          unawaited(messaging.dispose());
+          unawaited(transport.dispose());
+          unawaited(storage.close());
+          time.flushMicrotasks();
+        }
+      });
+    });
+  }
 
   for (final rejectContact in [false, true]) {
     test('durable call live result reflects lane admission '
