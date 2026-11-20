@@ -1,5 +1,7 @@
 part of 'messaging_core.dart';
 
+typedef _ContentMessagePublication = ({Message message, Object epoch});
+
 /// Sender-side content publication and durable offer construction.
 ///
 /// This keeps hashing, content-addressed persistence, advertisement and
@@ -146,6 +148,7 @@ extension _MessagingContentPublish on MessagingService {
     ContentManifest manifest, {
     ServeSource? source,
     _ServedRecord? sourceRecord,
+    required _ContentMessagePublication? post,
   }) async {
     final cid = manifest.contentId;
     final serveManifest = _baseContentManifest(manifest);
@@ -168,7 +171,17 @@ extension _MessagingContentPublish on MessagingService {
     _ensureContentTimer();
     final mid = manifest.msgId;
     try {
-      await _sendContentManifest(dst, manifest);
+      if (post == null) {
+        await _sendContentManifest(dst, manifest);
+      } else {
+        final eligibility = _StoredPostEligibility(this, dst, post.message);
+        if (!await eligibility.send(
+          _encodeContentManifest(manifest).frame,
+          post.epoch,
+        )) {
+          return;
+        }
+      }
     } catch (error, stack) {
       // An event-backed offer stays in local storage for live retry. A bare
       // content advertisement has no message to retry, so surface its error.
@@ -608,8 +621,9 @@ extension _MessagingContentPublish on MessagingService {
   Future<void> _advertise(
     NodeId dst,
     ContentManifest manifest,
-    Uint8List bytes,
-  ) async {
+    Uint8List bytes, {
+    required _ContentMessagePublication? post,
+  }) async {
     try {
       await _storeServedBlob(manifest, bytes);
     } catch (e) {
@@ -617,7 +631,7 @@ extension _MessagingContentPublish on MessagingService {
         () => 'xVeil[content]: serve-store failed for ${manifest.name}: $e',
       );
     }
-    await _advertiseStored(dst, manifest);
+    await _advertiseStored(dst, manifest, post: post);
   }
 
   /// Offer [bytes] as a bare content transfer to [dst] (no chat message / event
@@ -637,7 +651,7 @@ extension _MessagingContentPublish on MessagingService {
     );
     final contact = await _storage.getContact(dst);
     if (contact?.status == ContactStatus.accepted) {
-      await _advertise(dst, manifest, bytes);
+      await _advertise(dst, manifest, bytes, post: null);
     }
     return manifest.contentId;
   }
@@ -657,8 +671,8 @@ extension _MessagingContentPublish on MessagingService {
   /// manifest and blob remain keyed by the same cid, while this recipient gets
   /// a fresh message/event identity and the normal consent-gated offer flow.
   Future<bool> _shareStoredContent(NodeId dst, String contentId) async {
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) {
+    final epoch = await _realtimeControl._acceptedContactEpoch(dst);
+    if (epoch == null || !_realtimeControl._consentCurrent(dst, epoch)) {
       return false;
     }
     if (!await _storage.hasFile(contentId)) return false;
@@ -694,6 +708,7 @@ extension _MessagingContentPublish on MessagingService {
         ts: stored.timestamp.millisecondsSinceEpoch,
         thumbB64: base.thumbB64,
       ),
+      post: (message: stored, epoch: epoch),
     );
     return true;
   }
@@ -772,6 +787,9 @@ extension _MessagingContentPublish on MessagingService {
     String? sourcePath,
     String? thumbOverride,
   }) async {
+    final epoch = await _realtimeControl._acceptedContactEpoch(dst);
+    if (epoch == null || !_realtimeControl._consentCurrent(dst, epoch)) return;
+    _warmStreamPeer(dst);
     // Micro-thumb: embedded in the ADVERT (unbound — not in contentId) so the
     // receiver renders a preview BEFORE downloading. [thumbOverride] wins when
     // set (a voice message's waveform+duration sidecar). Otherwise: images from
@@ -827,17 +845,17 @@ extension _MessagingContentPublish on MessagingService {
     _signal();
     // Advertise carrying THIS send's event identity so the receiver folds a
     // first-class filePost and acks by msgId (not the shared contentId).
-    final contact = await _storage.getContact(dst);
-    if (contact?.status != ContactStatus.accepted) return;
     await _advertise(
       dst,
       base.withEvent(
         msgId: msgId,
         author: stored.author,
         seq: stored.seq,
+        ts: stored.timestamp.millisecondsSinceEpoch,
         thumbB64: thumb,
       ),
       bytes,
+      post: (message: stored, epoch: epoch),
     );
   }
 
@@ -863,8 +881,8 @@ extension _MessagingContentPublish on MessagingService {
     List<String> sourceRoots = const [],
   }) async {
     final sourceRootSnapshot = List<String>.unmodifiable(sourceRoots);
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) {
+    final epoch = await _realtimeControl._acceptedContactEpoch(dst);
+    if (epoch == null || !_realtimeControl._consentCurrent(dst, epoch)) {
       await close(); // not serving this peer → release the handle now
       return null;
     }
@@ -991,6 +1009,7 @@ extension _MessagingContentPublish on MessagingService {
       msgId: msgId,
       author: stored.author,
       seq: stored.seq,
+      ts: stored.timestamp.millisecondsSinceEpoch,
       thumbB64: thumb,
     );
     final activeExisting = (_activeStreamServes[cid] ?? 0) > 0
@@ -1055,6 +1074,7 @@ extension _MessagingContentPublish on MessagingService {
         m,
         source: activeSource,
         sourceRecord: activeExisting?.sourceRecord,
+        post: (message: stored, epoch: epoch),
       );
     } else {
       // Register the live source + advertise — NO stored copy.
@@ -1063,6 +1083,7 @@ extension _MessagingContentPublish on MessagingService {
         m,
         source: (read: read, close: close),
         sourceRecord: liveRecord,
+        post: (message: stored, epoch: epoch),
       );
     }
     devLog(

@@ -3043,38 +3043,12 @@ class MessagingService {
     Object epoch,
     WireEnvelope envelope,
   ) async {
-    final id = stored.id;
-    bool hasReceipt() => _messageDelivery._hasDeliveryReceipt(dst.hex, id);
-    bool isCurrent() => _realtimeControl._consentCurrent(dst, epoch);
-    if (hasReceipt()) return true;
-    if (!isCurrent()) return false;
-
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
     // resolve+circuit-build round-trip on their side.
-    // A later denied fragment makes the whole handoff incomplete.
     final eligibility = _StoredPostEligibility(this, dst, stored);
-    bool? admitted;
-    await _send(
-      dst,
-      envelope.encode(),
-      wantReply: true,
-      prepareTransport: () =>
-          isCurrent() && !hasReceipt() ? eligibility.prepare() : null,
-      admitTransport: () {
-        final allowed = isCurrent() && !hasReceipt() && eligibility.canSend;
-        if (allowed && admitted == null) {
-          devLog(
-            () =>
-                'xVeil[timeline]: send id=$id '
-                't0=${stored.timestamp.millisecondsSinceEpoch} wantReply=true',
-          );
-        }
-        admitted = allowed;
-        return allowed;
-      },
-    );
-    return admitted == true || hasReceipt();
+    return await eligibility.send(envelope.encode(), epoch, wantReply: true) ||
+        eligibility.hasReceipt;
   }
 
   /// Send one recommendation card after the caller's explicit recipient

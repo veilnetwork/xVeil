@@ -13,6 +13,44 @@ class _StoredPostEligibility {
   bool Function()? _current;
   DisappearingSetting? _setting;
 
+  bool get hasReceipt =>
+      _owner._messageDelivery._hasDeliveryReceipt(_peer.hex, _message.id);
+
+  /// True only when the whole payload reached the transport. An earlier
+  /// receipt stops further carriers, including the chunks of a small file.
+  Future<bool> send(
+    Uint8List frame,
+    Object epoch, {
+    bool wantReply = false,
+    bool background = false,
+  }) async {
+    bool canAttempt() =>
+        _owner._realtimeControl._consentCurrent(_peer, epoch) && !hasReceipt;
+    if (!canAttempt()) return false;
+
+    bool? admitted;
+    await _owner._send(
+      _peer,
+      frame,
+      wantReply: wantReply,
+      background: background,
+      prepareTransport: () => canAttempt() ? prepare() : null,
+      admitTransport: () {
+        final allowed = canAttempt() && canSend;
+        if (wantReply && allowed && admitted == null) {
+          devLog(
+            () =>
+                'xVeil[timeline]: send id=${_message.id} '
+                't0=${_message.timestamp.millisecondsSinceEpoch} wantReply=true',
+          );
+        }
+        admitted = allowed;
+        return allowed;
+      },
+    );
+    return admitted == true;
+  }
+
   Future<void>? prepare() => _current?.call() == true ? null : _read();
 
   Future<void> _read() async {
