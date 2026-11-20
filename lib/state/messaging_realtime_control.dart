@@ -810,7 +810,12 @@ class _MessagingRealtimeControl {
         'call-sig',
         'contact',
         peer,
-        () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
+        () => _owner._send(
+          peer,
+          wire,
+          requireIdentityAddress: contactIdentity,
+          boundedCallFallback: callFrameId != null,
+        ),
         callFrameId: callFrameId,
       ),
       // The realtime endpoint is bound under the identity. A physical device
