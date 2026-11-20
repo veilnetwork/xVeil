@@ -55,8 +55,16 @@ class GroupCallOverlay extends ConsumerStatefulWidget {
   ConsumerState<GroupCallOverlay> createState() => _GroupCallOverlayState();
 }
 
+typedef _GroupScreenOwner = ({
+  GroupCallService calls,
+  NodeId groupId,
+  NodeId? channelId,
+  String callId,
+  DateTime? joinedAt,
+});
+
 class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
-  String? _callId;
+  _GroupScreenOwner? _screenOwner;
   bool _minimized = false;
   bool _pipActive = false;
   bool _screenDevicesLoading = false;
@@ -80,7 +88,51 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     setState(() => _pipActive = callPipMode.value);
   }
 
-  Future<void> _toggleScreen(GroupCallService calls, GroupCall call) async {
+  _GroupScreenOwner _ownerFor(GroupCallService calls, GroupCall call) => (
+    calls: calls,
+    groupId: call.groupId,
+    channelId: call.channelId,
+    callId: call.callId,
+    joinedAt: call.joinedAt,
+  );
+
+  void _updateRoom(_GroupScreenOwner? owner) {
+    if (_screenOwner == owner) return;
+    _screenOwner = owner;
+    _minimized = false;
+    _screenDevices = null;
+    _screenDevicesLoading = false;
+  }
+
+  bool _ownsScreenAction(_GroupScreenOwner owner) {
+    final current = owner.calls.current;
+    return mounted &&
+        _screenOwner == owner &&
+        current != null &&
+        current.isLive &&
+        _ownerFor(owner.calls, current) == owner &&
+        ref.read(appControllerProvider).phase == AppPhase.ready &&
+        identical(ref.read(groupCallServiceProvider), owner.calls);
+  }
+
+  Future<List<CallMediaDevice>?> _loadScreenDevices(
+    _GroupScreenOwner owner,
+  ) async {
+    if (_screenDevicesLoading || !_ownsScreenAction(owner)) return null;
+    setState(() => _screenDevicesLoading = true);
+    try {
+      final devices = await owner.calls.listScreens();
+      return _ownsScreenAction(owner) ? devices : null;
+    } finally {
+      if (_ownsScreenAction(owner)) {
+        setState(() => _screenDevicesLoading = false);
+      }
+    }
+  }
+
+  Future<void> _toggleScreen(_GroupScreenOwner owner, GroupCall call) async {
+    if (!_ownsScreenAction(owner)) return;
+    final calls = owner.calls;
     if (call.screenOn) {
       await calls.setScreenShareEnabled(false);
       return;
@@ -96,39 +148,37 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
       }
       return;
     }
-    if (_screenDevicesLoading) return;
-    setState(() => _screenDevicesLoading = true);
-    final devices = await calls.listScreens();
-    if (!mounted) return;
-    setState(() => _screenDevicesLoading = false);
-    if (devices.length <= 1) {
-      if (devices case [final only]) await calls.selectScreen(only.id);
+    final devices = await _loadScreenDevices(owner);
+    if (devices == null || !_ownsScreenAction(owner)) return;
+    if (devices case [final only]) {
+      await _startSelectedScreen(owner, only.id);
+    } else if (devices.isEmpty) {
       await calls.setScreenShareEnabled(true);
-      return;
+    } else {
+      setState(() => _screenDevices = devices);
     }
-    setState(() => _screenDevices = devices);
   }
 
   Future<void> _selectScreen(
-    GroupCallService calls,
+    _GroupScreenOwner owner,
     CallMediaDevice device,
   ) async {
+    if (!_ownsScreenAction(owner)) return;
     setState(() => _screenDevices = null);
-    if (await calls.selectScreen(device.id)) {
-      await calls.setScreenShareEnabled(true);
+    await _startSelectedScreen(owner, device.id);
+  }
+
+  Future<void> _startSelectedScreen(_GroupScreenOwner owner, String id) async {
+    if (await owner.calls.selectScreen(id) && _ownsScreenAction(owner)) {
+      await owner.calls.setScreenShareEnabled(true);
     }
   }
 
-  Future<void> _openSettings(GroupCallService calls) async {
-    if (_screenDevicesLoading) return;
-    setState(() => _screenDevicesLoading = true);
-    final devices = await calls.listScreens();
-    if (!mounted) return;
-    setState(() {
-      _screenDevicesLoading = false;
-      // An empty list still opens audio output routing in the shared sheet.
-      _screenDevices = devices;
-    });
+  Future<void> _openSettings(_GroupScreenOwner owner) async {
+    final devices = await _loadScreenDevices(owner);
+    if (devices == null || !_ownsScreenAction(owner)) return;
+    // An empty list still opens audio output routing in the shared sheet.
+    setState(() => _screenDevices = devices);
   }
 
   @override
@@ -136,20 +186,19 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     final ready = ref.watch(
       appControllerProvider.select((s) => s.phase == AppPhase.ready),
     );
-    if (!ready) return const SizedBox.shrink();
+    if (!ready) {
+      _updateRoom(null);
+      return const SizedBox.shrink();
+    }
     final call = ref.watch(currentGroupCallProvider).value;
     final calls = ref.watch(groupCallServiceProvider);
     final groups = ref.watch(groupServiceProvider);
     if (call == null || !call.isLive || calls == null || groups == null) {
-      _callId = null;
-      _minimized = false;
+      _updateRoom(null);
       return const SizedBox.shrink();
     }
-    if (_callId != call.callId) {
-      _callId = call.callId;
-      _minimized = false;
-      _screenDevices = null;
-    }
+    final owner = _ownerFor(calls, call);
+    _updateRoom(owner);
     final media = calls.mediaController;
     final nativeMedia = media is VeilGroupCallMediaController ? media : null;
     // PiP renders only a remote video surface or an opaque cover. It does
@@ -204,8 +253,8 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                 onMic: () => unawaited(calls.setMicEnabled(!call.micOn)),
                 onCamera: () =>
                     unawaited(calls.setCameraEnabled(!call.cameraOn)),
-                onScreen: () => unawaited(_toggleScreen(calls, call)),
-                onSettings: () => unawaited(_openSettings(calls)),
+                onScreen: () => unawaited(_toggleScreen(owner, call)),
+                onSettings: () => unawaited(_openSettings(owner)),
                 localVideoFrame: nativeMedia?.localVideoFrame,
                 videoFrameFor: nativeMedia?.videoFrameFor,
               ),
@@ -220,8 +269,12 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
               CallDevicePickerPanel(
                 noiseSuppression: ref.watch(callNoiseSuppressionProvider),
                 devices: devices,
-                onDismiss: () => setState(() => _screenDevices = null),
-                onSelect: (device) => unawaited(_selectScreen(calls, device)),
+                onDismiss: () {
+                  if (_ownsScreenAction(owner)) {
+                    setState(() => _screenDevices = null);
+                  }
+                },
+                onSelect: (device) => unawaited(_selectScreen(owner, device)),
               ),
             ],
           );
