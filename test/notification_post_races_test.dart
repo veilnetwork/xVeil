@@ -659,6 +659,44 @@ void main() {
     }
   });
 
+  testWidgets('one background transition only scans and posts unread once', (
+    tester,
+  ) async {
+    await mount(tester, minimize: false);
+    final first = _id(2), live = _id(3), reread = _id(4);
+    void unreadFrom(NodeId peer) {
+      storage.unread = Future.value([
+        Conversation(peer: Contact(nodeId: peer), unread: 1),
+      ]);
+    }
+
+    try {
+      unreadFrom(first);
+      await lifecycle(tester, background.take(2).toList());
+      expect(notifications.visible.values.map(resolveShownPayload), [first.hex]);
+      expect(notifications.shows, 1);
+      await lifecycle(tester, [AppLifecycleState.paused]);
+      expect(notifications.shows, 1);
+
+      message(3);
+      await _pump(tester);
+      expect(notifications.visible.values.map(resolveShownPayload), [live.hex]);
+      expect(notifications.shows, 2);
+      await lifecycle(tester, foreground.take(2).toList());
+      expect(notifications.visible.values.map(resolveShownPayload), [live.hex]);
+      expect(notifications.shows, 2);
+
+      await lifecycle(tester, [AppLifecycleState.resumed]);
+      expect(notifications.visible, isEmpty);
+      unreadFrom(reread);
+      await lifecycle(tester, [AppLifecycleState.paused]);
+      expect(notifications.visible.values.map(resolveShownPayload), [reread.hex]);
+      expect(notifications.shows, 3);
+    } finally {
+      await cleanup(tester);
+    }
+  });
+
   for (final waitingOn in ['contact lookup', 'OS post', 'unread snapshot']) {
     testWidgets(
       'direct alert survives group service startup during $waitingOn',

@@ -99,6 +99,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         ({_MessageAlertAttempt attempt, _MessageAlertCandidate candidate})
       >{};
   int _notificationGeneration = 0;
+  int? _unreadScanGeneration;
   int _groupNotificationGeneration = 0;
   final _unreadGroupWaits = <VoidCallback>{};
   int _notificationSequence = 0;
@@ -675,8 +676,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       } catch (_) {}
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      // Minimized — surface every conversation that still has unread (so a
-      // message that arrived while the app was open isn't silently missed).
+      // Mobile can emit hidden, paused, then hidden again before resume.
+      // Reconcile unread once per background stay for this messaging owner.
+      if (_unreadScanGeneration == _notificationGeneration) return;
+      _unreadScanGeneration = _notificationGeneration;
       unawaited(_flushUnread());
     }
   }
