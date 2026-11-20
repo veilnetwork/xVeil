@@ -620,6 +620,12 @@ class _MessagingPeerSync {
       return;
     }
 
+    final consent = _owner._realtimeControl;
+    final epoch = await consent._acceptedContactEpoch(peer);
+    if (epoch == null) return;
+    bool isCurrent() => consent._consentCurrent(peer, epoch);
+    if (!isCurrent()) return;
+
     // The service clock, like every other ladder here (and so a test can step
     // it); in the app it is the wall clock.
     final now = _owner._now();
@@ -640,6 +646,7 @@ class _MessagingPeerSync {
       await _answerOwnEchoAsk(
         peer,
         to,
+        epoch,
         ownAsk,
         ownSince,
         ownUntil is int ? ownUntil : null,
@@ -733,30 +740,36 @@ class _MessagingPeerSync {
       }
       events.add(event);
     }
-    // A deferred local commit is not a failed network attempt. Filter before
-    // charging reship rounds so later committed rows retain their retry budget.
-    // EVERY beacon, not only the ones that re-ship.
-    //
-    // This line used to fire only when there was something to send, so a
-    // healthy exchange and a silent one looked identical from outside — and
-    // after fixing the re-ship loop the measurement could not tell "nothing
-    // to re-ship" from "no beacon arrived". A `reship=0` is the evidence that
-    // the round happened AND cost nothing.
-    var withheld = false;
-    if (events.isNotEmpty) {
-      final at = _owner._now();
+    final previous = _reshipRounds[peer.hex]?[peerHighWater];
+    final withheld =
+        events.isNotEmpty &&
+        previous != null &&
+        previous.rounds >= _reshipRoundsWithoutProgress &&
+        _owner._now().difference(previous.at) < _reshipPause;
+    // A local defer may happen even after ratchet preparation. Charge only
+    // once the first frame of this round reaches transport admission.
+    var charged = false;
+    void chargeRound() {
+      if (charged) return;
+      charged = true;
+      final now = _owner._now();
       final marks = _reshipRounds[peer.hex] ??= {};
       final prev = marks[peerHighWater];
-      final fresh = prev == null || at.difference(prev.at) >= _reshipPause;
-      if (!fresh && prev.rounds >= _reshipRoundsWithoutProgress) {
-        withheld = true;
-      } else {
-        // A mark older than the pause starts over, so it is retried.
-        marks[peerHighWater] = (rounds: fresh ? 1 : prev.rounds + 1, at: at);
-        // Bounded: only the marks this peer actually sits at matter.
-        if (marks.length > 8) marks.remove(marks.keys.first);
-      }
+      final fresh = prev == null || now.difference(prev.at) >= _reshipPause;
+      marks[peerHighWater] = (rounds: fresh ? 1 : prev.rounds + 1, at: now);
+      if (marks.length > 8) marks.remove(marks.keys.first);
     }
+
+    Future<void> sendVoid(int seq) => _owner._send(
+      to,
+      WireEnvelope.voidSeq(seq).encode(),
+      admitTransport: () {
+        if (!isCurrent()) return false;
+        chargeRound();
+        return true;
+      },
+    );
+
     devLog(
       () =>
           'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHighWater '
@@ -766,10 +779,14 @@ class _MessagingPeerSync {
     );
     if (events.isNotEmpty && !withheld) {
       for (final candidate in events) {
+        if (!isCurrent()) return;
         // Earlier durable publications/sends may have waited past TTL or a
         // deletion. Revalidate the exact event before handing bytes off.
         final event = await _expiry.event(peer, candidate);
-        if (event == null || _owner._disposed) continue;
+        if (event == null || !isCurrent()) continue;
+        late final Uint8List frame;
+        var destination = to;
+        var target = event.id;
         switch (event.kind) {
           case EventKind.post:
           case EventKind.filePost:
@@ -778,6 +795,7 @@ class _MessagingPeerSync {
                 event.kind == EventKind.filePost || (stored?.isFile ?? false);
             if (isFile) {
               if (stored == null) continue;
+              destination = peer;
               final contentId = stored.fileContentId ?? stored.fileId;
               final served = contentId == null
                   ? null
@@ -789,65 +807,78 @@ class _MessagingPeerSync {
                   seq: event.seq,
                   ts: event.ts,
                 );
-                await _owner._sendContentManifest(peer, manifest);
-                continue;
-              }
-              // Legacy transfers heal by querying only the missing chunks.
-              if (stored.fileId == null) continue;
-              await _owner._send(
-                peer,
-                fileQueryEnvelope(
+                frame = _owner._encodeContentManifest(manifest).frame;
+              } else {
+                // Legacy transfers heal by querying only the missing chunks.
+                if (stored.fileId == null) continue;
+                frame = fileQueryEnvelope(
                   transferId: event.id,
                   name: stored.fileName,
                   seq: event.seq,
                   sentAtMs: event.ts,
-                ).encode(),
-              );
-              continue;
+                ).encode();
+              }
+              break;
             }
             final recommendation = parseSpaceRecommendationMessage(
               event.body ?? '',
             );
-            await _owner._send(
-              to,
-              (recommendation == null
-                      ? WireEnvelope.message(
-                          event.body ?? '',
-                          id: event.id,
-                          sentAtMs: event.ts,
-                          seq: event.seq,
-                          replyTo: event.replyTo,
-                          forwardedFrom: event.forwardedFrom,
-                          customEmoji: stored?.customEmoji ?? const [],
-                        )
-                      : WireEnvelope.spaceRecommendation(
-                          recommendation,
-                          id: event.id,
-                          sentAtMs: event.ts,
-                          seq: event.seq,
-                        ))
-                  .encode(),
-            );
+            frame =
+                (recommendation == null
+                        ? WireEnvelope.message(
+                            event.body ?? '',
+                            id: event.id,
+                            sentAtMs: event.ts,
+                            seq: event.seq,
+                            replyTo: event.replyTo,
+                            forwardedFrom: event.forwardedFrom,
+                            customEmoji: stored?.customEmoji ?? const [],
+                          )
+                        : WireEnvelope.spaceRecommendation(
+                            recommendation,
+                            id: event.id,
+                            sentAtMs: event.ts,
+                            seq: event.seq,
+                          ))
+                    .encode();
           case EventKind.edit:
             if (event.target == null) continue;
-            await _owner._send(
-              to,
-              WireEnvelope.edit(
-                event.target!,
-                event.body ?? '',
-                seq: event.seq,
-                customEmoji: event.customEmoji,
-              ).encode(),
-            );
+            target = event.target!;
+            frame = WireEnvelope.edit(
+              target,
+              event.body ?? '',
+              seq: event.seq,
+              customEmoji: event.customEmoji,
+            ).encode();
           case EventKind.void_:
-            await _owner._send(to, WireEnvelope.voidSeq(event.seq).encode());
+            await sendVoid(event.seq);
+            continue;
           case EventKind.delete:
           case EventKind.clear:
             continue;
         }
+        final eligibility = _StoredPostEligibility.forEvent(
+          _owner,
+          peer,
+          target,
+          byId[target]?.timestamp,
+        );
+        final sent = await eligibility.send(
+          frame,
+          epoch,
+          destination: destination,
+          stopOnReceipt: false,
+          onAdmitted: chargeRound,
+        );
+        // A denied body can become a sequence placeholder only after the
+        // original deletion is durable. A stale read alone proves nothing.
+        if (!sent && isCurrent()) {
+          final refreshed = await _expiry.event(peer, event);
+          if (refreshed?.kind == EventKind.void_) await sendVoid(event.seq);
+        }
       }
     }
-    sendBestEffort(peer);
+    if (isCurrent()) sendBestEffort(peer);
   }
 
   String _givenUpKey(NodeId peer) => 'syncgaveup:${peer.hex}';
@@ -1078,6 +1109,7 @@ class _MessagingPeerSync {
   Future<void> _answerOwnEchoAsk(
     NodeId peer,
     NodeId to,
+    Object epoch,
     List<dynamic> ask,
     int sinceMs,
     int? untilMs, {
@@ -1128,8 +1160,7 @@ class _MessagingPeerSync {
     }
     for (final m in edited) {
       if (await _expiry.state(peer, m.id) != _PeerBodyState.live) continue;
-      await _owner._send(
-        to,
+      await _StoredPostEligibility(_owner, peer, m).send(
         WireEnvelope.sync(
           jsonEncode({
             'echo': {
@@ -1144,6 +1175,9 @@ class _MessagingPeerSync {
             },
           }),
         ).encode(),
+        epoch,
+        destination: to,
+        stopOnReceipt: false,
       );
     }
     if (missing.isEmpty) {
@@ -1169,8 +1203,7 @@ class _MessagingPeerSync {
       '${[for (final m in missing) m.id].join(',')}',
     );
     final now = _owner._now();
-    final answered = _ownAnswered[peer.hex] ??= {};
-    final prev = answered[signature];
+    final prev = _ownAnswered[peer.hex]?[signature];
     final fresh = prev == null || now.difference(prev.at) >= _reshipPause;
     if (!fresh && prev.rounds >= _reshipRoundsWithoutProgress) {
       devLog(
@@ -1180,11 +1213,18 @@ class _MessagingPeerSync {
       );
       return;
     }
-    answered[signature] = (
-      rounds: fresh ? 1 : prev.rounds + 1,
-      at: fresh ? now : prev.at,
-    );
-    if (answered.length > 8) answered.remove(answered.keys.first);
+    var charged = false;
+    void chargeAnswer() {
+      if (charged) return;
+      charged = true;
+      final answered = _ownAnswered[peer.hex] ??= {};
+      answered[signature] = (
+        rounds: fresh ? 1 : prev.rounds + 1,
+        at: fresh ? _owner._now() : prev.at,
+      );
+      if (answered.length > 8) answered.remove(answered.keys.first);
+    }
+
     devLog(
       () =>
           'xVeil[sync]: <- ${peer.short} own-echo ask of ${held.length} '
@@ -1193,8 +1233,7 @@ class _MessagingPeerSync {
     for (final m in missing) {
       if (await _expiry.state(peer, m.id) != _PeerBodyState.live) continue;
       final cid = m.fileContentId;
-      await _owner._send(
-        to,
+      await _StoredPostEligibility(_owner, peer, m).send(
         WireEnvelope.sync(
           jsonEncode({
             'echo': {
@@ -1209,6 +1248,10 @@ class _MessagingPeerSync {
             },
           }),
         ).encode(),
+        epoch,
+        destination: to,
+        stopOnReceipt: false,
+        onAdmitted: chargeAnswer,
       );
     }
   }
