@@ -529,6 +529,17 @@ class _PreviewReadEngine extends _CaptureStateEngine {
   }
 }
 
+class _BufferedCameraEngine extends _CameraChoiceEngine {
+  VeilVideoFrame? pendingFrame;
+
+  @override
+  VeilVideoFrame? getLocalVideoFrame() {
+    final frame = pendingFrame;
+    pendingFrame = null;
+    return frame;
+  }
+}
+
 class _CameraCallWire implements MessagingService {
   @override
   bool backgroundStashPaused = false;
@@ -907,6 +918,105 @@ void main() {
           ),
         );
       },
+    );
+  }
+
+  for (final action in ['switch', 'toggle', 'refused switch', 'cancelled switch']) {
+    test(
+      'desktop camera preview follows capture after $action',
+      () async {
+        late void Function() poll;
+        final engine = _BufferedCameraEngine();
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) => engine,
+        );
+        await runZoned(
+          () async {
+            try {
+              expect(await controller.start(_call(video: true)), isTrue);
+              final displayed = VeilVideoFrame(
+                rgba: Uint8List(16),
+                width: 2,
+                height: 2,
+              );
+              engine.pendingFrame = displayed;
+              poll();
+              expect(localVideoFrame.value, same(displayed));
+
+              // The old device produces another frame before the next poll.
+              final buffered = VeilVideoFrame(
+                rgba: Uint8List(16),
+                width: 2,
+                height: 2,
+              );
+              engine.pendingFrame = buffered;
+              if (action == 'refused switch') {
+                engine.stopAccepted = false;
+                expect(await controller.selectCamera('new-camera'), isFalse);
+                expect(localVideoFrame.value, same(displayed));
+                poll();
+                expect(localVideoFrame.value, same(buffered));
+                return;
+              }
+              if (action == 'cancelled switch') {
+                final starts = engine.cameraStarts.length;
+                void cancelSelection() {
+                  if (localVideoFrame.value == null) {
+                    controller.updateCameraIntent(false);
+                  }
+                }
+
+                localVideoFrame.addListener(cancelSelection);
+                try {
+                  expect(await controller.selectCamera('new-camera'), isFalse);
+                } finally {
+                  localVideoFrame.removeListener(cancelSelection);
+                }
+                expect(engine.cameraStarts, hasLength(starts));
+                poll();
+                expect(localVideoFrame.value, isNull);
+                return;
+              }
+              if (action == 'switch') {
+                expect(await controller.selectCamera('new-camera'), isTrue);
+              } else {
+                await controller.setCameraEnabled(false);
+                expect(localVideoFrame.value, isNull);
+                poll();
+                expect(localVideoFrame.value, isNull);
+                await controller.setCameraEnabled(true);
+              }
+              expect(localVideoFrame.value, isNull);
+              poll();
+              expect(localVideoFrame.value, isNull);
+
+              final fresh = VeilVideoFrame(
+                rgba: Uint8List(16),
+                width: 2,
+                height: 2,
+              );
+              engine.pendingFrame = fresh;
+              poll();
+              expect(localVideoFrame.value, same(fresh));
+            } finally {
+              await controller.stop();
+            }
+          },
+          zoneSpecification: ZoneSpecification(
+            createPeriodicTimer: (self, parent, zone, interval, callback) {
+              final timer = parent.createPeriodicTimer(zone, interval, callback)
+                ..cancel();
+              if (interval == const Duration(milliseconds: 12)) {
+                poll = () => zone.runUnary(callback, timer);
+              }
+              return timer;
+            },
+          ),
+        );
+      },
+      skip: Platform.isAndroid ? 'Desktop native-camera path' : false,
     );
   }
 

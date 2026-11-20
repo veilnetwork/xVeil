@@ -3444,7 +3444,7 @@ class VeilCallMediaController implements CallMediaController {
       final previous = _selectedCameraId;
       var started = false;
       try {
-        if (!engine.stopCamera()) return false;
+        if (!_stopDesktopCamera(engine) || !current()) return false;
         started = _startDesktopCamera(
           engine,
           origin: CameraStartOrigin.deviceSelection,
@@ -3455,13 +3455,14 @@ class VeilCallMediaController implements CallMediaController {
         // A rejected selection is not a new preference. Try the exact former
         // choice once; never silently open a different camera as fallback.
         try {
-          if (engine.stopCamera()) {
-            _startDesktopCamera(
-              engine,
-              origin: CameraStartOrigin.recovery,
-              deviceId: previous,
-            );
+          if (!current() || !_stopDesktopCamera(engine) || !current()) {
+            return false;
           }
+          _startDesktopCamera(
+            engine,
+            origin: CameraStartOrigin.recovery,
+            deviceId: previous,
+          );
         } catch (_) {}
         return false;
       }
@@ -3527,6 +3528,20 @@ class VeilCallMediaController implements CallMediaController {
     // Off/share choices are deferred intentions. A live Android choice is
     // persisted only after the requested source actually starts.
     return current();
+  }
+
+  bool _stopDesktopCamera(VeilMediaEngine engine) {
+    if (!engine.stopCamera()) return false;
+    if (_screenSharing || _screenStarting != null) return true;
+    // Stop fences the capture callback, but the engine can still return the
+    // old camera's last unread frame. Consume it before starting a new source.
+    try {
+      engine.getLocalVideoFrame();
+    } catch (_) {
+      _localPreviewReadErrors++;
+    }
+    localVideoFrame.value = null;
+    return true;
   }
 
   bool _startDesktopCamera(
@@ -3673,7 +3688,7 @@ class VeilCallMediaController implements CallMediaController {
             deviceId: _selectedCameraId,
           );
         } else {
-          engine.stopCamera();
+          _stopDesktopCamera(engine);
         }
       } catch (_) {}
     }
