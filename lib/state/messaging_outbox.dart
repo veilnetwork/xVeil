@@ -501,23 +501,71 @@ class _MessagingOutbox {
     );
   }
 
-  Future<void> retireRequests(
+  WireEnvelope? _decodeContactRequest(OutboxFrame frame) {
+    if (!frame.frameId.startsWith('request:')) return null;
+    try {
+      final request = WireEnvelope.decode(frame.wire);
+      return request.kind == WireKind.request ? request : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> retireRequests(
     NodeId peer, {
     required bool Function() isCurrent,
+    bool retryGreetings = false,
+    String? onlyFrameId,
   }) async {
+    var matched = false;
     for (final frame in await _owner._storage.pendingOutboxFrames()) {
-      if (!isCurrent()) return;
-      if (frame.peerHex != peer.hex || !frame.frameId.startsWith('request:')) {
+      if (!isCurrent()) break;
+      if (frame.peerHex != peer.hex ||
+          (onlyFrameId != null && frame.frameId != onlyFrameId)) {
         continue;
       }
-      // Prefix is an optimization, not authority over an unrelated frame.
-      try {
-        if (WireEnvelope.decode(frame.wire).kind != WireKind.request) continue;
-      } catch (_) {
-        continue;
+      final request = _decodeContactRequest(frame);
+      if (request == null) continue;
+      matched = true;
+      if (retryGreetings) {
+        await _finishAcceptedRequest(frame, request, isCurrent: isCurrent);
+      } else {
+        await _retirePersisted(peer.hex, frame.frameId);
       }
-      await _retirePersisted(peer.hex, frame.frameId);
     }
+    return matched;
+  }
+
+  Future<void> _finishAcceptedRequest(
+    OutboxFrame frame,
+    WireEnvelope request, {
+    required bool Function() isCurrent,
+  }) async {
+    final storage = _owner._storage;
+    if (!isCurrent() || !await storage.containsOutboxFrame(frame)) return;
+    final id = request.id;
+    if (id != null && request.body.isNotEmpty) {
+      final greeting = await storage.loadMessageById(frame.peerHex, id);
+      if (!isCurrent()) return;
+      if (greeting?.direction == MessageDirection.outgoing &&
+          greeting?.status == MessageStatus.sending) {
+        // Acceptance authorizes normal retries. Only the greeting's own
+        // receipt proves delivery. Persist retry eligibility before removing
+        // the request that names this row so an interrupted handoff can retry.
+        final moved = await storage.markMessageStatus(
+          frame.peerHex,
+          id,
+          MessageStatus.sent,
+        );
+        if (!moved &&
+            (await storage.loadMessageById(frame.peerHex, id))?.status ==
+                MessageStatus.sending) {
+          throw StateError('Contact greeting retry status did not persist');
+        }
+        if (moved) _owner._signal();
+      }
+    }
+    if (isCurrent()) await _retirePersisted(frame.peerHex, frame.frameId);
   }
 
   Future<void> send(
@@ -959,6 +1007,26 @@ class _MessagingOutbox {
       // each queued group snapshot on every three-second flush just to skip it.
       // The deposit gate still validates the actual wire kind.
       final isAcceptance = frame.frameId.startsWith('accept:');
+      if (contact?.status == ContactStatus.accepted) {
+        final request = _decodeContactRequest(frame);
+        if (request != null) {
+          // A crash or failed write may leave this request after acceptance.
+          // Retry the local handoff without re-introducing an accepted contact.
+          try {
+            await _finishAcceptedRequest(
+              frame,
+              request,
+              isCurrent: consentCurrent,
+            );
+          } catch (error) {
+            devLog(
+              () =>
+                  'xVeil[contact]: greeting handoff failed (${error.runtimeType})',
+            );
+          }
+          continue;
+        }
+      }
       // The durable response can outlive a deleted and re-added contact.
       // Its presence in the queue is never authority to grant consent again.
       if (isAcceptance && contact?.status != ContactStatus.accepted) continue;

@@ -92,6 +92,7 @@ class _MessagingContacts {
       () => _owner._storage.acceptOutgoingContactRequest(peer),
     );
     if (!accepted) return false;
+    _owner._signal();
     await _afterStatusSaved(peer, ContactStatus.accepted);
     return true;
   }
@@ -123,7 +124,11 @@ class _MessagingContacts {
     bool isCurrent() => consent._consentCurrent(peer, current?.epoch);
     if (current?.contact?.status != status || !isCurrent()) return;
     if (status == ContactStatus.accepted) {
-      await _owner._outbox.retireRequests(peer, isCurrent: isCurrent);
+      await _owner._outbox.retireRequests(
+        peer,
+        isCurrent: isCurrent,
+        retryGreetings: true,
+      );
       if (!isCurrent()) return;
     }
     _owner._contactStatusChanges.add((peer: peer, status: status));
@@ -489,25 +494,13 @@ class _MessagingContacts {
     final deposited = await deposit;
     // A failed mailbox deposit does not prove the live leg failed. On a phone
     // the direct leg can arrive minutes later as routes warm up. Keep the
-    // greeting pending until a relay accepts it or the peer accepts us; a
-    // failed mark incorrectly claimed the request could no longer arrive.
-    if (text.isNotEmpty && isCurrent()) {
-      final accepted =
-          (await _owner._storage.getContact(dst))?.status ==
-          ContactStatus.accepted;
-      if (!isCurrent()) {
-        return deposited
-            ? ContactRequestSubmission.deposited
-            : ContactRequestSubmission.queued;
-      }
+    // greeting pending until a relay accepts it or it enters normal retries
+    // after the peer accepts us.
+    if (text.isNotEmpty && deposited && isCurrent()) {
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,
-        accepted
-            ? MessageStatus.delivered
-            : deposited
-            ? MessageStatus.sent
-            : MessageStatus.sending,
+        MessageStatus.sent,
       );
       _owner._signal();
     }
@@ -614,20 +607,12 @@ class _MessagingContacts {
     if (!isCurrent()) return deposited;
     if (deposited) _owner._mailboxDelivery.rememberDeposited(frameId);
     // A direct copy may still arrive after a failed deposit. Keep the greeting
-    // pending unless a relay accepted it or the peer has accepted the request.
-    if (body != null && body.isNotEmpty) {
-      final accepted =
-          (await _owner._storage.getContact(dst))?.status ==
-          ContactStatus.accepted;
-      if (!isCurrent()) return deposited;
+    // pending unless it was deposited or moved to ordinary retries on accept.
+    if (body != null && body.isNotEmpty && deposited) {
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,
-        accepted
-            ? MessageStatus.delivered
-            : deposited
-            ? MessageStatus.sent
-            : MessageStatus.sending,
+        MessageStatus.sent,
       );
     }
     if (isCurrent()) _owner._signal();

@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -19,6 +20,46 @@ import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
+
+class _GreetingStorage extends HiddenVolumeStorage {
+  _GreetingStorage() : this._(FakeKvLogStore());
+  _GreetingStorage._(FakeKvLogStore kv)
+    : super(({required password, required create}) => kv);
+  _GreetingStorage.native(String path) : super.async(workerSpaceOpener(path));
+
+  final entered = Completer<void>(), release = Completer<void>();
+  bool holdQueueRead = false;
+  bool failGreetingStatus = false;
+
+  @override
+  Future<List<OutboxFrame>> pendingOutboxFrames() async {
+    if (holdQueueRead) {
+      holdQueueRead = false;
+      entered.complete();
+      await release.future;
+    }
+    return super.pendingOutboxFrames();
+  }
+
+  @override
+  Future<bool> markMessageStatus(
+    String conversationId,
+    String messageId,
+    MessageStatus status,
+  ) {
+    if (failGreetingStatus && status == MessageStatus.sent) {
+      failGreetingStatus = false;
+      return Future.value(false);
+    }
+    return super.markMessageStatus(conversationId, messageId, status);
+  }
+}
+
+InboundMessage _from(NodeId peer, WireEnvelope envelope) => InboundMessage(
+  src: peer,
+  payload: envelope.encode(),
+  provenance: SenderProvenance.sessionPeer,
+);
 
 class _HeldAcceptance extends LoopbackTransport {
   _HeldAcceptance({this.ackId}) : super(localNodeId: _id(1));
@@ -54,6 +95,218 @@ class _HeldAcceptance extends LoopbackTransport {
 }
 
 void main() {
+  for (final native in [false, true]) {
+    group(
+      'greetings after contact acceptance (native: $native)',
+      () {
+        final peer = _id(2);
+        late _GreetingStorage storage;
+        late _HeldAcceptance transport;
+        late MessagingService service;
+
+        setUp(() async {
+          if (native) {
+            expect(ensureHiddenVolumeLoaded(), isTrue);
+            final dir = await Directory.systemTemp.createTemp(
+              'xveil-contact-greeting-',
+            );
+            addTearDown(() => dir.delete(recursive: true));
+            final path = '${dir.path}/store.hv';
+            HvKvLogStore(
+              hv.HvSpace.create(
+                path: path,
+                password: Uint8List.fromList(utf8.encode('fixture')),
+                argon: hv.ArgonPreset.min,
+              ),
+            ).close();
+            storage = _GreetingStorage.native(path);
+          } else {
+            storage = _GreetingStorage();
+          }
+          transport = _HeldAcceptance();
+          service = MessagingService(transport, storage);
+          addTearDown(() async {
+            if (!storage.release.isCompleted) storage.release.complete();
+            await service.dispose();
+            await transport.dispose();
+            await storage.close();
+          });
+          expect(
+            await storage.open(password: 'fixture', createIfMissing: true),
+            isTrue,
+          );
+        });
+
+        test(
+          'an empty request cannot acknowledge the first ordinary message',
+          () async {
+            await service.submitContactRequest(peer, '');
+            storage.holdQueueRead = true;
+            final accepting = service.deliverInbound(
+              _from(
+                peer,
+                const WireEnvelope.accept().withFrameId('accept-empty'),
+              ),
+            );
+            try {
+              await storage.entered.future;
+              expect(
+                (await storage.getContact(peer))?.status,
+                ContactStatus.accepted,
+              );
+              expect(
+                await service.sendText(peer, 'first ordinary message'),
+                isTrue,
+              );
+            } finally {
+              storage.release.complete();
+              await accepting;
+            }
+
+            final row = (await storage.loadMessages(peer.hex)).single;
+            expect(row.status, MessageStatus.sent);
+            await service.flushOutbox();
+            expect(
+              transport.sent.where(
+                (e) => e.kind == WireKind.message && e.id == row.id,
+              ),
+              hasLength(2),
+            );
+            await service.deliverInbound(_from(peer, WireEnvelope.ack(row.id)));
+            expect(
+              (await storage.loadMessageById(peer.hex, row.id))?.status,
+              MessageStatus.delivered,
+            );
+          },
+        );
+
+        test(
+          'two admitted greetings each wait for their own receipt',
+          () async {
+            await service.submitContactRequest(peer, 'first greeting');
+            await service.submitContactRequest(peer, 'second greeting');
+            final initial = await storage.loadMessages(peer.hex);
+            expect(initial.map((m) => m.status), [
+              MessageStatus.sending,
+              MessageStatus.sending,
+            ]);
+
+            await service.deliverInbound(
+              _from(
+                peer,
+                const WireEnvelope.accept().withFrameId('accept-two'),
+              ),
+            );
+
+            expect(
+              (await storage.loadMessages(peer.hex)).map((m) => m.status),
+              [MessageStatus.sent, MessageStatus.sent],
+            );
+            expect(await storage.pendingOutboxFrames(), isEmpty);
+            await service.flushOutbox();
+            expect(
+              transport.sent
+                  .where((e) => e.kind == WireKind.message)
+                  .map((e) => e.id),
+              unorderedEquals(initial.map((m) => m.id)),
+            );
+            await service.deliverInbound(
+              _from(peer, WireEnvelope.ack(initial.first.id)),
+            );
+            expect(
+              (await storage.loadMessageById(
+                peer.hex,
+                initial.first.id,
+              ))?.status,
+              MessageStatus.delivered,
+            );
+            expect(
+              (await storage.loadMessageById(
+                peer.hex,
+                initial.last.id,
+              ))?.status,
+              MessageStatus.sent,
+            );
+          },
+        );
+
+        for (final requestReceiptFirst in [false, true]) {
+          test(
+            'an interrupted greeting handoff recovers after reopen (receipt first: $requestReceiptFirst)',
+            () async {
+              await service.submitContactRequest(peer, 'offline greeting');
+              final request = (await storage.pendingOutboxFrames()).single;
+              final greeting = (await storage.loadMessages(peer.hex)).single;
+              // Simulate stopping after the relationship committed but before the
+              // service could transfer the greeting out of the handshake queue.
+              expect(await storage.acceptOutgoingContactRequest(peer), isTrue);
+              await service.dispose();
+              await storage.close();
+              expect(await storage.open(password: 'fixture'), isTrue);
+              service = MessagingService(transport, storage);
+              if (requestReceiptFirst) {
+                await service.deliverInbound(
+                  _from(peer, WireEnvelope.ack(request.frameId)),
+                );
+              } else {
+                await service.debugFlushOutboxFrames();
+              }
+              expect(
+                (await storage.loadMessageById(peer.hex, greeting.id))?.status,
+                MessageStatus.sent,
+              );
+              expect(await storage.pendingOutboxFrames(), isEmpty);
+              await service.flushOutbox();
+              expect(
+                transport.sent.where(
+                  (e) => e.kind == WireKind.message && e.id == greeting.id,
+                ),
+                hasLength(1),
+              );
+            },
+          );
+        }
+
+        test(
+          'a refused greeting status write retains the original request',
+          () async {
+            await service.submitContactRequest(peer, 'queued greeting');
+            final request = (await storage.pendingOutboxFrames()).single;
+            final greeting = (await storage.loadMessages(peer.hex)).single;
+            storage.failGreetingStatus = true;
+            await service.deliverInbound(
+              _from(
+                peer,
+                const WireEnvelope.accept().withFrameId('accept-write-fails'),
+              ),
+            );
+
+            expect(
+              (await storage.getContact(peer))?.status,
+              ContactStatus.accepted,
+            );
+            expect(
+              (await storage.pendingOutboxFrames()).single.frameId,
+              request.frameId,
+            );
+            expect(
+              (await storage.loadMessageById(peer.hex, greeting.id))?.status,
+              MessageStatus.sending,
+            );
+
+            await service.debugFlushOutboxFrames();
+            expect(await storage.pendingOutboxFrames(), isEmpty);
+            expect(
+              (await storage.loadMessageById(peer.hex, greeting.id))?.status,
+              MessageStatus.sent,
+            );
+          },
+        );
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
+  }
+
   for (final alreadyAccepted in [false, true]) {
     test(
       'acceptance receipt does not hold ingress (already accepted: $alreadyAccepted)',

@@ -564,21 +564,6 @@ extension _MessagingInboundDispatch on MessagingService {
             return;
           }
           if (changed) unawaited(_shareAvatarAfterAcceptance(m.src));
-          // Acceptance is proof that the request reached this peer, including
-          // when its mailbox deposit failed and the live copy arrived later.
-          final greetings = await _storage.loadMessages(m.src.hex);
-          if (!isCurrent()) return;
-          for (final greeting in greetings) {
-            if (greeting.direction == MessageDirection.outgoing) {
-              await _storage.markMessageStatus(
-                m.src.hex,
-                greeting.id,
-                MessageStatus.delivered,
-              );
-              _signal();
-              break;
-            }
-          }
           // The durable-frame gate above only acks ACCEPTED senders — but an
           // accept is the very frame that CREATES that state, so the honoured
           // accept is acked here instead: the accepting side retires it from
@@ -757,6 +742,20 @@ extension _MessagingInboundDispatch on MessagingService {
           }
         }
         if (ackId != null) {
+          if (ackId.startsWith('request:') &&
+              existing?.status == ContactStatus.accepted) {
+            bool isCurrent() =>
+                _realtimeControl._consentCurrent(m.src, consent.epoch);
+            // A request receipt can arrive before recovery of an acceptance
+            // that already committed. Preserve the greeting before retiring.
+            final handled = await _outbox.retireRequests(
+              m.src,
+              isCurrent: isCurrent,
+              retryGreetings: true,
+              onlyFrameId: ackId,
+            );
+            if (handled || !isCurrent()) return;
+          }
           if (ackId.startsWith('grpa:')) {
             final transfer = _MessagingReplication.committedTransferAck(ackId);
             if (transfer != null) {

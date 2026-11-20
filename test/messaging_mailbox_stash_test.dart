@@ -293,19 +293,30 @@ void main() {
     expect(stored.single.body, 'nothing carried this');
   });
 
-  test('an eventual acceptance confirms a request whose deposit failed', () async {
+  test('acceptance releases a greeting whose deposit failed', () async {
     mA.attachMailbox(_FailingSink());
     await mA.sendRequest(b, 'arrived by the live route');
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.sending);
 
-    tA.inject(InboundMessage(
-      src: b,
-      payload: const WireEnvelope.accept().encode(),
-      provenance: SenderProvenance.sessionPeer,
-    ));
-    await pumpEventQueue();
+    await mA.deliverInbound(
+      InboundMessage(
+        src: b,
+        payload: const WireEnvelope.accept().encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
 
     expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+    final greeting = (await sA.loadMessages(b.hex)).single;
+    expect(greeting.status, MessageStatus.sent);
+
+    await mA.deliverInbound(
+      InboundMessage(
+        src: b,
+        payload: WireEnvelope.ack(greeting.id).encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.delivered);
   });
 
