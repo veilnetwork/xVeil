@@ -18,7 +18,11 @@ import threading
 import time
 
 
-def probe(media_path: Path, shim_path: Path, capture_diagnostics=False) -> list[dict]:
+MF_E_NOT_FOUND = 0xC00D36D5
+
+
+def probe(media_path: Path, shim_path: Path, capture_diagnostics=False, *,
+          missing_source_hresult=-1) -> list[dict]:
     # This process must fail on a loader error without an OS error dialog.
     kernel = c.WinDLL('kernel32', use_last_error=True)
     kernel.SetErrorMode.argtypes = [c.c_uint]
@@ -119,7 +123,7 @@ def probe(media_path: Path, shim_path: Path, capture_diagnostics=False) -> list[
                 require(camera_device(sender, b'xveil-qa-nonexistent-camera', w, h, fps) != 0)
                 state = read_stats(sender)
                 require(state.get('camera_capture_status') == 4 and
-                        state.get('camera_capture_hresult') == -1)
+                        state.get('camera_capture_hresult') == missing_source_hresult)
                 require(all(state.get('camera_capture_' + key) == 0
                             for key in ['reads', 'samples', 'frames', 'dropped']))
             require(camera(sender, w, h, fps) == 0)
@@ -142,7 +146,8 @@ def probe(media_path: Path, shim_path: Path, capture_diagnostics=False) -> list[
                                 nativeDatagramAttempts=packets,
                                 cameraRunningBeforeStop=True,
                                 microphoneMuted=True,
-                                **({'captureDiagnosticsChecked': True}
+                                **({'captureDiagnosticsChecked': True,
+                                    'missingSourceHresult': missing_source_hresult}
                                    if capture_diagnostics else {})))
         finally:
             if sender:
@@ -160,17 +165,23 @@ def main() -> int:
     parser.add_argument('--use-physical-camera', action='store_true')
     parser.add_argument('--expect-capture-diagnostics', action='store_true',
                         help='Verify numeric capture evidence, failed-source retention and restart')
+    parser.add_argument('--expect-source-hresult', action='store_true',
+                        help='Require MF_E_NOT_FOUND for a missing source on newer DLLs')
     args = parser.parse_args()
     if sys.platform != 'win32' or not args.use_physical_camera:
         parser.error('Requires Windows and explicit --use-physical-camera')
+    if args.expect_source_hresult and not args.expect_capture_diagnostics:
+        parser.error('--expect-source-hresult requires --expect-capture-diagnostics')
     # Synchronous FFI may block even Python/Dart-level operation deadlines.
     # CDLL releases the GIL; an external process-tree watchdog is also advised.
     watchdog = threading.Timer(60, lambda: os._exit(124))
     watchdog.daemon = True
     watchdog.start()
     try:
-        result = probe(args.media_dll, args.transport_shim,
-                       args.expect_capture_diagnostics)
+        result = probe(
+            args.media_dll, args.transport_shim, args.expect_capture_diagnostics,
+            missing_source_hresult=MF_E_NOT_FOUND if args.expect_source_hresult else -1,
+        )
         print(json.dumps(dict(success=True, cases=result)))
         return 0
     except Exception as error:
