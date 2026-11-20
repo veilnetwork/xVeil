@@ -473,6 +473,18 @@ extension _MessagingInboundDispatch on MessagingService {
       } else if (deferredChatAck) {
         // These branches ACK only after storage AND own-device publication.
         // Retry uses the stored row, so no RAM frame-seen gate is needed.
+      } else if (env.kind == WireKind.accept &&
+          existing?.status == ContactStatus.accepted) {
+        // A repeated acceptance may need another receipt even after restart.
+        // Waiting for its reverse route here would block the next inbound
+        // message from an already accepted contact.
+        if (!_realtimeControl._consentCurrent(m.src, consent.epoch)) {
+          _declinedLocally(m, 'contact changed during repeated acceptance');
+          return;
+        }
+        _outbox.remember(m.src.hex, fid);
+        await settlePost(m, null, fid);
+        return;
       } else if (callSignal != null) {
         // The call consumer admits/deduplicates and ACKs at its synchronous
         // handoff below. An unattached CallService must leave retries live.
@@ -570,11 +582,10 @@ extension _MessagingInboundDispatch on MessagingService {
           // The durable-frame gate above only acks ACCEPTED senders — but an
           // accept is the very frame that CREATES that state, so the honoured
           // accept is acked here instead: the accepting side retires it from
-          // its outbox. (A later duplicate finds us accepted and takes the
-          // generic gate: re-acked + deduped there.)
+          // its outbox. Later duplicates use the accepted-sender path above.
           if (fid != null && isCurrent()) {
             _outbox.remember(m.src.hex, fid);
-            await _ackFrame(m, fid);
+            await settlePost(m, null, fid);
           }
         } else {
           return;

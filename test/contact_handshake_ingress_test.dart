@@ -21,7 +21,8 @@ import 'package:xveil/state/messaging.dart';
 NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 
 class _HeldAcceptance extends LoopbackTransport {
-  _HeldAcceptance() : super(localNodeId: _id(1));
+  _HeldAcceptance({this.ackId}) : super(localNodeId: _id(1));
+  final String? ackId;
   final entered = Completer<void>(), release = Completer<void>();
   final sent = <WireEnvelope>[];
   final inbound = StreamController<InboundMessage>.broadcast();
@@ -42,7 +43,10 @@ class _HeldAcceptance extends LoopbackTransport {
   }) async {
     final envelope = WireEnvelope.decode(payload);
     sent.add(envelope);
-    if (envelope.kind == WireKind.accept && !entered.isCompleted) {
+    final hold = ackId == null
+        ? envelope.kind == WireKind.accept
+        : envelope.kind == WireKind.ack && envelope.id == ackId;
+    if (hold && !entered.isCompleted) {
       entered.complete();
       await release.future;
     }
@@ -50,6 +54,77 @@ class _HeldAcceptance extends LoopbackTransport {
 }
 
 void main() {
+  for (final alreadyAccepted in [false, true]) {
+    test(
+      'acceptance receipt does not hold ingress (already accepted: $alreadyAccepted)',
+      () async {
+        const receiptId = 'accepted-with-ack';
+        final transport = _HeldAcceptance(ackId: receiptId);
+        final storage = HiddenVolumeStorage(
+          ({required password, required create}) => FakeKvLogStore(),
+        );
+        final peer = _id(2);
+        final service = MessagingService(transport, storage);
+        var updates = 0;
+        final changes = service.changes.listen((_) => updates++);
+        addTearDown(() async {
+          if (!transport.release.isCompleted) transport.release.complete();
+          await changes.cancel();
+          await service.dispose();
+          await transport.dispose();
+          await storage.close();
+        });
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          isTrue,
+        );
+        await storage.upsertContact(
+          Contact(
+            nodeId: peer,
+            status: alreadyAccepted
+                ? ContactStatus.accepted
+                : ContactStatus.pendingOutgoing,
+          ),
+        );
+        InboundMessage from(WireEnvelope envelope) => InboundMessage(
+          src: peer,
+          payload: envelope.encode(),
+          provenance: SenderProvenance.sessionPeer,
+        );
+        var receiptFinished = false;
+        final accept = service
+            .deliverInbound(
+              from(const WireEnvelope.accept().withFrameId(receiptId)),
+            )
+            .then((_) => receiptFinished = true);
+        await transport.entered.future;
+        await pumpEventQueue();
+        expect(
+          (await storage.getContact(peer))?.status,
+          ContactStatus.accepted,
+        );
+        final updatedBeforeFollowingMessage = updates != 0;
+        final message = service.deliverInbound(
+          from(const WireEnvelope.message('after accept', id: 'post-accept')),
+          waitForReceipts: false,
+        );
+        await pumpEventQueue();
+        try {
+          expect(receiptFinished, isFalse);
+          expect(
+            await storage.loadMessageById(peer.hex, 'post-accept'),
+            isNotNull,
+          );
+          if (!alreadyAccepted) expect(updatedBeforeFollowingMessage, isTrue);
+        } finally {
+          transport.release.complete();
+          await accept;
+          await message;
+        }
+      },
+    );
+  }
+
   for (final native in [false, true]) {
     for (final reconnect in [false, true]) {
       test(
