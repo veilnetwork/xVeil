@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:xveil/features/calls/group_call_overlay.dart';
 import 'package:xveil/features/calls/video_frame_view.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/call_service.dart'
+    show CallMediaDevice, CallMediaDeviceKind;
 import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
@@ -47,8 +50,44 @@ class _Calls extends Fake implements GroupCallService {
   final VeilGroupCallMediaController mediaController;
 }
 
+class _ScreenCalls extends Fake implements GroupCallService {
+  @override
+  GroupCall? current;
+
+  @override
+  GroupCallMediaController? get mediaController => null;
+
+  @override
+  bool get screenCaptureAccessGranted => true;
+
+  final pendingLists = <Completer<List<CallMediaDevice>>>[];
+  final selected = Completer<bool>();
+  final screenStarts = <String>[];
+  final selections = <String>[];
+
+  @override
+  Future<List<CallMediaDevice>> listScreens() {
+    final request = Completer<List<CallMediaDevice>>();
+    pendingLists.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<bool> selectScreen(String id) {
+    selections.add(id);
+    return selected.future;
+  }
+
+  @override
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    if (enabled) screenStarts.add(current!.callId);
+  }
+}
+
 GroupCall _call({
   required GroupCallStatus status,
+  String callId = 'room-1',
+  int group = 9,
   bool video = false,
   bool peerVideo = true,
   bool peerScreen = false,
@@ -57,8 +96,8 @@ GroupCall _call({
   final peer = _id(2);
   final now = DateTime(2026, 7, 13, 12);
   return GroupCall(
-    groupId: _id(9),
-    callId: 'room-1',
+    groupId: _id(group),
+    callId: callId,
     initiator: peer,
     membershipEpoch: 3,
     media: CallMedia(audio: true, video: video),
@@ -101,6 +140,117 @@ Future<void> _pumpForFrame(WidgetTester tester, Finder frame) async {
 }
 
 void main() {
+  for (final path in [
+    'settings',
+    'screen list',
+    'automatic',
+    'manual',
+    'same call ID in another group',
+    'refused source',
+    'current',
+  ]) {
+    testWidgets(
+      'group screen action keeps the requesting room ($path)',
+      (tester) async {
+        final calls = _ScreenCalls();
+        final changes = StreamController<GroupCall?>.broadcast();
+        addTearDown(changes.close);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appControllerProvider.overrideWith(_ReadyApp.new),
+              currentGroupCallProvider.overrideWith((_) => changes.stream),
+              groupCallServiceProvider.overrideWithValue(calls),
+              groupServiceProvider.overrideWithValue(_Groups()),
+            ],
+            child: const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: Scaffold(body: Stack(children: [GroupCallOverlay()])),
+            ),
+          ),
+        );
+        Future<void> activate(String id, {int group = 9}) async {
+          calls.current = _call(
+            status: GroupCallStatus.active,
+            video: true,
+            callId: id,
+            group: group,
+          );
+          changes.add(calls.current);
+          await tester.pumpAndSettle();
+        }
+
+        const primary = CallMediaDevice(
+          id: 'primary',
+          label: 'Primary screen',
+          kind: CallMediaDeviceKind.screen,
+        );
+        const secondary = CallMediaDevice(
+          id: 'secondary',
+          label: 'Secondary screen',
+          kind: CallMediaDeviceKind.screen,
+        );
+        final settings = find.byKey(const ValueKey('call-surface-settings'));
+        final panel = find.byKey(const ValueKey('call-settings-panel'));
+        await activate('first');
+        await tester.tap(
+          path == 'settings'
+              ? settings
+              : find.byKey(const ValueKey('group-call-screen')),
+        );
+        await tester.pump();
+        expect(calls.pendingLists, hasLength(1));
+
+        if (path == 'settings') {
+          await activate('second');
+          await tester.tap(settings);
+          await tester.pump();
+          final listCount = calls.pendingLists.length;
+          calls.pendingLists.first.complete(const [primary]);
+          await tester.pumpAndSettle();
+          expect(panel, findsNothing);
+          expect(listCount, 2);
+          calls.pendingLists.last.complete(const [secondary]);
+          await tester.pumpAndSettle();
+          expect(panel, findsOneWidget);
+          return;
+        }
+
+        if (path == 'screen list') {
+          await activate('second');
+          calls.pendingLists.single.complete(const [primary]);
+          await tester.pumpAndSettle();
+          expect(calls.selections, isEmpty);
+          expect(panel, findsNothing);
+          return;
+        }
+
+        final automatic = path == 'automatic' || path == 'refused source';
+        calls.pendingLists.single.complete(
+          automatic ? const [primary] : const [primary, secondary],
+        );
+        await tester.pumpAndSettle();
+        if (!automatic) {
+          await tester.tap(find.text('Video'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(primary.label));
+        }
+        expect(calls.selections, ['primary']);
+        if (path == 'same call ID in another group') {
+          await activate('first', group: 10);
+        } else if (path != 'current' && path != 'refused source') {
+          await activate('second');
+        }
+
+        calls.selected.complete(path != 'refused source');
+        await tester.pumpAndSettle();
+        expect(calls.screenStarts, path == 'current' ? ['first'] : isEmpty);
+      },
+      skip: !Platform.isMacOS,
+    );
+  }
+
   // What the room is called at the top of a call. It used to be `groupId.short`
   // whenever the name was missing — and `stateOf` is a future, so that hex id
   // was not only the fallback for an unnamed room: it flashed on the first
