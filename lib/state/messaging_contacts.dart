@@ -352,16 +352,25 @@ class _MessagingContacts {
             identical(_acceptanceAdmissions[frameId], admission);
         try {
           final skipLive = await _owner._outbox._longSilent(peer.hex);
-          final consent = await _owner._realtimeControl._readContactConsent(peer);
+          final consent = await _owner._realtimeControl._readContactConsent(
+            peer,
+          );
           if (consent?.contact?.status != ContactStatus.accepted) return;
+          bool consentCurrent() =>
+              _owner._realtimeControl._consentCurrent(peer, consent?.epoch);
           // No enqueue here. An ACK during either read invalidates admission,
           // even when a delayed storage reply still reports membership=true.
           if (!await _owner._storage.containsOutboxFrame(frame) ||
               !current() ||
-              !_owner._realtimeControl._consentCurrent(peer, consent?.epoch)) {
+              !consentCurrent()) {
             return;
           }
-          _owner._stashInBackground(peer, frameId, wire);
+          _owner._stashInBackground(
+            peer,
+            frameId,
+            wire,
+            isCurrent: consentCurrent,
+          );
           if (skipLive) return;
           _owner._outbox.recordQueued(frameId, peer.hex);
           await _owner._send(peer, wire);
@@ -466,7 +475,12 @@ class _MessagingContacts {
     //
     // Deposit starts before the bounded live leg. If neither reaches the
     // recipient, the persisted request is re-driven by the ordinary outbox.
-    final deposit = _owner._maybeStash(dst, frameId, wire);
+    final deposit = _owner._maybeStash(
+      dst,
+      frameId,
+      wire,
+      isCurrent: isCurrent,
+    );
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
     // A failed mailbox deposit does not prove the live leg failed. On a phone
@@ -582,7 +596,12 @@ class _MessagingContacts {
     // ciphertext the recipient could not open in place. Keep the wire id for
     // message dedup, but give every manual retry a fresh mailbox content id.
     final depositId = '$id:retry:${_uuid.v4()}';
-    final deposit = _owner._maybeStash(dst, depositId, wire);
+    final deposit = _owner._maybeStash(
+      dst,
+      depositId,
+      wire,
+      isCurrent: isCurrent,
+    );
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
     // The outbox tracks the logical frame, not this manual attempt key.
