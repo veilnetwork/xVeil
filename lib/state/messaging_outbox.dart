@@ -250,8 +250,8 @@ class _MessagingOutbox {
   /// Frame state is per (peer, frameId) — never per frameId alone.
   ///
   /// A frameId is not unique by itself. A `gcr:` content request reuses one id
-  /// across every holder it asks, and `reconnect:`/`accept:` ids are derived
-  /// from the peer in a way any contact can predict. Keyed by frameId alone,
+  /// across every holder it asks, and legacy handshake IDs are derived from
+  /// the peer. Keyed by frameId alone,
   /// one peer's entry overwrote another's live backoff, and a contact who knew
   /// the id could ACK it first and retire somebody else's pending frame
   /// (audit XV-02).
@@ -417,18 +417,26 @@ class _MessagingOutbox {
     _recordEnqueued(peer, frameId, wire);
   }
 
-  Future<bool> enqueueAcceptance(
+  Future<OutboxFrame?> enqueueAcceptance(
     NodeId peer,
     String frameId,
-    Uint8List wire,
-  ) async {
+    Uint8List wire, {
+    bool replyOnly = false,
+  }) async {
     final admitted = await _owner._storage.acceptContactAndEnqueue(
       peer,
       frameId,
       wire,
+      replyOnly: replyOnly,
     );
-    if (admitted && !_owner._disposed) _recordEnqueued(peer, frameId, wire);
-    return admitted;
+    if (admitted == null) return null;
+    if (!_owner._disposed) {
+      for (final id in admitted.retiredFrameIds) {
+        _forgetRetiredFrame(peer.hex, id);
+      }
+      _recordEnqueued(peer, admitted.frame.frameId, admitted.frame.wire);
+    }
+    return admitted.frame;
   }
 
   Future<bool> admitInitialRequest(
@@ -1766,9 +1774,7 @@ class _MessagingOutbox {
   /// Keep the synchronous invalidation and early-live ACK race bookkeeping.
   void _forgetRetiredFrame(String peerHex, String frameId) {
     final key = _key(peerHex, frameId);
-    if (frameId == 'accept:$peerHex') {
-      _owner._contacts.retireAcceptance(peerHex, frameId);
-    }
+    _owner._contacts.retireAcceptance(peerHex, frameId);
     _callReceiptKeys.remove(key);
     _flushSnapshot?.invalidate(key);
     if (_sendingUnpersisted.contains(key)) {

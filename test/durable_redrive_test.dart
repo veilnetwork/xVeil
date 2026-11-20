@@ -982,9 +982,8 @@ void main() {
         ContactStatus.pendingOutgoing,
         reason: 'the accept never reached C',
       );
-      expect(
-        (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-        contains('accept:${c.hex}'),
+      final acceptance = (await sA.pendingOutboxFrames()).singleWhere(
+        (f) => f.frameId.startsWith('accept:${c.hex}:'),
       );
 
       tA.online = true;
@@ -998,7 +997,7 @@ void main() {
       );
       expect(
         (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-        isNot(contains('accept:${c.hex}')),
+        isNot(contains(acceptance.frameId)),
         reason: "C's ack (sent from the accept arm) retired the frame",
       );
     });

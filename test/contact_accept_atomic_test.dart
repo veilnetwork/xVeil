@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/ids.dart';
@@ -186,7 +185,7 @@ void main() {
                   id,
                   const WireEnvelope.accept().withFrameId(id).encode(),
                 ),
-                isTrue,
+                isNotNull,
               );
               expect(
                 (await storage.getContact(peer))?.status,
@@ -421,12 +420,15 @@ void main() {
             }
             fault.blockRead = false;
             final contact = await storage.getContact(peer);
-            final rawReply = await fault.inner.get(
-              Ns.outboxIndex,
-              Uint8List.fromList(
-                crypto.sha256.convert(utf8.encode('accept:${peer.hex}')).bytes,
-              ),
-            );
+            final replyKey = commits
+                .expand((ops) => ops)
+                .whereType<PutOp>()
+                .where((op) => op.namespace == Ns.outboxIndex)
+                .firstOrNull
+                ?.key;
+            final rawReply = replyKey == null
+                ? null
+                : await fault.inner.get(Ns.outboxIndex, replyKey);
             expect(
               contact?.status == ContactStatus.accepted,
               rawReply != null,
@@ -516,7 +518,7 @@ void main() {
             expect(cold.retentionDays, original.retentionDays);
             expect(cold.allowPeerDelete, original.allowPeerDelete);
             final replies = (await storage.pendingOutboxFrames())
-                .where((f) => f.frameId == 'accept:${peer.hex}')
+                .where((f) => f.frameId.startsWith('accept:${peer.hex}:'))
                 .toList();
             expect(replies, hasLength(1));
             expect(replies.single.peerHex, peer.hex);

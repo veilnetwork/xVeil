@@ -160,7 +160,7 @@ void main() {
                       WireEnvelope.decode(f.wire).kind == WireKind.accept,
                 )
                 .single;
-            expect(accept.frameId, 'accept:${peer.hex}');
+            expect(accept.frameId, startsWith('accept:${peer.hex}:'));
             expect(
               (await storage.getContact(peer))?.status,
               ContactStatus.accepted,

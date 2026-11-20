@@ -110,8 +110,8 @@ Future<void> _ackAcceptance(
   MessagingService service,
   HiddenVolumeStorage storage,
   NodeId peer,
+  String id,
 ) async {
-  final id = 'accept:${peer.hex}';
   await service.deliverInbound(
     InboundMessage(
       src: peer,
@@ -120,7 +120,7 @@ Future<void> _ackAcceptance(
     ),
   );
   // The ingress starts retirement separately. Read the durable queue until its
-  // deletion is visible before creating any replacement with the same ID.
+  // deletion is visible before creating any replacement.
   for (var i = 0; i < 50; i++) {
     final pending = await storage.pendingOutboxFrames();
     if (!pending.any((frame) => frame.frameId == id)) return;
@@ -131,6 +131,110 @@ Future<void> _ackAcceptance(
 
 void main() {
   for (final native in [false, true]) {
+    for (final legacy in [false, true]) {
+      test('duplicate receipt leaves a new handshake response pending '
+          'native=$native legacy=$legacy', () async {
+        final storage = await _openStore(native);
+        final wire = _Wire(), peer = _id(2);
+        final service = MessagingService(wire, storage);
+        addTearDown(wire.dispose);
+        addTearDown(service.dispose);
+        await storage.upsertContact(
+          Contact(
+            nodeId: peer,
+            status: legacy
+                ? ContactStatus.accepted
+                : ContactStatus.pendingIncoming,
+          ),
+        );
+        if (legacy) {
+          final id = 'accept:${peer.hex}';
+          await storage.enqueueOutboxFrame(
+            id,
+            peer.hex,
+            const WireEnvelope.accept().withFrameId(id).encode(),
+          );
+        } else {
+          await service.acceptContact(peer);
+        }
+        final first = (await storage.pendingOutboxFrames()).single;
+        Future<void> receive(WireEnvelope envelope) => service.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: envelope.encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        Future<void> acknowledge(String id) async {
+          await receive(WireEnvelope.ack(id));
+          // Join the outbox lane after the ACK's async retirement starts.
+          await storage.ackOutboxFrame('test-fence', fromPeerHex: peer.hex);
+        }
+
+        await receive(
+          const WireEnvelope.request('').withFrameId('request:old'),
+        );
+        final retry = (await storage.pendingOutboxFrames()).single;
+        expect(retry.frameId, first.frameId);
+        expect(retry.enqueuedAtMs, first.enqueuedAtMs);
+        await acknowledge(first.frameId);
+        expect(await storage.pendingOutboxFrames(), isEmpty);
+        await receive(
+          const WireEnvelope.request('').withFrameId('request:new'),
+        );
+        final second = (await storage.pendingOutboxFrames()).single;
+        await acknowledge(first.frameId);
+        expect(await storage.containsOutboxFrame(second), isTrue);
+        expect(second.frameId, isNot(first.frameId));
+
+        await receive(
+          const WireEnvelope.request('').withFrameId('request:new'),
+        );
+        expect(
+          (await storage.pendingOutboxFrames()).single.frameId,
+          second.frameId,
+        );
+        await acknowledge(second.frameId);
+        expect(await storage.pendingOutboxFrames(), isEmpty);
+      }, skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null);
+    }
+    test(
+      'accepting after conversation removal replaces the old reply native=$native',
+      () async {
+        final storage = await _openStore(native);
+        final wire = _Wire(), peer = _id(2);
+        final service = MessagingService(wire, storage);
+        addTearDown(wire.dispose);
+        addTearDown(service.dispose);
+        final pending = Contact(
+          nodeId: peer,
+          status: ContactStatus.pendingIncoming,
+        );
+        await storage.upsertContact(pending);
+        await service.acceptContact(peer);
+        final old = (await storage.pendingOutboxFrames()).single;
+        await storage.removeConversation(peer);
+        await storage.upsertContact(pending);
+        await service.acceptContact(peer);
+        final next = (await storage.pendingOutboxFrames()).single;
+        expect(next.frameId, isNot(old.frameId));
+        await storage.ackOutboxFrame(old.frameId, fromPeerHex: peer.hex);
+        expect(await storage.containsOutboxFrame(next), isTrue);
+
+        await service.dispose();
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+        expect(
+          (await storage.getContact(peer))?.status,
+          ContactStatus.accepted,
+        );
+        expect(
+          (await storage.pendingOutboxFrames()).single.frameId,
+          next.frameId,
+        );
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
     for (final source in ['accept', 'outbox']) {
       test(
         'ack retires $source still resolving the mailbox native=$native',
@@ -174,7 +278,8 @@ void main() {
           await lookupStarted.future;
           await work;
           expect(sink.sent, isEmpty);
-          await _ackAcceptance(service, storage, peer);
+          final reply = (await storage.pendingOutboxFrames()).single;
+          await _ackAcceptance(service, storage, peer, reply.frameId);
           lookup.complete(false);
           await Future<void>.delayed(Duration.zero);
           expect(sink.sent, isEmpty);
@@ -205,7 +310,8 @@ void main() {
         final accepting = service.acceptContact(peer);
         await entered.future;
         await accepting;
-        await _ackAcceptance(service, storage, peer);
+        final reply = (await storage.pendingOutboxFrames()).single;
+        await _ackAcceptance(service, storage, peer, reply.frameId);
         await service.deliverInbound(
           InboundMessage(
             src: peer,
@@ -215,7 +321,7 @@ void main() {
         );
         expect(
           (await storage.pendingOutboxFrames()).single.frameId,
-          'accept:${peer.hex}',
+          startsWith('accept:${peer.hex}:'),
         );
         expect(sink.sent, hasLength(1));
         if (acceptedAtRelay) {

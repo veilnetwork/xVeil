@@ -219,15 +219,18 @@ abstract interface class Storage {
 
   /// Persist the local acceptance and its destination-bound response in one
   /// transaction. Preserve the contact's other current fields and the age of
-  /// an identical pending frame. A lost commit reply may leave both durable;
+  /// the current pending response. A lost commit reply may leave both durable;
   /// an uncommitted failure must not publish only the accepted status.
-  /// False means a newer decision already accepted the contact. A newer
-  /// refusal throws [ContactAcceptanceSuperseded].
-  Future<bool> acceptContactAndEnqueue(
+  /// A reply to an already accepted peer makes no new local decision and only
+  /// proceeds while that relationship is current. Null means the operation was
+  /// superseded. A superseded local approval may throw
+  /// [ContactAcceptanceSuperseded].
+  Future<ContactAcceptanceAdmission?> acceptContactAndEnqueue(
     NodeId peer,
     String frameId,
-    Uint8List wire,
-  );
+    Uint8List wire, {
+    bool replyOnly = false,
+  });
 
   /// Admit a first request only while the originating owner/lifetime is current
   /// and the durable contact still carries outgoing request intent. Crossed
@@ -1073,6 +1076,11 @@ class OutboxFrame {
   /// and a migration is no reason to drop them.
   final int? enqueuedAtMs;
 }
+
+typedef ContactAcceptanceAdmission = ({
+  OutboxFrame frame,
+  List<String> retiredFrameIds,
+});
 
 /// Optional atomic retirement of moot state, guarded by a retained successor.
 /// All rows must still exist with the exact peer and wire bytes. A missing or

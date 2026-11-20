@@ -121,7 +121,7 @@ void main() {
               accepting = service.acceptContact(peer);
               await storage.entered.future;
               final accepted = (await storage.pendingOutboxFrames()).single;
-              expect(accepted.frameId, 'accept:${peer.hex}');
+              expect(accepted.frameId, startsWith('accept:${peer.hex}:'));
               expect(
                 (await storage.getContact(peer))?.status,
                 ContactStatus.accepted,
