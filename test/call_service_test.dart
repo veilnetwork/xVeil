@@ -2822,6 +2822,8 @@ void main() {
       'admission',
       'admission after offline',
       'stale admission while offline',
+      'admission before online notification',
+      'superseded admission before online notification',
       'admission while network IPC is pending',
       'network IPC pending at deadline',
       'deadline',
@@ -2858,8 +2860,14 @@ void main() {
           expect(media.activeTransport, isNull);
 
           final staleAdmission = outcome == 'stale admission while offline';
+          final earlyAdmission = outcome == 'admission before online notification';
+          final supersededAdmission =
+              outcome == 'superseded admission before online notification';
           final wentOffline =
-              outcome == 'admission after offline' || staleAdmission;
+              outcome == 'admission after offline' ||
+              staleAdmission ||
+              earlyAdmission ||
+              supersededAdmission;
           final ipcPendingAtDeadline = outcome == 'network IPC pending at deadline';
           final ipcPending =
               outcome == 'admission while network IPC is pending' ||
@@ -2908,14 +2916,20 @@ void main() {
           if (outcome == 'deadline' || ipcPendingAtDeadline) {
             async.elapse(kCallRelayCandidateRetry);
           }
-          if (staleAdmission) {
+          if (staleAdmission || earlyAdmission || supersededAdmission) {
+            if (!staleAdmission) networkChangeGeneration++;
             admissions.add(null);
             async.flushMicrotasks();
             expect(media.switches, isEmpty);
             expect(svc.current?.status, CallStatus.active);
           }
-          if (wentOffline) network.add(NetworkAttachment.cellular);
-          admissions.add(null);
+          if (supersededAdmission) networkChangeGeneration++;
+          if (wentOffline) {
+            network.add(NetworkAttachment.cellular);
+            async.flushMicrotasks();
+            if (!earlyAdmission) expect(media.switches, isEmpty);
+          }
+          if (!earlyAdmission) admissions.add(null);
           async.flushMicrotasks();
           if (earlierHandover || wentOffline || outcome == 'admission' ||
               (ipcPending && !ipcPendingAtDeadline)) {
