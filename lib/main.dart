@@ -141,7 +141,7 @@ Future<void> runStartup({
     if (e is ProfileChoiceReadFailure) {
       diagnosticJournal.record(
         DiagnosticEvent.profileChoiceReadFailed,
-        values: {DiagnosticMetric.code: e.busy ? 1 : 0},
+        values: {DiagnosticMetric.code: e.diagnosticCode},
       );
     }
     if (e is ProfilePreferencesFormatFailure) {

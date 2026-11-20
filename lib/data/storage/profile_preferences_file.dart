@@ -155,8 +155,12 @@ Future<String?> readProfileChoice(File file) async {
 
 /// A saved profile choice could not be read. The cause is safe for diagnostics.
 final class ProfileChoiceReadFailure implements Exception {
-  const ProfileChoiceReadFailure({required this.busy});
+  const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false});
   final bool busy;
+  final bool fromLegacy;
+
+  // Preserve the original 0/1 codes for the file-backed profile choice.
+  int get diagnosticCode => (fromLegacy ? 2 : 0) + (busy ? 1 : 0);
 }
 
 bool isWindowsFileSharingViolation(Object error) =>
