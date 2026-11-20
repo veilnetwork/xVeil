@@ -2063,20 +2063,20 @@ extension _MessagingContentPull on MessagingService {
               '${cid.substring(0, 12)}: $lastError',
         );
       }
-      if (!ok &&
-          !_cancelledDownloads.contains(cid) &&
-          sink != null &&
-          closeSinkOnFailure) {
+      if (!ok && sink != null && closeSinkOnFailure) {
         try {
           await sink.close();
         } catch (_) {}
-        _forgetFetchSavePath(cid);
       }
       if (!ok &&
           !_cancelledDownloads.contains(cid) &&
+          (sink == null || _ownsFetchSavePath(cid, sink)) &&
           emitFailure &&
           !_contentFailed.isClosed) {
         _contentFailed.add(cid);
+      }
+      if (!ok && sink != null && closeSinkOnFailure) {
+        _forgetFetchSavePath(cid, owner: sink.saveOwner);
       }
     }
     return ok;

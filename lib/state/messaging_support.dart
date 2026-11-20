@@ -478,6 +478,7 @@ typedef ServeSource = ({
 /// messaging service stays io-free. Null fetch sink ⇒ store via the Storage port
 /// (encrypted tier / in-volume) as usual.
 typedef _FetchSink = ({
+  Object saveOwner,
   Future<void> Function(int offset, Uint8List bytes) write,
   Future<void> Function() close,
   // Non-null only on a RESUME reopen of a plain file: reads a piece back so the
