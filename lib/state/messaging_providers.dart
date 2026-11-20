@@ -451,22 +451,19 @@ final pendingClearRequestsProvider = StreamProvider<List<PendingClearRequest>>((
 /// Reloaded on every service change so a new reaction (local or inbound)
 /// re-renders the affected bubble. `autoDispose` — scoped to an open chat.
 final reactionsProvider = StreamProvider.autoDispose
-    .family<Map<String, Map<String, String>>, String>((ref, convId) async* {
+    .family<Map<String, Map<String, String>>, String>((ref, convId) {
       final service = ref.watch(messagingServiceProvider);
-      yield await service.loadReactions(convId);
-      await for (final _ in service.changes) {
-        yield await service.loadReactions(convId);
-      }
+      return _messagingSnapshots(
+        service.changes,
+        () => service.loadReactions(convId),
+      );
     });
 
 /// The user's chat folders, re-loaded whenever the service signals a change
 /// (folders are mutated through the service, which signals on every write).
-final chatFoldersProvider = StreamProvider<List<ChatFolder>>((ref) async* {
+final chatFoldersProvider = StreamProvider<List<ChatFolder>>((ref) {
   final service = ref.watch(messagingServiceProvider);
-  yield await service.loadFolders();
-  await for (final _ in service.changes) {
-    yield await service.loadFolders();
-  }
+  return _messagingSnapshots(service.changes, service.loadFolders);
 });
 
 /// The current visible window (a newest-N count) for a chat, grown by the chat

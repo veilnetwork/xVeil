@@ -13,6 +13,7 @@ import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/chat_folder.dart';
 import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/cloud_document_providers.dart';
@@ -76,6 +77,12 @@ class _MessagingSnapshotService extends Fake implements MessagingService {
   final firstRead = Completer<List<PendingClearRequest>>();
   final entered = Completer<void>();
   List<PendingClearRequest> requests = [];
+  final firstFolderRead = Completer<List<ChatFolder>>();
+  final firstReactionRead = Completer<Map<String, Map<String, String>>>();
+  int folderReads = 0;
+  int reactionReads = 0;
+  List<ChatFolder> folders = [];
+  Map<String, Map<String, String>> reactions = {};
 
   @override
   Stream<void> get changes => updates.stream;
@@ -92,6 +99,14 @@ class _MessagingSnapshotService extends Fake implements MessagingService {
     entered.complete();
     return firstRead.future;
   }
+
+  @override
+  Future<List<ChatFolder>> loadFolders() async =>
+      ++folderReads == 1 ? firstFolderRead.future : folders;
+
+  @override
+  Future<Map<String, Map<String, String>>> loadReactions(String convId) async =>
+      ++reactionReads == 1 ? firstReactionRead.future : reactions;
 }
 
 class _Application extends AppController {
@@ -402,6 +417,53 @@ void main() {
       }
     });
   });
+
+  for (final reactions in [false, true]) {
+    test(
+      'an update during the first ${reactions ? 'reaction' : 'folder'} read is visible',
+      () {
+        fakeAsync((time) {
+          final service = _MessagingSnapshotService();
+          final c = ProviderContainer(
+            overrides: [messagingServiceProvider.overrideWithValue(service)],
+          );
+          late final bool listenerAfterDispose;
+          try {
+            final provider = reactions
+                ? reactionsProvider(_other.hex)
+                : chatFoldersProvider;
+            c.listen(provider, (_, _) {});
+            time.flushMicrotasks();
+            expect(reactions ? service.reactionReads : service.folderReads, 1);
+            service.folders = [const ChatFolder(id: 'folder', name: 'Work')];
+            service.reactions = {
+              'message': {_other.hex: '👍'},
+            };
+            service.updates.add(null);
+            time.flushMicrotasks();
+            // Do not begin the second read while the first one is still open.
+            expect(reactions ? service.reactionReads : service.folderReads, 1);
+            service.firstFolderRead.complete([]);
+            service.firstReactionRead.complete({});
+            time.flushMicrotasks();
+
+            expect(
+              c.read(provider).value,
+              reactions ? service.reactions : service.folders,
+            );
+            expect(reactions ? service.reactionReads : service.folderReads, 2);
+          } finally {
+            c.dispose();
+            time.flushMicrotasks();
+            listenerAfterDispose = service.updates.hasListener;
+            unawaited(service.updates.close());
+            time.flushMicrotasks();
+          }
+          expect(listenerAfterDispose, isFalse);
+        });
+      },
+    );
+  }
 
   for (final boundary in [
     'ending',
