@@ -1093,6 +1093,7 @@ class WorkerKvLogStore
       // worker leaves this pending forever, and every later call joins it.
       final r = await _watch.race(reply.first);
       if (r is _Err) throw hv.HvException(r.kind, r.message);
+      if (r is ProfilePreferencesFormatFailure) throw r;
       if (r is _ManagedWorkerErr) {
         throw ManagedWorkerFailure(
           r.kind,

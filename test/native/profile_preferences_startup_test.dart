@@ -415,6 +415,35 @@ void main() {
   }
 
   test(
+    'unreadable UTF-8 is a format error and preserves preference files',
+    () async {
+      const valid = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}';
+      const corrupt = [0x7b, 0xff, 0x7d];
+      final owner = await open(prefs());
+      expect(await owner.write(valid), isTrue);
+      final file = File(prefs())..writeAsBytesSync(corrupt, flush: true);
+      final source = await legacy.getAll();
+
+      final formatError = throwsA(
+        isA<ProfilePreferencesFormatFailure>().having(
+          (error) => error.reason,
+          'reason',
+          ProfilePreferencesFormatReason.invalidEncoding,
+        ),
+      );
+      await expectLater(install(), formatError);
+      await expectLater(owner.compareAndWrite(valid, valid), formatError);
+      expect(file.readAsBytesSync(), corrupt);
+      expect(await legacy.getAll(), source);
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+
+      file.writeAsStringSync(valid, flush: true);
+      expect(await install(), AppProfiles.defaultName);
+      expect(await stores.single.getAll(), {'flutter.locale': 'es'});
+    },
+  );
+
+  test(
     'a running preference writer never replaces an unknown snapshot',
     () async {
       const original = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}';

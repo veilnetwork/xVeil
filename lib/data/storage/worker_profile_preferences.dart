@@ -369,6 +369,20 @@ void _profilePreferencesEntry(
     return null;
   }
 
+  String? readSnapshot(ManagedPathWitness? witness) {
+    if (witness == null) return null;
+    // File.readAsStringSync wraps a UTF-8 decoder error as a filesystem error.
+    // Keep decoding separate so startup can report the format refusal.
+    final bytes = file.readAsBytesSync();
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      throw const ProfilePreferencesFormatFailure(
+        ProfilePreferencesFormatReason.invalidEncoding,
+      );
+    }
+  }
+
   var closing = false;
   late final StreamSubscription<dynamic> subscription;
   subscription = inbox.listen(_CloseReq(config.reply), (dynamic message) {
@@ -427,7 +441,7 @@ void _profilePreferencesEntry(
               // empty preference store. Keep the original refusal in that case.
               if (witness == null && contention != null) throw contention;
               try {
-                final value = witness == null ? null : file.readAsStringSync();
+                final value = readSnapshot(witness);
                 requireHeld();
                 message.reply.send(_Ok(value));
                 break;
@@ -459,9 +473,7 @@ void _profilePreferencesEntry(
                 if (fileFailure(witness) != null) {
                   throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
                 }
-                if (requireMatch &&
-                    (witness == null ? null : file.readAsStringSync()) !=
-                        expected) {
+                if (requireMatch && readSnapshot(witness) != expected) {
                   return null;
                 }
                 return writePrivateFileAtomicallySync(file, contents);
@@ -478,6 +490,8 @@ void _profilePreferencesEntry(
           default:
             throw const ManagedWorkerFailure(ManagedWorkerFailureKind.mode);
         }
+      } on ProfilePreferencesFormatFailure catch (error) {
+        message.reply.send(error);
       } catch (error) {
         message.reply.send(
           message is _PreferencesReadReq
