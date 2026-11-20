@@ -278,6 +278,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         : '/chat/${notice.from.hex}?msg=${Uri.encodeQueryComponent(notice.messageId!)}';
     await _show(
       attempt: attempt,
+      checkPolicy: () => _directAlertAllowed(notice.from, isMention: isMention),
       convHex: isMention && mentionRoute != null
           ? notificationMentionPayload(mentionRoute)
           : notice.from.hex,
@@ -769,7 +770,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       () => ref.read(storageProvider).loadConversations(),
     );
     if (!_canContinueMessageAlert(attempt)) return;
-    final directCandidates = <_MessageAlertCandidate>[];
+    final directCandidates =
+        <
+          ({_MessageAlertCandidate alert, Future<bool> Function() checkPolicy})
+        >[];
     final self = ref.read(appControllerProvider).identity?.nodeId;
     for (final c in convs ?? const <Conversation>[]) {
       if (!_canContinueMessageAlert(attempt)) return;
@@ -791,7 +795,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         );
         if (mention == null) continue;
       }
-      directCandidates.add((
+      final _MessageAlertCandidate alert = (
         convHex: mention == null
             ? c.id
             : notificationMentionPayload(
@@ -813,6 +817,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             0,
         allowReply: mention == null,
         isMention: mention != null,
+      );
+      directCandidates.add((
+        alert: alert,
+        checkPolicy: () => _directAlertAllowed(
+          c.peer.nodeId,
+          isMention:
+              mention != null ||
+              (self != null &&
+                  c.lastMessage != null &&
+                  messageMentionsNode(c.lastMessage!.body, self)),
+        ),
       ));
     }
     // Groups compete with 1:1 chats for the same single latest alert.
@@ -1017,16 +1032,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
     final directLatest = newestByTimestamp(
       directCandidates,
-      (c) => c.timestampMs,
+      (c) => c.alert.timestampMs,
     );
     final useGroup =
         groupLatest != null &&
         (directLatest == null ||
-            groupLatest.timestampMs > directLatest.timestampMs);
-    final latest = useGroup ? groupLatest : directLatest;
+            groupLatest.timestampMs > directLatest.alert.timestampMs);
+    final latest = useGroup ? groupLatest : directLatest?.alert;
     if (latest == null) return;
     await _show(
       attempt: useGroup ? groupAttempt : attempt,
+      checkPolicy: useGroup ? null : directLatest?.checkPolicy,
       convHex: latest.convHex,
       name: latest.name,
       shortId: latest.shortId,
@@ -1103,6 +1119,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     required NotificationSettings settings,
     bool allowReply = true,
     bool isMention = false,
+    Future<bool> Function()? checkPolicy,
   }) async {
     if (!_canContinueMessageAlert(attempt)) return;
     final liveSettings = ref.read(notificationSettingsProvider);
@@ -1152,6 +1169,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         .showPreparedIfCurrent(
           isCurrent: current,
           id: id,
+          checkPolicy: checkPolicy,
           prepare: () {
             // A downgrade applies immediately. An alert that opted out of
             // full text earlier cannot gain it while queued.
@@ -1189,6 +1207,21 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // this id. Never cancel here: the id may already belong to a later alert.
     if (!current()) return;
     owners.remember(convHex, owner);
+  }
+
+  Future<bool> _directAlertAllowed(
+    NodeId peer, {
+    required bool isMention,
+  }) async {
+    try {
+      final contact = await ref.read(storageProvider).getContact(peer);
+      return notificationModeAllows(
+        contact?.notificationModeAt(DateTime.now()) ?? NotificationMuteMode.all,
+        isMention: isMention,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   @override

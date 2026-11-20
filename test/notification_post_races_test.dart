@@ -4,7 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodChannel, PlatformException;
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    hide Message;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +18,7 @@ import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/chat/notification_binder.dart';
@@ -46,6 +48,7 @@ class _App extends AppController {
 
 class _Storage extends FakeSettingStorage {
   final muted = <NodeId>{};
+  final mentionsOnly = <NodeId>{};
   final refusedContacts = <NodeId>{};
   final delayed = <NodeId, Completer<void>>{};
   Future<List<Conversation>>? unread;
@@ -59,7 +62,12 @@ class _Storage extends FakeSettingStorage {
     }
     return Contact(
       nodeId: id,
-      mutedUntil: muted.contains(id) ? kMuteForever : null,
+      mutedUntil: muted.contains(id) || mentionsOnly.contains(id)
+          ? kMuteForever
+          : null,
+      notificationMuteMode: mentionsOnly.contains(id)
+          ? NotificationMuteMode.mentionsOnly
+          : NotificationMuteMode.none,
     );
   }
 
@@ -256,6 +264,7 @@ class _PermissionStartupPlugin extends Fake
   final posted = <String?>[];
   final titles = <String?>[];
   final bodies = <String?>[];
+  Future<void>? clearing;
 
   @override
   T? resolvePlatformSpecificImplementation<
@@ -283,7 +292,7 @@ class _PermissionStartupPlugin extends Fake
   getNotificationAppLaunchDetails() async => null;
 
   @override
-  Future<void> cancelAll() async {}
+  Future<void> cancelAll() async => await clearing;
 
   @override
   Future<void> show({
@@ -476,6 +485,47 @@ void main() {
       }
     },
   );
+
+  test('a policy read cannot bypass a concurrent native clear', () async {
+    final plugin = _PermissionStartupPlugin()..startup.complete(true);
+    final service = NotificationService(plugin: plugin);
+    await service.init(onTap: (_) {});
+    final policyEntered = Completer<void>();
+    final allowPost = Completer<bool>();
+    final finishClear = Completer<void>();
+    var policyReads = 0;
+    final post = service.showPreparedIfCurrent(
+      isCurrent: () => true,
+      id: 1,
+      prepare: () => (
+        title: 'xVeil',
+        body: 'message',
+        payload: 'fixture',
+        replyLabel: null,
+        replyHint: null,
+      ),
+      checkPolicy: () {
+        policyReads++;
+        if (!policyEntered.isCompleted) policyEntered.complete();
+        return allowPost.future;
+      },
+    );
+    await policyEntered.future;
+    plugin.clearing = finishClear.future;
+    final clear = service.cancelAll();
+    try {
+      allowPost.complete(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(plugin.posted, isEmpty);
+    } finally {
+      finishClear.complete();
+      await clear;
+      await post;
+    }
+    expect(await post, isTrue);
+    expect(policyReads, 2);
+    expect(plugin.posted, ['fixture']);
+  });
 
   late _Messaging messaging;
   late _Storage storage;
@@ -681,6 +731,64 @@ void main() {
       await cleanup(tester);
     }
   });
+
+  for (final scenario in ['incoming', 'unread', 'unread mention']) {
+    testWidgets('contact mute is checked before posting ($scenario)', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      final fromUnread = scenario != 'incoming';
+      final keepMention = scenario == 'unread mention';
+      await mount(tester, service: service, minimize: !fromUnread);
+      final peer = _id(2);
+      try {
+        if (fromUnread) {
+          storage.unread = Future.value([
+            Conversation(
+              peer: Contact(nodeId: peer),
+              unread: 1,
+              lastMessage: keepMention
+                  ? Message(
+                      id: 'fixture-mention',
+                      conversationId: peer.hex,
+                      direction: MessageDirection.incoming,
+                      body: encodeMessageMention(_id(1)),
+                      timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+                    )
+                  : null,
+            ),
+          ]);
+          await lifecycle(tester, background);
+        } else {
+          message(2);
+          await _pump(tester);
+        }
+        expect(plugin.posted, isEmpty);
+        (keepMention ? storage.mentionsOnly : storage.muted).add(peer);
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [
+          if (keepMention) peer.hex,
+        ]);
+
+        storage.muted.remove(peer);
+        storage.mentionsOnly.remove(peer);
+        message(2);
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [
+          if (keepMention) peer.hex,
+          peer.hex,
+        ]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    });
+  }
 
   for (final kind in ['contact', 'group', 'member space']) {
     testWidgets('an unreadable $kind policy keeps the queued alert intact', (
