@@ -83,6 +83,11 @@ class _MessagingRealtimeControl {
   final Map<String, Object> _consentEpochs = {};
   Future<void> _inboundChain = Future<void>.value();
 
+  // Early sends and both retry schedules share one submission per path for
+  // a durable call frame until that transport operation actually settles.
+  final _pendingCallSubmissions =
+      <({String peer, String frameId, String lane}), Future<bool>>{};
+
   /// This lane's own bound (audit XV-05). Smaller than the durable lane's:
   /// call control and endpoint sets are small frames, so a big one here is
   /// already the wrong shape, and the whole point of the lane is latency —
@@ -720,7 +725,7 @@ class _MessagingRealtimeControl {
     NodeId peer,
     Uint8List wire, {
     bool Function()? admitTransport,
-    Map<String, Future<bool>>? pendingLanes,
+    String? callFrameId,
   }) => [
     _attempt(
       kind,
@@ -728,7 +733,7 @@ class _MessagingRealtimeControl {
       'realtime direct',
       peer,
       () => sendRealtime(peer, wire, admitTransport: admitTransport),
-      pendingLanes: pendingLanes,
+      callFrameId: callFrameId,
     ),
     if (_owner._transport is RelayRealtimeTransport)
       _attempt(
@@ -737,7 +742,7 @@ class _MessagingRealtimeControl {
         'realtime relay',
         peer,
         () => _sendRelayRealtime(peer, wire, admitTransport: admitTransport),
-        pendingLanes: pendingLanes,
+        callFrameId: callFrameId,
       ),
   ];
 
@@ -785,8 +790,7 @@ class _MessagingRealtimeControl {
     NodeId peer,
     Uint8List wire, {
     required bool contactIdentity,
-    bool requireSubmission = false,
-    Map<String, Future<bool>>? pendingLanes,
+    String? callFrameId,
   }) async {
     if (_owner._anonymous) {
       await _observeSend(
@@ -809,7 +813,7 @@ class _MessagingRealtimeControl {
         'contact',
         peer,
         () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
-        pendingLanes: pendingLanes,
+        callFrameId: callFrameId,
       ),
       // The realtime endpoint is bound under the identity. A physical device
       // id cannot receive this frame without a device-scoped binding there.
@@ -818,13 +822,14 @@ class _MessagingRealtimeControl {
         'call-sig',
         peer,
         wire,
-        pendingLanes: pendingLanes,
+        callFrameId: callFrameId,
       ),
     ];
-    final submitted = pendingLanes == null
-        ? (await Future.wait(attempts)).contains(true)
-        : await _firstSubmission(attempts);
-    if (requireSubmission && !submitted) {
+    if (callFrameId == null) {
+      await Future.wait(attempts);
+      return;
+    }
+    if (!await _firstSubmission(attempts)) {
       throw StateError('All live call signaling paths rejected the frame');
     }
   }
@@ -909,10 +914,8 @@ class _MessagingRealtimeControl {
     String lane,
     NodeId peer,
     Future<void> Function() send, {
-    Map<String, Future<bool>>? pendingLanes,
+    String? callFrameId,
   }) {
-    final pending = pendingLanes?[lane];
-    if (pending != null) return pending;
     Future<bool> observe() async {
       try {
         await _observeSend(kind, send);
@@ -927,10 +930,12 @@ class _MessagingRealtimeControl {
       }
     }
 
-    final attempt = observe();
-    if (pendingLanes == null) return attempt;
-    return pendingLanes[lane] = attempt.whenComplete(() {
-      pendingLanes.remove(lane);
+    if (callFrameId == null) return observe();
+    final key = (peer: peer.hex, frameId: callFrameId, lane: lane);
+    return _pendingCallSubmissions.putIfAbsent(key, () {
+      return observe().whenComplete(() {
+        _pendingCallSubmissions.remove(key);
+      });
     });
   }
 
@@ -996,9 +1001,6 @@ class _MessagingRealtimeControl {
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
               ':${peer.hex}'
         : 'call:${signal.callId}:${signal.type.name}:${peer.hex}';
-    // Early send and fast retries share the same frame. A stalled path keeps
-    // its pending submission while other paths can retry at their normal pace.
-    final pendingLanes = <String, Future<bool>>{};
     await _owner.sendDurable(
       peer,
       frameId,
@@ -1007,8 +1009,7 @@ class _MessagingRealtimeControl {
         peer,
         wire,
         contactIdentity: contactIdentity,
-        requireSubmission: true,
-        pendingLanes: pendingLanes,
+        callFrameId: frameId,
       ),
       awaitLive: false,
       startLiveBeforeEnqueue: true,

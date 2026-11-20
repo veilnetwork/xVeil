@@ -1203,7 +1203,7 @@ class _MessagingOutbox {
       try {
         await _redriveLive(
           entry.peer,
-          entry.frame.wire,
+          entry.frame,
           contactIdentity: entry.contactIdentity,
         );
       } finally {
@@ -1224,9 +1224,10 @@ class _MessagingOutbox {
   /// the caller has already checked contact/device/group authorization.
   Future<void> _redriveLive(
     NodeId peer,
-    Uint8List wire, {
+    OutboxFrame frame, {
     required bool contactIdentity,
   }) {
+    final wire = frame.wire;
     WireKind? kind;
     try {
       kind = WireEnvelope.decode(wire).kind;
@@ -1239,7 +1240,7 @@ class _MessagingOutbox {
           peer,
           wire,
           contactIdentity: contactIdentity,
-          requireSubmission: true,
+          callFrameId: frame.frameId,
         );
       case WireKind.groupCallSignal:
         return _owner._realtimeControl._sendCallLive(
