@@ -85,11 +85,12 @@ class _MessagingDownloadResume {
 
   Stream<Set<String>> get resuming => _resuming.stream;
 
-  /// A new explicit request supersedes any suspended auto-resume preparation.
+  /// Replace suspended preparation and manifest waits before choosing a new sink.
   void beginUserRequest(String contentId) {
     _inFlight.remove(contentId);
     _preparations.remove(contentId);
     _owner._contentAvailability.cancelReoffers(contentId);
+    _owner._contentAvailability.retireReofferWait(contentId);
     _owner._cancelledDownloads.remove(contentId);
   }
 

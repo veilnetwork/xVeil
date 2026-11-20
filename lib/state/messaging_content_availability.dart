@@ -53,7 +53,7 @@ class _MessagingContentAvailability {
   /// Downloads parked until a manifest/ref reappears, or until an already
   /// active encrypted fetch completes and can be exported to this sink.
   final Map<String, _FetchSink?> _pending = {};
-  final Map<String, Timer> _pendingTimers = {};
+  final Map<String, ({Timer timer, Object? saveOwner})> _reofferWaits = {};
   final Set<Future<void>> _pendingCloses = {};
 
   /// A local send completion only means the reoffer was enqueued. A retry
@@ -109,12 +109,12 @@ class _MessagingContentAvailability {
   bool hasPending(String contentId) => _pending.containsKey(contentId);
 
   _FetchSink? takePending(String contentId) {
-    _pendingTimers.remove(contentId)?.cancel();
+    _reofferWaits.remove(contentId)?.timer.cancel();
     return _pending.remove(contentId);
   }
 
   void holdPending(String contentId, _FetchSink? sink) {
-    _pendingTimers.remove(contentId)?.cancel();
+    _reofferWaits.remove(contentId)?.timer.cancel();
     final previous = _pending[contentId];
     if (previous != null && previous != sink) _closeLater(previous);
     _pending[contentId] = sink;
@@ -124,6 +124,17 @@ class _MessagingContentAvailability {
     if (!hasPending(contentId)) return;
     final sink = takePending(contentId);
     if (sink != null) await _close(sink);
+  }
+
+  void retireReofferWait(String contentId) {
+    final wait = _reofferWaits[contentId];
+    if (wait == null) return;
+    final sink = takePending(contentId);
+    final saveOwner = wait.saveOwner;
+    if (saveOwner != null) {
+      _owner._forgetFetchSavePath(contentId, owner: saveOwner);
+    }
+    if (sink != null) _closeLater(sink);
   }
 
   ContentDownloadResult requestReofferFromAny(
@@ -149,14 +160,14 @@ class _MessagingContentAvailability {
           '${sources.length} source(s)',
     );
     holdPending(contentId, sink);
+    final saveOwner = sink == null
+        ? null
+        : _owner._fetchSavePath[contentId]?.owner;
     var expired = false;
-    _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+    final timer = Timer(_reofferTimeout, () {
       expired = true;
       if (_owner._cancelledDownloads.contains(contentId)) return;
-      _pendingTimers.remove(contentId);
-      final parked = _pending.remove(contentId);
-      if (parked != null) _closeLater(parked);
-      _owner._forgetFetchSavePath(contentId);
+      retireReofferWait(contentId);
       devLog(
         () =>
             'xVeil[content]: re-advertise TIMED OUT for '
@@ -166,6 +177,7 @@ class _MessagingContentAvailability {
         _owner._contentFailed.add(contentId);
       }
     });
+    _reofferWaits[contentId] = (timer: timer, saveOwner: saveOwner);
     for (final peer in sources) {
       unawaited(
         requestContentReoffer(
@@ -239,10 +251,10 @@ class _MessagingContentAvailability {
 
   Future<void> clearSession() async {
     cancelReoffers();
-    for (final timer in _pendingTimers.values) {
-      timer.cancel();
+    for (final wait in _reofferWaits.values) {
+      wait.timer.cancel();
     }
-    _pendingTimers.clear();
+    _reofferWaits.clear();
     final sinks = Set<_FetchSink>.identity();
     for (final sink in _pending.values) {
       if (sink != null) sinks.add(sink);
