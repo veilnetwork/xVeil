@@ -702,6 +702,100 @@ void main() {
     }
   });
 
+  for (final mode in ['close', 'cancel during write', 'replace during write']) {
+    test(
+      'a retired datagram save leaves its replacement intact ($mode)',
+      () async {
+        final holdWrite = mode != 'close';
+        final data = rnd(32768, 223);
+        final cid = ContentManifest.fromBytes(
+          'replaced-datagram.bin',
+          data,
+        ).contentId;
+        await mB.setFileDownloadPolicy(
+          mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+        );
+        await mA.sendFileStreaming(
+          b,
+          'replaced-datagram.bin',
+          data.length,
+          (offset, length) async =>
+              Uint8List.sublistView(data, offset, offset + length),
+          close: () async {},
+        );
+        await pumpEventQueue();
+        const oldPath = '/virtual/datagram-old.bin';
+        const newPath = '/virtual/datagram-new.bin';
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final paths = <String?>[];
+        final received = mB.contentReceived
+            .where((event) => event.contentId == cid)
+            .listen((event) => paths.add(event.savedToPath));
+        addTearDown(received.cancel);
+        int acknowledgements() =>
+            tB.sends.where((frame) => frame.kind == WireKind.ack).length;
+        final initialAcks = acknowledgements();
+        final output = BytesBuilder(copy: false);
+        final saved = Completer<void>();
+        final replacement = mB.contentReceived
+            .where(
+              (event) => event.contentId == cid && event.savedToPath == newPath,
+            )
+            .listen((_) => saved.complete());
+        addTearDown(replacement.cancel);
+        var oldCloses = 0;
+        var newCloses = 0;
+        Future<void> holdOldOperation() async {
+          entered.complete();
+          await release.future;
+        }
+
+        try {
+          expect(
+            await mB.downloadContentToFile(
+              a,
+              cid,
+              oldPath,
+              write: (_, _) async {
+                if (holdWrite) await holdOldOperation();
+              },
+              close: () async {
+                oldCloses++;
+                if (!holdWrite) await holdOldOperation();
+              },
+            ),
+            ContentDownloadResult.started,
+          );
+          await entered.future.timeout(const Duration(seconds: 5));
+          if (mode == 'cancel during write') {
+            expect(await mB.cancelContentDownload(cid), oldPath);
+          }
+          expect(
+            await mB.downloadContentToFile(
+              a,
+              cid,
+              newPath,
+              write: (_, bytes) async => output.add(bytes),
+              close: () async => newCloses++,
+            ),
+            ContentDownloadResult.started,
+          );
+        } finally {
+          release.complete();
+        }
+        await saved.future.timeout(const Duration(seconds: 5));
+        await pumpEventQueue();
+        expect(paths, [newPath]);
+        expect(output.toBytes(), data);
+        expect(acknowledgements() - initialAcks, 1);
+        expect(await mB.contentSavedPath(cid), newPath);
+        expect(oldCloses, 1);
+        expect(newCloses, 1);
+      },
+    );
+  }
+
   test('UNENCRYPTED download: pieces are written straight to a plaintext file; '
       'NOTHING is stored in the app; completion reports the path', () async {
     final data = rnd(300000, 22); // multi-piece, served from source

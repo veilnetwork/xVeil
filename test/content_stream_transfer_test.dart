@@ -1118,6 +1118,98 @@ void main() {
     );
   }
 
+  for (final holdWrite in [false, true]) {
+    test(
+      'a replaced stream save cannot publish its old destination ($holdWrite)',
+      () async {
+        final data = _rnd(holdWrite ? 300000 : 32768, 2381);
+        final cid = await advertiseFromA(
+          data,
+          name: 'replaced-stream-save.bin',
+        );
+        const oldPath = '/virtual/stream-old.bin';
+        const newPath = '/virtual/stream-new.bin';
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final paths = <String?>[];
+        final failures = <String>[];
+        final received = mB.contentReceived
+            .where((event) => event.contentId == cid)
+            .listen((event) => paths.add(event.savedToPath));
+        final failed = mB.contentDownloadFailed.listen(failures.add);
+        addTearDown(received.cancel);
+        addTearDown(failed.cancel);
+        int acknowledgements() => tB.sentPayloads
+            .where(
+              (payload) => WireEnvelope.decode(payload).kind == WireKind.ack,
+            )
+            .length;
+        final initialAcks = acknowledgements();
+        var oldCloses = 0;
+        var oldWrites = 0;
+        var newCloses = 0;
+
+        try {
+          expect(
+            await mB.downloadContentToFile(
+              a,
+              cid,
+              oldPath,
+              write: (_, _) async {
+                oldWrites++;
+                if (holdWrite && oldWrites == 1) {
+                  entered.complete();
+                  await release.future;
+                }
+              },
+              close: () async {
+                oldCloses++;
+                if (!holdWrite) {
+                  entered.complete();
+                  await release.future;
+                }
+              },
+            ),
+            ContentDownloadResult.started,
+          );
+          await entered.future.timeout(const Duration(seconds: 5));
+          final saved = mB.contentReceived.firstWhere(
+            (event) => event.contentId == cid && event.savedToPath == newPath,
+          );
+          final output = Uint8List(data.length);
+          expect(
+            await mB.downloadContentToFile(
+              a,
+              cid,
+              newPath,
+              write: (offset, bytes) async =>
+                  output.setRange(offset, offset + bytes.length, bytes),
+              close: () async => newCloses++,
+            ),
+            ContentDownloadResult.started,
+          );
+          await saved.timeout(const Duration(seconds: 5));
+          expect(output, data);
+        } finally {
+          release.complete();
+        }
+        await pumpEventQueue();
+        expect(tB.localStreamCloses, 2);
+        expect(paths, [newPath]);
+        expect(failures, isEmpty);
+        expect(acknowledgements() - initialAcks, 1);
+        expect(await mB.contentSavedPath(cid), newPath);
+        expect(
+          jsonDecode((await sB.getSetting('served:$cid'))!)['path'],
+          newPath,
+        );
+        expect(oldWrites, 1);
+        expect(oldCloses, 1);
+        expect(newCloses, 1);
+      },
+    );
+  }
+
   test('plain save uses a blob completed while its stream failed', () async {
     final data = _rnd(32768, 2372);
     final manifest = ContentManifest.fromBytes('arriving-cache.bin', data);

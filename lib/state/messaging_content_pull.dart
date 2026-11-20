@@ -824,14 +824,8 @@ extension _MessagingContentPull on MessagingService {
   ) async {
     var ok = false;
     try {
-      ok = await _pullSwarmPiecesToCompletion(
-        peers,
-        manifest,
-        sink: sink,
-        savedPath: savedPath,
-      );
-      if (ok) return;
-      if (_cancelledDownloads.contains(cid)) return;
+      ok = await _pullSwarmPiecesToCompletion(peers, manifest, sink: sink);
+      if (ok || !_ownsFetchSavePath(cid, sink)) return;
       devLog(
         () =>
             'xVeil[content]: swarm-range-to-file failed '
@@ -843,6 +837,7 @@ extension _MessagingContentPull on MessagingService {
       ]);
       for (final peer in fallbackPeers) {
         final contact = await _storage.getContact(peer);
+        if (!_ownsFetchSavePath(cid, sink)) return;
         if (contact == null || contact.status != ContactStatus.accepted) {
           continue;
         }
@@ -855,17 +850,17 @@ extension _MessagingContentPull on MessagingService {
               closeSinkOnFailure: false,
             ) ==
             true;
-        if (ok) return;
-        if (_cancelledDownloads.contains(cid)) return;
+        if (ok || !_ownsFetchSavePath(cid, sink)) return;
       }
     } finally {
       if (!ok) {
         try {
           await sink.close();
         } catch (_) {}
-        if (!_cancelledDownloads.contains(cid) && !_contentFailed.isClosed) {
+        if (_ownsFetchSavePath(cid, sink) && !_contentFailed.isClosed) {
           _contentFailed.add(cid);
         }
+        _forgetFetchSavePath(cid, owner: sink.saveOwner);
       }
     }
   }
@@ -874,7 +869,6 @@ extension _MessagingContentPull on MessagingService {
     Iterable<NodeId> peers,
     ContentManifest manifest, {
     _FetchSink? sink,
-    String? savedPath,
   }) async {
     _pullStarted(manifest.contentId);
     try {
@@ -882,7 +876,6 @@ extension _MessagingContentPull on MessagingService {
         peers,
         manifest,
         sink: sink,
-        savedPath: savedPath,
       );
     } finally {
       _pullEnded(manifest.contentId);
@@ -893,10 +886,13 @@ extension _MessagingContentPull on MessagingService {
     Iterable<NodeId> peers,
     ContentManifest manifest, {
     _FetchSink? sink,
-    String? savedPath,
   }) async {
     final cid = manifest.contentId;
-    if (_cancelledDownloads.contains(cid)) return false;
+    bool isCurrent() =>
+        !_disposed &&
+        !_cancelledDownloads.contains(cid) &&
+        (sink == null || _ownsFetchSavePath(cid, sink));
+    if (!isCurrent()) return false;
     unawaited(_persistManifestIfPending(manifest));
     if (_transport is! StreamTransport ||
         !_streamRangeEnabled ||
@@ -929,7 +925,7 @@ extension _MessagingContentPull on MessagingService {
     }
 
     await refreshSources();
-    if (sourceMap.isEmpty) return false;
+    if (!isCurrent() || sourceMap.isEmpty) return false;
     List<NodeId> sourceList() => sourceMap.values.toList(growable: false);
 
     final pending = <int>[];
@@ -954,6 +950,7 @@ extension _MessagingContentPull on MessagingService {
       } else {
         existing = null;
       }
+      if (!isCurrent()) return false;
       if (existing != null &&
           existing.length == len &&
           manifest.verifyPiece(i, existing)) {
@@ -976,7 +973,6 @@ extension _MessagingContentPull on MessagingService {
       if (!await _finishReceived(
         sourceList().first,
         manifest,
-        null,
         null,
         verifiedSources: const <NodeId>[],
       )) {
@@ -1023,7 +1019,10 @@ extension _MessagingContentPull on MessagingService {
         );
       }
       final offset = pieceIndex * manifest.pieceSize;
-      final next = sinkWriteTail.then((_) => sink.write(offset, piece));
+      final next = sinkWriteTail.then((_) {
+        if (!isCurrent()) throw const _DownloadPreparationRetired();
+        return sink.write(offset, piece);
+      });
       // The UI/soak callers use one RandomAccessFile with setPosition+write.
       // Serialize those writes here so parallel network pulls do not race the
       // file cursor.
@@ -1141,7 +1140,7 @@ extension _MessagingContentPull on MessagingService {
     }
 
     ({List<int> pieces, NodeId peer, int bytes})? takeRange() {
-      if (_cancelledDownloads.contains(cid) || failed || pending.isEmpty) {
+      if (!isCurrent() || failed || pending.isEmpty) {
         return null;
       }
       final sources = sourceList();
@@ -1211,7 +1210,7 @@ extension _MessagingContentPull on MessagingService {
     var activeHedges = 0;
 
     void emitProgress() {
-      if (_contentProgress.isClosed) return;
+      if (!isCurrent() || _contentProgress.isClosed) return;
       _contentProgress.add((
         contentId: cid,
         done: completedBytes.clamp(0, manifest.size).toInt(),
@@ -1287,16 +1286,15 @@ extension _MessagingContentPull on MessagingService {
     }
 
     Future<void> worker(int index) async {
-      while (!_disposed && !_cancelledDownloads.contains(cid) && !failed) {
-        while (!_disposed &&
-            !_cancelledDownloads.contains(cid) &&
+      while (isCurrent() && !failed) {
+        while (isCurrent() &&
             !failed &&
             activeRangeWorkers >= adaptiveWorkerLimit) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         final task = takeRange();
         if (task == null) {
-          if (_disposed || _cancelledDownloads.contains(cid) || failed) return;
+          if (!isCurrent() || failed) return;
           if (completed.length >= manifest.pieceCount) return;
           if (pending.isNotEmpty) continue; // requeue raced takeRange
           // Tail: every remaining piece is in flight on another worker. Hedge
@@ -1368,7 +1366,7 @@ extension _MessagingContentPull on MessagingService {
           'attempts_per_piece=${maxAttemptsPerPiece()}',
     );
     await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
-    if (_cancelledDownloads.contains(cid) ||
+    if (!isCurrent() ||
         failed ||
         completed.length < manifest.pieceCount ||
         (sink == null && !await _storage.hasFile(cid))) {
@@ -1384,12 +1382,11 @@ extension _MessagingContentPull on MessagingService {
       completionPeer ?? sourceList().first,
       completionManifest ?? manifest,
       sink,
-      savedPath,
       verifiedSources: verifiedSources.values,
     )) {
       return false;
     }
-    if (!_contentProgress.isClosed) {
+    if (sink == null && !_contentProgress.isClosed) {
       _contentProgress.add((
         contentId: cid,
         done: manifest.size,
@@ -1760,8 +1757,17 @@ extension _MessagingContentPull on MessagingService {
     Iterable<NodeId> retryPeers = const [],
     bool closeSinkOnFailure = true,
   }) async {
-    if (_cancelledDownloads.contains(cid)) {
+    bool isCurrent() =>
+        !_disposed &&
+        !_cancelledDownloads.contains(cid) &&
+        (sink == null || _ownsFetchSavePath(cid, sink));
+    if (!isCurrent()) {
       await initialStream.abort();
+      if (sink != null && closeSinkOnFailure) {
+        try {
+          await sink.close();
+        } catch (_) {}
+      }
       return false;
     }
     var ok = false;
@@ -1780,20 +1786,14 @@ extension _MessagingContentPull on MessagingService {
     var resumePiece = 0;
     _pullStarted(cid);
     try {
-      for (
-        var attempt = 1;
-        attempt <= maxAttempts &&
-            !_disposed &&
-            !_cancelledDownloads.contains(cid);
-        attempt++
-      ) {
+      for (var attempt = 1; attempt <= maxAttempts && isCurrent(); attempt++) {
         // Another receive path may have completed the verified local blob
         // while this stream was waiting for its manifest. Save that copy
         // before reopening a route that may still be unavailable.
         if (sink != null && savedPath != null && await _storage.hasFile(cid)) {
           await stream?.abort();
           stream = null;
-          if (_disposed || _cancelledDownloads.contains(cid)) break;
+          if (!isCurrent()) break;
           ok = await _exportStoredContentToSink(cid, sink, savedPath);
           break;
         }
@@ -1910,7 +1910,7 @@ extension _MessagingContentPull on MessagingService {
                 '(attempt $attempt'
                 '${readBytes > 0 ? ', resume=$readBytes' : ''})',
           );
-          if (!_contentProgress.isClosed) {
+          if (isCurrent() && !_contentProgress.isClosed) {
             _contentProgress.add((
               contentId: cid,
               done: readBytes,
@@ -1943,6 +1943,7 @@ extension _MessagingContentPull on MessagingService {
           final buf = BytesBuilder(copy: false);
           var bufLen = 0;
           for (var pi = startPiece; pi < m.pieceCount; pi++) {
+            if (!isCurrent()) throw const _DownloadPreparationRetired();
             final pieceLen = m.pieceLength(pi);
             while (bufLen < pieceLen) {
               final chunk = await current
@@ -1954,6 +1955,7 @@ extension _MessagingContentPull on MessagingService {
                       _streamPayloadIdleTimeout,
                     ),
                   );
+              if (!isCurrent()) throw const _DownloadPreparationRetired();
               if (chunk.isEmpty) throw StateError('stream EOF mid-piece $pi');
               buf.add(chunk);
               bufLen += chunk.length;
@@ -1988,22 +1990,19 @@ extension _MessagingContentPull on MessagingService {
               bufLen = 0;
             }
           }
-          if (_cancelledDownloads.contains(cid) ||
-              !await _finishReceived(attemptPeer, m, sink, savedPath)) {
+          if (!isCurrent() || !await _finishReceived(attemptPeer, m, sink)) {
             lastError = StateError('download finalization failed');
             break;
           }
           ok = true;
-          if (!_contentProgress.isClosed) {
+          if (sink == null && !_contentProgress.isClosed) {
             _contentProgress.add((contentId: cid, done: m.size, total: m.size));
           }
           break;
         } catch (e) {
           attemptFailed = true;
-          if (e is _LegacyContentStream &&
-              legacyPeers.add(attemptPeer) &&
-              !_disposed &&
-              !_cancelledDownloads.contains(cid)) {
+          if (!isCurrent()) break;
+          if (e is _LegacyContentStream && legacyPeers.add(attemptPeer)) {
             attempt--;
             continue;
           }
@@ -2034,9 +2033,7 @@ extension _MessagingContentPull on MessagingService {
                 'xVeil[content]: stream-pull attempt $attempt failed '
                 '${cid.substring(0, 12)}: $e',
           );
-          if (attempt == maxAttempts ||
-              _disposed ||
-              _cancelledDownloads.contains(cid)) {
+          if (attempt == maxAttempts) {
             break;
           }
         } finally {
@@ -2172,11 +2169,93 @@ extension _MessagingContentPull on MessagingService {
     return _contentStreams.trackPull(contentId, stream);
   }
 
+  Future<bool> _finishPlainFile(
+    NodeId peer,
+    ContentManifest manifest,
+    _FetchSink sink, {
+    required bool reseed,
+    required bool groupScoped,
+  }) async {
+    final cid = manifest.contentId;
+    final savedPath = _fetchSavePath[cid]?.path;
+    bool isCurrent() => _ownsFetchSavePath(cid, sink);
+
+    try {
+      await sink.close();
+    } catch (error) {
+      if (isCurrent()) {
+        devLog(
+          () =>
+              'xVeil[content]: plaintext close failed '
+              '${cid.substring(0, 12)} -> $savedPath: $error',
+        );
+        _forgetFetchSavePath(cid, owner: sink.saveOwner);
+        if (!_contentFailed.isClosed) _contentFailed.add(cid);
+      }
+      return false;
+    }
+    if (!isCurrent() || savedPath == null) return false;
+    try {
+      await _storage.putSetting('saved:$cid', savedPath);
+      if (reseed && isCurrent()) {
+        // Stream downloads can serve the verified file from disk after restart.
+        await _persistServeManifest(manifest);
+        if (!isCurrent()) return false;
+        await _storage.putSetting(
+          'served:$cid',
+          jsonEncode({
+            'path': savedPath,
+            'size': manifest.size,
+            'pieceSize': manifest.pieceSize,
+            'name': manifest.name,
+          }),
+        );
+      }
+    } catch (_) {
+      // The file is already saved. A settings failure does not undo the write.
+    }
+    if (!isCurrent()) return false;
+    if (!groupScoped) {
+      try {
+        await _send(
+          peer,
+          WireEnvelope.ack(manifest.msgId ?? cid).encode(),
+          admitTransport: isCurrent,
+        );
+      } catch (_) {
+        _forgetFetchSavePath(cid, owner: sink.saveOwner);
+        rethrow;
+      }
+      if (!isCurrent()) return false;
+    }
+    _forgetFetchSavePath(cid, owner: sink.saveOwner);
+    if (reseed && !_contentProgress.isClosed) {
+      _contentProgress.add((
+        contentId: cid,
+        done: manifest.size,
+        total: manifest.size,
+      ));
+    }
+    if (!_contentReceived.isClosed) {
+      _contentReceived.add((
+        contentId: cid,
+        name: manifest.name,
+        savedToPath: savedPath,
+      ));
+    }
+    if (reseed) _clearGroupPullSources(cid);
+    devLog(
+      () =>
+          'xVeil[content]: COMPLETE ${cid.substring(0, 12)} '
+          '(${manifest.size}B) saved to $savedPath',
+    );
+    return true;
+  }
+
   Future<bool> _finishReceived(
     NodeId peer,
     ContentManifest m,
-    _FetchSink? sink,
-    String? savedPath, {
+    _FetchSink? sink, {
     Iterable<NodeId>? verifiedSources,
   }) async {
     final ackId = m.msgId ?? m.contentId;
@@ -2185,62 +2264,13 @@ extension _MessagingContentPull on MessagingService {
       (source) => _groupPullSourceAllowed(source, m.contentId),
     );
     if (sink != null) {
-      try {
-        await sink.close();
-      } catch (e) {
-        devLog(
-          () =>
-              'xVeil[content]: plaintext close failed '
-              '${m.contentId.substring(0, 12)} -> $savedPath: $e',
-        );
-        if (!_contentFailed.isClosed) _contentFailed.add(m.contentId);
-        return false;
-      }
-      if (savedPath != null) {
-        try {
-          await _storage.putSetting('saved:${m.contentId}', savedPath);
-          // Serve the saved plaintext back on demand (content-addressed): the
-          // ORIGINAL SENDER can recover a file they deleted, and any accepted
-          // holder can re-seed. Mirrors the sender's serve-from-source model —
-          // persist the manifest + the serve path so a stream request / reoffer
-          // reopens the file. If the user later moves or deletes this plain
-          // file, the reopen fails and the peer gets an honest content-GONE.
-          await _persistServeManifest(m);
-          // JSON record with the hashing params, so a missing mf: blob
-          // (IndexFull) can be rebuilt from the saved file — same contract as
-          // the sender-side durable offer.
-          await _storage.putSetting(
-            'served:${m.contentId}',
-            jsonEncode({
-              'path': savedPath,
-              'size': m.size,
-              'pieceSize': m.pieceSize,
-              'name': m.name,
-            }),
-          );
-          // Durable-only (no RAM _serving entry): every serve/reoffer reopens
-          // the file from served:<cid>, so a since-moved/deleted plain file is
-          // detected and answered with content-GONE instead of a false offer.
-        } catch (_) {}
-      }
-      _forgetFetchSavePath(m.contentId);
-      devLog(
-        () =>
-            'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
-            '(${m.size}B) saved to $savedPath (serveable)',
+      return _finishPlainFile(
+        peer,
+        m,
+        sink,
+        reseed: true,
+        groupScoped: groupScoped,
       );
-      if (!groupScoped) {
-        await _send(peer, WireEnvelope.ack(ackId).encode());
-      }
-      if (!_contentReceived.isClosed) {
-        _contentReceived.add((
-          contentId: m.contentId,
-          name: m.name,
-          savedToPath: savedPath,
-        ));
-      }
-      _clearGroupPullSources(m.contentId);
-      return true;
     }
     devLog(
       () =>
@@ -2300,6 +2330,8 @@ extension _MessagingContentPull on MessagingService {
       );
       return; // not fetching this content
     }
+    final sink = fetch.sink;
+    if (sink != null && !_ownsFetchSavePath(f.contentId, sink)) return;
     _contentFetching.touch(f.contentId); // progress — keep this fetch non-stale
     final piece = fetch.xfer.addChunk(
       f.pieceIndex,
@@ -2312,10 +2344,10 @@ extension _MessagingContentPull on MessagingService {
       // keeps no piece bytes, so the whole file never sits in RAM (any size).
       final m = fetch.manifest;
       try {
-        if (fetch.sink != null) {
+        if (sink != null) {
           // UNENCRYPTED download → write the piece to the user's plaintext file
           // at its byte offset; nothing is kept in the app.
-          await fetch.sink!.write(f.pieceIndex * m.pieceSize, piece);
+          await sink.write(f.pieceIndex * m.pieceSize, piece);
         } else {
           // Store via the Storage port (encrypted on-disk tier / in-volume).
           await _storage.storeFilePiece(
@@ -2337,6 +2369,10 @@ extension _MessagingContentPull on MessagingService {
         );
         return;
       }
+      if (!identical(_contentFetching.active(f.contentId)?.xfer, fetch.xfer) ||
+          (sink != null && !_ownsFetchSavePath(f.contentId, sink))) {
+        return;
+      }
       devLog(
         () =>
             'xVeil[content]: piece ${f.pieceIndex} VERIFIED+'
@@ -2356,45 +2392,14 @@ extension _MessagingContentPull on MessagingService {
     // Every piece verified AND written → done.
     _contentFetching.take(f.contentId);
     final ackId = fetch.manifest.msgId ?? f.contentId;
-    final sink = fetch.sink;
     if (sink != null) {
-      // UNENCRYPTED-to-file: the bytes are on the user's disk, NOT in the app —
-      // so no offer→downloaded flip; just finalise the file, ack (we received
-      // it), and tell the UI where it landed.
-      final savedPath = _forgetFetchSavePath(f.contentId);
-      try {
-        await sink.close();
-      } catch (e) {
-        devLog(
-          () =>
-              'xVeil[content]: plaintext close failed '
-              '${f.contentId.substring(0, 12)} -> $savedPath: $e',
-        );
-        if (!_contentFailed.isClosed) _contentFailed.add(f.contentId);
-        return;
-      }
-      // Remember where it landed so a later tap OPENS the file instead of
-      // re-offering it (it isn't in the app store → hasFile is false).
-      if (savedPath != null) {
-        try {
-          await _storage.putSetting('saved:${f.contentId}', savedPath);
-        } catch (_) {
-          /* non-fatal */
-        }
-      }
-      devLog(
-        () =>
-            'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
-            '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath',
+      await _finishPlainFile(
+        fetch.peer,
+        fetch.manifest,
+        sink,
+        reseed: false,
+        groupScoped: false,
       );
-      await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
-      if (!_contentReceived.isClosed) {
-        _contentReceived.add((
-          contentId: f.contentId,
-          name: fetch.name,
-          savedToPath: savedPath,
-        ));
-      }
       return;
     }
     // Stored in the app (encrypted tier / in-volume) → surface offer→downloaded.
