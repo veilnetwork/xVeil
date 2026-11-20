@@ -160,7 +160,7 @@ void main() {
       //
       // So the window is the method that posts the repliable alert, and the
       // rule inside it is unchanged: look the owner up before posting.
-      final show = source.indexOf('Future<void> _show({');
+      final show = source.indexOf(' _show({');
       expect(show, greaterThan(-1), reason: 'the repliable alert moved');
       final body = source.substring(show);
 
@@ -187,7 +187,7 @@ void main() {
       ).readAsStringSync();
 
       // Same window as above, and for the same reason.
-      final show = source.indexOf('Future<void> _show({');
+      final show = source.indexOf(' _show({');
       expect(show, greaterThan(-1), reason: 'the repliable alert moved');
       final body = source.substring(show);
       expectBefore(body, '.showPreparedIfCurrent(', 'owners.remember(convHex,');
@@ -202,7 +202,7 @@ void main() {
       );
       expect(
         RegExp(
-          r'if \(!posted\) return;|if \(posted\) owners\.remember\(',
+          r'if \(!posted\) return(?: \w+)?;|if \(posted\) owners\.remember\(',
         ).hasMatch(between),
         isTrue,
         reason: 'the owner moves for an alert that was never posted',
