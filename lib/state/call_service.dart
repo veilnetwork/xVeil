@@ -257,6 +257,9 @@ abstract class CallMediaController {
   /// A periodic cached hint cannot confirm an outage after packets resume.
   /// A null result leaves the separate direct-session admission check in charge.
   Future<DateTime?> readLatestAudioRxAt() async => null;
+
+  /// Start of the active receive path, including a route change that keeps
+  /// the same media engine and receive counters.
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
 

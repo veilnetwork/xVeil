@@ -2260,9 +2260,11 @@ void main() {
     test('refresh live relay with peer proof: $mode', () async {
       final transport = _HandoverTransport();
       final engine = _HandoverEngine();
+      var now = DateTime.now();
       var engines = 0;
       final controller = VeilCallMediaController(
         transport,
+        statsNow: () => now,
         engineFactory: ({required veilChan, required localId, required peerId}) {
           engines++;
           return engine;
@@ -2274,6 +2276,7 @@ void main() {
           direct: true,
         ).copyWith(transport: CallTransportKind.relay);
         expect(await controller.start(call), isTrue);
+        final originalReceiveStart = controller.receiveSessionStartedAt;
         var stillNeeded = true;
         refreshing = controller.refreshRelayRoute(
           canCommit: () async => stillNeeded,
@@ -2289,12 +2292,17 @@ void main() {
 
         if (mode == 'hangup') await controller.stop();
         stillNeeded = mode != 'no longer needed';
+        now = now.add(kCallMediaRepairAfter);
         transport.echo.complete(mode != 'no echo');
         expect(await refreshing, mode == 'confirmed');
         expect(transport.probeRequests, [43]);
         expect(engines, 1);
         expect(engine.rebound, mode == 'confirmed' ? [43] : isEmpty);
         if (mode != 'hangup') {
+          expect(
+            controller.receiveSessionStartedAt,
+            mode == 'confirmed' ? now : originalReceiveStart,
+          );
           expect(engine.disposed, isFalse);
           expect(controller.activeTransport, CallTransportKind.relay);
           if (mode != 'confirmed') expect(transport.closed, [43]);
@@ -2313,17 +2321,22 @@ void main() {
     test('relay retry reuses one opened candidate: $retrySucceeds', () async {
       final transport = _HandoverTransport()..proofAvailable = false;
       final engine = _HandoverEngine();
+      var now = DateTime.now();
       final controller = VeilCallMediaController(
         transport,
+        statsNow: () => now,
         engineFactory:
             ({required veilChan, required localId, required peerId}) => engine,
       );
       try {
         expect(await controller.start(_call(direct: true)), isTrue);
+        final directReceiveStart = controller.receiveSessionStartedAt;
+        now = now.add(kCallMediaRepairAfter);
         expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
         expect(transport.opened, [42, 43]);
         expect(transport.probeRequests, [43, 43, 43]);
         expect(controller.activeTransport, CallTransportKind.p2p);
+        expect(controller.receiveSessionStartedAt, directReceiveStart);
         expect(engine.rebound, isEmpty);
 
         transport.proofAvailable = retrySucceeds;
@@ -2337,10 +2350,12 @@ void main() {
           expect(transport.closed, isNot(contains(43)));
           expect(engine.rebound, [43]);
           expect(controller.activeTransport, CallTransportKind.relay);
+          expect(controller.receiveSessionStartedAt, now);
         } else {
           expect(transport.probeRequests, List.filled(6, 43));
           expect(transport.closed, [43]);
           expect(engine.rebound, isEmpty);
+          expect(controller.receiveSessionStartedAt, directReceiveStart);
           transport.proofAvailable = true;
           expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
           expect(transport.opened, [42, 43, 44]);
