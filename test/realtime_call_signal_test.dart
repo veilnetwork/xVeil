@@ -47,6 +47,7 @@ class _RealtimeProbe
   bool? lastNormalAnonymous;
   bool failSends = false;
   bool failRealtimeSends = false;
+  bool failRelayRealtimeSends = false;
   NodeId? lastNormalDestination;
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
@@ -105,7 +106,7 @@ class _RealtimeProbe
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) async {
     relayRealtimeSends++;
-    if (failSends || failRealtimeSends) {
+    if (failSends || failRealtimeSends || failRelayRealtimeSends) {
       throw StateError('private-peer /private/model/path');
     }
     lastRelayRealtimeDestination = dst;
@@ -1100,14 +1101,19 @@ void main() {
     },
   );
 
-  for (final rejectContact in [false, true]) {
+  for (final (rejectContact, rejectRelay) in [
+    (false, false),
+    (true, false),
+    (true, true),
+  ]) {
     test('a stalled realtime path cannot hold the fast answer retries '
-        '(contact rejected: $rejectContact)', () {
+        '(contact rejected: $rejectContact, relay rejected: $rejectRelay)', () {
       fakeAsync((time) {
         final transport = _RealtimeProbe(me);
         final storage = HiddenVolumeStorage(_memOpener());
         final clock = time.getClock(DateTime(2026));
         transport.blockRealtime = true;
+        transport.failRelayRealtimeSends = rejectRelay;
         if (rejectContact) {
           transport.onNormalSend = (_, _) =>
               throw StateError('contact rejected');
@@ -1129,11 +1135,19 @@ void main() {
             );
             persisted = true;
           }());
-          time.elapse(const Duration(seconds: 1));
+          time.elapse(const Duration(milliseconds: 500));
 
           expect(persisted, isTrue);
+          expect(transport.relayRealtimeSends, 2);
+          if (rejectRelay) {
+            expect(transport.lastRelayRealtimeDestination, isNull);
+            transport.failRelayRealtimeSends = false;
+          }
+          time.elapse(const Duration(milliseconds: 500));
+
           expect(transport.normalSends, 3);
           expect(transport.relayRealtimeSends, 3);
+          expect(transport.lastRelayRealtimeDestination, peer);
           expect(
             transport.realtimeSends,
             1,
