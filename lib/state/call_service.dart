@@ -1408,7 +1408,7 @@ class CallService {
   /// so a mute lands on their screen now rather than up to a beat later. The
   /// periodic heartbeat carries the same field, which is what makes a dropped
   /// frame here self-correcting rather than permanent.
-  Future<void> _announceCapture() async {
+  Future<void> _announceCapture({bool allowCompactHealth = true}) async {
     final cur = _current;
     if (cur == null || !cur.isLive || cur.isSettingUp) return;
     await _sendCallSignal(
@@ -1426,6 +1426,7 @@ class CallService {
         audioPlayout: _media?.audioPlayoutFeedback,
         protocolVersion: _signalProtocolVersion,
       ),
+      allowCompactHealth: allowCompactHealth,
     );
   }
 
@@ -2264,14 +2265,25 @@ class CallService {
     // A queued admission can be delivered after the local network is gone.
     // It cannot wake recovery until there is a usable local attachment.
     if (_disposed || _networkOffline) return;
+    final network = _overlayAdmissionNetwork;
+    final firstOnNetwork = _lastOverlayAdmissionNetwork != network;
     _relayConnectionGeneration++;
-    _lastOverlayAdmissionNetwork = _overlayAdmissionNetwork;
+    _lastOverlayAdmissionNetwork = network;
     final waiting = _relayRebuildAdmission;
     if (waiting != null && !waiting.isCompleted) waiting.complete(true);
     final call = _current;
     if (call != null) {
       devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
+      final handoverAt = _localNetworkHandoverAt;
+      if (firstOnNetwork &&
+          call.status == CallStatus.active &&
+          handoverAt != null &&
+          _now().difference(handoverAt) < kCallLivenessTimeout) {
+        // The peer's timeout can precede our next beat. Send on the regular
+        // control paths while the old media route may still be stalled.
+        unawaited(_announceCapture(allowCompactHealth: false));
+      }
     }
   }
 
@@ -3423,7 +3435,11 @@ class CallService {
   /// must not move these controls into that unrelated conversation. The
   /// receiver still matches the exact call id and saved answering peer.
   /// Sibling fan-out remains device-addressed through onBehalfOf.
-  Future<void> _sendCallSignal(NodeId peer, CallSignal signal) {
+  Future<void> _sendCallSignal(
+    NodeId peer,
+    CallSignal signal, {
+    bool allowCompactHealth = true,
+  }) {
     final call = _current;
     if (call != null &&
         call.callId == signal.callId &&
@@ -3439,7 +3455,8 @@ class CallService {
       );
       _audioFeedbackSchedule.recordAttempt(signal.audioPlayout, _now());
     }
-    if (call != null &&
+    if (allowCompactHealth &&
+        call != null &&
         call.callId == signal.callId &&
         call.peer == peer &&
         call.status == CallStatus.active &&
