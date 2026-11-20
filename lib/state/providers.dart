@@ -48,29 +48,7 @@ final prefsProvider = FutureProvider<SharedPreferences>((ref) {
   return profilePreferences();
 });
 
-/// Native compaction is an asynchronous external operation: once started, its
-/// final rename can outlive a session-ending request. Keep that boundary
-/// injectable so teardown ordering can be held at the publish point in tests.
-typedef ContainerCompactor =
-    Future<void> Function(
-      String path,
-      List<Uint8List> passwords, {
-      required Future<void> Function() beforePublication,
-      String? dylibPath,
-    });
-
-final containerCompactorProvider = Provider<ContainerCompactor>(
-  (ref) =>
-      (path, passwords, {required beforePublication, dylibPath}) =>
-          hv.compactKnownPreparedAsync(
-            path,
-            passwords,
-            repairMetadata: (_) => beforePublication(),
-            dylibPath: dylibPath,
-          ),
-);
-
-/// Manual compaction repairs encrypted key references before publication.
+/// The source is locked throughout the staged validation and metadata repair.
 typedef PreparedContainerCompactor =
     Future<void> Function(
       String path,

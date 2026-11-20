@@ -102,7 +102,8 @@ void main() {
     final file = await File(path).open(mode: FileMode.write);
     await file.truncate(16 << 20);
     await file.close();
-    final storage = _BeforeOpenGate(FakeHvContainer().passwordOpener);
+    final fake = FakeHvContainer();
+    final storage = _BeforeOpenGate(fake.passwordOpener);
     await storage.open(password: 'fixture', createIfMissing: true);
     await storage.putSetting('storage.autocompact.v1', 'v2:fixture-setup');
     await storage.close();
@@ -115,14 +116,17 @@ void main() {
         appControllerProvider.overrideWith(() => controller),
         singleSpaceStorageProvider.overrideWithValue(storage),
         notificationServiceProvider.overrideWithValue(_Notifications()),
-        containerCompactorProvider.overrideWithValue((
+        compactionStagedStorageProvider.overrideWithValue(
+          (_) => fake.storage(),
+        ),
+        preparedContainerCompactorProvider.overrideWithValue((
           path,
           passwords, {
-          required beforePublication,
+          required repairMetadata,
           dylibPath,
         }) async {
           rewrites++;
-          await beforePublication();
+          await repairMetadata(path);
         }),
         deniableBootProvider.overrideWithValue(
           DeniableBootConfig(
@@ -155,7 +159,8 @@ void main() {
         await file.truncate(16 << 20);
         await file.close();
         // Only a size witness. This branch must fail before native rewrite.
-        final storage = _CloseFailure(FakeHvContainer().passwordOpener);
+        final fake = FakeHvContainer();
+        final storage = _CloseFailure(fake.passwordOpener);
         await storage.open(password: 'fixture', createIfMissing: true);
         await storage.putSetting('storage.autocompact.v1', 'v2:fixture-setup');
         await storage.close();
@@ -170,10 +175,13 @@ void main() {
             appControllerProvider.overrideWith(() => controller),
             singleSpaceStorageProvider.overrideWithValue(storage),
             notificationServiceProvider.overrideWithValue(_Notifications()),
-            containerCompactorProvider.overrideWithValue((
+            compactionStagedStorageProvider.overrideWithValue(
+              (_) => fake.storage(),
+            ),
+            preparedContainerCompactorProvider.overrideWithValue((
               path,
               passwords, {
-              required beforePublication,
+              required repairMetadata,
               dylibPath,
             }) async {
               backendCalls++;
@@ -182,7 +190,7 @@ void main() {
               if (stage == _Stage.nativeFailure) {
                 throw StateError('fixture backend refusal');
               }
-              await beforePublication();
+              await repairMetadata(path);
             }),
             deniableBootProvider.overrideWithValue(
               DeniableBootConfig(

@@ -17,6 +17,7 @@ import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/keep_all_online_controller.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/startup_unlock.dart';
@@ -39,11 +40,14 @@ class _AutoController extends AppController {
 
 class _Storage extends HiddenVolumeStorage {
   _Storage(String path) : super.async(workerSpaceOpener(path));
+  int sessionStarts = 0;
+
   @override
   Future<String?> getSetting(String key) {
     // Exercise the public unlock through classification and maintenance, then
     // stop before booting a node or opening a network connection.
     if (key == 'anonymous') {
+      sessionStarts++;
       throw StateError('fixture stops before network boot');
     }
     return super.getSetting(key);
@@ -74,6 +78,8 @@ void main() {
         'other-instance',
         'other-instance-after-close',
         'other-instance-stale-write',
+        'revoked-after-close',
+        'roster-after-close',
         'old-consent',
       ],
     ]) {
@@ -81,6 +87,8 @@ void main() {
       final startOver = scenario == 'start-over';
       final otherInstanceAfterClose = scenario == 'other-instance-after-close';
       final staleWrite = scenario == 'other-instance-stale-write';
+      final lateRevocation = scenario == 'revoked-after-close';
+      final lateRoster = scenario == 'roster-after-close';
       final otherInstance =
           scenario == 'other-instance' || otherInstanceAfterClose || staleWrite;
       final corruption = switch (scenario) {
@@ -104,6 +112,10 @@ void main() {
             'new space after source close cancels the prepared publication',
           'other-instance-stale-write' =>
             'saving an unrelated old preference cannot restore compaction consent',
+          'revoked-after-close' =>
+            'revoking consent after source close prevents automatic publication',
+          'roster-after-close' =>
+            'a roster saved after source close prevents automatic publication',
           'old-consent' =>
             'unbound automatic compaction consent cannot delete a space',
           _ => 'native solo admission: automatic=$automatic roster=$corruption',
@@ -150,6 +162,10 @@ void main() {
           HiddenVolumeStorage facade() =>
               HiddenVolumeStorage.async(workerSpaceOpener(path));
           final seed = facade();
+          Uint8List? retainedChildKeys;
+          addTearDown(
+            () => retainedChildKeys?.fillRange(0, retainedChildKeys.length, 0),
+          );
           try {
             Uint8List? childKeys;
             if (hasChild && !startOver && !otherInstance) {
@@ -165,6 +181,7 @@ void main() {
               );
               await seed.storeFile('fixture-body', body);
               childKeys = await seed.exportSpaceKeys();
+              if (lateRoster) retainedChildKeys = Uint8List.fromList(childKeys);
               await seed.close();
             }
             expect(await seed.open(password: 'root-fixture'), isTrue);
@@ -243,6 +260,7 @@ void main() {
               ? _AutoController()
               : _ManualController();
           var nativeCalls = 0;
+          var publications = 0;
           final providers = ProviderContainer(
             overrides: [
               appControllerProvider.overrideWith(() => controller),
@@ -257,21 +275,6 @@ void main() {
                   storePath: path,
                 ),
               ),
-              containerCompactorProvider.overrideWithValue((
-                path,
-                passwords, {
-                required beforePublication,
-                dylibPath,
-              }) async {
-                nativeCalls++;
-                if (otherInstanceAfterClose) await addOtherSpace();
-                await hv.compactKnownPreparedAsync(
-                  path,
-                  passwords,
-                  repairMetadata: (_) => beforePublication(),
-                  dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
-                );
-              }),
               preparedContainerCompactorProvider.overrideWithValue((
                 path,
                 passwords, {
@@ -279,12 +282,31 @@ void main() {
                 dylibPath,
               }) async {
                 nativeCalls++;
+                if (otherInstanceAfterClose) await addOtherSpace();
+                if (lateRevocation || lateRoster) {
+                  expect(await seed.open(password: 'root-fixture'), isTrue);
+                  try {
+                    if (lateRevocation) {
+                      await seed.putSetting('storage.autocompact.v1', '0');
+                    } else {
+                      await seed.saveRoster([
+                        RosterEntry(
+                          label: 'child-fixture',
+                          spaceKeys: retainedChildKeys!,
+                        ),
+                      ]);
+                    }
+                  } finally {
+                    await seed.close();
+                  }
+                }
                 await hv.compactKnownPreparedAsync(
                   path,
                   passwords,
                   repairMetadata: repairMetadata,
                   dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
                 );
+                publications++;
               }),
             ],
           );
@@ -359,6 +381,19 @@ void main() {
               await controller.lock();
             } else if (automatic) {
               await controller.unlock('root-fixture');
+              if (lateRoster) {
+                expect((storage as _Storage).sessionStarts, 0);
+                expect(
+                  providers.read(appControllerProvider).phase,
+                  AppPhase.locked,
+                );
+                await providers.read(keepAllOnlineProvider.notifier).set(false);
+                await controller.unlock('root-fixture');
+                final retried = providers.read(appControllerProvider);
+                expect(retried.phase, AppPhase.pickingIdentity);
+                expect(retried.identities, ['child-fixture']);
+                await controller.lock();
+              }
             } else {
               expect(await storage.open(password: 'root-fixture'), isTrue);
               if (corruption == 'none') {
@@ -395,14 +430,26 @@ void main() {
                 password == 'root-fixture' ? 'Root fixture' : 'Child fixture',
               );
               expect(await reader.loadFile('fixture-body'), body);
+              if (password == 'root-fixture' && lateRevocation) {
+                expect(await reader.getSetting('storage.autocompact.v1'), '0');
+              }
               await reader.close();
+            }
+            if (lateRevocation || lateRoster) {
+              expect(publications, 0);
+            }
+            if (automatic && !hasChild) {
+              expect(publications, 1);
             }
           } finally {
             await reader.close();
           }
           expect(
             nativeCalls,
-            otherInstanceAfterClose || (corruption == 'none' && !hasChild)
+            otherInstanceAfterClose ||
+                    lateRevocation ||
+                    lateRoster ||
+                    (corruption == 'none' && !hasChild)
                 ? 1
                 : 0,
           );
