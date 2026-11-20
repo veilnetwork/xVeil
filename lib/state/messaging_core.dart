@@ -2501,6 +2501,23 @@ class MessagingService {
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) =>
       _realtimeControl.sendCallSignal(peer, signal);
 
+  /// Send a best-effort health signal if its call and network still own it
+  /// when the live transport is called.
+  Future<void> sendCallHealth(
+    NodeId peer,
+    CallSignal signal, {
+    required bool Function() admitTransport,
+  }) {
+    if (signal.type != CallSignalType.health) {
+      throw ArgumentError.value(signal.type, 'signal.type', 'Expected health');
+    }
+    return _realtimeControl.sendCallSignal(
+      peer,
+      signal,
+      admitHealth: admitTransport,
+    );
+  }
+
   /// Ask [peer] what models they have, or answer that question.
   ///
   /// Live-only, on the ordinary contact path: nothing

@@ -560,6 +560,15 @@ class _CameraCallWire implements MessagingService {
   }
 
   @override
+  Future<void> sendCallHealth(
+    NodeId peer,
+    CallSignal signal, {
+    required bool Function() admitTransport,
+  }) async {
+    if (admitTransport()) await sendCallSignal(peer, signal);
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

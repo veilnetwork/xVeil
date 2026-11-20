@@ -1419,7 +1419,10 @@ class CallService {
   /// so a mute lands on their screen now rather than up to a beat later. The
   /// periodic heartbeat carries the same field, which is what makes a dropped
   /// frame here self-correcting rather than permanent.
-  Future<void> _announceCapture({bool allowCompactHealth = true}) async {
+  Future<void> _announceCapture({
+    bool allowCompactHealth = true,
+    bool Function()? admitHealth,
+  }) async {
     final cur = _current;
     if (cur == null || !cur.isLive || cur.isSettingUp) return;
     await _sendCallSignal(
@@ -1438,6 +1441,7 @@ class CallService {
         protocolVersion: _signalProtocolVersion,
       ),
       allowCompactHealth: allowCompactHealth,
+      admitHealth: admitHealth,
     );
   }
 
@@ -2308,7 +2312,24 @@ class CallService {
     _pendingHandoverHealth = null;
     // The peer's timeout can precede our next beat, and the old media route
     // may still be stalled. This hint only triggers the regular control send.
-    unawaited(_announceCapture(allowCompactHealth: false));
+    unawaited(
+      _announceCapture(
+        allowCompactHealth: false,
+        admitHealth: () {
+          final current = _current;
+          return !_disposed &&
+              !_networkOffline &&
+              current != null &&
+              current.callId == pending.callId &&
+              current.status == CallStatus.active &&
+              current.peer == call.peer &&
+              current.peerDevice == call.peerDevice &&
+              current.transport == call.transport &&
+              pending.network == _overlayAdmissionNetwork &&
+              _now().isBefore(pending.until);
+        },
+      ),
+    );
   }
 
   void _cancelRelayCandidateRetry() {
@@ -3463,6 +3484,7 @@ class CallService {
     NodeId peer,
     CallSignal signal, {
     bool allowCompactHealth = true,
+    bool Function()? admitHealth,
   }) {
     final call = _current;
     if (call != null &&
@@ -3479,7 +3501,8 @@ class CallService {
       );
       _audioFeedbackSchedule.recordAttempt(signal.audioPlayout, _now());
     }
-    if (allowCompactHealth &&
+    if (admitHealth == null &&
+        allowCompactHealth &&
         call != null &&
         call.callId == signal.callId &&
         call.peer == peer &&
@@ -3498,7 +3521,10 @@ class CallService {
         (_media?.sendEphemeralCallControl(signal) ?? false)) {
       return Future<void>.value();
     }
-    if (call != null &&
+    // A guarded handover send may still be dropped after consent or IO waits.
+    // It must not delay the next ordinary heartbeat on the signaling lane.
+    if (admitHealth == null &&
+        call != null &&
         call.callId == signal.callId &&
         signal.type == CallSignalType.health &&
         signal.onBehalfOf == null) {
@@ -3513,7 +3539,13 @@ class CallService {
             signal.type != CallSignalType.offer
         ? call.mediaIdentity
         : peer;
-    return _messaging.sendCallSignal(destination, signal);
+    return admitHealth == null
+        ? _messaging.sendCallSignal(destination, signal)
+        : _messaging.sendCallHealth(
+            destination,
+            signal,
+            admitTransport: admitHealth,
+          );
   }
 
   Future<void> _sendControl(
