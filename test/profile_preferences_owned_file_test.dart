@@ -115,6 +115,32 @@ void main() {
     },
   );
 
+  test(
+    'migration takes a copy of each legacy list before opening its file',
+    () async {
+      final apps = <String>['first'];
+      final source = InMemorySharedPreferencesStore.withData({
+        'flutter.apps': apps,
+      });
+      await installProfilePreferences(
+        supportDir: fixture.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: source,
+        openOwnedFile: (_) async {
+          apps.add('added');
+          return owner;
+        },
+      );
+      expect(await source.getAll(), {
+        'flutter.apps': ['first', 'added'],
+      });
+      expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+        'flutter.apps': ['first'],
+      });
+    },
+  );
+
   test('an upgrade preserves a profile choice saved during startup', () async {
     final source = InMemorySharedPreferencesStore.withData({
       'flutter.${AppProfiles.activePref}': 'old',
