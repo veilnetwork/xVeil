@@ -168,24 +168,45 @@ bool isWindowsFileSharingViolation(Object error) =>
     error is FileSystemException &&
     (error.osError?.errorCode == 32 || error.osError?.errorCode == 33);
 
-Future<String?> readStartupProfileChoice(File file) async {
+/// Retry a short Windows share denial. An absent result after contention
+/// cannot establish that there was no saved choice.
+Future<T> retryProfileChoiceRead<T>(
+  Future<T> Function() read, {
+  required bool Function(T value) isAbsent,
+}) async {
   final elapsed = Stopwatch()..start();
-  var wasBusy = false;
+  (FileSystemException, StackTrace)? contention;
   while (true) {
+    final T value;
     try {
-      final choice = await readProfileChoice(file);
-      if (choice == null && wasBusy) {
-        throw const ProfileChoiceReadFailure(busy: true);
-      }
-      return choice;
+      value = await read();
     } on FileSystemException catch (error, stack) {
-      final busy = isWindowsFileSharingViolation(error);
-      if (!busy || elapsed.elapsed >= const Duration(seconds: 1)) {
-        Error.throwWithStackTrace(ProfileChoiceReadFailure(busy: busy), stack);
+      if (!isWindowsFileSharingViolation(error) ||
+          elapsed.elapsed >= const Duration(seconds: 1)) {
+        rethrow;
       }
-      wasBusy = true;
+      contention = (error, stack);
       await Future<void>.delayed(const Duration(milliseconds: 50));
+      continue;
     }
+    if (contention != null && isAbsent(value)) {
+      Error.throwWithStackTrace(contention.$1, contention.$2);
+    }
+    return value;
+  }
+}
+
+Future<String?> readStartupProfileChoice(File file) async {
+  try {
+    return await retryProfileChoiceRead(
+      () => readProfileChoice(file),
+      isAbsent: (choice) => choice == null,
+    );
+  } on FileSystemException catch (error, stack) {
+    Error.throwWithStackTrace(
+      ProfileChoiceReadFailure(busy: isWindowsFileSharingViolation(error)),
+      stack,
+    );
   }
 }
 
