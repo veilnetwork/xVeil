@@ -41,7 +41,7 @@ typedef _MessageAlertCandidate = ({
   bool isMention,
 });
 
-enum _MessageAlertOutcome { skipped, rejectedByPolicy, submitted }
+enum _MessageAlertOutcome { skipped, deferred, rejectedByPolicy, submitted }
 
 typedef _QueuedMessageAlert = ({
   _MessageAlertAttempt attempt,
@@ -116,6 +116,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   int _latestSubmittedSequence = 0;
   final _queuedMessageAlerts = SplayTreeMap<int, _QueuedMessageAlert>();
   bool _drainingMessageAlerts = false;
+  final _messageAlertPolicyReads = Expando<Future<bool>>();
+  ({int sequence, Completer<void> wake})? _messageAlertPolicyWait;
   // Clear requests have a separate OS id. An ordinary message supersedes the
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
@@ -153,6 +155,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       submit: submit,
       completion: completion,
     );
+    final waiting = _messageAlertPolicyWait;
+    if (waiting != null && attempt.sequence > waiting.sequence) {
+      _wakeMessageAlertPolicyWait();
+    }
     if (!_drainingMessageAlerts) unawaited(_drainMessageAlerts());
     return completion.future;
   }
@@ -164,15 +170,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // can try first. An unsuccessful policy check leaves older work live.
       await ref.read(notificationServiceProvider).waitUntilReady();
       while (_queuedMessageAlerts.isNotEmpty) {
-        final entry = _queuedMessageAlerts.remove(
-          _queuedMessageAlerts.lastKey(),
-        )!;
+        final sequence = _queuedMessageAlerts.lastKey()!;
+        final entry = _queuedMessageAlerts.remove(sequence)!;
         try {
-          entry.completion.complete(
-            _canContinueMessageAlert(entry.attempt)
-                ? await entry.submit()
-                : _MessageAlertOutcome.skipped,
-          );
+          final outcome = _canContinueMessageAlert(entry.attempt)
+              ? await entry.submit()
+              : _MessageAlertOutcome.skipped;
+          if (outcome == _MessageAlertOutcome.deferred) {
+            _queuedMessageAlerts[sequence] = entry;
+          } else {
+            entry.completion.complete(outcome);
+          }
         } catch (error, stack) {
           entry.completion.completeError(error, stack);
         }
@@ -185,6 +193,41 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } finally {
       _drainingMessageAlerts = false;
     }
+  }
+
+  void _wakeMessageAlertPolicyWait() {
+    final waiting = _messageAlertPolicyWait;
+    _messageAlertPolicyWait = null;
+    waiting?.wake.complete();
+  }
+
+  Future<bool> _waitForMessageAlertPolicy(
+    int sequence,
+    bool Function() isCurrent,
+    Future<bool> Function() read,
+  ) async {
+    while (isCurrent()) {
+      final wake = Completer<void>();
+      _messageAlertPolicyWait = (sequence: sequence, wake: wake);
+      try {
+        // Reuse only an unfinished read after yielding. A completed decision
+        // needs a fresh read if this candidate returns to the queue later.
+        final reading = _messageAlertPolicyReads[read] ??=
+            Future<bool>.sync(read).whenComplete(() {
+              _messageAlertPolicyReads[read] = null;
+            });
+        final allowed = await Future.any<bool?>([
+          reading,
+          wake.future.then((_) => null),
+        ]);
+        if (allowed != null) return allowed;
+      } finally {
+        if (identical(_messageAlertPolicyWait?.wake, wake)) {
+          _messageAlertPolicyWait = null;
+        }
+      }
+    }
+    return false;
   }
 
   void _rememberSpaceComment(
@@ -269,7 +312,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // ticket and finished under B.
     _notificationGeneration++;
     _clearRequestGeneration++;
-    _cancelGroupAlertWaits();
+    _wakeRetiredAlertWaits();
     // The requests belong to the identity that was on screen, and the list is
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
@@ -282,7 +325,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _groupNotificationGeneration++;
-    _cancelGroupAlertWaits();
+    _wakeRetiredAlertWaits();
     _pendingSpaceComments.clear();
     // Group service initialization does not replace the messaging service's
     // request list. Its alerts retain their own identity/lifecycle fence.
@@ -759,7 +802,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // cannot re-post an alert after cancelAll completes.
       _notificationGeneration++;
       _clearRequestGeneration++;
-      _cancelGroupAlertWaits();
+      _wakeRetiredAlertWaits();
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       unawaited(_requestNotificationPermission());
@@ -835,7 +878,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
   }
 
-  void _cancelGroupAlertWaits() {
+  void _wakeRetiredAlertWaits() {
+    _wakeMessageAlertPolicyWait();
     for (final cancel in _groupAlertWaits) {
       cancel();
     }
@@ -1175,7 +1219,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         // A native call may already have shown an alert even when it reports
         // failure. Only try the next chat after a local policy rejection or
         // group-service retirement before submission.
-        if (outcome == _MessageAlertOutcome.submitted ||
+        if (outcome == _MessageAlertOutcome.deferred ||
+            outcome == _MessageAlertOutcome.submitted ||
             (outcome == _MessageAlertOutcome.skipped &&
                 _canContinueMessageAlert(candidateAttempt))) {
           return outcome;
@@ -1291,8 +1336,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       bool current() {
         if (!_canContinueMessageAlert(attempt)) return false;
         final settings = ref.read(notificationSettingsProvider);
-        return settings.enabled &&
-            (!postedFull || settings.preview == NotificationPreview.full);
+        if (!settings.enabled ||
+            (postedFull && settings.preview != NotificationPreview.full)) {
+          return false;
+        }
+        if (outcome != _MessageAlertOutcome.submitted &&
+            (_queuedMessageAlerts.lastKey() ?? 0) > attempt.sequence) {
+          outcome = _MessageAlertOutcome.deferred;
+          return false;
+        }
+        return true;
       }
 
       final posted = await ref
@@ -1301,11 +1354,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             isCurrent: current,
             id: id,
             checkPolicy: () async {
-              final allowed = attempt.groupGeneration == null
-                  ? await checkPolicy()
-                  : await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
-                        false;
-              if (!allowed) outcome = _MessageAlertOutcome.rejectedByPolicy;
+              final allowed = await _waitForMessageAlertPolicy(
+                attempt.sequence,
+                current,
+                checkPolicy,
+              );
+              if (!allowed && current()) {
+                outcome = _MessageAlertOutcome.rejectedByPolicy;
+              }
               return allowed;
             },
             prepare: () {
@@ -1446,7 +1502,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   void dispose() {
     _notificationGeneration++;
     _clearRequestGeneration++;
-    _cancelGroupAlertWaits();
+    _wakeRetiredAlertWaits();
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _groupServiceListener?.close();
