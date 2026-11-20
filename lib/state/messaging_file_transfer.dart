@@ -301,16 +301,24 @@ class _MessagingFileTransfer {
     String transferId,
     List<int>? missing,
   ) async {
-    Message? fileMessage;
-    for (final message in await _owner._storage.loadMessages(peer.hex)) {
-      if (message.id == transferId &&
-          message.direction == MessageDirection.outgoing &&
-          message.fileId != null) {
-        fileMessage = message;
-        break;
-      }
+    final consent = _owner._realtimeControl;
+    final epoch = await consent._acceptedContactEpoch(peer);
+    if (epoch == null) return;
+    final fileMessage = await _owner._storage.loadMessageById(
+      peer.hex,
+      transferId,
+    );
+    final fileId = fileMessage?.fileId;
+    if (fileMessage == null ||
+        fileMessage.direction != MessageDirection.outgoing ||
+        fileId == null ||
+        !consent._consentCurrent(peer, epoch)) {
+      return;
     }
-    if (fileMessage == null) return;
+
+    final eligibility = _StoredPostEligibility(_owner, peer, fileMessage);
+    await eligibility.prepare();
+    if (!eligibility.canSend || !consent._consentCurrent(peer, epoch)) return;
 
     final now = DateTime.now();
     _lastNackAt.removeWhere((_, at) => now.difference(at) > _nackInterval);
@@ -319,7 +327,7 @@ class _MessagingFileTransfer {
     if (last != null && now.difference(last) < _nackInterval) return;
     _lastNackAt[key] = now;
 
-    final bytes = await _owner._storage.loadFile(fileMessage.fileId!);
+    final bytes = await _owner._storage.loadFile(fileId);
     if (bytes == null) return;
     final wanted = missing?.toSet();
     final chunks = chunkBytes(
@@ -330,7 +338,15 @@ class _MessagingFileTransfer {
     var sent = 0;
     for (final chunk in chunks) {
       if (wanted != null && !wanted.contains(chunk.index)) continue;
-      await _owner._send(peer, _encodeChunk(chunk), background: true);
+      // A restored peer can need bytes even after it acknowledged the post.
+      if (!await eligibility.send(
+        _encodeChunk(chunk),
+        epoch,
+        background: true,
+        stopOnReceipt: false,
+      )) {
+        return;
+      }
       await Future<void>.delayed(_owner._contentPacing);
       if (++sent >= _nackChunkCap) break;
     }

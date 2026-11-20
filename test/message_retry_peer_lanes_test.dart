@@ -22,6 +22,13 @@ class _Storage extends HiddenVolumeStorage {
   Future<void> Function(String id)? beforeDeletedRead;
   Future<void> Function(String id, bool deleted)? afterDeletedRead;
   bool deferMessageHandoff = false;
+  int fileReads = 0;
+
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) {
+    fileReads++;
+    return super.loadFile(fileId, maxBytes: maxBytes);
+  }
 
   @override
   bool Function() captureMessageSendReadFence() {
@@ -499,6 +506,129 @@ void main() {
     expect(transport.fileFrames.map((frame) => frame.kind), [
       WireKind.fileMeta,
     ]);
+  });
+
+  Future<void> requestFileRepair(
+    NodeId peer,
+    String transferId, {
+    List<int>? missing,
+  }) => service.deliverInbound(
+    InboundMessage(
+      src: peer,
+      provenance: SenderProvenance.sessionPeer,
+      payload: fileNackEnvelope(
+        transferId: transferId,
+        missing: missing,
+      ).encode(),
+    ),
+  );
+
+  for (final change in ['delete', 'expire', 'block then unblock']) {
+    test('file repair rechecks $change after ratchet wait', () async {
+      final peer = _id(2);
+      final start = testNow = DateTime.now();
+      await storage.upsertContact(
+        Contact(nodeId: peer, disappearingTtlSeconds: 30),
+      );
+      await sendAttachment('inline', peer);
+      final message = (await storage.loadMessages(peer.hex)).single;
+      transport.fileFrames.clear();
+
+      final entered = Completer<void>(), release = Completer<void>();
+      service.ratchet = _HeldReservation(entered, release);
+      final repairing = requestFileRepair(peer, message.id);
+      try {
+        await Future.any([
+          entered.future,
+          repairing.then((_) => fail('repair completed before ratchet wait')),
+        ]);
+        expect(transport.fileFrames, isEmpty);
+        if (change == 'delete') {
+          await storage.deleteMessage(peer.hex, message.id);
+        } else if (change == 'expire') {
+          testNow = start.add(const Duration(seconds: 30));
+        } else {
+          await service.blockContact(peer);
+          await service.unblockContact(peer);
+        }
+      } finally {
+        release.complete();
+        await repairing;
+      }
+      expect(transport.fileFrames, isEmpty);
+    });
+  }
+
+  test(
+    'file repair stops after the first chunk when the message is erased',
+    () async {
+      final peer = _id(2);
+      await storage.upsertContact(Contact(nodeId: peer));
+      await sendAttachment('inline', peer);
+      final message = (await storage.loadMessages(peer.hex)).single;
+      transport.fileFrames.clear();
+
+      final entered = Completer<void>(), release = Completer<void>();
+      transport.onFileFrame = (frame) async {
+        if (frame.kind != WireKind.fileChunk || entered.isCompleted) return;
+        entered.complete();
+        await release.future;
+      };
+      final repairing = requestFileRepair(peer, message.id);
+      try {
+        await Future.any([
+          entered.future,
+          repairing.then(
+            (_) => fail('repair completed before sending a chunk'),
+          ),
+        ]);
+        await storage.deleteMessage(peer.hex, message.id);
+      } finally {
+        release.complete();
+        await repairing;
+      }
+      expect(transport.fileFrames.map((frame) => frame.kind), [
+        WireKind.fileChunk,
+      ]);
+    },
+  );
+
+  test('an expired file repair never opens the blob', () async {
+    final peer = _id(2);
+    final start = testNow = DateTime.now();
+    await storage.upsertContact(
+      Contact(nodeId: peer, disappearingTtlSeconds: 30),
+    );
+    await sendAttachment('inline', peer);
+    final message = (await storage.loadMessages(peer.hex)).single;
+    transport.fileFrames.clear();
+    storage.fileReads = 0;
+    testNow = start.add(const Duration(seconds: 30));
+
+    await requestFileRepair(peer, message.id);
+    expect(storage.fileReads, 0);
+    expect(transport.fileFrames, isEmpty);
+  });
+
+  test('file repair selects chunks of an acknowledged post by ID', () async {
+    final peer = _id(2);
+    await storage.upsertContact(Contact(nodeId: peer));
+    await sendAttachment('inline', peer);
+    final message = (await storage.loadMessages(peer.hex)).single;
+    await service.applyMirroredMessageStatus(
+      peer: peer,
+      msgId: message.id,
+      status: MessageStatus.delivered,
+    );
+    transport.fileFrames.clear();
+    storage.failedReads.add(peer.hex);
+
+    await requestFileRepair(peer, message.id, missing: [1]);
+    final chunk = transport.fileFrames.single;
+    expect(chunk.kind, WireKind.fileChunk);
+    final part = parseFileChunk(chunk.body);
+    expect(part.transferId, message.id);
+    expect(part.index, 1);
   });
 
   Future<void> requestHistory(NodeId peer, Map<String, Object> body) =>
