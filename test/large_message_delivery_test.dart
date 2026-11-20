@@ -478,6 +478,39 @@ void main() {
       expect(r.a.sent.where(isLargeFrame), hasLength(1));
     },
   );
+  for (final delete in [true, false]) {
+    final change = delete ? 'deletion' : 'expiry';
+    test('the fragments after $change never reach transport', () async {
+      final r = await _rig();
+      if (!delete) {
+        await r.sa.upsertContact(
+          Contact(nodeId: r.b.id, disappearingTtlSeconds: 30),
+        );
+      }
+      final entered = Completer<void>(), release = Completer<void>();
+      r.a.beforeSend = (_, payload) async {
+        if (!isLargeFrame(payload) || entered.isCompleted) return;
+        entered.complete();
+        await release.future;
+      };
+      final sending = r.ma.sendText(r.b.id, _longText());
+      try {
+        await entered.future;
+        if (delete) {
+          final row = (await r.sa.loadMessages(r.b.id.hex)).single;
+          await r.sa.deleteMessage(r.b.id.hex, row.id);
+        } else {
+          r.clock = r.clock.add(const Duration(seconds: 30));
+        }
+      } finally {
+        release.complete();
+        expect(await sending, isFalse);
+      }
+      expect(r.a.sent.where(isLargeFrame), hasLength(1));
+      expect(await r.sb.loadMessages(r.a.id.hex), isEmpty);
+    });
+  }
+
   for (final show in [false, true]) {
     test(
       'a completed blocked compatibility copy is not held again after user choice ($show)',

@@ -165,6 +165,7 @@ class HiddenVolumeStorage
         PreparedMessageBatchStore,
         PreparedOrderingBatchStore,
         MessageRowsReader,
+        MessageSendReadFence,
         MessageHistoryWindowReader,
         GuardedOutboxRetirement {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
@@ -1579,11 +1580,20 @@ class HiddenVolumeStorage
         oldIndexJson == indexJson) {
       return;
     }
-    await store.commit([
-      PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
-      ..._contactIndexOps(index, hadShards),
-      ...extraOps,
-    ]);
+    // This is the contact write path that can change a disappearing policy.
+    // The other contact commits keep that policy or remove it with erasure.
+    _contactPreferenceEpoch++;
+    _writingContactPreferences = true;
+    try {
+      await store.commit([
+        PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
+        ..._contactIndexOps(index, hadShards),
+        ...extraOps,
+      ]);
+    } finally {
+      _writingContactPreferences = false;
+      _contactPreferenceEpoch++;
+    }
   }
 
   /// The key of index shard `k`. Shard 0 keeps the original name, so a
@@ -7726,6 +7736,23 @@ class HiddenVolumeStorage
   // and publish bytes the eraser never saw. Do not wait while holding the scan
   // gate: refuse this page so erasure can finish and history can retry safely.
   int _messageErasureEpoch = 0, _messageErasures = 0;
+  int _contactPreferenceEpoch = 0;
+  bool _writingContactPreferences = false;
+
+  @override
+  bool Function() captureMessageSendReadFence() {
+    final store = _as;
+    final session = _storageReadEpoch;
+    final erasure = _messageErasureEpoch;
+    final preferences = _contactPreferenceEpoch;
+    return () =>
+        !_invalidStorageReadSession(store, session) &&
+        _messageErasures == 0 &&
+        erasure == _messageErasureEpoch &&
+        !_writingContactPreferences &&
+        preferences == _contactPreferenceEpoch;
+  }
+
   void Function() _preparedErasureCheck() {
     final epoch = _messageErasureEpoch;
     void check() {

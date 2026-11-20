@@ -19,11 +19,14 @@ class _Storage extends HiddenVolumeStorage {
   final failedReads = <String>{};
   Future<void> Function(String id)? beforeFailureWrite;
   Future<void> Function(String id)? beforeDeletedRead;
+  Future<void> Function(String id, bool deleted)? afterDeletedRead;
 
   @override
   Future<bool> isMessageDeleted(String conversationId, String messageId) async {
     await beforeDeletedRead?.call(messageId);
-    return super.isMessageDeleted(conversationId, messageId);
+    final deleted = await super.isMessageDeleted(conversationId, messageId);
+    await afterDeletedRead?.call(messageId, deleted);
+    return deleted;
   }
 
   @override
@@ -121,11 +124,17 @@ void main() {
   late _Transport transport;
   late MessagingService service;
   late List<Future<void>> runs;
+  late DateTime? testNow;
   setUp(() async {
     storage = _Storage();
     await storage.open(password: 'fixture', createIfMissing: true);
     transport = _Transport();
-    service = MessagingService(transport, storage);
+    testNow = null;
+    service = MessagingService(
+      transport,
+      storage,
+      now: () => testNow ?? DateTime.now(),
+    );
     runs = [];
   });
   tearDown(() async {
@@ -275,6 +284,97 @@ void main() {
         expect(ids(2), change == 'receipt' ? isEmpty : ['outstanding']);
       });
     }
+  }
+
+  for (final firstSend in [true, false]) {
+    for (final delete in [true, false]) {
+      final attempt = firstSend ? 'first send' : 'retry';
+      final change = delete ? 'deletion' : 'expiry';
+      test('$attempt respects $change during ratchet preparation', () async {
+        final peer = _id(2);
+        final start = testNow = DateTime.now();
+        if (!firstSend) {
+          // Finish advisory sync before pausing the actual message send.
+          await queue(2, 'prime');
+          await flush();
+          await service.deliverInbound(
+            InboundMessage(
+              src: peer,
+              payload: WireEnvelope.ack('prime').encode(),
+              provenance: SenderProvenance.sessionPeer,
+            ),
+          );
+          await barrier();
+          transport.sent.clear();
+          await queue(2, 'outstanding', seq: 2, timestamp: start);
+        }
+        await storage.upsertContact(
+          Contact(nodeId: peer, disappearingTtlSeconds: delete ? null : 30),
+        );
+        final entered = Completer<void>(), release = Completer<void>();
+        service.ratchet = _HeldReservation(entered, release);
+        final Future<bool?> sending = firstSend
+            ? service.sendText(peer, 'first attempt')
+            : flush().then((_) => null);
+        try {
+          await entered.future;
+          final row = (await storage.loadMessages(peer.hex)).last;
+          expect(ids(2), isEmpty);
+          if (delete) {
+            await storage.deleteMessage(peer.hex, row.id);
+          } else {
+            testNow = start.add(const Duration(seconds: 30));
+          }
+        } finally {
+          release.complete();
+          final reported = await sending;
+          if (firstSend) expect(reported, isFalse);
+        }
+        expect(ids(2), isEmpty);
+      });
+    }
+  }
+
+  for (final delete in [true, false]) {
+    final change = delete ? 'a committed deletion' : 'a shorter expiry policy';
+    test('handoff discards a stale read after $change', () async {
+      final peer = _id(2);
+      final start = testNow = DateTime.now();
+      await storage.upsertContact(Contact(nodeId: peer));
+      final reserved = Completer<void>(),
+          releaseReservation = Completer<void>();
+      final read = Completer<void>(), releaseRead = Completer<void>();
+      service.ratchet = _HeldReservation(reserved, releaseReservation);
+      final sending = service.sendText(peer, 'first attempt');
+      try {
+        await reserved.future;
+        final row = (await storage.loadMessages(peer.hex)).single;
+        storage.afterDeletedRead = (id, deleted) async {
+          if (id != row.id || read.isCompleted) return;
+          read.complete();
+          expect(deleted, isFalse);
+          await releaseRead.future;
+        };
+        releaseReservation.complete();
+        await Future.any([
+          read.future,
+          sending.then((_) => fail('transport finished before the late read')),
+        ]);
+        if (delete) {
+          await storage.deleteMessage(peer.hex, row.id);
+        } else {
+          testNow = start.add(const Duration(seconds: 30));
+          await storage.upsertContact(
+            Contact(nodeId: peer, disappearingTtlSeconds: 30),
+          );
+        }
+      } finally {
+        if (!releaseReservation.isCompleted) releaseReservation.complete();
+        releaseRead.complete();
+        expect(await sending, isFalse);
+      }
+      expect(ids(2), isEmpty);
+    });
   }
 
   test('a held message does not delay another contact', () async {
