@@ -155,6 +155,14 @@ void main() {
       anonymousOsVersion('Windows [Version 10.0.19045.1] secret'),
       '10.0.19045.1',
     );
+    expect(
+      anonymousOsVersion('"Майкрософт Windows 11 Pro" 10.0 (Build 26300)'),
+      '10.0.26300',
+    );
+    expect(
+      anonymousOsVersion('"Microsoft Windows 10 Pro" 10.0 (Build 19045)'),
+      '10.0.19045',
+    );
     expect(anonymousOsVersion('Android 13 (SDK 33)'), '13');
     expect(anonymousOsVersion('Version 26.0 (Build 25A354)'), '26.0');
     expect(anonymousOsVersion('alice@secret 192.168.1.22'), 'unknown');
