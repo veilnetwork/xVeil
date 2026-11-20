@@ -153,6 +153,29 @@ Future<String?> readProfileChoice(File file) async {
   }
 }
 
+/// Read the JSON used by the legacy desktop preference plugins during profile
+/// selection. An existing file must contain a JSON object.
+Future<Map<String, Object>> readDesktopLegacyPreferences(File file) async {
+  final String contents;
+  try {
+    contents = await file.readAsString();
+  } on PathNotFoundException {
+    if (FileSystemEntity.typeSync(file.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      rethrow;
+    }
+    return const {};
+  }
+  final decoded = jsonDecode(contents);
+  if (decoded is! Map<String, Object?> || decoded.containsValue(null)) {
+    throw const FormatException('Invalid legacy desktop preference file');
+  }
+  return {
+    for (final entry in decoded.entries)
+      if (entry.key.startsWith('flutter.')) entry.key: entry.value!,
+  };
+}
+
 /// A saved profile choice could not be read. The cause is safe for diagnostics.
 final class ProfileChoiceReadFailure implements Exception {
   const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false});
