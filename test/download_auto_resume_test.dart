@@ -949,6 +949,88 @@ void main() {
     );
   }
 
+  test(
+    'a live container download completes the pending external save',
+    () async {
+      final data = _rnd(32000, 203);
+      const name = 'container-arrives-first.bin';
+      final cid = await offerToB(data, name);
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-resume-live-copy',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/selected.bin');
+      cutLink();
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        file.path,
+        write: (_, _) async => fail('the source is offline'),
+        close: () async {},
+      );
+      expect(await mB.pendingAutoResumeContentIds(), [cid]);
+      await mB.dispose();
+
+      healLink();
+      mB = _makeService(tB, sB)
+        ..downloadResumeStartDelay = const Duration(hours: 1);
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: data.length),
+      );
+      final openEntered = Completer<String>();
+      final releaseOpen = Completer<void>();
+      final stored = Completer<void>();
+      final saved = Completer<String>();
+      mB.plainFileSinkOpener = (path, {bool resume = false}) async {
+        if (!openEntered.isCompleted) openEntered.complete(path);
+        await releaseOpen.future;
+        return veilPlainFileSinkOpener(path, resume: resume);
+      };
+      final arrivals = mB.contentReceived
+          .where((event) => event.contentId == cid)
+          .listen((event) {
+            final path = event.savedToPath;
+            if (path == null) {
+              if (!stored.isCompleted) stored.complete();
+            } else if (!saved.isCompleted) {
+              saved.complete(path);
+            }
+          });
+      addTearDown(arrivals.cancel);
+      mB.start();
+      tB.openStreamAttempts.clear();
+      try {
+        expect(
+          await mA.sendFileStreaming(
+            b,
+            name,
+            data.length,
+            (offset, count) async =>
+                Uint8List.sublistView(data, offset, offset + count),
+            close: () async {},
+          ),
+          cid,
+        );
+        await stored.future.timeout(const Duration(seconds: 5));
+        await pumpEventQueue();
+        expect(await sB.hasFile(cid), isTrue);
+        expect(await mB.pendingAutoResumeContentIds(), [cid]);
+        expect(
+          await openEntered.future.timeout(const Duration(seconds: 5)),
+          file.path,
+        );
+      } finally {
+        releaseOpen.complete();
+      }
+      expect(await saved.future.timeout(const Duration(seconds: 5)), file.path);
+      expect(await file.readAsBytes(), data);
+      expect(tB.openStreamAttempts, isEmpty);
+      await mB.dispose();
+      mB = _makeService(tB, sB);
+      expect(await mB.pendingAutoResumeContentIds(), isEmpty);
+    },
+  );
+
   test('plain-file download interrupted by shutdown re-drives to the SAME '
       'destination path across a service restart', () async {
     final data = _rnd(400000, 17);
