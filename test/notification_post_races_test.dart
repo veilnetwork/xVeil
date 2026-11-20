@@ -851,6 +851,59 @@ void main() {
     }
   });
 
+  for (final change in ['mute', 'unreadable policy', 'none']) {
+    testWidgets('startup queue keeps its newest permitted message ($change)', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service);
+      try {
+        message(2);
+        await _pump(tester);
+        message(3);
+        await _pump(tester);
+        expect(plugin.posted, isEmpty);
+        if (change == 'mute') storage.muted.add(_id(3));
+        if (change == 'unreadable policy') storage.refusedContacts.add(_id(3));
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [
+          _id(change == 'none' ? 3 : 2).hex,
+        ]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    });
+  }
+
+  testWidgets('a later muted message leaves the in-flight OS alert intact', (
+    tester,
+  ) async {
+    await mount(tester);
+    final id = notificationIdForIncomingMessage('');
+    notifications.holdId = id;
+    try {
+      message(2);
+      await _pump(tester);
+      expect(notifications.entered.isCompleted, isTrue);
+      message(3);
+      await _pump(tester);
+      storage.muted.add(_id(3));
+      notifications.release.complete();
+      await _pump(tester);
+      expect(notifications.shows, 1);
+      expect(notifications.cancelled, isEmpty);
+      expect(resolveShownPayload(notifications.visible[id]), _id(2).hex);
+    } finally {
+      await cleanup(tester);
+    }
+  });
+
   for (final scenario in ['incoming', 'unread', 'unread mention']) {
     testWidgets('contact mute is checked before posting ($scenario)', (
       tester,
