@@ -285,6 +285,7 @@ class _MessagingDownloadResume {
   Future<void> _mutatePending(
     void Function(Map<String, _PendingDownload> map) mutate, {
     bool Function()? isCurrent,
+    bool Function(Map<String, _PendingDownload>)? shouldWrite,
   }) {
     final write = _writeChain.then((_) async {
       if (isCurrent != null && !isCurrent()) return;
@@ -293,6 +294,7 @@ class _MessagingDownloadResume {
       if (_pendingReadFailed) {
         throw StateError('Download resume state unavailable');
       }
+      if (shouldWrite?.call(current) == false) return;
       final map = Map<String, _PendingDownload>.of(current);
       mutate(map);
       final encoded = jsonEncode([
@@ -409,23 +411,43 @@ class _MessagingDownloadResume {
     }
   }
 
-  void complete(String contentId) {
+  void complete(String contentId, {bool Function(_PendingDownload)? matches}) {
     unawaited(
-      _removePending(contentId).catchError((Object error, StackTrace stack) {
+      _removePending(contentId, matches: matches).catchError((
+        Object error,
+        StackTrace stack,
+      ) {
         _report('download-resume-write', cause: error, stack: stack);
       }),
     );
   }
 
-  Future<void> _removePending(String contentId) async {
+  void _clearRetryState(String contentId) {
     _timers.remove(contentId)?.cancel();
     _attempts.remove(contentId);
     _progressAt.remove(contentId);
     _parked.remove(contentId);
     _persistedManifests.remove(contentId);
-    // Decide after older queued writes, not from a cache sampled while an
-    // insertion is still committing. A cancelled insertion must not resurrect.
-    await _mutatePending((map) => map.remove(contentId));
+  }
+
+  Future<void> _removePending(
+    String contentId, {
+    bool Function(_PendingDownload)? matches,
+  }) {
+    if (matches == null) _clearRetryState(contentId);
+    // Decide after earlier queued writes. This orders cancellation after an
+    // in-flight insertion and checks completion against the latest target.
+    return _mutatePending(
+      (map) => map.remove(contentId),
+      shouldWrite: matches == null
+          ? null
+          : (current) {
+              final intent = current[contentId];
+              if (intent == null || !matches(intent)) return false;
+              _clearRetryState(contentId);
+              return true;
+            },
+    );
   }
 
   Future<void> start() async {
@@ -446,7 +468,19 @@ class _MessagingDownloadResume {
     });
     _receivedSub ??= _owner.contentReceived.listen((event) {
       diagnosticJournal.record(DiagnosticEvent.downloadReceived);
-      complete(event.contentId);
+      complete(
+        event.contentId,
+        matches: (intent) {
+          final path = intent.externalPath;
+          if (path == event.savedToPath) return true;
+          if (path != null && event.savedToPath == null) {
+            // The container copy can satisfy this external save without
+            // waiting for the next network retry.
+            _schedule(event.contentId);
+          }
+          return false;
+        },
+      );
     });
     await resumeAll(initial: startDelay, stagger: const Duration(seconds: 2));
   }
@@ -624,9 +658,7 @@ class _MessagingDownloadResume {
     try {
       final intent = (await _pendingDownloads())[contentId];
       if (intent == null || !isCurrent()) return;
-      final path = intent.mode == _PendingDownload.modeFile
-          ? intent.savedPath
-          : null;
+      final path = intent.externalPath;
       final hasStoredCopy = await _owner._storage.hasFile(contentId);
       if (!isCurrent()) return;
       var completed = hasStoredCopy && path == null;
@@ -642,6 +674,19 @@ class _MessagingDownloadResume {
         complete(contentId);
         return;
       }
+      if (hasStoredCopy && path != null) {
+        if (_owner._fetchSavePath.containsKey(contentId)) {
+          _schedule(contentId, after: liveGrace * 2);
+        } else {
+          await _resumePlainFile(
+            intent,
+            const [],
+            isCurrent,
+            localCopyOnly: true,
+          );
+        }
+        return;
+      }
       if (pullActive(contentId)) {
         _schedule(contentId, after: liveGrace * 2);
         return;
@@ -650,15 +695,6 @@ class _MessagingDownloadResume {
       if (lastProgress != null &&
           DateTime.now().difference(lastProgress) < liveGrace) {
         _schedule(contentId, after: liveGrace * 2);
-        return;
-      }
-      if (hasStoredCopy && path != null) {
-        await _resumePlainFile(
-          intent,
-          const [],
-          isCurrent,
-          localCopyOnly: true,
-        );
         return;
       }
       final peers = <NodeId>[];

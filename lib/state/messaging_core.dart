@@ -4926,6 +4926,8 @@ class _PendingDownload {
   final List<String> peers; // node-id hexes known to hold the content
   final DateTime requestedAt;
 
+  String? get externalPath => mode == modeFile ? savedPath : null;
+
   Map<String, Object?> toJson() => {
     'cid': contentId,
     'mode': mode,
