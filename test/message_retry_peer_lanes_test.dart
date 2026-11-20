@@ -631,6 +631,141 @@ void main() {
     expect(part.index, 1);
   });
 
+  Future<void> requestReoffer(NodeId peer, String contentId) =>
+      service.deliverInbound(
+        InboundMessage(
+          src: peer,
+          provenance: SenderProvenance.sessionPeer,
+          payload: contentReofferEnvelope(contentId).encode(),
+        ),
+      );
+
+  for (final change in ['delete', 'expire', 'block then unblock']) {
+    test('large file reoffer rechecks $change after ratchet wait', () async {
+      final peer = _id(2);
+      final start = testNow = DateTime.now();
+      await storage.upsertContact(
+        Contact(nodeId: peer, disappearingTtlSeconds: 30),
+      );
+      await sendAttachment('manifest', peer);
+      final row = (await storage.loadMessages(peer.hex)).single;
+      transport.fileFrames.clear();
+
+      final entered = Completer<void>(), release = Completer<void>();
+      service.ratchet = _HeldReservation(entered, release);
+      final sending = requestReoffer(peer, row.fileId!);
+      try {
+        await entered.future.timeout(const Duration(seconds: 3));
+        expect(transport.fileFrames, isEmpty);
+        if (change == 'delete') {
+          await storage.deleteMessage(peer.hex, row.id);
+        } else if (change == 'expire') {
+          testNow = start.add(const Duration(seconds: 30));
+        } else {
+          await service.blockContact(peer);
+          await service.unblockContact(peer);
+        }
+      } finally {
+        release.complete();
+        await sending;
+      }
+      await barrier();
+      expect(transport.fileFrames, isEmpty);
+    });
+  }
+
+  test('large file reoffer defers if chat history cannot be read', () async {
+    final peer = _id(2);
+    await storage.upsertContact(Contact(nodeId: peer));
+    await sendAttachment('manifest', peer);
+    final row = (await storage.loadMessages(peer.hex)).single;
+    transport.fileFrames.clear();
+    storage.failedReads.add(peer.hex);
+
+    await requestReoffer(peer, row.fileId!);
+    await barrier();
+    expect(transport.fileFrames, isEmpty);
+
+    storage.failedReads.clear();
+    await requestReoffer(peer, row.fileId!);
+    await barrier();
+    expect(jsonDecode(transport.fileFrames.single.body)['mid'], row.id);
+  });
+
+  test(
+    'large file reoffer survives a sender restart with stored bytes',
+    () async {
+      final peer = _id(2);
+      await storage.upsertContact(Contact(nodeId: peer));
+      await sendAttachment('manifest', peer);
+      final row = (await storage.loadMessages(peer.hex)).single;
+      final cid = row.fileId!;
+      expect(await storage.hasFile(cid), isTrue);
+      await service.dispose();
+      service = MessagingService(transport, storage);
+      transport.fileFrames.clear();
+
+      await requestReoffer(peer, cid);
+      await barrier();
+      final reply = transport.fileFrames.single;
+      expect(reply.kind, WireKind.contentManifest);
+      final body = jsonDecode(reply.body);
+      expect(body['id'], cid);
+      expect(body['mid'], row.id);
+      expect(body['mts'], row.timestamp.millisecondsSinceEpoch);
+    },
+  );
+
+  test(
+    'large file reoffer closes a temporarily reopened source on block',
+    () async {
+      final peer = _id(2);
+      await storage.upsertContact(Contact(nodeId: peer));
+      final data = Uint8List(12000);
+      Future<Uint8List> read(int offset, int length) async =>
+          Uint8List.sublistView(data, offset, offset + length);
+      await service.sendFileStreaming(
+        peer,
+        'fixture.bin',
+        data.length,
+        read,
+        close: () async {},
+        sourcePath: 'mem://fixture',
+      );
+      final row = (await storage.loadMessages(peer.hex)).single;
+      final cid = row.fileId!;
+      expect(await storage.hasFile(cid), isFalse);
+      await service.dispose();
+      service = MessagingService(transport, storage);
+      transport.fileFrames.clear();
+
+      final entered = Completer<void>(), release = Completer<void>();
+      var closed = 0;
+      service.sourceOpener = (path) async {
+        expect(path, 'mem://fixture');
+        entered.complete();
+        await release.future;
+        return (read: read, close: () async => closed++);
+      };
+      final sending = requestReoffer(peer, cid);
+      try {
+        await Future.any([
+          entered.future,
+          sending.then((_) => fail('reoffer never opened the saved source')),
+        ]);
+        await service.blockContact(peer);
+        await service.unblockContact(peer);
+      } finally {
+        release.complete();
+        await sending;
+      }
+      await barrier();
+      expect(closed, 1);
+      expect(service.servingCount, 0);
+      expect(transport.fileFrames, isEmpty);
+    },
+  );
+
   Future<void> requestHistory(NodeId peer, Map<String, Object> body) =>
       service.deliverInbound(
         InboundMessage(

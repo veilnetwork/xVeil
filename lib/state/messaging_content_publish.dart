@@ -208,8 +208,7 @@ extension _MessagingContentPublish on MessagingService {
   /// offers entirely.
   Future<Uint8List?> _fileOfferRetryFrame(Message message) async {
     // Sender-side a large send records fileId = contentId; fileContentId is the
-    // receiver's "offered, not downloaded" spelling. Same order as
-    // [_manifestForPeerOffer] reads them.
+    // receiver's "offered, not downloaded" spelling.
     final cid = message.fileContentId ?? message.fileId;
     if (cid == null) return null;
     // Live serve entry first, then the durable `mf:$cid` blob so an offer still
