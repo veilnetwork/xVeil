@@ -552,7 +552,7 @@ class _MessagingMessageDelivery {
       return failed;
     }
     _lastReconnectAt[peer.hex] = now;
-    _owner._mailboxDelivery.removeStashed(reconnectFrameId);
+    _owner._mailboxDelivery.removeStashed(peer.hex, reconnectFrameId);
     await _owner.sendDurable(
       peer,
       reconnectFrameId,

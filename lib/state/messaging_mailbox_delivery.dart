@@ -1,5 +1,9 @@
 part of 'messaging_core.dart';
 
+class _ActiveMailboxOffers {
+  int count = 0;
+}
+
 /// Mailbox delivery for the contact handshake and its admission controls.
 ///
 /// A live send remains the latency path. This subsystem owns recipient lookup,
@@ -26,6 +30,7 @@ class _MessagingMailboxDelivery {
   /// a task and writes a log line to learn a fact it could have had for free —
   /// per frame, per pass, forever, on a phone.
   bool alreadyDeposited(String frameId) => _stashed.contains(frameId);
+  final _offers = <(String, String), _ActiveMailboxOffers>{};
   final Set<String> _inFlight = {};
   final Map<String, DateTime> _failedAt = {};
   final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
@@ -157,7 +162,8 @@ class _MessagingMailboxDelivery {
   /// left its row behind for the life of the process. The row stops affecting
   /// any decision once `_retryBackoff` has passed; what it goes on doing is
   /// holding memory, one entry per frame id that ever failed.
-  void removeStashed(String id) {
+  void removeStashed(String peerHex, String id) {
+    _offers.remove((peerHex, id));
     _stashed.remove(id);
     _failedAt.remove(id);
     _lastDeferredLog.remove(id);
@@ -361,6 +367,37 @@ class _MessagingMailboxDelivery {
   }) async {
     if (!isCurrent()) return false;
     if (!mailboxEligible(wire)) return false;
+    // A relay offer may outlive both the live send and the durable row. Keep
+    // independent ownership through lookup and completion, including when a
+    // fresh acceptance reuses the old frame ID.
+    final key = (peer.hex, id);
+    final offers = _offers.putIfAbsent(key, _ActiveMailboxOffers.new);
+    offers.count++;
+    try {
+      return await _offer(
+        peer,
+        id,
+        wire,
+        awaitAck: awaitAck,
+        background: background,
+        isCurrent: () => identical(_offers[key], offers) && isCurrent(),
+      );
+    } finally {
+      offers.count--;
+      if (offers.count == 0 && identical(_offers[key], offers)) {
+        _offers.remove(key);
+      }
+    }
+  }
+
+  Future<bool> _offer(
+    NodeId peer,
+    String id,
+    Uint8List wire, {
+    required bool awaitAck,
+    required bool background,
+    required bool Function() isCurrent,
+  }) async {
     // The backoff belongs HERE, at the one place a deposit is attempted, not
     // at each call site. It was checked in the outbox flush loop only, so
     // every other route — a user send finishes with its own background stash,
@@ -504,8 +541,11 @@ class _MessagingMailboxDelivery {
         await mailbox
             .stash(recipient: peer, payload: wire, contentId: _contentIdFor(id))
             .timeout(stashDeadline);
-        _stashed.add(id);
         deposited = true;
+        // Delivery already started before retirement. Its result must not
+        // suppress a subsequent offer for a replacement row.
+        if (!isCurrent()) return true;
+        _stashed.add(id);
         _failedAt.remove(id);
         clearPeerBackoff(peer.hex);
         devLog(
@@ -514,6 +554,7 @@ class _MessagingMailboxDelivery {
               '(deposited at recipient relay)',
         );
       } catch (error, stackTrace) {
+        if (!isCurrent()) return false;
         _failedAt[id] = DateTime.now();
         // Both spellings of the same dead end: the native path says
         // `PeerUnresolved`, the Dart path throws [MailboxPeerUnresolved]. Only

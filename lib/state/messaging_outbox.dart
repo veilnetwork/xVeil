@@ -1638,7 +1638,7 @@ class _MessagingOutbox {
     // Change volatile accounting only after the all-or-none storage commit.
     for (final id in retired) {
       _owner._replication._cancelQueuedGroupFrame(destination.hex, id);
-      _owner._mailboxDelivery.removeStashed(id);
+      _owner._mailboxDelivery.removeStashed(destination.hex, id);
       final key = _key(destination.hex, id);
       _liveBackoff.remove(key);
       if (_pendingKeys.remove(key)) {
@@ -1778,7 +1778,7 @@ class _MessagingOutbox {
       _ackedWhileUnpersisted.add(key);
     }
     _fastCallRetryTimers.remove(frameId)?.cancel();
-    _owner._mailboxDelivery.removeStashed(frameId);
+    _owner._mailboxDelivery.removeStashed(peerHex, frameId);
     _liveBackoff.remove(_key(peerHex, frameId));
     if (_pendingKeys.remove(key)) {
       final left = (_pendingByPeer[peerHex] ?? 0) - 1;
