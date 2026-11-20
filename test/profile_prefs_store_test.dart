@@ -432,39 +432,99 @@ Future<void> main(List<String> args) async {
       );
     });
 
-    test('preserves a legacy value changed after the migration snapshot', () async {
-      final source = _ChangesLegacyValueAfterSnapshot(
-        {'flutter.locale': 'ru', 'flutter.apps': ['app']},
-        key: 'flutter.locale',
-        nextValue: 'es',
-      );
-      for (var launch = 0; launch < 2; launch++) {
-        await installProfilePreferences(
+    test(
+      'preserves a legacy value changed after the migration snapshot',
+      () async {
+        final source = _ChangesLegacyValueAfterSnapshot(
+          {
+            'flutter.locale': 'ru',
+            'flutter.apps': ['app'],
+          },
+          key: 'flutter.locale',
+          nextValue: 'es',
+        );
+        Future<String> launch() => installProfilePreferences(
           supportDir: support.path,
           args: const [],
           environment: const {},
           legacyBackend: source,
         );
+        await launch();
         expect(await source.getAll(), {'flutter.locale': 'es'});
-        expect(
-          await SharedPreferencesStorePlatform.instance.getAll(),
-          {'flutter.locale': 'ru', 'flutter.apps': ['app']},
-        );
-      }
+        expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+          'flutter.locale': 'ru',
+          'flutter.apps': ['app'],
+        });
+        await launch();
+        expect(await source.getAll(), isEmpty);
+        expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+          'flutter.locale': 'es',
+          'flutter.apps': ['app'],
+        });
 
-      final current = SharedPreferencesStorePlatform.instance;
-      expect(await current.setValue('String', 'flutter.locale', 'fr'), isTrue);
-      await installProfilePreferences(
+        final current = SharedPreferencesStorePlatform.instance;
+        expect(
+          await current.setValue('String', 'flutter.locale', 'fr'),
+          isTrue,
+        );
+        expect(await source.setValue('String', 'flutter.locale', 'de'), isTrue);
+        await launch();
+        expect(await source.getAll(), isEmpty);
+        expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+          'flutter.locale': 'fr',
+          'flutter.apps': ['app'],
+        });
+      },
+    );
+
+    test('a stale launch cannot replace a newer imported setting', () async {
+      const key = 'flutter.locale.decoy';
+      Directory('${support.path}/profiles/decoy').createSync(recursive: true);
+      final source = _PausesFirstLegacySnapshot({key: 'ru'});
+      Future<String> launch() => installProfilePreferences(
         supportDir: support.path,
         args: const [],
         environment: const {},
         legacyBackend: source,
       );
-      expect(await source.getAll(), isEmpty);
-      expect(
-        await SharedPreferencesStorePlatform.instance.getAll(),
-        {'flutter.locale': 'fr', 'flutter.apps': ['app']},
+      final staleLaunch = launch();
+      await source.captured.future;
+      try {
+        expect(await source.setValue('String', key, 'es'), isTrue);
+        await launch();
+        expect(await source.getAll(), isEmpty);
+      } finally {
+        source.resume.complete();
+        await staleLaunch;
+      }
+      expect(_fileEntries(profilePrefsPath(support.path, 'decoy')), {
+        'flutter.locale': 'es',
+      });
+      expect(_fileEntries(profilePrefsPath(support.path, 'default')), isEmpty);
+    });
+
+    test('refreshes a legacy copy in a sibling profile', () async {
+      const key = 'flutter.locale.decoy';
+      Directory('${support.path}/profiles/decoy').createSync(recursive: true);
+      final source = _ChangesLegacyValueAfterSnapshot(
+        {key: 'ru'},
+        key: key,
+        nextValue: 'es',
       );
+      Future<String> launch() => installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: source,
+      );
+      expect(await launch(), AppProfiles.defaultName);
+      expect(await source.getAll(), {key: 'es'});
+      expect(await launch(), AppProfiles.defaultName);
+      expect(await source.getAll(), isEmpty);
+      expect(_fileEntries(profilePrefsPath(support.path, 'decoy')), {
+        'flutter.locale': 'es',
+      });
+      expect(await SharedPreferencesStorePlatform.instance.getAll(), isEmpty);
     });
 
     test('does not publish a legacy profile choice that has changed', () async {
@@ -1082,6 +1142,23 @@ class _ChangesLegacyValueAfterSnapshot extends InMemorySharedPreferencesStore {
       await setValue('String', key, nextValue);
     }
     return captured;
+  }
+}
+
+class _PausesFirstLegacySnapshot extends InMemorySharedPreferencesStore {
+  _PausesFirstLegacySnapshot(super.data) : super.withData();
+
+  final captured = Completer<void>();
+  final resume = Completer<void>();
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    final snapshot = await super.getAll();
+    if (!captured.isCompleted) {
+      captured.complete();
+      await resume.future;
+    }
+    return snapshot;
   }
 }
 

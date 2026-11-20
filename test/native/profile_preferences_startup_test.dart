@@ -228,6 +228,40 @@ void main() {
     },
   );
 
+  test('a cold restart refreshes a retained legacy setting', () async {
+    const key = 'flutter.locale';
+    expect(
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: legacy,
+        openOwnedFile: (path) async {
+          // The source has already been snapshotted when the owner is opened.
+          expect(await legacy.setValue('String', key, 'es'), isTrue);
+          return open(path);
+        },
+      ),
+      AppProfiles.defaultName,
+    );
+    final first =
+        SharedPreferencesStorePlatform.instance as ProfilePreferencesStore;
+    stores.add(first);
+    expect(await first.getAll(), {key: 'ru'});
+    expect(await legacy.getAll(), {key: 'es'});
+    await first.releaseFile();
+
+    SharedPreferencesStorePlatform.instance = legacy;
+    expect(await install(), AppProfiles.defaultName);
+    expect(await SharedPreferencesStorePlatform.instance.getAll(), {key: 'es'});
+    expect(await legacy.getAll(), isEmpty);
+    await stores.last.releaseFile();
+
+    SharedPreferencesStorePlatform.instance = legacy;
+    expect(await install(), AppProfiles.defaultName);
+    expect(await SharedPreferencesStorePlatform.instance.getAll(), {key: 'es'});
+  });
+
   for (final (raw, reason) in [
     (
       '{"v":2,"e":{"flutter.locale":{"t":"String","v":"es"}}}',
