@@ -83,11 +83,15 @@ final bool _echoToStdout =
 /// argument is unchanged — these lines carry node ids, and the build that
 /// emits them is the one somebody asked for.
 ///
-/// Appended and FLUSHED per line, deliberately. A buffered sink loses its tail
-/// exactly when the process dies, and the tail is the part a crash report is
-/// about.
+/// One asynchronous writer appends and flushes each line. Storage latency
+/// must not delay call signaling, timers or UI on the emitting isolate.
 io.RandomAccessFile? _logFileHandle;
 bool _logFileTried = false;
+Future<void>? _logFileDrain;
+final _pendingLogLines = ListQueue<String>();
+const _pendingLogLineLimit = 512;
+int _logFileGeneration = 0;
+int _activeLogFileGeneration = 0;
 
 /// Bytes above which the file is started over on the next launch.
 ///
@@ -148,19 +152,16 @@ List<String> devLogDirectoriesForExecutable({
 /// there, which then failed to decode as UTF-8. A shared folder nobody chose
 /// is a bad place for a log even when it does decode.
 ///
-/// Setting this reopens the file on the next line written.
+/// Setting this reopens the file on the next line written. Drain queued lines
+/// first if the previous destination is still needed.
 String? _logDirectoryOverride;
 String? get devLogDirectoryOverride => _logDirectoryOverride;
 set devLogDirectoryOverride(String? dir) {
   _logDirectoryOverride = dir;
-  try {
-    _logFileHandle?.closeSync();
-  } catch (_) {
-    // Already gone; nothing to do but forget it.
-  }
-  _logFileHandle = null;
-  _logFileTried = false;
+  _pendingLogLines.clear();
+  _logFileGeneration++;
   devLogFilePath = null;
+  if (_logFileHandle != null) _scheduleLogFileDrain();
 }
 
 /// The file the NODE writes its own log to, beside the app's.
@@ -204,26 +205,19 @@ String? debugNodeLogPath() {
   return null;
 }
 
-io.RandomAccessFile? _openLogFile() {
+Future<io.RandomAccessFile?> _openLogFile() async {
   if (_logFileTried) return _logFileHandle;
   _logFileTried = true;
-  // A test process writes nothing unless it asked to. `flutter test` runs
-  // `flutter_tester` out of the SDK's cache, so "beside the running binary"
-  // means inside somebody else's installation — shared with every other test
-  // process on the machine, which is how a suite of four thousand tests
-  // produced one file that no longer decoded as UTF-8.
-  if (_logDirectoryOverride == null &&
-      io.Platform.environment['FLUTTER_TEST'] == 'true') {
-    return null;
-  }
   for (final dir in _logDirCandidates()) {
     try {
       final file = io.File('$dir${io.Platform.pathSeparator}xveil-debug.log');
-      if (file.existsSync() && file.lengthSync() > _logFileRotateAbove) {
-        file.deleteSync();
+      if (await file.exists() && await file.length() > _logFileRotateAbove) {
+        await file.delete();
       }
-      final handle = file.openSync(mode: io.FileMode.append);
-      devLogFilePath = file.path;
+      final handle = await file.open(mode: io.FileMode.append);
+      if (_activeLogFileGeneration == _logFileGeneration) {
+        devLogFilePath = file.path;
+      }
       _logFileHandle = handle;
       return handle;
     } catch (_) {
@@ -249,26 +243,80 @@ io.RandomAccessFile? _openLogFile() {
 int _logFileFailures = 0;
 const int _logFileGiveUpAfter = 5;
 
-void _writeLogFile(String line) {
-  if (_logFileFailures >= _logFileGiveUpAfter) return;
-  final handle = _openLogFile();
+Future<void> _closeLogFile() async {
+  final handle = _logFileHandle;
+  _logFileHandle = null;
   if (handle == null) return;
   try {
-    handle.writeStringSync('$line\n');
-    handle.flushSync();
+    await handle.close();
+  } catch (_) {
+    // A failed or already closed handle is no longer used.
+  }
+}
+
+Future<void> _appendLogLine(String line) async {
+  if (_logFileFailures >= _logFileGiveUpAfter) return;
+  try {
+    final handle = await _openLogFile();
+    if (handle == null) return;
+    await handle.writeString('$line\n');
+    await handle.flush();
     _logFileFailures = 0;
   } catch (_) {
     // A disk that filled up or a handle that went away must not take the app
     // with it, and must not silence it either: drop the handle and let the
     // next line open a fresh one.
     _logFileFailures++;
-    try {
-      _logFileHandle?.closeSync();
-    } catch (_) {
-      // Already unusable; there is nothing to salvage.
-    }
-    _logFileHandle = null;
+    await _closeLogFile();
     _logFileTried = false;
+  }
+}
+
+bool get _logFileWorkPending =>
+    _activeLogFileGeneration != _logFileGeneration ||
+    _pendingLogLines.isNotEmpty;
+
+Future<void> _drainLogFile() async {
+  while (_logFileWorkPending) {
+    if (_activeLogFileGeneration != _logFileGeneration) {
+      await _closeLogFile();
+      _logFileTried = false;
+      _logFileFailures = 0;
+      _activeLogFileGeneration = _logFileGeneration;
+      continue;
+    }
+    await _appendLogLine(_pendingLogLines.removeFirst());
+  }
+}
+
+void _scheduleLogFileDrain() {
+  _logFileDrain ??= Future<void>(_drainLogFile).whenComplete(() {
+    _logFileDrain = null;
+    if (_logFileWorkPending) _scheduleLogFileDrain();
+  });
+}
+
+void _writeLogFile(String line) {
+  // Tests must opt in. The default would write into the shared SDK cache
+  // directory alongside flutter_tester.
+  if (_logDirectoryOverride == null &&
+      io.Platform.environment['FLUTTER_TEST'] == 'true') {
+    return;
+  }
+  // Keep the newest pending evidence if the disk is slower than the producer.
+  // The independent in-memory tail still has the complete recent sequence.
+  if (_pendingLogLines.length == _pendingLogLineLimit) {
+    _pendingLogLines.removeFirst();
+  }
+  _pendingLogLines.addLast(line);
+  _scheduleLogFileDrain();
+}
+
+/// Wait for queued diagnostic file writes and their flushes during a stand
+/// check or an orderly teardown.
+Future<void> flushDevLogFile() async {
+  while (_logFileDrain != null) {
+    await _logFileDrain!;
   }
 }
 
