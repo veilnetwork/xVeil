@@ -565,6 +565,8 @@ class CallService {
   DateTime? _peerCompactReadyUntil;
   int? _lastPeerCompactHealthAtMs;
   DateTime? _lastPeerSignalAt;
+  static const _maxPeerHealthTimestamps = 64;
+  final _peerHealthTimestamps = <int>{};
   int? _lastPeerHealthAtMs;
   int? _lastAppliedPeerRepairAtMs;
   DateTime? _peerAudioExpectedSince;
@@ -1753,8 +1755,8 @@ class CallService {
     // answer this one either — including with the `busy` reject `_onOffer`
     // sends, which is a reply on a departed identity's pipeline.
     if (_disposed) return;
-    // Any signal from the current call's peer is proof of life — refresh the
-    // liveness deadline before dispatching (covers offer/answer/health/… alike).
+    // Mark activity from the current peer before dispatching. Best-effort
+    // health can arrive twice because it is sent over both live routes.
     final live = _current;
     // A forked answer binds the dialog to a physical device, but a direct
     // session can attribute its later encrypted control to the original
@@ -1772,8 +1774,7 @@ class CallService {
         live.isLive &&
         live.callId == sig.callId &&
         live.peer == peer) {
-      _lastPeerSignalAt = _now();
-      if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
+      _recordPeerActivity(sig);
       _foldPeerCapture(sig);
       final at = sig.sentAtMs;
       if (sig.type == CallSignalType.health &&
@@ -1946,6 +1947,20 @@ class CallService {
       case CallSignalType.unknown:
         break;
     }
+  }
+
+  void _recordPeerActivity(CallSignal signal) {
+    final at = signal.sentAtMs;
+    if (signal.type == CallSignalType.health && at != null) {
+      // Use recent duplicates rather than a timestamp floor. A genuine
+      // heartbeat must still count after the sender's wall clock moves back.
+      if (!_peerHealthTimestamps.add(at)) return;
+      if (_peerHealthTimestamps.length > _maxPeerHealthTimestamps) {
+        _peerHealthTimestamps.remove(_peerHealthTimestamps.first);
+      }
+    }
+    _lastPeerSignalAt = _now();
+    if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
   }
 
   bool _foldPeerRelaySettlement(Call call, CallSignal signal) {
@@ -3909,6 +3924,7 @@ class CallService {
       _resetLateP2P();
       _peerAudioExpectedSince = null;
       _peerMediaResumedAt = null;
+      _peerHealthTimestamps.clear();
       _lastPeerHealthAtMs = null;
       _lastAppliedPeerRepairAtMs = null;
       _lastRenegotiateAtMs = 0;
