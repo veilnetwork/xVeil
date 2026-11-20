@@ -137,6 +137,19 @@ class _RealtimeProbe
   }
 }
 
+class _BoundedFallbackProbe extends _RealtimeProbe
+    implements CallFallbackTransport {
+  _BoundedFallbackProbe(super.me);
+
+  final fallbackIds = <String?>[];
+
+  @override
+  Future<void> sendCallFallback(NodeId dst, Uint8List payload) async {
+    fallbackIds.add(WireEnvelope.decode(payload).frameId);
+    if (fallbackIds.length == 1) throw StateError('local send expired');
+  }
+}
+
 /// The same ordinary channel without advertising optional realtime features.
 class _OrdinaryProbe implements VeilTransport {
   _OrdinaryProbe(this.delegate);
@@ -253,7 +266,10 @@ void main() {
       var isCurrent = true;
       final sending = messaging.sendCallHealth(
         peer,
-        const CallSignal(callId: 'handover-consent', type: CallSignalType.health),
+        const CallSignal(
+          callId: 'handover-consent',
+          type: CallSignalType.health,
+        ),
         admitTransport: () => isCurrent,
       );
       try {
@@ -1144,6 +1160,47 @@ void main() {
       transport.realtimeGate.complete();
     },
   );
+
+  test('call answer expiry keeps the durable retry on the bounded path', () {
+    fakeAsync((time) {
+      final probe = _BoundedFallbackProbe(me);
+      final storage = HiddenVolumeStorage(_memOpener());
+      final clock = time.getClock(DateTime(2026));
+      final messaging = MessagingService(probe, storage, now: clock.now);
+      final id = 'call:bounded-answer:answer:${peer.hex}';
+      var persisted = false;
+      unawaited(() async {
+        await storage.open(password: 'pw', createIfMissing: true);
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        await messaging.sendCallSignal(
+          peer,
+          const CallSignal(
+            callId: 'bounded-answer',
+            type: CallSignalType.answer,
+          ),
+        );
+        persisted = (await storage.pendingOutboxFrames()).any(
+          (frame) => frame.frameId == id,
+        );
+      }());
+      try {
+        time.flushMicrotasks();
+        expect(probe.fallbackIds, [id]);
+        expect(persisted, isTrue);
+        time.elapse(const Duration(milliseconds: 275));
+        time.flushMicrotasks();
+        expect(probe.fallbackIds, [id, id]);
+        expect(probe.normalSends, 0);
+      } finally {
+        unawaited(messaging.dispose());
+        unawaited(probe.dispose());
+        unawaited(storage.close());
+        time.flushMicrotasks();
+      }
+    });
+  });
 
   for (final (rejectContact, rejectRelay) in [
     (false, false),

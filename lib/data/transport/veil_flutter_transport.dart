@@ -188,6 +188,7 @@ class VeilFlutterTransport
         RealtimeTransport,
         DeviceRealtimeTransport,
         RelayRealtimeTransport,
+        CallFallbackTransport,
         RealtimeInboundTransport,
         StreamTransport,
         P2PStreamTransport,
@@ -1284,7 +1285,19 @@ class VeilFlutterTransport
   }
 
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) {
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) =>
+      _send(dst, payload, anonymous: anonymous);
+
+  @override
+  Future<void> sendCallFallback(NodeId dst, Uint8List payload) =>
+      _send(dst, payload, anonymous: false, boundedReliable: true);
+
+  Future<void> _send(
+    NodeId dst,
+    Uint8List payload, {
+    required bool anonymous,
+    bool boundedReliable = false,
+  }) {
     // ADDRESSED AT OUR OWN IDENTITY: a sync to our other devices, and NO live
     // path can carry one today. Checked before the anonymous branch, because
     // anonymity is the default and that branch used to return first — which is
@@ -1346,6 +1359,7 @@ class VeilFlutterTransport
         dstAppId: chatAppIdFor(dst),
         dstEndpointId: veilChatEndpointId,
         data: payload,
+        boundedReliable: boundedReliable,
       ),
     );
   }
@@ -1658,16 +1672,22 @@ class VeilFlutterTransport
 
   Stream<void> get overlaySessionAdmissions => _client
       .events()
-      .where((event) =>
-          event.kind == VeilEventKind.sessionAdmitted && event.payload.isEmpty)
+      .where(
+        (event) =>
+            event.kind == VeilEventKind.sessionAdmitted &&
+            event.payload.isEmpty,
+      )
       .map((_) {});
 
   /// Empty, process-local checkpoint wake hints from this runtime. A malformed
   /// hint is ignored; a missed one is covered by the owner's periodic backstop.
   Stream<void> get peerAuthorizationChanges => _client
       .events()
-      .where((e) =>
-          e.kind == VeilEventKind.peerAuthorizationChanged && e.payload.isEmpty)
+      .where(
+        (e) =>
+            e.kind == VeilEventKind.peerAuthorizationChanged &&
+            e.payload.isEmpty,
+      )
       .map((_) {});
 
   @override

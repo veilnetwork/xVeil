@@ -288,6 +288,12 @@ abstract interface class RelayRealtimeTransport {
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload);
 }
 
+/// A reliable live copy for a non-anonymous call signal. The local node
+/// bounds the send attempt. The caller still owns delivery and retries.
+abstract interface class CallFallbackTransport {
+  Future<void> sendCallFallback(NodeId dst, Uint8List payload);
+}
+
 /// Optional latency-critical inbound control surface.
 ///
 /// Production binds call control to a dedicated app endpoint. Keep that stream

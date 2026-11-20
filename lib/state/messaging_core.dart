@@ -1058,6 +1058,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    bool boundedCallFallback = false,
     Future<void>? Function()? prepareTransport,
     bool Function()? admitTransport,
   }) async {
@@ -1092,6 +1093,7 @@ class MessagingService {
         requireIdentityAddress: requireIdentityAddress,
         background: background,
         cancelOnDispose: cancelOnDispose,
+        boundedCallFallback: boundedCallFallback,
         prepareTransport: prepareTransport,
         admitTransport: admitTransport,
       );
@@ -1109,6 +1111,7 @@ class MessagingService {
         requireIdentityAddress: requireIdentityAddress,
         background: background,
         cancelOnDispose: cancelOnDispose,
+        boundedCallFallback: boundedCallFallback,
         prepareTransport: prepareTransport,
         admitTransport: admitTransport,
       );
@@ -1146,6 +1149,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    bool boundedCallFallback = false,
     Future<void>? Function()? prepareTransport,
     bool Function()? admitTransport,
   }) async {
@@ -1242,7 +1246,17 @@ class MessagingService {
     if (admitTransport?.call() == false) return false;
     final sw = Stopwatch()..start();
     final sourceTransport = _transport;
-    if (background && !wantReply && sourceTransport is LocalSourceTransport) {
+    if (boundedCallFallback &&
+        !_anonymous &&
+        !wantReply &&
+        sourceTransport is CallFallbackTransport) {
+      await (sourceTransport as CallFallbackTransport).sendCallFallback(
+        dst,
+        payload,
+      );
+    } else if (background &&
+        !wantReply &&
+        sourceTransport is LocalSourceTransport) {
       await (sourceTransport as LocalSourceTransport).sendOnLocalLane(
         dst,
         payload,
