@@ -9,6 +9,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
 
 NodeId _id(int tag) => NodeId(Uint8List(32)..fillRange(0, 32, tag));
 
@@ -17,6 +18,13 @@ class _Storage extends HiddenVolumeStorage {
     : super(({required password, required create}) => FakeKvLogStore());
   final failedReads = <String>{};
   Future<void> Function(String id)? beforeFailureWrite;
+  Future<void> Function(String id)? beforeDeletedRead;
+
+  @override
+  Future<bool> isMessageDeleted(String conversationId, String messageId) async {
+    await beforeDeletedRead?.call(messageId);
+    return super.isMessageDeleted(conversationId, messageId);
+  }
 
   @override
   Future<bool> markMessageStatus(
@@ -40,6 +48,28 @@ class _Storage extends HiddenVolumeStorage {
   Future<List<Conversation>> loadConversations() async =>
       (await super.loadConversations())
         ..sort((a, b) => a.peer.nodeId.hex.compareTo(b.peer.nodeId.hex));
+}
+
+class _HeldReservation extends Fake implements RatchetPersistence {
+  _HeldReservation(this.entered, this.release);
+
+  final Completer<void> entered;
+  final Completer<void> release;
+
+  @override
+  bool get degraded => false;
+
+  @override
+  Future<void> reserveBeforePublish(NodeId peer) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+  }
+
+  @override
+  Future<int> flush({String why = 'unknown', bool now = false}) async => 0;
+
+  @override
+  Future<int> close() async => 0;
 }
 
 class _Transport implements VeilTransport {
@@ -138,6 +168,60 @@ void main() {
     for (final sent in transport.sent)
       if (sent.peer == _id(peer)) sent.id,
   ];
+
+  for (final stage in ['storage', 'ratchet']) {
+    for (final change in ['block', 'block then unblock', 'receipt']) {
+      test('retry rechecks $change after waiting on $stage', () async {
+        final peer = _id(2);
+        Future<void> receiveReceipt(String id) => service.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: WireEnvelope.ack(id).encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        // Finish the first advisory sync before adding the reservation gate.
+        await queue(2, 'prime');
+        await flush();
+        await receiveReceipt('prime');
+        await barrier();
+        transport.sent.clear();
+        await queue(2, 'outstanding', seq: 2);
+        final entered = Completer<void>(), release = Completer<void>();
+        if (stage == 'storage') {
+          storage.beforeDeletedRead = (id) async {
+            if (id != 'outstanding' || entered.isCompleted) return;
+            entered.complete();
+            await release.future;
+          };
+        } else {
+          service.ratchet = _HeldReservation(entered, release);
+        }
+
+        final retry = flush();
+        try {
+          await entered.future;
+          expect(ids(2), isEmpty);
+          if (change == 'receipt') {
+            await receiveReceipt('outstanding');
+          } else {
+            await service.blockContact(peer);
+            if (change == 'block then unblock') {
+              await service.unblockContact(peer);
+            }
+          }
+        } finally {
+          release.complete();
+          await retry;
+        }
+        expect(ids(2), isEmpty);
+
+        if (change == 'block') await service.unblockContact(peer);
+        await flush();
+        expect(ids(2), change == 'receipt' ? isEmpty : ['outstanding']);
+      });
+    }
+  }
 
   test('a held message does not delay another contact', () async {
     await queue(2, 'slow');

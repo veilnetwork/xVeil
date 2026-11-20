@@ -175,6 +175,34 @@ void main() {
       expect(_acks(r.b.sent, id), 1);
     },
   );
+  test('blocking a contact stops the remaining parts of a retry', () async {
+    final r = await _rig();
+    r.a.peer = null;
+    await r.ma.sendText(r.b.id, _longText());
+    expect(r.a.sent.where(isLargeFrame).length, greaterThan(1));
+    r.a.sent.clear();
+    final entered = Completer<void>(), release = Completer<void>();
+    r.a.beforeSend = (_, payload) async {
+      if (isLargeFrame(payload) && !entered.isCompleted) {
+        entered.complete();
+        await release.future;
+      }
+    };
+    final retry = r.ma.flushOutbox();
+    try {
+      await entered.future;
+      await r.ma.blockContact(r.b.id);
+    } finally {
+      release.complete();
+      await retry;
+    }
+    expect(r.a.sent.where(isLargeFrame), hasLength(1));
+    expect(
+      (await r.sa.loadMessages(r.b.id.hex)).single.status,
+      MessageStatus.sent,
+    );
+  });
+
   test(
     'receiver restart forgets partial RAM and a whole resend repairs delivery',
     () async {

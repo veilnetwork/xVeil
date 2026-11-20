@@ -16,6 +16,7 @@ class _MessagingLargeFrames {
     required bool wantReply,
     required bool requireIdentityAddress,
     required bool background,
+    bool Function()? admitTransport,
   }) {
     if (_closed || _owner._disposed) {
       return Future.error(StateError('messaging closed'));
@@ -51,13 +52,15 @@ class _MessagingLargeFrames {
             try {
               // Bypass framing once for compatibility with existing receivers.
               // This still reserves and checkpoints through the ordinary path.
-              await _owner._sendImpl(
+              final sent = await _owner._sendImpl(
                 target,
                 owned,
                 wantReply: wantReply,
                 requireIdentityAddress: true,
                 background: background,
+                admitTransport: admitTransport,
               );
+              if (!sent) return;
             } catch (_) {
               // A native carrier can reject its encoded size or lose the frame
               // silently. Continue via bounded pieces only after keeping any
@@ -72,13 +75,18 @@ class _MessagingLargeFrames {
             }
             // Every part uses the ordinary reservation/checkpoint path. Reserving
             // once for the whole payload could overrun the native ratchet window.
+            var admitted = true;
             await _owner._send(
               target,
               parts[i],
               wantReply: wantReply && i == parts.length - 1,
               requireIdentityAddress: true,
               background: background,
+              admitTransport: admitTransport == null
+                  ? null
+                  : () => admitted = admitTransport(),
             );
+            if (!admitted) return;
             if (i + 1 < parts.length) {
               await Future<void>.delayed(const Duration(milliseconds: 20));
             }
