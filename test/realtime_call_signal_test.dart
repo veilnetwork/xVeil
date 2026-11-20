@@ -1042,6 +1042,50 @@ void main() {
     expect(transport.relayRealtimeSends, 0);
   });
 
+  test('blocking a contact stops its pending fast call retries', () {
+    fakeAsync((time) {
+      final transport = _RealtimeProbe(me);
+      final storage = HiddenVolumeStorage(_memOpener());
+      final messaging = MessagingService(
+        transport,
+        storage,
+        now: time.getClock(DateTime(2026)).now,
+      );
+      try {
+        var blocked = false;
+        unawaited(() async {
+          await storage.open(password: 'pw', createIfMissing: true);
+          await storage.upsertContact(
+            Contact(nodeId: peer, status: ContactStatus.accepted),
+          );
+          await messaging.sendCallSignal(
+            peer,
+            const CallSignal(
+              callId: 'block-pending-answer',
+              type: CallSignalType.answer,
+            ),
+          );
+          await messaging.blockContact(peer);
+          blocked = true;
+        }());
+        time.flushMicrotasks();
+        expect(blocked, isTrue);
+        expect(transport.realtimeSends, 1);
+
+        time.elapse(const Duration(seconds: 2));
+
+        expect(transport.normalSends, 1);
+        expect(transport.relayRealtimeSends, 1);
+        expect(transport.realtimeSends, 1);
+      } finally {
+        unawaited(messaging.dispose());
+        unawaited(transport.dispose());
+        unawaited(storage.close());
+        time.flushMicrotasks();
+      }
+    });
+  });
+
   test('blocked contact cannot re-drive call control on realtime', () async {
     final sender = MessagingService(transport, storage);
     await sender.sendCallSignal(

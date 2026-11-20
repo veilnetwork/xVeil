@@ -584,7 +584,7 @@ class _MessagingOutbox {
     }
     final mailboxEligible =
         envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
-    final consentEpoch = mailboxEligible
+    final consentEpoch = mailboxEligible || envelope.kind == WireKind.callSignal
         ? _owner._realtimeControl._consentEpoch(peer)
         : null;
     final skipLive =
@@ -699,6 +699,7 @@ class _MessagingOutbox {
         wire,
         liveSender,
         waitForSubmission: waitForFastRetry,
+        consentEpoch: consentEpoch,
       );
     }
   }
@@ -741,6 +742,7 @@ class _MessagingOutbox {
     Uint8List wire,
     Future<void> Function(Uint8List wire) liveSender, {
     required bool waitForSubmission,
+    required Object? consentEpoch,
   }) {
     _fastCallRetryTimers.remove(frameId)?.cancel();
 
@@ -756,7 +758,12 @@ class _MessagingOutbox {
       _fastCallRetryTimers[frameId] = Timer(delay, () async {
         _fastCallRetryTimers.remove(frameId);
         final previous = _liveBackoff[_key(peer.hex, frameId)];
-        if (_owner._disposed || previous == null) return;
+        if (_owner._disposed ||
+            previous == null ||
+            (consentEpoch != null &&
+                !_owner._realtimeControl._consentCurrent(peer, consentEpoch))) {
+          return;
+        }
 
         final now = _owner._now();
         final count = previous.count + 1;
