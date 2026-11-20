@@ -1745,6 +1745,84 @@ void main() {
     }
 
     test(
+      'a handover admission still sends health after P2P falls back to relay',
+      () {
+        fakeAsync((async) {
+          const callId = 'handover-relay-before-admission';
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final media = _SnapshotMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..liveDirectAdmission = false;
+          var networkGeneration = 0;
+          final svc = CallService(
+            wire,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            readNetworkChangeGeneration: () => networkGeneration,
+          )..start();
+          try {
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: callId,
+                type: CallSignalType.offer,
+                media: CallMedia(audio: true),
+                posture: CallPosture.direct,
+                transport: CallTransportProposal(CallTransportKind.p2p),
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            media.rxAt = clock.now();
+            wire.sent.clear();
+
+            networkGeneration++;
+            network.add(NetworkAttachment.cellular);
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(
+              wire.sent.where(
+                (signal) =>
+                    signal.type == CallSignalType.transportInfo &&
+                    signal.transport?.kind == CallTransportKind.relay,
+              ),
+              hasLength(1),
+            );
+            expect(
+              wire.sent.where((s) => s.type == CallSignalType.health),
+              isEmpty,
+            );
+            // The route notification above was sent before overlay admission.
+            // The first admitted session should still send the live health hint.
+            admissions.add(null);
+            admissions.add(null);
+            async.flushMicrotasks();
+            final health = wire.sent.where(
+              (s) => s.type == CallSignalType.health,
+            );
+            expect(health, hasLength(1));
+            expect(health.single.callId, callId);
+            expect(health.single.transport?.kind, CallTransportKind.relay);
+            expect(svc.current?.status, CallStatus.active);
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      },
+    );
+
+    test(
       'native liveness rechecks a signal received while its snapshot waits',
       () {
         fakeAsync((async) {
