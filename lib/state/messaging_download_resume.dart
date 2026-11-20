@@ -624,14 +624,18 @@ class _MessagingDownloadResume {
     try {
       final intent = (await _pendingDownloads())[contentId];
       if (intent == null || !isCurrent()) return;
-      var completed = await _owner._storage.hasFile(contentId);
+      final path = intent.mode == _PendingDownload.modeFile
+          ? intent.savedPath
+          : null;
+      final hasStoredCopy = await _owner._storage.hasFile(contentId);
       if (!isCurrent()) return;
-      if (!completed) {
-        completed = await _owner.isContentUnavailable(contentId);
+      var completed = hasStoredCopy && path == null;
+      if (path != null) {
+        completed = await _owner.contentSavedPath(contentId) == path;
         if (!isCurrent()) return;
       }
-      if (!completed && intent.mode == _PendingDownload.modeFile) {
-        completed = await _owner.contentSavedPath(contentId) != null;
+      if (!completed && !hasStoredCopy) {
+        completed = await _owner.isContentUnavailable(contentId);
         if (!isCurrent()) return;
       }
       if (completed) {
@@ -646,6 +650,15 @@ class _MessagingDownloadResume {
       if (lastProgress != null &&
           DateTime.now().difference(lastProgress) < liveGrace) {
         _schedule(contentId, after: liveGrace * 2);
+        return;
+      }
+      if (hasStoredCopy && path != null) {
+        await _resumePlainFile(
+          intent,
+          const [],
+          isCurrent,
+          localCopyOnly: true,
+        );
         return;
       }
       final peers = <NodeId>[];
@@ -711,8 +724,7 @@ class _MessagingDownloadResume {
           unawaited(_owner.requestContentReoffer(peer, contentId));
         }
       }
-      if (intent.mode == _PendingDownload.modeFile &&
-          intent.savedPath != null) {
+      if (path != null) {
         await _resumePlainFile(intent, peers, isCurrent);
       } else {
         await _owner.downloadContentFromAny(
@@ -742,8 +754,9 @@ class _MessagingDownloadResume {
   Future<void> _resumePlainFile(
     _PendingDownload intent,
     List<NodeId> peers,
-    bool Function() isCurrent,
-  ) async {
+    bool Function() isCurrent, {
+    bool localCopyOnly = false,
+  }) async {
     final contentId = intent.contentId;
     final path = intent.savedPath!;
     final sink = await plainFileSinkOpener(path, resume: true);
@@ -760,14 +773,13 @@ class _MessagingDownloadResume {
       // an opener that throws. A new user-selected path can replace this intent.
       throw StateError('Download destination unavailable');
     }
-    final result = await _owner.downloadContentToFileFromAny(
+    final result = await _owner._downloadContentToFileFromAny(
       peers,
       contentId,
       path,
-      write: sink.write,
-      close: sink.close,
-      read: sink.read,
+      sink,
       userInitiated: false,
+      localCopyOnly: localCopyOnly,
     );
     if (result == ContentDownloadResult.noOffer) {
       await sink.close();

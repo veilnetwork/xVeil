@@ -3918,9 +3918,23 @@ class MessagingService {
     // ones already written (see [_FetchSink.read]).
     Future<Uint8List?> Function(int offset, int length)? read,
     bool userInitiated = true,
+  }) => _downloadContentToFileFromAny(peers, contentId, savedPath, (
+    write: write,
+    close: close,
+    read: read,
+  ), userInitiated: userInitiated);
+
+  Future<ContentDownloadResult> _downloadContentToFileFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    String savedPath,
+    VeilPlainFileSink destination, {
+    required bool userInitiated,
+    bool localCopyOnly = false,
   }) async {
     Future<void>? closing;
-    Future<void> closeSink() => closing ??= Future<void>.sync(close);
+    Future<void> closeSink() =>
+        closing ??= Future<void>.sync(destination.close);
 
     final preparation = _downloadResume.prepare(
       contentId,
@@ -3933,9 +3947,9 @@ class MessagingService {
     try {
       final sink = (
         saveOwner: preparation.token,
-        write: write,
+        write: destination.write,
         close: closeSink,
-        read: read,
+        read: destination.read,
       );
       _fetchSavePath[contentId] = (path: savedPath, sink: sink);
       devLog(
@@ -3944,7 +3958,8 @@ class MessagingService {
             '${contentId.substring(0, 12)} -> $savedPath',
       );
       _markContentDownloadStarted(contentId);
-      if (await preparation.wait(() => _storage.hasFile(contentId))) {
+      if (localCopyOnly ||
+          await preparation.wait(() => _storage.hasFile(contentId))) {
         return await preparation.wait(
               () => _exportStoredContentToSink(contentId, sink, savedPath),
             )
@@ -4248,6 +4263,17 @@ class MessagingService {
       !_disposed &&
       identical(_fetchSavePath[contentId]?.sink.saveOwner, sink.saveOwner);
 
+  Future<void> _verifyPlainFileEndAt(
+    _FetchSink sink,
+    int length, {
+    bool requireVerifiedEnd = false,
+  }) async {
+    final tail = await sink.read?.call(length, 1);
+    if (tail?.isNotEmpty == true || (requireVerifiedEnd && tail == null)) {
+      throw StateError('Download destination length does not match');
+    }
+  }
+
   String? _forgetFetchSavePath(String contentId, {Object? owner}) {
     final destination = _fetchSavePath[contentId];
     if (destination == null ||
@@ -4277,7 +4303,9 @@ class MessagingService {
 
     try {
       checkOwner();
-      if (!await _storage.hasFile(contentId)) return false;
+      if (!await _storage.hasFile(contentId)) {
+        throw StateError('Stored download is no longer available');
+      }
       checkOwner();
       final mfBytes = await _storage.loadFile('mf:$contentId');
       checkOwner();
@@ -4292,6 +4320,10 @@ class MessagingService {
         }
         name = manifest.name;
         total = manifest.size;
+        if (sink.read != null) {
+          await _verifyPlainFileEndAt(sink, total);
+          checkOwner();
+        }
         devLog(
           () =>
               'xVeil[content]: exporting stored $short '
@@ -4322,9 +4354,15 @@ class MessagingService {
         // Old stores may have a local blob without a stream manifest.
         final bytes = await _storage.loadFile(contentId);
         checkOwner();
-        if (bytes == null) return false;
+        if (bytes == null) {
+          throw StateError('Stored download is no longer available');
+        }
         name = contentId;
         total = bytes.length;
+        if (sink.read != null) {
+          await _verifyPlainFileEndAt(sink, total);
+          checkOwner();
+        }
         await sink.write(0, bytes);
         checkOwner();
       }

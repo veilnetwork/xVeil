@@ -6,7 +6,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
-import 'package:xveil/data/serve_source.dart' show VeilPlainFileSink;
+import 'package:xveil/data/serve_source.dart'
+    show VeilPlainFileSink, veilPlainFileSinkOpener;
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -850,6 +851,102 @@ void main() {
         extraByte ? [cid] : isEmpty,
       );
     });
+  }
+
+  for (final (localCopy, lostAtOpen, extraByte) in [
+    (true, false, false),
+    (false, false, false),
+    (true, true, false),
+    (true, false, true),
+  ]) {
+    test(
+      'pending external save survives other copies '
+      '(local copy=$localCopy, lost at open=$lostAtOpen, extra byte=$extraByte)',
+      () async {
+        await mB.dispose();
+        await sB.close();
+        final storage = _ObservedResumeStorage(_mem());
+        sB = storage;
+        await sB.open(password: 'fixture', createIfMissing: true);
+        await sB.upsertContact(
+          Contact(nodeId: a, status: ContactStatus.accepted),
+        );
+        mB = _makeService(tB, sB)..start();
+
+        final data = _rnd(400000, 202);
+        final cid = await offerToB(data, 'another-destination.bin');
+        final dir = await Directory.systemTemp.createTemp('xveil-resume-copy');
+        addTearDown(() => dir.delete(recursive: true));
+        final destination = File('${dir.path}/selected.bin');
+        final previous = File('${dir.path}/previous.bin');
+        cutLink();
+        await mB.downloadContentToFile(
+          a,
+          cid,
+          destination.path,
+          write: (_, _) async => fail('the source is offline'),
+          close: () async {},
+        );
+        expect(await mB.pendingAutoResumeContentIds(), [cid]);
+        await mB.dispose();
+        if (localCopy) {
+          await sB.storeFile(cid, data);
+          if (lostAtOpen) {
+            healLink();
+          } else {
+            await sB.upsertContact(
+              Contact(nodeId: a, status: ContactStatus.blocked),
+            );
+          }
+        } else {
+          await previous.writeAsBytes(data);
+          await sB.putSetting('saved:$cid', previous.path);
+          healLink();
+        }
+        tB.openStreamAttempts.clear();
+        tB.sendsTo.clear();
+
+        final settled = Completer<void>();
+        storage.onRegistryWrite = (bytes) {
+          if ((jsonDecode(utf8.decode(bytes)) as List).isEmpty &&
+              !settled.isCompleted) {
+            settled.complete();
+          }
+        };
+        mB = _makeService(tB, sB)..downloadResumeStartDelay = Duration.zero;
+        final oversized = Uint8List(data.length + 1);
+        if (extraByte) await destination.writeAsBytes(oversized);
+        if (lostAtOpen) {
+          mB.plainFileSinkOpener = (path, {bool resume = false}) async {
+            await sB.deleteStoredFile(cid);
+            return veilPlainFileSinkOpener(path, resume: resume);
+          };
+        }
+        if (lostAtOpen || extraByte) {
+          final failed = mB.contentDownloadFailed.firstWhere((id) => id == cid);
+          mB.start();
+          await failed.timeout(const Duration(seconds: 5));
+          expect(await mB.pendingAutoResumeContentIds(), [cid]);
+          expect(await mB.contentSavedPath(cid), isNull);
+          expect(tB.openStreamAttempts, isEmpty);
+          expect(tB.sendsTo, isEmpty);
+          if (extraByte) expect(await destination.readAsBytes(), oversized);
+          return;
+        }
+        mB.start();
+        await settled.future.timeout(const Duration(seconds: 5));
+        expect(await mB.contentSavedPath(cid), destination.path);
+        expect(await destination.readAsBytes(), data);
+        expect(await mB.pendingAutoResumeContentIds(), isEmpty);
+        if (localCopy) {
+          expect(tB.openStreamAttempts, isEmpty);
+          expect(tB.sendsTo, isEmpty);
+        } else {
+          expect(await previous.readAsBytes(), data);
+          expect(tB.openStreamAttempts, isNotEmpty);
+        }
+      },
+    );
   }
 
   test('plain-file download interrupted by shutdown re-drives to the SAME '
