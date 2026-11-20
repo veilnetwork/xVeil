@@ -217,6 +217,38 @@ final class PosixSidecarLock implements Finalizable {
         .cast(),
   );
 
+  /// Publish a new empty sidecar with private permissions at creation. A
+  /// concurrent publisher can open it as soon as its name becomes visible.
+  static void reservePrivate(String path) {
+    final apple = Platform.isMacOS || Platform.isIOS;
+    final lib = DynamicLibrary.process();
+    final open = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Utf8>, Int32, VarArgs<(Uint32,)>),
+          int Function(Pointer<Utf8>, int, int)
+        >('open');
+    final close = lib.lookupFunction<Int32 Function(Int32), int Function(int)>(
+      'close',
+    );
+    final name = path.toNativeUtf8();
+    try {
+      // O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC. O_EXCL refuses an existing
+      // name, including a symbolic link. The caller checks the winning leaf.
+      final flags = 1 | (apple ? 0x1000a00 : 0x800c0);
+      final fd = open(name, flags, 0x180);
+      if (fd >= 0) {
+        if (close(fd) != 0) {
+          throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
+        }
+      } else if (FileSystemEntity.typeSync(path, followLinks: false) ==
+          FileSystemEntityType.notFound) {
+        throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
+      }
+    } finally {
+      calloc.free(name);
+    }
+  }
+
   static PosixSidecarLock? acquire(
     String file, {
     bool create = false,

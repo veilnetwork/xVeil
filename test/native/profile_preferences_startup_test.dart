@@ -618,6 +618,24 @@ void main() {
     // Lifetime-role metadata may be initialized, but no preference data is created.
   });
 
+  test('two owners can race the first preference write', () async {
+    const first = '{"v":1,"e":{}}';
+    const second = '{"v":1,"e":{"flutter.flag":{"t":"Bool","v":true}}}';
+    for (var i = 0; i < 8; i++) {
+      final path = prefs('fresh$i');
+      final a = await open(path);
+      final b = await open(path);
+      final results = await Future.wait([
+        a.compareAndWrite(null, first),
+        b.compareAndWrite(null, second),
+      ]);
+      expect(results, unorderedEquals([true, null]));
+      expect(await a.read(), results.first == true ? first : second);
+      await a.close();
+      await b.close();
+    }
+  });
+
   test('concurrent preference owners retain each other’s changes', () async {
     final aFile = await open(prefs());
     final bFile = await open(prefs());

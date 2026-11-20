@@ -231,11 +231,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
     if (Platform.isWindows) {
       windows.createPrivateFile(sidecar.path);
     } else {
-      try {
-        sidecar.createSync(exclusive: true);
-      } on PathExistsException {
-        // A concurrent writer reserved the same empty leaf.
-      }
+      PosixSidecarLock.reservePrivate(sidecar.path);
     }
   }
   const fs = ManagedFsPlatform();
