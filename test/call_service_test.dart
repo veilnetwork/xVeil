@@ -1769,6 +1769,85 @@ void main() {
       });
     });
 
+    for (final relayResponds in [true, false]) {
+      test(
+        'native liveness awaits an in-flight relay candidate ($relayResponds)',
+        () {
+          fakeAsync((async) {
+            const callId = 'relay-qualifying-at-liveness-deadline';
+            final gate = Completer<bool>();
+            final wire = _FakeMessaging();
+            final media = _ReconnectRelayMedia()
+              ..liveDirectAdmission = true
+              ..firstAttempt = gate;
+            media.readSnapshot = () async =>
+                media.activeTransport == CallTransportKind.relay
+                ? clock.now()
+                : null;
+            final svc = CallService(
+              wire,
+              media: media,
+              now: () => clock.now(),
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+            )..start();
+            try {
+              wire.onCallSignal!(
+                peer,
+                offer(callId).copyWith(
+                  transport: const CallTransportProposal(CallTransportKind.p2p),
+                ),
+              );
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              wire.onCallSignal!(
+                peer,
+                const CallSignal(
+                  callId: callId,
+                  type: CallSignalType.health,
+                  capture: CallMedia(),
+                ),
+              );
+              final firstSilenceCheck =
+                  kCallLivenessTimeout + kCallHeartbeatInterval;
+              const tick = Duration(seconds: 1);
+              async.elapse(firstSilenceCheck - tick * 2);
+              media.liveDirectAdmission = false;
+              async.elapse(tick);
+              expect(media.switches, [CallTransportKind.relay]);
+              expect(svc.current?.transport, CallTransportKind.p2p);
+
+              async.elapse(tick);
+              expect(svc.current?.status, CallStatus.active);
+              expect(media.snapshotReads, 1);
+              final ends = wire.sent.where((s) => s.type == CallSignalType.end);
+              expect(ends, isEmpty);
+              if (relayResponds) {
+                gate.complete(true);
+                async.flushMicrotasks();
+                expect(svc.current?.transport, CallTransportKind.relay);
+                expect(svc.current?.callId, callId);
+                expect(ends, isEmpty);
+              } else {
+                async.elapse(kCallMediaStartTimeout - tick);
+                expect(svc.current, isNull);
+                expect(ends.single.reason, CallEndReason.timeout);
+                gate.complete(false);
+                async.flushMicrotasks();
+                expect(svc.current, isNull);
+                expect(ends, hasLength(1));
+              }
+              expect(media.snapshotReads, 2);
+            } finally {
+              svc.dispose();
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     test('native liveness old snapshot cannot end a replacement call', () {
       fakeAsync((async) {
         final gate = Completer<DateTime?>();
@@ -11029,7 +11108,7 @@ class _SnapshotMedia extends _FakeMedia {
   }
 }
 
-class _ReconnectRelayMedia extends _FakeMedia {
+class _ReconnectRelayMedia extends _SnapshotMedia {
   _ReconnectRelayMedia() {
     openedTransport = CallTransportKind.p2p;
   }
