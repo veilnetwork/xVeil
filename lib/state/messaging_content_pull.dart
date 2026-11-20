@@ -2223,12 +2223,12 @@ extension _MessagingContentPull on MessagingService {
     }
 
     try {
-      final read = sink.read;
-      if (isCurrent() && read != null) {
-        final tail = await read(manifest.size, 1);
-        if (tail?.isNotEmpty == true || (verifiedOnDisk && tail == null)) {
-          throw StateError('Download destination length does not match');
-        }
+      if (isCurrent() && (sink.read != null || verifiedOnDisk)) {
+        await _verifyPlainFileEndAt(
+          sink,
+          manifest.size,
+          requireVerifiedEnd: verifiedOnDisk,
+        );
       }
       await sink.close();
     } catch (error) {
