@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:shared_preferences_linux/shared_preferences_linux.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
+import 'package:shared_preferences_windows/shared_preferences_windows.dart';
 
 import '../../core/log.dart';
 import '../../domain/profile_preferences_layout.dart';
@@ -234,7 +236,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// Apply one operation to the latest file. A concurrent commit invalidates
   /// the comparison, so retry the operation against a fresh snapshot.
   Future<bool> _edit(
-    bool Function(_PreferenceEntries entries) change, {
+    FutureOr<bool> Function(_PreferenceEntries entries) change, {
     bool ensureFile = false,
   }) {
     _requireWritable();
@@ -247,7 +249,7 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           recoverInvalidJson: _ownedFile == null,
         );
         final entries = snapshot ?? _PreferenceEntries();
-        if (!change(entries) && (!ensureFile || snapshot != null)) {
+        if (!await change(entries) && (!ensureFile || snapshot != null)) {
           _entries = entries;
           return true;
         }
@@ -312,15 +314,37 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     });
   }
 
-  Future<bool> _importMissing(
-    _PreferenceEntries imported, {
+  Future<bool> _importLegacy(
+    _PreferenceEntries imported,
+    SharedPreferencesStorePlatform legacy,
+    String profile, {
     bool ensureFile = false,
-  }) => _edit((entries) {
-    final count = entries.length;
+  }) => _edit((entries) async {
+    Map<String, Object>? liveSource;
+    var changed = false;
     for (final entry in imported.entries) {
-      entries.putIfAbsent(entry.key, () => entry.value);
+      final existing = entries[entry.key];
+      if (existing != null) {
+        if (!existing.legacyCopy ||
+            existing.type == entry.value.type &&
+                _sameLegacyValue(existing.value, entry.value.value)) {
+          continue;
+        }
+        // Read the source after reading the destination. An older migration
+        // may still hold a snapshot whose value was already replaced or
+        // removed. A concurrent destination write also forces a new check.
+        liveSource ??= await _readLegacyPreferences(legacy);
+        final sourceKey = profile == AppProfiles.defaultName
+            ? entry.key
+            : '${entry.key}.$profile';
+        if (!_sameLegacyValue(liveSource[sourceKey], entry.value.value)) {
+          continue;
+        }
+      }
+      entries[entry.key] = entry.value;
+      changed = true;
     }
-    return entries.length != count;
+    return changed;
   }, ensureFile: ensureFile);
 
   @override
@@ -630,7 +654,7 @@ Future<Map<String, Object>> _readLegacyPreferences(
 ) async {
   try {
     return {
-      for (final entry in (await legacy.getAll()).entries)
+      for (final entry in (await _freshLegacyReader(legacy).getAll()).entries)
         entry.key: switch (entry.value) {
           final List values => List<Object?>.of(values),
           final value => value,
@@ -641,6 +665,16 @@ Future<Map<String, Object>> _readLegacyPreferences(
     return const {};
   }
 }
+
+/// The legacy desktop plugins cache their file after the first read. Migration
+/// uses fresh instances so a second process's changes can be observed.
+SharedPreferencesStorePlatform _freshLegacyReader(
+  SharedPreferencesStorePlatform legacy,
+) => switch (legacy) {
+  SharedPreferencesLinux() => SharedPreferencesLinux(),
+  SharedPreferencesWindows() => SharedPreferencesWindows(),
+  _ => legacy,
+};
 
 bool _sameLegacyValue(Object? a, Object? b) {
   if (a is List && b is List) return listEquals(a, b);
@@ -717,7 +751,7 @@ Future<void> _migrateLegacy(
 
   // All newly imported keys require a successful write before the legacy
   // source can be cleared. An unchanged snapshot needs no second write.
-  if (await into._importMissing(selected, ensureFile: true)) {
+  if (await into._importLegacy(selected, legacy, profile, ensureFile: true)) {
     published[profile] = into._entries;
   } else {
     migrated = false;
@@ -729,7 +763,7 @@ Future<void> _migrateLegacy(
     try {
       owner = await openOwnedFile?.call(path);
       store = await ProfilePreferencesStore.load(path, ownedFile: owner);
-      if (await store._importMissing(other.value)) {
+      if (await store._importLegacy(other.value, legacy, other.key)) {
         published[other.key] = store._entries;
       } else {
         migrated = false;
@@ -785,13 +819,14 @@ Future<void> _migrateLegacy(
     if (copied.isEmpty) return;
     // The platform store has no conditional delete. Keep the final read close
     // to the clear, and leave other keys untouched when its values have changed.
-    final latest = await legacy.getAll();
+    final cleanupSource = _freshLegacyReader(legacy);
+    final latest = await cleanupSource.getAll();
     final migratedKeys = {
       for (final key in copied)
         if (_sameLegacyValue(snapshot[key], latest[key])) key,
     };
     if (migratedKeys.isEmpty) return;
-    if (await legacy.clearWithParameters(
+    if (await cleanupSource.clearWithParameters(
       ClearParameters(
         filter: PreferencesFilter(prefix: 'flutter.', allowList: migratedKeys),
       ),
