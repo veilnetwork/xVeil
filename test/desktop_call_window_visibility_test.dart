@@ -199,11 +199,11 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
   }
-  for (final hiddenEvent in ['hide', 'minimize']) {
+  for (final hiddenEvent in ['hide', 'minimize', 'blur']) {
     for (final pending in [false, true]) {
       for (final ended in [false, if (pending) true]) {
         testWidgets(
-          'Windows native hidden fallback $hiddenEvent pending=$pending ended=$ended',
+          'Windows native background fallback $hiddenEvent pending=$pending ended=$ended',
           (tester) async {
             await _checkHiddenFallback(
               tester,
@@ -233,24 +233,134 @@ void main() {
     );
   }
   testWidgets(
+    'Windows showing an unfocused window does not retire background evidence',
+    (tester) async {
+      await _checkHiddenFallback(
+        tester,
+        hiddenEvent: 'blur',
+        clearingEvent: 'show',
+        expectedPosts: 1,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+  testWidgets(
+    'Windows focus clears native blur evidence',
+    (tester) async {
+      await _checkHiddenFallback(
+        tester,
+        hiddenEvent: 'blur',
+        clearingEvent: 'focus',
+        expectedPosts: 0,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+  for (final alreadyPosted in [false, true]) {
+    testWidgets(
+      'Windows focus retires a ringing alert without waiting for the query (posted=$alreadyPosted)',
+      (tester) async {
+        final wire = _Wire();
+        final calls = CallService(wire, media: _Media())..start();
+        final ready = Completer<bool>();
+        if (alreadyPosted) ready.complete(true);
+        final alerts = _Alerts(ready: ready.future);
+        final container = ProviderContainer(
+          overrides: [
+            callServiceProvider.overrideWithValue(calls),
+            groupCallServiceProvider.overrideWithValue(null),
+            notificationServiceProvider.overrideWithValue(alerts),
+            notificationSettingsProvider.overrideWith(_Settings.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(calls.dispose);
+        const window = MethodChannel('window_manager');
+        final focusQuery = Completer<bool>();
+        var queryPending = false;
+        var pendingQueries = 0;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(window, (
+          call,
+        ) async {
+          if (call.method == 'isVisible') return true;
+          if (call.method == 'isFocused') {
+            if (!queryPending) return false;
+            pendingQueries++;
+            return focusQuery.future;
+          }
+          fail('call handling attempted to control the window: ${call.method}');
+        });
+        addTearDown(() {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            window,
+            null,
+          );
+          if (!focusQuery.isCompleted) focusQuery.complete(true);
+          if (!ready.isCompleted) ready.complete(true);
+        });
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: CallLifecycleBridge()),
+          ),
+        );
+        wire.onCallSignal!(
+          NodeId.fromHex('a' * 64),
+          const CallSignal(
+            callId: 'focus-before-post',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        await tester.idle();
+        expect(calls.current?.status, CallStatus.ringing);
+        expect(alerts.readyChecks, 1);
+        expect(alerts.posts, hasLength(alreadyPosted ? 1 : 0));
+        queryPending = true;
+        await _windowEvent(tester, 'resized');
+        expect(pendingQueries, 1);
+        await _windowEvent(tester, 'focus');
+        if (!alreadyPosted) ready.complete(true);
+        await tester.idle();
+        expect(alerts.posts, hasLength(alreadyPosted ? 1 : 0));
+        expect(alerts.cancelled, contains(kNotificationIdIncomingCall));
+        focusQuery.complete(false);
+        await tester.idle();
+        expect(alerts.posts, hasLength(alreadyPosted ? 1 : 0));
+        expect(pendingQueries, 1);
+        await calls.hangup();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.idle();
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
+  }
+  testWidgets(
     'Windows native hidden fallback needs hidden evidence',
     (tester) async {
       await _checkHiddenFallback(tester, expectedPosts: 0);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
-  testWidgets(
-    'Windows native foreground observation supersedes hidden evidence',
-    (tester) async {
-      await _checkHiddenFallback(
-        tester,
-        hiddenEvent: 'hide',
-        observeForeground: true,
-        expectedPosts: 0,
-      );
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
-  );
+  for (final event in ['hide', 'blur']) {
+    testWidgets(
+      'Windows native foreground observation supersedes $event evidence',
+      (tester) async {
+        await _checkHiddenFallback(
+          tester,
+          hiddenEvent: event,
+          observeForeground: true,
+          expectedPosts: 0,
+        );
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
+  }
   for (final queryMethod in ['isVisible', 'isFocused']) {
     for (final background in [false, true]) {
       for (final ended in [false, true]) {
@@ -536,10 +646,18 @@ class _Settings extends NotificationSettingsController {
 }
 
 class _Alerts extends NotificationService {
+  _Alerts({this.ready});
+
+  final Future<bool>? ready;
+  int readyChecks = 0;
+
   @override
   bool get isReady => true;
   @override
-  Future<bool> waitUntilReady() async => true;
+  Future<bool> waitUntilReady() async {
+    readyChecks++;
+    return await ready ?? true;
+  }
 
   final posts = <({int id, String title, String body, String? payload})>[];
   final cancelled = <int>[];
