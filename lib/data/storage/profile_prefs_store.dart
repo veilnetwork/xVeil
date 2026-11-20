@@ -466,7 +466,19 @@ Future<String> installProfilePreferences({
     // legacy source available for a future ordinary launch.
     pointerSafe = false;
   }
-  final legacySnapshot = await _readLegacyPreferences(legacy);
+  final choiceWithoutLegacy = AppProfiles.resolveWithSource(
+    args: args,
+    environment: environment,
+    pointer: pointer,
+  );
+  // During upgrade the platform store may still hold the only saved choice.
+  // A read refusal is not evidence that the default profile was selected.
+  final legacySnapshot = await _readLegacyPreferences(
+    legacy,
+    requiredForChoice:
+        openOwnedFile != null &&
+        choiceWithoutLegacy.source == ProfileSource.fallbackDefault,
+  );
   final savedChoice = legacySnapshot[_legacyActiveKey];
   final legacyPointer = savedChoice is String ? savedChoice : null;
   final resolved = AppProfiles.resolveWithSource(
@@ -650,8 +662,9 @@ void installEphemeralPreferences() {
 }
 
 Future<Map<String, Object>> _readLegacyPreferences(
-  SharedPreferencesStorePlatform legacy,
-) async {
+  SharedPreferencesStorePlatform legacy, {
+  bool requiredForChoice = false,
+}) async {
   try {
     return {
       for (final entry in (await _freshLegacyReader(legacy).getAll()).entries)
@@ -660,7 +673,16 @@ Future<Map<String, Object>> _readLegacyPreferences(
           final value => value,
         },
     };
-  } catch (error) {
+  } catch (error, stack) {
+    if (requiredForChoice) {
+      Error.throwWithStackTrace(
+        ProfileChoiceReadFailure(
+          busy: isWindowsFileSharingViolation(error),
+          fromLegacy: true,
+        ),
+        stack,
+      );
+    }
     devLog(() => 'xVeil[prefs]: no legacy store to migrate: $error');
     return const {};
   }

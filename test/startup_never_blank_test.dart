@@ -72,13 +72,19 @@ void main() {
     });
   }
 
-  for (final busy in [true, false]) {
-    test('startup reports profile choice read failures (busy=$busy)', () async {
+  for (final (busy, fromLegacy, code) in [
+    (false, false, 0),
+    (true, false, 1),
+    (false, true, 2),
+    (true, true, 3),
+  ]) {
+    test('startup reports profile choice read failure code $code', () async {
       diagnosticJournal.clear();
       addTearDown(diagnosticJournal.clear);
       Widget? presented;
       await runStartup(
-        loadPreferences: () async => throw ProfileChoiceReadFailure(busy: busy),
+        loadPreferences: () async =>
+            throw ProfileChoiceReadFailure(busy: busy, fromLegacy: fromLegacy),
         present: (widget) => presented = widget,
       );
       expect((presented as StartupFailedApp).retryPreferences != null, busy);
@@ -86,7 +92,7 @@ void main() {
       final event = retained?['profileChoiceReadFailed'] as Map?;
       expect(
         event?['values'],
-        diagnosticJournal.enabled ? {'code': busy ? 1 : 0} : isNull,
+        diagnosticJournal.enabled ? {'code': code} : isNull,
       );
     });
   }

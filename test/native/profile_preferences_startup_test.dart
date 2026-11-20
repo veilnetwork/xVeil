@@ -107,6 +107,58 @@ void main() {
     support.deleteSync(recursive: true);
   });
 
+  for (final choice in ['legacy', 'saved', 'explicit']) {
+    test('unreadable legacy preferences with profile choice $choice', () async {
+      const activeKey = 'flutter.${AppProfiles.activePref}';
+      const legacyValues = {activeKey: 'older', 'flutter.locale.older': 'ru'};
+      final source = _UnreadableLegacyPreferences(legacyValues);
+      legacy = source;
+      SharedPreferencesStorePlatform.instance = source;
+      Directory(base('older')).createSync(recursive: true);
+      final args = choice == 'explicit'
+          ? ['--profile', 'selected']
+          : <String>[];
+      if (choice == 'saved') {
+        expect(await writeRememberedProfile(support.path, 'selected'), isTrue);
+      }
+
+      if (choice == 'legacy') {
+        await expectLater(
+          install(),
+          throwsA(
+            isA<ProfileChoiceReadFailure>().having(
+              (failure) => failure.fromLegacy,
+              'legacy source',
+              isTrue,
+            ),
+          ),
+        );
+        expect(files, isEmpty);
+        expect(SharedPreferencesStorePlatform.instance, same(source));
+        expect(File(activeProfilePath(support.path)).existsSync(), isFalse);
+      } else {
+        expect(await install(args: args), 'selected');
+        await stores.last.releaseFile();
+        SharedPreferencesStorePlatform.instance = source;
+      }
+      expect(Directory(managed()).existsSync(), isFalse);
+      expect(File(prefs()).existsSync(), isFalse);
+      source.unreadable = false;
+      expect(await source.getAll(), legacyValues);
+
+      final recovered = await install();
+      expect(recovered, choice == 'saved' ? 'selected' : 'older');
+      final old = await open(prefs('older'));
+      final persisted = await ProfilePreferencesStore.load(
+        prefs('older'),
+        ownedFile: old,
+      );
+      stores.add(persisted);
+      expect(await persisted.getAll(), {'flutter.locale': 'ru'});
+      expect(await source.getAll(), isEmpty);
+    });
+  }
+
   for (final temporary in [true, false]) {
     test(
       'Windows startup while a file is held open (temporary=$temporary)',
@@ -968,6 +1020,20 @@ void main() {
       await expectLater(view.setBool('late', true), throwsStateError);
     },
   );
+}
+
+class _UnreadableLegacyPreferences extends InMemorySharedPreferencesStore {
+  _UnreadableLegacyPreferences(super.values) : super.withData();
+
+  bool unreadable = true;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    if (unreadable) {
+      throw const FileSystemException('fixture could not read legacy settings');
+    }
+    return super.getAll();
+  }
 }
 
 Future<String> _probe(String profile) async {
