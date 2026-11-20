@@ -5,6 +5,7 @@
 // can find it without being told anything but "the folder you started it from".
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,18 +21,20 @@ void main() {
     dir = Directory.systemTemp.createTempSync('xveil-log-test-');
     devLogDirectoryOverride = dir.path;
   });
-  tearDown(() {
+  tearDown(() async {
     devLogDirectoryOverride = null;
+    await flushDevLogFile();
     try {
       dir.deleteSync(recursive: true);
     } catch (_) {}
   });
 
-  test('a debug build writes its log to a file', () {
+  test('a debug build writes its log to a file', () async {
     // The suite runs unter the Dart VM, which is a debug build by the same
     // compile-time constants the app uses, so the sink is live here.
     expect(kXVeilDebugBuild, isTrue, reason: 'this test needs a debug build');
     devLog(() => 'a line to open the file with');
+    await flushDevLogFile();
     final path = devLogFilePath;
     expect(path, isNotNull, reason: 'nothing was written anywhere');
     expect(File(path!).existsSync(), isTrue);
@@ -42,19 +45,59 @@ void main() {
     );
   });
 
-  test('the line carries a timestamp, which is the first thing asked of it', () {
-    devLog(() => 'stamped-line-marker');
-    final body = File(devLogFilePath!).readAsStringSync();
-    final line = body
-        .split('\n')
-        .lastWhere((l) => l.contains('stamped-line-marker'), orElse: () => '');
-    expect(line, isNotEmpty);
-    expect(
-      DateTime.tryParse(line.split(' ').first),
-      isNotNull,
-      reason: 'the line begins with "$line" rather than a time',
-    );
-  });
+  test(
+    'a pending file open does not delay logging or event processing',
+    () async {
+      final opened = Completer<void>();
+      final release = Completer<void>();
+      final override = _DelayLogOpen(opened, release);
+
+      try {
+        await IOOverrides.runWithIOOverrides(() async {
+          devLog(() => 'first line waiting for storage');
+          await Future<void>(() {});
+          expect(override.synchronousOpens, 0);
+          await opened.future;
+
+          devLog(() => 'second line while storage waits');
+          await Future<void>(() {});
+          expect(
+            devLogSnapshot().lines.last,
+            contains('second line while storage waits'),
+          );
+          expect(devLogFilePath, isNull);
+        }, override);
+      } finally {
+        release.complete();
+        await flushDevLogFile();
+      }
+      final lines = await File(devLogFilePath!).readAsLines();
+      expect(lines, hasLength(2));
+      expect(lines[0], contains('first line waiting for storage'));
+      expect(lines[1], contains('second line while storage waits'));
+    },
+  );
+
+  test(
+    'the line carries a timestamp, which is the first thing asked of it',
+    () async {
+      devLog(() => 'stamped-line-marker');
+      await flushDevLogFile();
+      final body = File(devLogFilePath!).readAsStringSync();
+      final line = body
+          .split('\n')
+          .lastWhere(
+            (l) => l.contains('stamped-line-marker'),
+            orElse: () => '',
+          );
+      expect(line, isNotEmpty);
+      expect(
+        DateTime.tryParse(line.split(' ').first),
+        isNotNull,
+        reason: 'the line begins with "$line" rather than a time',
+      );
+    },
+  );
 
   test('a distribution build cannot be made to write one', () {
     // The sink lives inside the same compile-time gate as devLog, so the
@@ -68,16 +111,18 @@ void main() {
     expect(
       gate,
       isNot(-1),
-      reason: 'the file write escaped the compile-time gate, so a '
+      reason:
+          'the file write escaped the compile-time gate, so a '
           'distribution build could write node ids to disk',
     );
   });
 
   group('the node writes its half too', () {
-    test('a debug build names a file for it, beside the app log', () {
+    test('a debug build names a file for it, beside the app log', () async {
       final nodeLog = debugNodeLogPath();
       expect(nodeLog, isNotNull, reason: 'the node log has no home');
       devLog(() => 'open the app log');
+      await flushDevLogFile();
       expect(
         File(nodeLog!).parent.path,
         File(devLogFilePath!).parent.path,
@@ -95,7 +140,8 @@ void main() {
       expect(
         source,
         contains('logFile: debugNodeLogPath()'),
-        reason: 'the stack composes the node config without a log file, so '
+        reason:
+            'the stack composes the node config without a log file, so '
             'the node keeps writing to a stderr nobody can read',
       );
     });
@@ -103,7 +149,8 @@ void main() {
     test('the key lands in [global], where veil reads it', () {
       // Same hazard as identity_dir: a second key in a rendered [global] is a
       // duplicate the TOML parser rejects outright.
-      const rendered = '[global]\nlog_file = "old"\nadmin_max_connections = 8\n';
+      const rendered =
+          '[global]\nlog_file = "old"\nadmin_max_connections = 8\n';
       final patched = EmbeddedNode.withLogFile(rendered, '/tmp/new.log');
       expect('log_file'.allMatches(patched).length, 1);
       expect(patched, contains('log_file = "/tmp/new.log"'));
@@ -134,33 +181,84 @@ void main() {
     // checked on the machine that has it.
     test('the sink reopens instead of giving up on the first failure', () {
       final source = File('lib/core/log.dart').readAsStringSync();
-      final at = source.indexOf('void _writeLogFile');
+      final at = source.indexOf('Future<void> _appendLogLine');
       expect(at, isNot(-1), reason: 'the sink was renamed');
       final body = source.substring(at, source.indexOf('\n}', at));
       expect(
         body,
         contains('_logFileTried = false'),
-        reason: 'a failed write leaves the sink closed AND marked as tried, '
+        reason:
+            'a failed write leaves the sink closed AND marked as tried, '
             'so nothing is ever written again — the state the stand was in',
       );
     });
 
     test('but it stops trying rather than storming a full disk', () {
       final source = File('lib/core/log.dart').readAsStringSync();
-      final at = source.indexOf('void _writeLogFile');
+      final at = source.indexOf('Future<void> _appendLogLine');
       final body = source.substring(at, source.indexOf('\n}', at));
       expect(
         body,
         contains('_logFileFailures >= _logFileGiveUpAfter'),
-        reason: 'the retry is unbounded, so a disk that will never accept a '
+        reason:
+            'the retry is unbounded, so a disk that will never accept a '
             'line turns every line into an open/write/close',
       );
       expect(
         body,
         contains('_logFileFailures = 0'),
-        reason: 'the failure count never resets, so five failures spread over '
+        reason:
+            'the failure count never resets, so five failures spread over '
             'a long session silence a sink that worked in between',
       );
     });
   });
+}
+
+final class _DelayLogOpen extends IOOverrides {
+  _DelayLogOpen(this.opened, this.release);
+
+  final Completer<void> opened;
+  final Completer<void> release;
+  int synchronousOpens = 0;
+
+  @override
+  File createFile(String path) {
+    final file = super.createFile(path);
+    return path.endsWith('xveil-debug.log')
+        ? _WaitingLogFile(file, this)
+        : file;
+  }
+}
+
+class _WaitingLogFile implements File {
+  _WaitingLogFile(this.file, this.delay);
+
+  final File file;
+  final _DelayLogOpen delay;
+
+  @override
+  String get path => file.path;
+
+  @override
+  bool existsSync() => file.existsSync();
+
+  @override
+  Future<bool> exists() => file.exists();
+
+  @override
+  RandomAccessFile openSync({FileMode mode = FileMode.read}) {
+    delay.synchronousOpens++;
+    return file.openSync(mode: mode);
+  }
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async {
+    delay.opened.complete();
+    await delay.release.future;
+    return file.open(mode: mode);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -6,8 +6,9 @@ import 'package:xveil/core/log.dart';
 void main() {
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('xveil-log-bundle-'));
-  tearDown(() {
+  tearDown(() async {
     devLogDirectoryOverride = null;
+    await flushDevLogFile();
     root.deleteSync(recursive: true);
   });
 
@@ -37,7 +38,7 @@ void main() {
 
   test(
     'writing both logs preserves an actual ad-hoc bundle signature',
-    () {
+    () async {
       final bundle = Directory('${root.path}/Test.app');
       final executable = '${bundle.path}/Contents/MacOS/test';
       File(executable).parent.createSync(recursive: true);
@@ -66,6 +67,7 @@ void main() {
       );
       devLogDirectoryOverride = dirs.first;
       devLog(() => 'signing fixture line');
+      await flushDevLogFile();
       final node = debugNodeLogPath();
       expect(node, isNotNull);
       File(node!).writeAsStringSync('native signing fixture line');
