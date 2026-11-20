@@ -100,6 +100,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       >{};
   int _notificationGeneration = 0;
   int _groupNotificationGeneration = 0;
+  final _unreadGroupWaits = <VoidCallback>{};
   int _notificationSequence = 0;
   int _latestEligibleSequence = 0;
   // Clear requests have a separate OS id. An ordinary message supersedes the
@@ -210,6 +211,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // ticket and finished under B.
     _notificationGeneration++;
     _clearRequestGeneration++;
+    _cancelUnreadGroupWaits();
     // The requests belong to the identity that was on screen, and the list is
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
@@ -222,6 +224,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _groupNotificationGeneration++;
+    _cancelUnreadGroupWaits();
     _pendingSpaceComments.clear();
     // Group service initialization does not replace the messaging service's
     // request list. Its alerts retain their own identity/lifecycle fence.
@@ -660,6 +663,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // cannot re-post an alert after cancelAll completes.
       _notificationGeneration++;
       _clearRequestGeneration++;
+      _cancelUnreadGroupWaits();
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       unawaited(_requestNotificationPermission());
@@ -731,6 +735,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       devLog(() => 'xVeil[notify]: unread $source failed (${error.runtimeType})');
       return null;
     }
+  }
+
+  void _cancelUnreadGroupWaits() {
+    for (final cancel in _unreadGroupWaits) {
+      cancel();
+    }
+    _unreadGroupWaits.clear();
   }
 
   Future<void> _flushUnread() async {
@@ -810,7 +821,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } else {
       Future<T?> readGroup<T>(String source, Future<T> Function() read) async {
         if (!_canContinueMessageAlert(groupAttempt)) return null;
-        return _readUnread(source, read);
+        // A retired group service may still be resolving a disk read.
+        // Stop waiting so a valid personal chat can finish this selection.
+        final retired = Completer<T?>();
+        void cancel() => retired.complete(null);
+        _unreadGroupWaits.add(cancel);
+        try {
+          return await Future.any([_readUnread(source, read), retired.future]);
+        } finally {
+          _unreadGroupWaits.remove(cancel);
+        }
       }
 
       try {
@@ -1171,6 +1191,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   void dispose() {
     _notificationGeneration++;
     _clearRequestGeneration++;
+    _cancelUnreadGroupWaits();
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _groupServiceListener?.close();

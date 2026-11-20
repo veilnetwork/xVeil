@@ -92,6 +92,8 @@ class _UnreadGroups extends _Groups {
   final requested = Completer<void>();
   final release = Completer<List<GroupListEntry>>();
   final refusedPolicies = <NodeId>{};
+  Completer<NotificationMutePolicy>? pendingPolicy;
+  final policyStarted = Completer<void>();
   final spaces = <GroupListEntry>[];
   final posts = <NodeId, List<SpacePostView>>{};
 
@@ -108,6 +110,11 @@ class _UnreadGroups extends _Groups {
   Future<NotificationMutePolicy> groupNotificationPolicy(
     NodeId groupId,
   ) async {
+    final pending = pendingPolicy;
+    if (pending != null) {
+      if (!policyStarted.isCompleted) policyStarted.complete();
+      return pending.future;
+    }
     if (refusedPolicies.contains(groupId)) {
       throw StateError('fixture group policy unavailable');
     }
@@ -720,6 +727,13 @@ void main() {
             final successor = _Groups();
             source.state = successor;
             expect(container.read(groupServiceProvider), same(successor));
+            await _pump(tester);
+            expect(groups.release.isCompleted, isFalse);
+            expect(notifications.visible.values.map(resolveShownPayload), [
+              peer.hex,
+            ]);
+          } else {
+            expect(notifications.visible, isEmpty);
           }
           groups.release.complete([
             (
@@ -742,6 +756,7 @@ void main() {
           expect(notifications.visible.values.map(resolveShownPayload), [
             replace ? peer.hex : 'group:${group.hex}',
           ]);
+          expect(notifications.shows, 1);
         } finally {
           if (!groups.release.isCompleted) groups.release.complete([]);
           await cleanup(tester);
@@ -769,6 +784,40 @@ void main() {
     preview: '',
     lastTs: timestamp,
   );
+
+  testWidgets('unread direct alert does not wait for a retired group policy', (
+    tester,
+  ) async {
+    await mount(tester, minimize: false);
+    final peer = _id(2);
+    final policy = Completer<NotificationMutePolicy>();
+    final groups = _UnreadGroups()..pendingPolicy = policy;
+    final source = container.read(_groupSource.notifier)..state = groups;
+    expect(container.read(groupServiceProvider), same(groups));
+    groups.release.complete([unreadGroup(_id(3))]);
+    storage.unread = Future.value([
+      Conversation(peer: Contact(nodeId: peer), unread: 1),
+    ]);
+    try {
+      await lifecycle(tester, background);
+      expect(groups.policyStarted.isCompleted, isTrue);
+      expect(notifications.visible, isEmpty);
+      source.state = null;
+      expect(container.read(groupServiceProvider), isNull);
+      await _pump(tester);
+      expect(policy.isCompleted, isFalse);
+      expect(notifications.visible.values.map(resolveShownPayload), [peer.hex]);
+      policy.complete(const NotificationMutePolicy.all());
+      await _pump(tester);
+      expect(notifications.visible.values.map(resolveShownPayload), [peer.hex]);
+      expect(notifications.shows, 1);
+    } finally {
+      if (!policy.isCompleted) {
+        policy.complete(const NotificationMutePolicy.all());
+      }
+      await cleanup(tester);
+    }
+  });
 
   for (final read in ['conversations', 'group index', 'group policy']) {
     testWidgets('unread notifications survive failure reading $read', (
