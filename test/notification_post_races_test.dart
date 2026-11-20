@@ -19,8 +19,11 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/message_mention.dart';
+import 'package:xveil/domain/space_discovery.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_public_discussion.dart';
+import 'package:xveil/domain/space_public_feed.dart';
 import 'package:xveil/features/chat/notification_binder.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
@@ -104,6 +107,7 @@ class _UnreadGroups extends _Groups {
   final requested = Completer<void>();
   final release = Completer<List<GroupListEntry>>();
   final refusedPolicies = <NodeId>{};
+  final mutedGroups = <NodeId>{};
   Completer<NotificationMutePolicy>? pendingPolicy;
   final policyStarted = Completer<void>();
   final spaces = <GroupListEntry>[];
@@ -129,6 +133,12 @@ class _UnreadGroups extends _Groups {
     }
     if (refusedPolicies.contains(groupId)) {
       throw StateError('fixture group policy unavailable');
+    }
+    if (mutedGroups.contains(groupId)) {
+      return NotificationMutePolicy(
+        mode: NotificationMuteMode.none,
+        until: kMuteForever,
+      );
     }
     return const NotificationMutePolicy.all();
   }
@@ -205,6 +215,115 @@ class _IncomingGroups extends _UnreadGroups {
   @override
   Future<GroupState?> stateOf(NodeId groupId) async =>
       throw StateError('fixture display name unavailable');
+}
+
+class _FixtureSpaceDescriptor extends Fake implements SpacePublicDescriptor {
+  _FixtureSpaceDescriptor(this.spaceId);
+
+  @override
+  final NodeId spaceId;
+
+  @override
+  String get name => 'Public fixture';
+}
+
+class _FixtureSpaceFeed extends Fake implements SpacePublicFeedProjection {
+  _FixtureSpaceFeed(this.posts);
+
+  @override
+  final List<SpacePostView> posts;
+}
+
+class _AlertPolicyGroups extends _IncomingGroups {
+  bool publicSubscribed = false;
+  bool hasUnreadPosts = true;
+  bool postAlerts = true;
+  var commentAlerts = SpaceCommentNotificationMode.all;
+  final comments =
+      StreamController<({NodeId spaceId, GroupMessage message})>.broadcast();
+  final publicPosts =
+      StreamController<({NodeId spaceId, SpacePostView post})>.broadcast();
+  final publicComments =
+      StreamController<
+        ({NodeId spaceId, SpacePublicCommentView comment})
+      >.broadcast();
+  final memberComments = <SpacePostCommentView>[];
+  final publicCommentViews = <SpacePublicCommentView>[];
+
+  @override
+  Stream<({NodeId spaceId, GroupMessage message})> get incomingComments =>
+      comments.stream;
+
+  @override
+  Stream<({NodeId spaceId, SpacePostView post})> get incomingPublicPosts =>
+      publicPosts.stream;
+
+  @override
+  Stream<({NodeId spaceId, SpacePublicCommentView comment})>
+  get incomingPublicComments => publicComments.stream;
+
+  @override
+  Future<SpaceSubscription> spaceSubscription(NodeId id) async =>
+      (publicSubscribed
+              ? SpaceSubscription.publicDefault(id)
+              : SpaceSubscription.memberDefault(id))
+          .copyWith(
+            notificationsEnabled: postAlerts,
+            commentNotifications: commentAlerts,
+          );
+
+  @override
+  Future<SpacePublicSubscriptionView?> publicSpaceSubscription(
+    NodeId id,
+  ) async => publicSubscribed
+      ? SpacePublicSubscriptionView(
+          subscription: await spaceSubscription(id),
+          descriptor: _FixtureSpaceDescriptor(id),
+          feed: _FixtureSpaceFeed(posts[id] ?? []),
+          verifiedAtMs: 1000,
+          stale: false,
+        )
+      : null;
+
+  @override
+  Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async {
+    if (!publicSubscribed) return [];
+    return [for (final id in posts.keys) (await publicSpaceSubscription(id))!];
+  }
+
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) async => null;
+
+  @override
+  Future<List<SpacePostView>> postsOf(NodeId spaceId) async =>
+      posts[spaceId] ?? [];
+
+  @override
+  Future<List<SpacePostView>> unreadSpacePostViews(NodeId id) async =>
+      hasUnreadPosts ? posts[id] ?? [] : [];
+
+  @override
+  Future<List<SpacePostCommentView>> spacePostCommentsOf(
+    NodeId spaceId,
+    String postId, {
+    bool applyLocalRetention = true,
+  }) async => memberComments;
+
+  @override
+  Future<List<SpacePublicCommentView>> publicSpacePostComments(
+    NodeId spaceId,
+    String postId,
+  ) async => publicCommentViews;
+
+  Future<void> closeStreams() async {
+    await Future.wait([
+      messages.close(),
+      publications.close(),
+      comments.close(),
+      publicPosts.close(),
+      publicComments.close(),
+    ]);
+  }
 }
 
 class _Notifications extends NotificationService {
@@ -790,6 +909,242 @@ void main() {
     });
   }
 
+  GroupListEntry unreadGroup(
+    NodeId id, {
+    bool space = false,
+    int timestamp = 1000,
+  }) => (
+    groupId: id,
+    name: 'Unread group',
+    description: '',
+    visibility: null,
+    lifecycleState: SpaceLifecycleState.active,
+    discoverable: false,
+    unread: space ? 0 : 1,
+    postUnread: space ? 1 : 0,
+    muted: false,
+    notificationMode: NotificationMuteMode.all,
+    notificationUntil: null,
+    preview: '',
+    lastTs: timestamp,
+  );
+
+  SpacePostView fixtureSpacePost(NodeId space) {
+    final post = SpacePost(
+      spaceId: space,
+      author: _id(2),
+      seq: 1,
+      prevHash: '',
+      type: SpacePostType.post,
+      visibility: SpacePostVisibility.public,
+      title: 'Space publication',
+      body: '',
+      policyVersion: 0,
+      createdAtMs: 1000,
+      publishedAtMs: 1000,
+      signature: Uint8List(64),
+    );
+    return SpacePostView(root: post, effective: post);
+  }
+
+  GroupMessage fixtureGroupMessage(NodeId group) => GroupMessage(
+    groupId: group,
+    author: _id(2),
+    seq: 1,
+    prevHash: '',
+    body: 'Group message',
+    policyVersion: 0,
+    createdAtMs: 1000,
+    signature: Uint8List(64),
+  );
+
+  for (final kind in ['group', 'member post', 'public post']) {
+    for (final fromUnread in [false, true]) {
+      testWidgets('uses current $kind alert settings (unread=$fromUnread)', (
+        tester,
+      ) async {
+        final plugin = _PermissionStartupPlugin();
+        final service = NotificationService(plugin: plugin);
+        final startup = service.init(onTap: (_) {});
+        await mount(tester, service: service, minimize: !fromUnread);
+        final destination = _id(5);
+        final isPublic = kind == 'public post';
+        final post = fixtureSpacePost(destination);
+        final groups = _AlertPolicyGroups()..publicSubscribed = isPublic;
+        groups.release.complete([
+          if (kind == 'group') unreadGroup(destination),
+        ]);
+        if (kind == 'member post') {
+          groups.spaces.add(unreadGroup(destination, space: true));
+        }
+        if (kind != 'group') groups.posts[destination] = [post];
+
+        void arrive() {
+          if (kind == 'group') {
+            groups.messages.add((
+              groupId: destination,
+              message: fixtureGroupMessage(destination),
+            ));
+          } else {
+            (isPublic ? groups.publicPosts : groups.publications).add((
+              spaceId: destination,
+              post: post,
+            ));
+          }
+        }
+
+        try {
+          container.read(_groupSource.notifier).state = groups;
+          expect(container.read(groupServiceProvider), same(groups));
+          if (fromUnread) {
+            await lifecycle(tester, background);
+          } else {
+            arrive();
+            await _pump(tester);
+          }
+          expect(plugin.posted, isEmpty);
+          if (isPublic) {
+            groups.publicSubscribed = false;
+          } else if (kind == 'group') {
+            groups.mutedGroups.add(destination);
+          } else {
+            groups.postAlerts = false;
+          }
+          plugin.startup.complete(true);
+          await startup;
+          await _pump(tester);
+          expect(plugin.posted, isEmpty);
+
+          groups.publicSubscribed = isPublic;
+          groups.mutedGroups.clear();
+          groups.postAlerts = true;
+          arrive();
+          await _pump(tester);
+          expect(plugin.posted, hasLength(1));
+        } finally {
+          if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+          await startup;
+          await cleanup(tester);
+          await groups.closeStreams();
+        }
+      });
+    }
+  }
+
+  testWidgets('retiring a group releases its in-flight OS policy read', (
+    tester,
+  ) async {
+    final plugin = _PermissionStartupPlugin();
+    final service = NotificationService(plugin: plugin);
+    final startup = service.init(onTap: (_) {});
+    await mount(tester, service: service);
+    final groups = _AlertPolicyGroups();
+    final group = _id(5);
+    final policy = Completer<NotificationMutePolicy>();
+    try {
+      final source = container.read(_groupSource.notifier)..state = groups;
+      expect(container.read(groupServiceProvider), same(groups));
+      groups.messages.add((
+        groupId: group,
+        message: fixtureGroupMessage(group),
+      ));
+      await _pump(tester);
+      groups.pendingPolicy = policy;
+      plugin.startup.complete(true);
+      await startup;
+      await _pump(tester);
+      expect(groups.policyStarted.isCompleted, isTrue);
+      expect(plugin.posted, isEmpty);
+
+      source.state = null;
+      expect(container.read(groupServiceProvider), isNull);
+      message(2);
+      await _pump(tester);
+      expect(policy.isCompleted, isFalse);
+      expect(plugin.posted.map(resolveShownPayload), [_id(2).hex]);
+      policy.complete(const NotificationMutePolicy.all());
+      await _pump(tester);
+      expect(plugin.posted.map(resolveShownPayload), [_id(2).hex]);
+    } finally {
+      if (!policy.isCompleted) {
+        policy.complete(const NotificationMutePolicy.all());
+      }
+      if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+      await startup;
+      await cleanup(tester);
+      await groups.closeStreams();
+    }
+  });
+
+  for (final isPublic in [false, true]) {
+    testWidgets('uses current comment alert settings (public=$isPublic)', (
+      tester,
+    ) async {
+      await mount(tester, minimize: false);
+      final space = _id(5), author = _id(2);
+      final post = fixtureSpacePost(space);
+      final groups = _AlertPolicyGroups()
+        ..publicSubscribed = isPublic
+        ..hasUnreadPosts = false;
+      groups.release.complete([]);
+      groups.posts[space] = [post];
+      void arrive(int seq) {
+        if (isPublic) {
+          final comment = SpacePublicCommentView(
+            root: SpacePublicComment(
+              spaceId: space,
+              postId: post.postId,
+              author: author,
+              seq: seq,
+              prevHash: '',
+              operation: SpacePublicCommentOperation.create,
+              body: 'Public comment',
+              lifecycleGeneration: 'ab' * 32,
+              createdAtMs: 1000 + seq,
+              signature: Uint8List(64),
+              authorPubKey: author.bytes,
+            ),
+          );
+          groups.publicCommentViews.add(comment);
+          groups.publicComments.add((spaceId: space, comment: comment));
+        } else {
+          final comment = GroupMessage(
+            groupId: space,
+            author: author,
+            seq: seq,
+            prevHash: '',
+            body: 'Member comment',
+            policyVersion: 1,
+            createdAtMs: 1000 + seq,
+            spacePostId: post.postId,
+            signature: Uint8List(64),
+          );
+          groups.memberComments.add(SpacePostCommentView(root: comment));
+          groups.comments.add((spaceId: space, message: comment));
+        }
+      }
+
+      try {
+        container.read(_groupSource.notifier).state = groups;
+        expect(container.read(groupServiceProvider), same(groups));
+        arrive(1);
+        await _pump(tester);
+        expect(notifications.shows, 0);
+        groups.commentAlerts = SpaceCommentNotificationMode.none;
+        await lifecycle(tester, background);
+        expect(notifications.shows, 0);
+
+        groups.commentAlerts = SpaceCommentNotificationMode.all;
+        arrive(2);
+        await _pump(tester);
+        expect(notifications.shows, 1);
+      } finally {
+        await cleanup(tester);
+        await groups.closeStreams();
+      }
+    });
+  }
+
   for (final kind in ['contact', 'group', 'member space']) {
     testWidgets('an unreadable $kind policy keeps the queued alert intact', (
       tester,
@@ -1020,26 +1375,6 @@ void main() {
       },
     );
   }
-
-  GroupListEntry unreadGroup(
-    NodeId id, {
-    bool space = false,
-    int timestamp = 1000,
-  }) => (
-    groupId: id,
-    name: 'Unread group',
-    description: '',
-    visibility: null,
-    lifecycleState: SpaceLifecycleState.active,
-    discoverable: false,
-    unread: space ? 0 : 1,
-    postUnread: space ? 1 : 0,
-    muted: false,
-    notificationMode: NotificationMuteMode.all,
-    notificationUntil: null,
-    preview: '',
-    lastTs: timestamp,
-  );
 
   testWidgets('unread direct alert does not wait for a retired group policy', (
     tester,

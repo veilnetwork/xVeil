@@ -30,6 +30,7 @@ typedef _MessageAlertAttempt = ({
   int? groupGeneration,
 });
 typedef _MessageAlertCandidate = ({
+  Future<bool> Function() checkPolicy,
   String convHex,
   String? name,
   String shortId,
@@ -101,7 +102,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   int _notificationGeneration = 0;
   int? _unreadScanGeneration;
   int _groupNotificationGeneration = 0;
-  final _unreadGroupWaits = <VoidCallback>{};
+  final _groupAlertWaits = <VoidCallback>{};
   int _notificationSequence = 0;
   int _latestEligibleSequence = 0;
   // Clear requests have a separate OS id. An ordinary message supersedes the
@@ -212,7 +213,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // ticket and finished under B.
     _notificationGeneration++;
     _clearRequestGeneration++;
-    _cancelUnreadGroupWaits();
+    _cancelGroupAlertWaits();
     // The requests belong to the identity that was on screen, and the list is
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
@@ -225,7 +226,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _groupNotificationGeneration++;
-    _cancelUnreadGroupWaits();
+    _cancelGroupAlertWaits();
     _pendingSpaceComments.clear();
     // Group service initialization does not replace the messaging service's
     // request list. Its alerts retain their own identity/lifecycle fence.
@@ -336,6 +337,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!_canContinueMessageAlert(attempt)) return;
     await _show(
       attempt: attempt,
+      checkPolicy: () =>
+          _groupAlertAllowed(service, n.groupId, isMention: isMention),
       convHex: isMention
           ? notificationMentionPayload(
               '/group/${n.groupId.hex}?msg=${Uri.encodeQueryComponent(n.message.ref)}',
@@ -396,6 +399,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!_canContinueMessageAlert(attempt)) return;
     await _show(
       attempt: attempt,
+      checkPolicy: () => _spacePostAlertAllowed(
+        service,
+        n.spaceId,
+        publicOnly: false,
+        isMention: isMention,
+      ),
       convHex: isMention
           ? notificationMentionPayload(
               '/space/${n.spaceId.hex}/comments?post=${Uri.encodeQueryComponent(n.post.postId)}',
@@ -451,6 +460,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         '/space/${n.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(n.post.postId)}';
     await _show(
       attempt: attempt,
+      checkPolicy: () => _spacePostAlertAllowed(
+        service,
+        n.spaceId,
+        publicOnly: true,
+        isMention: isMention,
+      ),
       convHex: notificationMentionPayload(route),
       name: subscription.descriptor.name.trim().isNotEmpty
           ? subscription.descriptor.name
@@ -507,6 +522,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
+    final repliesToSelf = replyTarget?.author == service.selfId;
+    final commentsOnOwnPost = post?.author == service.selfId;
     if (!_canContinueMessageAlert(attempt) ||
         post == null ||
         !notificationModeAllows(
@@ -516,8 +533,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         !(isMention ||
             shouldNotifySpaceComment(
               mode: mode,
-              repliesToSelf: replyTarget?.author == service.selfId,
-              commentsOnOwnPost: post.author == service.selfId,
+              repliesToSelf: repliesToSelf,
+              commentsOnOwnPost: commentsOnOwnPost,
             ))) {
       return;
     }
@@ -526,6 +543,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         '/space/${n.spaceId.hex}/public-comments?post=${Uri.encodeQueryComponent(postId)}'
         '&comment=${Uri.encodeQueryComponent(n.comment.ref)}';
     final candidate = (
+      checkPolicy: () => _spaceCommentAlertAllowed(
+        service,
+        n.spaceId,
+        publicOnly: true,
+        isMention: isMention,
+        repliesToSelf: repliesToSelf,
+        commentsOnOwnPost: commentsOnOwnPost,
+      ),
       convHex: isMention ? notificationMentionPayload(route) : ordinaryPayload,
       name: subscription.descriptor.name.trim().isNotEmpty
           ? subscription.descriptor.name
@@ -551,6 +576,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
     await _show(
       attempt: attempt,
+      checkPolicy: candidate.checkPolicy,
       convHex: candidate.convHex,
       name: candidate.name,
       shortId: candidate.shortId,
@@ -609,6 +635,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         : comments
               .where((comment) => comment.ref == n.message.replyTo)
               .firstOrNull;
+    final repliesToSelf = replyTarget?.author == service.selfId;
+    final commentsOnOwnPost = post?.author == service.selfId;
     if (!notificationModeAllows(
           policy.effectiveAt(DateTime.now()),
           isMention: isMention,
@@ -616,8 +644,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         !(isMention ||
             shouldNotifySpaceComment(
               mode: mode,
-              repliesToSelf: replyTarget?.author == service.selfId,
-              commentsOnOwnPost: post?.author == service.selfId,
+              repliesToSelf: repliesToSelf,
+              commentsOnOwnPost: commentsOnOwnPost,
             ))) {
       return;
     }
@@ -628,6 +656,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           )
         : ordinaryPayload;
     final candidate = (
+      checkPolicy: () => _spaceCommentAlertAllowed(
+        service,
+        n.spaceId,
+        publicOnly: false,
+        isMention: isMention,
+        repliesToSelf: repliesToSelf,
+        commentsOnOwnPost: commentsOnOwnPost,
+      ),
       convHex: payload,
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.spaceId.short,
@@ -649,6 +685,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
     await _show(
       attempt: attempt,
+      checkPolicy: candidate.checkPolicy,
       convHex: candidate.convHex,
       name: candidate.name,
       shortId: candidate.shortId,
@@ -666,7 +703,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // cannot re-post an alert after cancelAll completes.
       _notificationGeneration++;
       _clearRequestGeneration++;
-      _cancelUnreadGroupWaits();
+      _cancelGroupAlertWaits();
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       unawaited(_requestNotificationPermission());
@@ -742,11 +779,28 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
   }
 
-  void _cancelUnreadGroupWaits() {
-    for (final cancel in _unreadGroupWaits) {
+  void _cancelGroupAlertWaits() {
+    for (final cancel in _groupAlertWaits) {
       cancel();
     }
-    _unreadGroupWaits.clear();
+    _groupAlertWaits.clear();
+  }
+
+  Future<T?> _readWhileGroupAlertIsCurrent<T>(
+    _MessageAlertAttempt attempt,
+    Future<T?> Function() read,
+  ) async {
+    if (!_canContinueMessageAlert(attempt)) return null;
+    // A retired group service may never finish a disk read. Let eligible
+    // personal chats continue through selection and the native post queue.
+    final retired = Completer<T?>();
+    void cancel() => retired.complete(null);
+    _groupAlertWaits.add(cancel);
+    try {
+      return await Future.any([read(), retired.future]);
+    } finally {
+      _groupAlertWaits.remove(cancel);
+    }
   }
 
   Future<void> _flushUnread() async {
@@ -770,10 +824,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       () => ref.read(storageProvider).loadConversations(),
     );
     if (!_canContinueMessageAlert(attempt)) return;
-    final directCandidates =
-        <
-          ({_MessageAlertCandidate alert, Future<bool> Function() checkPolicy})
-        >[];
+    final directCandidates = <_MessageAlertCandidate>[];
     final self = ref.read(appControllerProvider).identity?.nodeId;
     for (final c in convs ?? const <Conversation>[]) {
       if (!_canContinueMessageAlert(attempt)) return;
@@ -795,7 +846,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         );
         if (mention == null) continue;
       }
-      final _MessageAlertCandidate alert = (
+      directCandidates.add((
+        checkPolicy: () => _directAlertAllowed(
+          c.peer.nodeId,
+          isMention:
+              mention != null ||
+              (self != null &&
+                  c.lastMessage != null &&
+                  messageMentionsNode(c.lastMessage!.body, self)),
+        ),
         convHex: mention == null
             ? c.id
             : notificationMentionPayload(
@@ -817,17 +876,6 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             0,
         allowReply: mention == null,
         isMention: mention != null,
-      );
-      directCandidates.add((
-        alert: alert,
-        checkPolicy: () => _directAlertAllowed(
-          c.peer.nodeId,
-          isMention:
-              mention != null ||
-              (self != null &&
-                  c.lastMessage != null &&
-                  messageMentionsNode(c.lastMessage!.body, self)),
-        ),
       ));
     }
     // Groups compete with 1:1 chats for the same single latest alert.
@@ -838,19 +886,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (gsvc == null) {
       devLog(() => 'xVeil[notify]: flush — no group service');
     } else {
-      Future<T?> readGroup<T>(String source, Future<T> Function() read) async {
-        if (!_canContinueMessageAlert(groupAttempt)) return null;
-        // A retired group service may still be resolving a disk read.
-        // Stop waiting so a valid personal chat can finish this selection.
-        final retired = Completer<T?>();
-        void cancel() => retired.complete(null);
-        _unreadGroupWaits.add(cancel);
-        try {
-          return await Future.any([_readUnread(source, read), retired.future]);
-        } finally {
-          _unreadGroupWaits.remove(cancel);
-        }
-      }
+      Future<T?> readGroup<T>(String source, Future<T> Function() read) =>
+          _readWhileGroupAlertIsCurrent(
+            groupAttempt,
+            () => _readUnread(source, read),
+          );
 
       try {
         final groups = await readGroup('groups', gsvc.listGroups) ?? [];
@@ -880,6 +920,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             continue;
           }
           groupCandidates.add((
+            checkPolicy: () =>
+                _groupAlertAllowed(gsvc, g.groupId, isMention: mention != null),
             convHex: mention == null
                 ? 'group:${g.groupId.hex}'
                 : notificationMentionPayload(
@@ -937,6 +979,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             gsvc.selfId,
           );
           groupCandidates.add((
+            checkPolicy: () => _spacePostAlertAllowed(
+              gsvc,
+              space.groupId,
+              publicOnly: false,
+              isMention: isMention,
+            ),
             convHex: isMention
                 ? notificationMentionPayload(
                     '/space/${space.groupId.hex}/comments?post=${Uri.encodeQueryComponent(latestPost.postId)}',
@@ -996,6 +1044,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           final route =
               '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(latestPost.postId)}';
           groupCandidates.add((
+            checkPolicy: () => _spacePostAlertAllowed(
+              gsvc,
+              spaceId,
+              publicOnly: true,
+              isMention: isMention,
+            ),
             convHex: notificationMentionPayload(route),
             name: public.descriptor.name.trim().isNotEmpty
                 ? public.descriptor.name
@@ -1032,17 +1086,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
     final directLatest = newestByTimestamp(
       directCandidates,
-      (c) => c.alert.timestampMs,
+      (c) => c.timestampMs,
     );
     final useGroup =
         groupLatest != null &&
         (directLatest == null ||
-            groupLatest.timestampMs > directLatest.alert.timestampMs);
-    final latest = useGroup ? groupLatest : directLatest?.alert;
+            groupLatest.timestampMs > directLatest.timestampMs);
+    final latest = useGroup ? groupLatest : directLatest;
     if (latest == null) return;
     await _show(
       attempt: useGroup ? groupAttempt : attempt,
-      checkPolicy: useGroup ? null : directLatest?.checkPolicy,
+      checkPolicy: latest.checkPolicy,
       convHex: latest.convHex,
       name: latest.name,
       shortId: latest.shortId,
@@ -1119,7 +1173,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     required NotificationSettings settings,
     bool allowReply = true,
     bool isMention = false,
-    Future<bool> Function()? checkPolicy,
+    required Future<bool> Function() checkPolicy,
   }) async {
     if (!_canContinueMessageAlert(attempt)) return;
     final liveSettings = ref.read(notificationSettingsProvider);
@@ -1169,7 +1223,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         .showPreparedIfCurrent(
           isCurrent: current,
           id: id,
-          checkPolicy: checkPolicy,
+          checkPolicy: attempt.groupGeneration == null
+              ? checkPolicy
+              : () async =>
+                    await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
+                    false,
           prepare: () {
             // A downgrade applies immediately. An alert that opted out of
             // full text earlier cannot gain it while queued.
@@ -1224,11 +1282,80 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
   }
 
+  Future<bool> _groupAlertAllowed(
+    GroupService service,
+    NodeId groupId, {
+    required bool isMention,
+  }) async {
+    try {
+      final policy = await service.groupNotificationPolicy(groupId);
+      return notificationModeAllows(
+        policy.effectiveAt(DateTime.now()),
+        isMention: isMention,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _spaceAlertAllowed(
+    GroupService service,
+    NodeId spaceId, {
+    required bool publicOnly,
+    required bool isMention,
+    required bool Function(SpaceSubscription) allows,
+  }) async {
+    try {
+      // Re-read the local subscription without projecting the public feed.
+      final subscription = await service.spaceSubscription(spaceId);
+      if (subscription.publicOnly != publicOnly || !allows(subscription)) {
+        return false;
+      }
+      return await _groupAlertAllowed(service, spaceId, isMention: isMention);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _spacePostAlertAllowed(
+    GroupService service,
+    NodeId spaceId, {
+    required bool publicOnly,
+    required bool isMention,
+  }) => _spaceAlertAllowed(
+    service,
+    spaceId,
+    publicOnly: publicOnly,
+    isMention: isMention,
+    allows: (subscription) => subscription.notificationsEnabled || isMention,
+  );
+
+  Future<bool> _spaceCommentAlertAllowed(
+    GroupService service,
+    NodeId spaceId, {
+    required bool publicOnly,
+    required bool isMention,
+    required bool repliesToSelf,
+    required bool commentsOnOwnPost,
+  }) => _spaceAlertAllowed(
+    service,
+    spaceId,
+    publicOnly: publicOnly,
+    isMention: isMention,
+    allows: (subscription) =>
+        isMention ||
+        shouldNotifySpaceComment(
+          mode: subscription.commentNotifications,
+          repliesToSelf: repliesToSelf,
+          commentsOnOwnPost: commentsOnOwnPost,
+        ),
+  );
+
   @override
   void dispose() {
     _notificationGeneration++;
     _clearRequestGeneration++;
-    _cancelUnreadGroupWaits();
+    _cancelGroupAlertWaits();
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _groupServiceListener?.close();
