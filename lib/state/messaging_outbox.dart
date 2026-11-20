@@ -575,6 +575,7 @@ class _MessagingOutbox {
     Future<void> Function(Uint8List wire)? liveSender,
     bool awaitLive = true,
     bool startLiveBeforeEnqueue = false,
+    bool waitForFastRetry = true,
   }) async {
     final wire = envelope.withFrameId(frameId).encode();
     if (envelope.kind == WireKind.edit &&
@@ -692,7 +693,13 @@ class _MessagingOutbox {
     }
     if (_MessagingMailboxDelivery.isCallSignalId(frameId) &&
         liveSender != null) {
-      _scheduleFastCallRedrive(peer, frameId, wire, liveSender);
+      _scheduleFastCallRedrive(
+        peer,
+        frameId,
+        wire,
+        liveSender,
+        waitForSubmission: waitForFastRetry,
+      );
     }
   }
 
@@ -732,9 +739,18 @@ class _MessagingOutbox {
     NodeId peer,
     String frameId,
     Uint8List wire,
-    Future<void> Function(Uint8List wire) liveSender,
-  ) {
+    Future<void> Function(Uint8List wire) liveSender, {
+    required bool waitForSubmission,
+  }) {
     _fastCallRetryTimers.remove(frameId)?.cancel();
+
+    Future<void> submit() async {
+      try {
+        await liveSender(wire);
+      } catch (_) {
+        // Every constituent path is best-effort; the next live retry remains.
+      }
+    }
 
     void schedule(Duration delay, int attemptsLeft) {
       _fastCallRetryTimers[frameId] = Timer(delay, () async {
@@ -763,10 +779,13 @@ class _MessagingOutbox {
               'xVeil[durable]: fast call re-drive fid=$frameId '
               'dst=${peer.short} attempt=$count',
         );
-        try {
-          await liveSender(wire);
-        } catch (_) {
-          // Every constituent path is best-effort; the next live retry remains.
+        final submission = submit();
+        if (waitForSubmission) {
+          await submission;
+        } else {
+          // The call sender reuses pending attempts per path. A stalled path
+          // must not stop the retry timer for paths that can recover sooner.
+          unawaited(submission);
         }
         if (attemptsLeft > 1 &&
             _liveBackoff.containsKey(_key(peer.hex, frameId))) {

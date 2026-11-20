@@ -88,6 +88,9 @@ class _MessagingRealtimeControl {
   final _pendingCallSubmissions =
       <({String peer, String frameId, String lane}), Future<bool>>{};
 
+  bool get _racesCallPaths =>
+      !_owner._anonymous && _owner._transport is RealtimeTransport;
+
   /// This lane's own bound (audit XV-05). Smaller than the durable lane's:
   /// call control and endpoint sets are small frames, so a big one here is
   /// already the wrong shape, and the whole point of the lane is latency —
@@ -792,17 +795,12 @@ class _MessagingRealtimeControl {
     required bool contactIdentity,
     String? callFrameId,
   }) async {
-    if (_owner._anonymous) {
+    if (!_racesCallPaths) {
       await _observeSend(
         _RealtimeControlKind.call,
-        () => sendRealtime(peer, wire),
-      );
-      return;
-    }
-    if (_owner._transport is! RealtimeTransport) {
-      await _observeSend(
-        _RealtimeControlKind.call,
-        () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
+        () => _owner._anonymous
+            ? sendRealtime(peer, wire)
+            : _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
       );
       return;
     }
@@ -1001,7 +999,7 @@ class _MessagingRealtimeControl {
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
               ':${peer.hex}'
         : 'call:${signal.callId}:${signal.type.name}:${peer.hex}';
-    await _owner.sendDurable(
+    await _owner._outbox.send(
       peer,
       frameId,
       envelope,
@@ -1013,6 +1011,7 @@ class _MessagingRealtimeControl {
       ),
       awaitLive: false,
       startLiveBeforeEnqueue: true,
+      waitForFastRetry: !_racesCallPaths,
     );
   }
 
