@@ -211,24 +211,6 @@ class NotificationService {
     if (_ready || !_supported) return;
     final running = _initializing;
     if (running != null) return running;
-    final gate = Completer<void>();
-    _initializing = gate.future;
-    try {
-      await _init(onTap: onTap, onReply: onReply);
-      // The ready barrier includes the clear requested before startup. A
-      // failed initialization keeps the intent for the next attempt instead
-      // of waiting on its own initialization future.
-      if (_ready && _clearWanted) await cancelAll();
-    } finally {
-      _initializing = null;
-      if (!gate.isCompleted) gate.complete();
-    }
-  }
-
-  Future<void> _init({
-    required void Function(String? payload) onTap,
-    void Function(String payload, String text)? onReply,
-  }) async {
     void handleResponse(NotificationResponse response) {
       // An inline reply (RemoteInput) carries the typed text in `input` under
       // our reply action id; anything else is a plain tap → open the chat.
@@ -243,6 +225,29 @@ class NotificationService {
       onTap(response.payload);
     }
 
+    final gate = Completer<void>();
+    _initializing = gate.future;
+    Future<void>? launchResponse;
+    try {
+      await _initializePlatform(handleResponse);
+      if (_ready) {
+        // The one-shot launch response is optional and may not complete while
+        // the backend is perfectly capable of posting and clearing alerts.
+        launchResponse = _readLaunchResponse(handleResponse);
+        // A clear requested before startup remains part of the posting gate.
+        if (_clearWanted) await cancelAll();
+      }
+    } finally {
+      _initializing = null;
+      gate.complete();
+    }
+    // Preserve the explicit init caller's ability to await cold-tap routing.
+    await launchResponse;
+  }
+
+  Future<void> _initializePlatform(
+    void Function(NotificationResponse) handleResponse,
+  ) async {
     try {
       // The Android launcher icon doubles as the notification icon.
       const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -273,8 +278,12 @@ class NotificationService {
       _ready = true;
     } catch (e) {
       devLog(() => 'xVeil[notify]: init failed: $e');
-      return;
     }
+  }
+
+  Future<void> _readLaunchResponse(
+    void Function(NotificationResponse) handleResponse,
+  ) async {
     // Since plugin v4, initialize() deliberately does not replay a tap that
     // launched a terminated app. Read the one-shot launch response explicitly
     // after initialization so notification deep links work from a cold start,
