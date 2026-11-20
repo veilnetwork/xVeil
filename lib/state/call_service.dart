@@ -372,9 +372,10 @@ class CallService {
   (int, int?) get _networkObservationVersion =>
       (_networkAttachmentGeneration, _readNetworkChangeGeneration?.call());
   bool _networkOffline = false;
+  int? _offlineOverlayAdmissionNetwork;
   DateTime? _localNetworkHandoverAt;
   ({String callId, int network, DateTime until})? _pendingHandoverHealth;
-  int? _lastHealthAdmissionNetwork;
+  int? _lastObservedOverlayAdmissionNetwork;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
   bool _overlaySessionGrowthObserved = false;
@@ -913,6 +914,9 @@ class CallService {
       _networkAttachmentGeneration++;
       final wasOffline = _networkOffline;
       _networkOffline = attachment == NetworkAttachment.offline;
+      final network = _overlayAdmissionNetwork;
+      final offlineNetwork = _offlineOverlayAdmissionNetwork;
+      _offlineOverlayAdmissionNetwork = _networkOffline ? network : null;
       final call = _current;
       if (call == null || call.status != CallStatus.active) return;
       if (_networkOffline) {
@@ -924,10 +928,18 @@ class CallService {
             : null;
         return;
       }
-      if (wasOffline && _relayCandidateRetryTimer == null) {
-        // The timer may have expired during the outage. Keep its retry for
-        // this call and do not advance a deadline that is still pending.
-        _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
+      if (wasOffline) {
+        if (network != offlineNetwork &&
+            network == _lastObservedOverlayAdmissionNetwork) {
+          _applyOverlayAdmission(
+            network,
+            'overlay connectivity observed before network notification',
+          );
+        } else if (_relayCandidateRetryTimer == null) {
+          // The timer may have expired during the outage. Keep its retry for
+          // this call and do not advance a deadline that is still pending.
+          _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
+        }
       }
       final relay = call.transport == CallTransportKind.relay;
       if (!relay && !_isActiveDirectCall(call)) return;
@@ -936,7 +948,7 @@ class CallService {
       // before the overlay admits the first session on this network.
       _pendingHandoverHealth = (
         callId: call.callId,
-        network: _overlayAdmissionNetwork,
+        network: network,
         until: at.add(kCallLivenessTimeout),
       );
       _announceHandoverHealth();
@@ -2295,11 +2307,15 @@ class CallService {
     if (_disposed) return;
     final network = _overlayAdmissionNetwork;
     // The dispatch result and native admission arrive on independent streams.
-    // Remember the hint for signaling even if Dart still sees the old link.
-    _lastHealthAdmissionNetwork = network;
+    // Remember the hint for the matching attachment and early peer signal.
+    _lastObservedOverlayAdmissionNetwork = network;
     // A queued admission can be delivered after the local network is gone.
     // It cannot wake recovery until there is a usable local attachment.
     if (_networkOffline) return;
+    _applyOverlayAdmission(network, description);
+  }
+
+  void _applyOverlayAdmission(int network, String description) {
     _relayConnectionGeneration++;
     _lastOverlayAdmissionNetwork = network;
     final waiting = _relayRebuildAdmission;
@@ -2319,7 +2335,7 @@ class CallService {
         call == null ||
         call.callId != pending.callId ||
         call.status != CallStatus.active ||
-        pending.network != _lastHealthAdmissionNetwork ||
+        pending.network != _lastObservedOverlayAdmissionNetwork ||
         pending.network != _overlayAdmissionNetwork ||
         !_now().isBefore(pending.until)) {
       return;
@@ -3838,7 +3854,7 @@ class CallService {
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
     _pendingHandoverHealth = null;
-    _lastHealthAdmissionNetwork = null;
+    _lastObservedOverlayAdmissionNetwork = null;
     final waiting = _relayRebuildAdmission;
     _relayRebuildAdmission = null;
     if (waiting != null && !waiting.isCompleted) waiting.complete(false);
