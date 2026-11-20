@@ -373,7 +373,7 @@ class CallService {
       (_networkAttachmentGeneration, _readNetworkChangeGeneration?.call());
   bool _networkOffline = false;
   DateTime? _localNetworkHandoverAt;
-  int? _pendingHandoverHealthNetwork;
+  ({String callId, int network, DateTime until})? _pendingHandoverHealth;
   int? _lastHealthAdmissionNetwork;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
@@ -914,7 +914,7 @@ class CallService {
       final call = _current;
       if (call == null || call.status != CallStatus.active) return;
       if (_networkOffline) {
-        _pendingHandoverHealthNetwork = null;
+        _pendingHandoverHealth = null;
         _relayHandover = null;
         // A relay rebuild may already be in flight when the interface drops.
         _localNetworkHandoverAt = call.transport == CallTransportKind.relay
@@ -930,7 +930,13 @@ class CallService {
       final relay = call.transport == CallTransportKind.relay;
       if (!relay && !_isActiveDirectCall(call)) return;
       final at = _localNetworkHandoverAt = _now();
-      _pendingHandoverHealthNetwork = _overlayAdmissionNetwork;
+      // Route settlement clears the media observation, but it can happen
+      // before the overlay admits the first session on this network.
+      _pendingHandoverHealth = (
+        callId: call.callId,
+        network: _overlayAdmissionNetwork,
+        until: at.add(kCallLivenessTimeout),
+      );
       _announceHandoverHealth();
       if (relay) {
         // The rebuild can have released its old channel already.
@@ -2288,17 +2294,18 @@ class CallService {
   }
 
   void _announceHandoverHealth() {
-    final network = _pendingHandoverHealthNetwork;
-    final handoverAt = _localNetworkHandoverAt;
-    if (network == null ||
-        network != _lastHealthAdmissionNetwork ||
-        network != _overlayAdmissionNetwork ||
-        _current?.status != CallStatus.active ||
-        handoverAt == null ||
-        _now().difference(handoverAt) >= kCallLivenessTimeout) {
+    final pending = _pendingHandoverHealth;
+    final call = _current;
+    if (pending == null ||
+        call == null ||
+        call.callId != pending.callId ||
+        call.status != CallStatus.active ||
+        pending.network != _lastHealthAdmissionNetwork ||
+        pending.network != _overlayAdmissionNetwork ||
+        !_now().isBefore(pending.until)) {
       return;
     }
-    _pendingHandoverHealthNetwork = null;
+    _pendingHandoverHealth = null;
     // The peer's timeout can precede our next beat, and the old media route
     // may still be stalled. This hint only triggers the regular control send.
     unawaited(_announceCapture(allowCompactHealth: false));
@@ -3783,7 +3790,7 @@ class CallService {
     _mediaRepair = null;
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
-    _pendingHandoverHealthNetwork = null;
+    _pendingHandoverHealth = null;
     _lastHealthAdmissionNetwork = null;
     final waiting = _relayRebuildAdmission;
     _relayRebuildAdmission = null;
