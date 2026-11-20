@@ -384,103 +384,148 @@ class _MessagingContentAvailability {
     return true;
   }
 
-  Future<void> onContentReoffer(NodeId peer, String contentId) async {
-    final served = _owner._serving[contentId];
-    if (served != null) {
+  Future<void> onContentReoffer(
+    NodeId peer,
+    String contentId,
+    Object epoch,
+  ) async {
+    bool isCurrent() => _owner._realtimeControl._consentCurrent(peer, epoch);
+    if (!isCurrent()) return;
+
+    try {
+      // Find this peer's message before waiting on a file reopen. A failed
+      // history read cannot turn an event-backed offer into a bare one.
+      final rows = await _owner._storage.loadMessages(peer.hex);
+      Message? post;
+      for (final row in rows.reversed) {
+        if (row.direction == MessageDirection.outgoing &&
+            (row.fileContentId ?? row.fileId) == contentId) {
+          post = row;
+          break;
+        }
+      }
+      final eligibility = post == null
+          ? null
+          : _StoredPostEligibility(_owner, peer, post);
+      final preparation = eligibility?.prepare();
+      if (preparation != null) await preparation;
+      if (!isCurrent() || eligibility?.canSend == false) return;
+
+      var served = _owner._serving[contentId];
+      if (served == null) {
+        final restored = await _restoreReofferSource(contentId, isCurrent);
+        // A different send can install this content while disk I/O is pending.
+        served = _owner._serving[contentId];
+        if (restored != null) {
+          if (isCurrent() && served == null) {
+            served = _owner._serving[contentId] = restored;
+            _owner._evictServing();
+            _owner._ensureContentTimer();
+          } else {
+            final opened = restored.source;
+            final current = served?.source;
+            if (opened != null &&
+                (current == null ||
+                    !_owner._sameServeSource(opened, current))) {
+              await opened.close();
+            }
+          }
+        }
+      }
+      if (!isCurrent()) return;
+      if (served == null) {
+        unawaited(replyContentGone(peer, contentId, isCurrent: isCurrent));
+        return;
+      }
       final record = served.sourceRecord;
       if (record != null &&
           !await _owner._servedSourceStillAuthorized(contentId, record) &&
           !await _owner._storage.hasFile(contentId)) {
-        await replyContentGone(peer, contentId);
+        unawaited(replyContentGone(peer, contentId, isCurrent: isCurrent));
+        return;
+      }
+      // A concurrent pull may have only refreshed servedAt. Keep its state,
+      // but do not apply an authorization check to a replacement source.
+      final current = _owner._serving[contentId];
+      if (!isCurrent() || current == null || current.sourceRecord != record) {
         return;
       }
       _owner._serving[contentId] = (
-        manifest: served.manifest,
-        source: served.source,
-        sourceRecord: served.sourceRecord,
-        servedAt: _owner._now(),
-      );
-      devLog(
-        () =>
-            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-            '-> ${peer.short} (live serving)',
-      );
-      final offer = await _owner._manifestForPeerOffer(peer, served.manifest);
-      unawaited(_owner._sendContentManifest(peer, offer));
-      return;
-    }
-    if (_owner.sourceOpener == null) {
-      devLog(
-        () =>
-            'xVeil[content]: reoffer for UNSERVED '
-            '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)',
-      );
-      unawaited(replyContentGone(peer, contentId));
-      return;
-    }
-    try {
-      final record = _owner._parseServedRecord(
-        await _owner._storage.getSetting('served:$contentId'),
-      );
-      final manifestBytes = await _owner._storage.loadFile('mf:$contentId');
-      if (record == null) {
-        devLog(
-          () =>
-              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
-              'durable record <- ${peer.short} (re-send)',
-        );
-        unawaited(replyContentGone(peer, contentId));
-        return;
-      }
-      ContentManifest? manifest;
-      if (manifestBytes != null) {
-        manifest = ContentManifest.fromJson(
-          jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>,
-        );
-      }
-      // The manifest blob can be the first casualty of an IndexFull store.
-      // Rebuild it from the durable source instead of answering false GONE.
-      manifest ??= await _owner._rebuildManifestFromServedRecord(
-        contentId,
-        record,
-      );
-      if (manifest == null) {
-        unawaited(replyContentGone(peer, contentId));
-        return;
-      }
-      final source = await _owner._openVerifiedServedSource(contentId, record);
-      if (source == null) {
-        devLog(
-          () =>
-              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
-              'source GONE or CHANGED (${record.path}) <- ${peer.short} '
-              '(re-send)',
-        );
-        unawaited(replyContentGone(peer, contentId));
-        return;
-      }
-      _owner._serving[contentId] = (
-        manifest: manifest,
-        source: source,
+        manifest: current.manifest,
+        source: current.source,
         sourceRecord: record,
         servedAt: _owner._now(),
       );
-      _owner._evictServing();
-      _owner._ensureContentTimer();
-      devLog(
-        () =>
-            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-            '-> ${peer.short} (DURABLE — re-opened ${record.path})',
-      );
-      final offer = await _owner._manifestForPeerOffer(peer, manifest);
-      unawaited(_owner._sendContentManifest(peer, offer));
+
+      // The stored manifest can carry another chat's event fields. The
+      // content description is shared, but the per-send fields are not.
+      final base = _owner._baseContentManifest(current.manifest);
+      final offer = post == null
+          ? base
+          : base.withEvent(
+              msgId: post.id,
+              author: post.author,
+              seq: post.seq,
+              ts: post.timestamp.millisecondsSinceEpoch,
+              thumbB64: post.thumb,
+            );
+      final frame = _owner._encodeContentManifest(offer).frame;
+      // Keep source readiness and the authenticated receipt independent of
+      // the outbound offer's route preparation.
+      if (eligibility == null) {
+        unawaited(
+          _owner
+              ._send(peer, frame, admitTransport: isCurrent)
+              .catchError(_reportReofferFailure),
+        );
+      } else {
+        unawaited(
+          eligibility
+              .send(frame, epoch, stopOnReceipt: false)
+              .then<void>((_) {}, onError: _reportReofferFailure),
+        );
+      }
     } catch (error) {
-      devLog(
-        () =>
-            'xVeil[content]: durable reoffer failed for '
-            '${contentId.substring(0, 12)}: $error',
+      _reportReofferFailure(error);
+    }
+  }
+
+  void _reportReofferFailure(Object error) =>
+      devLog(() => 'xVeil[content]: reoffer deferred (${error.runtimeType})');
+
+  Future<_ServedContent?> _restoreReofferSource(
+    String contentId,
+    bool Function() isCurrent,
+  ) async {
+    var manifest = await _owner._loadPersistedManifest(contentId);
+    if (!isCurrent()) return null;
+    if (manifest != null && await _owner._storage.hasFile(contentId)) {
+      return (
+        manifest: manifest,
+        source: null,
+        sourceRecord: null,
+        servedAt: _owner._now(),
       );
     }
+    if (_owner.sourceOpener == null || !isCurrent()) return null;
+    final record = _owner._parseServedRecord(
+      await _owner._storage.getSetting('served:$contentId'),
+    );
+    if (record == null || !isCurrent()) return null;
+    // A full container may have kept the source record but lost the manifest.
+    manifest ??= await _owner._rebuildManifestFromServedRecord(
+      contentId,
+      record,
+    );
+    if (manifest == null || !isCurrent()) return null;
+    final source = await _owner._openVerifiedServedSource(contentId, record);
+    if (source == null) return null;
+    return (
+      manifest: manifest,
+      source: source,
+      sourceRecord: record,
+      servedAt: _owner._now(),
+    );
   }
 
   Future<bool> isContentUnavailable(String contentId) async =>
@@ -541,8 +586,12 @@ class _MessagingContentAvailability {
     }
   }
 
-  Future<void> replyContentGone(NodeId peer, String contentId) async {
-    if (_owner._disposed) return;
+  Future<void> replyContentGone(
+    NodeId peer,
+    String contentId, {
+    bool Function()? isCurrent,
+  }) async {
+    if (_owner._disposed || isCurrent?.call() == false) return;
     try {
       if (await _owner._storage.hasFile(contentId)) return;
       devLog(
@@ -550,7 +599,11 @@ class _MessagingContentAvailability {
             'xVeil[content]: reply content-GONE '
             '${contentId.substring(0, 12)} -> ${peer.short}',
       );
-      await _owner._send(peer, contentGoneEnvelope(contentId).encode());
+      await _owner._send(
+        peer,
+        contentGoneEnvelope(contentId).encode(),
+        admitTransport: isCurrent,
+      );
     } catch (_) {
       // Best-effort: silence leaves the requester on its timeout fallback.
     }

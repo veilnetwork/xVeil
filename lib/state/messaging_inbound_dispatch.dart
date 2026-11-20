@@ -1057,7 +1057,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // A peer lost the manifest handle (restart) but still holds the offer —
         // re-advertise if we are still serving (or can re-open a durable source).
         if (existing?.status != ContactStatus.accepted) return;
-        await _onContentReoffer(m.src, env.body);
+        await _onContentReoffer(m.src, env.body, consent.epoch);
         return;
       case WireKind.contentGone:
         // A holder answered a reoffer with "I no longer have those bytes" —

@@ -4193,34 +4193,6 @@ class MessagingService {
   Future<ContentManifest?> _loadPersistedManifest(String contentId) =>
       _downloadResume.loadPersistedManifest(contentId);
 
-  /// Re-bind a cid-level serve manifest to the latest live filePost for this
-  /// particular peer. A single cloud blob may be shared to several contacts;
-  /// using whichever msgId last occupied `_serving[cid]` would make a reoffer
-  /// surface the wrong recipient's event.
-  Future<ContentManifest> _manifestForPeerOffer(
-    NodeId peer,
-    ContentManifest manifest,
-  ) async {
-    try {
-      final messages = await _storage.loadMessages(peer.hex);
-      for (final message in messages.reversed) {
-        final cid = message.fileContentId ?? message.fileId;
-        if (message.direction != MessageDirection.outgoing ||
-            cid != manifest.contentId) {
-          continue;
-        }
-        return manifest.withEvent(
-          msgId: message.id,
-          author: message.author,
-          seq: message.seq,
-          ts: message.timestamp.millisecondsSinceEpoch,
-          thumbB64: message.thumb,
-        );
-      }
-    } catch (_) {}
-    return manifest;
-  }
-
   void _completePendingDownload(String contentId) =>
       _downloadResume.complete(contentId);
 
@@ -4422,8 +4394,8 @@ class MessagingService {
   /// persisted manifest (so an offer survives our restart / the serve TTL). Fails
   /// quietly (→ receiver times out → re-send) if there is no durable record, no
   /// opener, or the file is gone.
-  Future<void> _onContentReoffer(NodeId peer, String contentId) =>
-      _contentAvailability.onContentReoffer(peer, contentId);
+  Future<void> _onContentReoffer(NodeId peer, String contentId, Object epoch) =>
+      _contentAvailability.onContentReoffer(peer, contentId, epoch);
 
   /// True when every known holder of [contentId] said GONE — persisted, so the
   /// chat bubble can render "ask the sender to re-send" across restarts.

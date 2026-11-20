@@ -652,6 +652,35 @@ void main() {
     );
   });
 
+  test('a saved attachment downloads after both peers restart', () async {
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    final data = rnd(300000, 83);
+    final offered = mB.changes.first;
+    await mA.sendFile(b, data, 'restart.bin');
+    await offered.timeout(const Duration(seconds: 10));
+    final original = (await sA.loadMessages(b.hex)).single;
+    final cid = original.fileId!;
+    expect((await sB.loadMessages(a.hex)).single.id, original.id);
+    expect(await sB.hasFile(cid), isFalse);
+
+    await mB.dispose();
+    await mA.dispose();
+    mA = MessagingService(tA, sA, contentPacing: Duration.zero)..start();
+    mB = MessagingService(tB, sB, contentPacing: Duration.zero)..start();
+    final completed = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(
+      await mB.downloadContent(a, cid),
+      ContentDownloadResult.requestedReoffer,
+    );
+    await completed.timeout(const Duration(seconds: 20));
+    expect(await sB.loadFile(cid), data);
+    final recovered = (await sB.loadMessages(a.hex)).single;
+    expect(recovered.id, original.id);
+    expect(recovered.timestamp, original.timestamp);
+  });
+
   test('download emits monotonic progress, ending at done == total', () async {
     final data = rnd(300000, 31); // multi-piece, auto-downloads (< 2 MB cap)
     final events = <({String contentId, int done, int total})>[];
