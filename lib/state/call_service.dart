@@ -380,6 +380,7 @@ class CallService {
   int? _offlineOverlayAdmissionNetwork;
   DateTime? _localNetworkHandoverAt;
   ({String callId, int network, DateTime until})? _pendingHandoverHealth;
+  int? _directLossReportedOnNetwork;
   int? _lastObservedOverlayAdmissionNetwork;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
@@ -614,6 +615,7 @@ class CallService {
   _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
   var _peerRelayWake = _PeerRelayWake.available;
+  var _peerDirectLossWake = _PeerRelayWake.available;
   bool _closedDirectRetrySpent = false;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
@@ -636,6 +638,7 @@ class CallService {
     _cancelRelayCandidateRetry();
     _relayFallbackFlight = null;
     _peerRelayWake = _PeerRelayWake.available;
+    _peerDirectLossWake = _PeerRelayWake.available;
     _closedDirectRetrySpent = false;
     _lateP2PGeneration++;
     _lateP2PConsent = false;
@@ -1448,6 +1451,7 @@ class CallService {
   /// frame here self-correcting rather than permanent.
   Future<void> _announceCapture({
     bool allowCompactHealth = true,
+    bool relayRecoverySuggested = false,
     bool Function()? admitHealth,
   }) async {
     final cur = _current;
@@ -1464,6 +1468,7 @@ class CallService {
             ? _lateP2PConsent
             : null,
         capture: _localCapture(cur),
+        relayRecoverySuggested: relayRecoverySuggested,
         audioPlayout: _media?.audioPlayoutFeedback,
         protocolVersion: _signalProtocolVersion,
       ),
@@ -1877,6 +1882,12 @@ class CallService {
               _pendingRelayAtMs = at;
             }
           }
+        }
+        if (sig.relayRecoverySuggested &&
+            live != null &&
+            live.callId == sig.callId &&
+            live.peer == peer) {
+          _notePeerDirectLoss(live, sig);
         }
         // Liveness already refreshed above. A repair request is end-to-end
         // evidence that OUR outbound media is black-holed after its first hop.
@@ -2372,10 +2383,19 @@ class CallService {
 
     var mayRetry = retryOnRouteChange;
     // The peer's timeout can precede our next beat, and the old media route
-    // may still be stalled. This hint only triggers the regular control send.
+    // may still be stalled. Use the live signaling lanes.
+    final suggestRelay =
+        _isActiveDirectCall(call) &&
+        _directLossReportedOnNetwork == pending.network;
+    if (suggestRelay) {
+      devLog(
+        () => 'xVeil[call-media]: announcing direct loss on reconnected overlay',
+      );
+    }
     unawaited(
       _announceCapture(
         allowCompactHealth: false,
+        relayRecoverySuggested: suggestRelay,
         admitHealth: () {
           final current = currentOwner();
           if (current == null) return false;
@@ -2403,6 +2423,32 @@ class CallService {
     final retry = _relayCandidateRetry;
     _relayCandidateRetry = null;
     retry?.handoverLiveness?.released.complete();
+  }
+
+  void _notePeerDirectLoss(Call call, CallSignal signal) {
+    final at = signal.sentAtMs;
+    if (_peerDirectLossWake != _PeerRelayWake.available ||
+        _networkOffline ||
+        !_isActiveDirectCall(call) ||
+        signal.transport?.kind != CallTransportKind.p2p ||
+        signal.onBehalfOf != null ||
+        signal.mediaRepairRequested ||
+        at == null ||
+        at <= _lastTransportInfoAtMs ||
+        at < _lastPeerRouteHealthAtMs) {
+      return;
+    }
+    // A coincident ordinary direct heartbeat can have the same timestamp.
+    // Consume the hint at most once on this active direct route.
+    if (_relayFallbackFlight != null ||
+        _relayCandidateRetry?.callId == call.callId) {
+      _peerDirectLossWake = _PeerRelayWake.requested;
+      _wakeDeferredRelay(call.peer, call.callId);
+      return;
+    }
+    _peerDirectLossWake = _PeerRelayWake.used;
+    devLog(() => 'xVeil[call-media]: peer lost direct session; probing relay');
+    unawaited(_followRelayFallback(call.peer, call.callId));
   }
 
   void _notePeerRelay(Call call, CallSignal signal) {
@@ -2474,7 +2520,9 @@ class CallService {
     // A wake can start an extra attempt before a scheduled opportunity.
     // Keep that opportunity if the extra attempt fails. An attempt that
     // starts at or after it consumes it and returns to the steady cadence.
-    final retryAt = trigger == _RelayRetryTrigger.closedDirect
+    final peerLostDirect = _peerDirectLossWake == _PeerRelayWake.requested;
+    if (peerLostDirect) _peerDirectLossWake = _PeerRelayWake.used;
+    final retryAt = trigger == _RelayRetryTrigger.closedDirect || peerLostDirect
         ? retry.until
         : retry.preservedRetryAt;
     final retryBy = retryAt != null && _now().isBefore(retryAt) ? retryAt : null;
@@ -2482,6 +2530,10 @@ class CallService {
     if (_peerRelayWake == _PeerRelayWake.requested) {
       _peerRelayWake = _PeerRelayWake.used;
       devLog(() => 'xVeil[call-media]: peer on relay; retrying deferred relay');
+    } else if (peerLostDirect) {
+      devLog(
+        () => 'xVeil[call-media]: peer lost direct session; retrying relay',
+      );
     } else {
       devLog(() => switch (trigger) {
         _RelayRetryTrigger.overlay =>
@@ -2534,7 +2586,8 @@ class CallService {
           _relayFallbackFlight = null;
           // Keep hints that arrived while the old candidate was qualifying.
           if (connections != _relayConnectionGeneration ||
-              _peerRelayWake == _PeerRelayWake.requested) {
+              _peerRelayWake == _PeerRelayWake.requested ||
+              _peerDirectLossWake == _PeerRelayWake.requested) {
             _wakeDeferredRelay(peer, callId);
           }
         }
@@ -3104,6 +3157,19 @@ class CallService {
         trigger: _RelayRetryTrigger.closedDirect,
       );
       return;
+    }
+    if (networkChangedAt != null && sameHandover()) {
+      final network = _overlayAdmissionNetwork;
+      final until = networkChangedAt.add(kCallLivenessTimeout);
+      if (_directLossReportedOnNetwork != network && _now().isBefore(until)) {
+        _directLossReportedOnNetwork = network;
+        _pendingHandoverHealth ??= (
+          callId: current.callId,
+          network: network,
+          until: until,
+        );
+        _announceHandoverHealth();
+      }
     }
     devLog(
       () => early
@@ -3916,6 +3982,7 @@ class CallService {
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
     _pendingHandoverHealth = null;
+    _directLossReportedOnNetwork = null;
     _lastObservedOverlayAdmissionNetwork = null;
     final waiting = _relayRebuildAdmission;
     _relayRebuildAdmission = null;
@@ -3983,8 +4050,10 @@ class CallService {
     }
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
+      _peerDirectLossWake = _PeerRelayWake.available;
       _closedDirectRetrySpent = false;
       _localNetworkHandoverAt = null;
+      _directLossReportedOnNetwork = null;
       _relayHandover =
           _current?.callId == call.callId &&
               _current?.status == CallStatus.active &&

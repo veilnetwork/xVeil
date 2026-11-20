@@ -53,7 +53,7 @@ enum CallSignalType {
   /// is connecting/active; receiving ANY signal (this one included) resets the
   /// peer-liveness timer, so a call whose peer vanishes (crash, kill, network
   /// drop — no graceful `end`) is torn down instead of hanging in "in call"
-  /// forever. Carries only callId (+ sentAtMs); no state change on receipt.
+  /// forever. May also carry capture and route recovery feedback.
   health,
 
   /// Either side, mid-call: "my link cannot carry your video — please send
@@ -437,6 +437,7 @@ class CallSignal {
     this.reason,
     this.capture,
     this.mediaRepairRequested = false,
+    this.relayRecoverySuggested = false,
     this.audioPlayout,
     this.p2pUpgradeAllowed,
     this.compactHealthReady,
@@ -495,6 +496,11 @@ class CallSignal {
   /// anonymous outbound route; older peers ignore this additive key.
   final bool mediaRepairRequested;
 
+  /// Direct-call health sent after this endpoint loses its direct sender
+  /// during a network change and is admitted again on the overlay. The peer
+  /// can start a relay probe, which still requires its own sealed response.
+  final bool relayRecoverySuggested;
+
   /// This receiver's native audio pipeline estimate, for the peer to budget
   /// its outgoing video. Sent only inside the E2E-authenticated health body.
   /// It measures playout buffering, not acoustic end-to-end latency.
@@ -540,7 +546,8 @@ class CallSignal {
     if (protocolVersion < kCallCompactHealthMinVersion ||
         onBehalfOf != null ||
         mediaKey != null ||
-        reason != null) {
+        reason != null ||
+        relayRecoverySuggested) {
       return false;
     }
     if (type == CallSignalType.health) return true;
@@ -574,6 +581,7 @@ class CallSignal {
     CallEndReason? reason,
     CallMedia? capture,
     bool? mediaRepairRequested,
+    bool? relayRecoverySuggested,
     CallAudioPlayoutFeedback? audioPlayout,
     bool? p2pUpgradeAllowed,
     bool? compactHealthReady,
@@ -591,6 +599,8 @@ class CallSignal {
     reason: reason ?? this.reason,
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
+    relayRecoverySuggested:
+        relayRecoverySuggested ?? this.relayRecoverySuggested,
     audioPlayout: audioPlayout ?? this.audioPlayout,
     p2pUpgradeAllowed: p2pUpgradeAllowed ?? this.p2pUpgradeAllowed,
     compactHealthReady: compactHealthReady ?? this.compactHealthReady,
@@ -614,6 +624,7 @@ class CallSignal {
     // `{}` would silently delete the one posture the peer most needs to see.
     if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
+    if (relayRecoverySuggested) 'rh': true,
     if (audioPlayout != null) 'ap': audioPlayout!.toJson(),
     if (p2pUpgradeAllowed != null) 'pu': p2pUpgradeAllowed,
     if (compactHealthReady != null) 'hc': compactHealthReady,
@@ -663,6 +674,7 @@ class CallSignal {
             ? null
             : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
+        relayRecoverySuggested: j['rh'] == true,
         audioPlayout: CallAudioPlayoutFeedback.fromJson(j['ap']),
         p2pUpgradeAllowed: j['pu'] is bool ? j['pu'] as bool : null,
         compactHealthReady: j['hc'] is bool ? j['hc'] as bool : null,
