@@ -543,6 +543,7 @@ class CallService {
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
   Timer? _mediaWatchdogTimer;
   bool _mediaWatchdogCheckBusy = false;
+  bool _directHandoverCheckPending = false;
   ({
     DateTime at,
     bool localNetworkChanged,
@@ -931,7 +932,11 @@ class CallService {
       // A route operation can still be running when the network changes.
       // Keep the observation for the watchdog once it can inspect the route.
       _localNetworkHandoverAt = _now();
-      unawaited(_checkLostDirectSession(call));
+      if (_mediaWatchdogCheckBusy) {
+        _directHandoverCheckPending = true;
+      } else {
+        unawaited(_checkLostDirectSession(call));
+      }
     }, onError: (Object _) {});
     if (_loadFinishedCalls == null) {
       _attachWireHandler();
@@ -2643,6 +2648,16 @@ class CallService {
         _now().difference(audioRx) >= kCallDirectSessionSilence;
   }
 
+  void _finishMediaWatchdogCheck() {
+    _mediaWatchdogCheckBusy = false;
+    if (!_directHandoverCheckPending) return;
+    _directHandoverCheckPending = false;
+    // Coalesce changes that arrived while reading the previous path. The
+    // latest handover can use the freed slot before the next watchdog tick.
+    final call = _current;
+    if (call != null) unawaited(_checkLostDirectSession(call));
+  }
+
   Future<void> _checkRelayHandoverAudio(Call call) async {
     final media = _media;
     final handover = _relayHandover;
@@ -2731,7 +2746,7 @@ class CallService {
     try {
       latestRxAt = await readAudio();
     } finally {
-      _mediaWatchdogCheckBusy = false;
+      _finishMediaWatchdogCheck();
     }
     final current = ownedCall();
     if (current == null ||
@@ -2776,7 +2791,7 @@ class CallService {
                 )
               : null;
         }
-        _mediaWatchdogCheckBusy = false;
+        _finishMediaWatchdogCheck();
       }
       return;
     }
@@ -2841,7 +2856,7 @@ class CallService {
       } catch (_) {
         // An unavailable snapshot cannot confirm the cached outage.
       } finally {
-        _mediaWatchdogCheckBusy = false;
+        _finishMediaWatchdogCheck();
       }
       final current = ownedCall();
       if (current == null || !_directSessionSilent(current)) {
@@ -2909,7 +2924,7 @@ class CallService {
       // A failed query is not proof of a closed session.
       admitted = null;
     } finally {
-      _mediaWatchdogCheckBusy = false;
+      _finishMediaWatchdogCheck();
     }
     final current = ownedCall();
     // If the overlay recovered during the probe, let the next tick sample the
@@ -3671,6 +3686,7 @@ class CallService {
   }
 
   void _cancelHeartbeat() {
+    _directHandoverCheckPending = false;
     _mediaRepair = null;
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
