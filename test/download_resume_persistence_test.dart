@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/messaging.dart';
 
 const registry = 'download-resume.registry.v1';
@@ -35,11 +36,13 @@ class _HeldStorage extends HiddenVolumeStorage {
   Completer<void>? entered, release;
   Completer<void>? lookupEntered, lookupRelease;
   Completer<void>? readEntered, readRelease;
+  Future<void> Function(String id)? beforePayloadRead;
   int registryReads = 0;
   Object? readFailure;
   StackTrace? readFailureStack;
   @override
   Future<Uint8List?> loadFile(String id, {int? maxBytes}) async {
+    await beforePayloadRead?.call(id);
     if (id == registry) {
       registryReads++;
       final gate = readRelease;
@@ -55,6 +58,12 @@ class _HeldStorage extends HiddenVolumeStorage {
       throw readFailure!;
     }
     return super.loadFile(id, maxBytes: maxBytes);
+  }
+
+  @override
+  Future<Uint8List?> readFileRange(String id, int offset, int length) async {
+    await beforePayloadRead?.call(id);
+    return super.readFileRange(id, offset, length);
   }
 
   @override
@@ -142,6 +151,91 @@ void main() {
       },
     ]),
   );
+
+  for (final storedManifest in [false, true]) {
+    for (final cancelDuringRead in [false, true]) {
+      test(
+        'a retired stored export cannot publish '
+        '(manifest=$storedManifest, cancel during read=$cancelDuringRead)',
+        () async {
+          final bytes = Uint8List.fromList([1, 3, 5, 7]);
+          final manifest = ContentManifest.fromBytes('fixture.bin', bytes);
+          final contentId = manifest.contentId;
+          await s.storeFile(contentId, bytes);
+          if (storedManifest) {
+            await s.storeFile(
+              'mf:$contentId',
+              Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+            );
+          }
+          final finished = <String?>[];
+          final subscription = service.contentReceived.listen(
+            (event) => finished.add(event.savedToPath),
+          );
+          addTearDown(subscription.cancel);
+          const oldPath = '/virtual/export-old.bin';
+          const newPath = '/virtual/export-new.bin';
+          final waiting = Completer<void>();
+          final release = Completer<void>();
+          var oldWrites = 0;
+          var oldCloses = 0;
+          if (cancelDuringRead) {
+            s.beforePayloadRead = (id) async {
+              if (id != contentId) return;
+              s.beforePayloadRead = null;
+              waiting.complete();
+              await release.future;
+            };
+          }
+          final old = service.downloadContentToFile(
+            peer,
+            contentId,
+            oldPath,
+            write: (_, _) async => oldWrites++,
+            close: () async {
+              oldCloses++;
+              if (!cancelDuringRead) {
+                waiting.complete();
+                await release.future;
+              }
+            },
+          );
+          try {
+            await waiting.future;
+            if (cancelDuringRead) {
+              expect(await service.cancelContentDownload(contentId), oldPath);
+              expect(oldCloses, 1);
+            } else {
+              expect(
+                await service.downloadContentToFileFromAny(
+                  [peer],
+                  contentId,
+                  newPath,
+                  write: (offset, data) async {
+                    expect(offset, 0);
+                    expect(data, bytes);
+                  },
+                  close: () async {},
+                ),
+                ContentDownloadResult.started,
+              );
+            }
+          } finally {
+            release.complete();
+          }
+          expect(await old, ContentDownloadResult.noOffer);
+          await pumpEventQueue();
+          expect(oldWrites, cancelDuringRead ? 0 : 1);
+          expect(oldCloses, 1);
+          expect(finished, cancelDuringRead ? isEmpty : [newPath]);
+          expect(
+            await service.contentSavedPath(contentId),
+            cancelDuringRead ? isNull : newPath,
+          );
+        },
+      );
+    }
+  }
 
   for (final oldPlaintext in [false, true]) {
     test('a replaced reoffer wait cannot fail the new download '

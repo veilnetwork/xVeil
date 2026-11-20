@@ -3784,8 +3784,13 @@ class MessagingService {
       return ContentDownloadResult.noOffer;
     }
     try {
-      final sink = (write: write, close: closeSink, read: null);
-      _fetchSavePath[contentId] = (path: savedPath, owner: preparation.token);
+      final _FetchSink sink = (
+        saveOwner: preparation.token,
+        write: write,
+        close: closeSink,
+        read: null,
+      );
+      _fetchSavePath[contentId] = (path: savedPath, sink: sink);
       devLog(
         () =>
             'xVeil[content]: user download-to-file (unencrypted) '
@@ -3926,8 +3931,13 @@ class MessagingService {
       return ContentDownloadResult.noOffer;
     }
     try {
-      final sink = (write: write, close: closeSink, read: read);
-      _fetchSavePath[contentId] = (path: savedPath, owner: preparation.token);
+      final sink = (
+        saveOwner: preparation.token,
+        write: write,
+        close: closeSink,
+        read: read,
+      );
+      _fetchSavePath[contentId] = (path: savedPath, sink: sink);
       devLog(
         () =>
             'xVeil[content]: user download-to-file-any (unencrypted) '
@@ -4232,12 +4242,16 @@ class MessagingService {
 
   /// Destination paths for in-flight unencrypted-to-file downloads (so the
   /// completion event can report where the plaintext file landed).
-  final Map<String, ({String path, Object owner})> _fetchSavePath = {};
+  final Map<String, ({String path, _FetchSink sink})> _fetchSavePath = {};
+
+  bool _ownsFetchSavePath(String contentId, _FetchSink sink) =>
+      !_disposed &&
+      identical(_fetchSavePath[contentId]?.sink.saveOwner, sink.saveOwner);
 
   String? _forgetFetchSavePath(String contentId, {Object? owner}) {
     final destination = _fetchSavePath[contentId];
     if (destination == null ||
-        (owner != null && !identical(destination.owner, owner))) {
+        (owner != null && !identical(destination.sink.saveOwner, owner))) {
       return null;
     }
     return _fetchSavePath.remove(contentId)?.path;
@@ -4255,9 +4269,20 @@ class MessagingService {
     String savedPath,
   ) async {
     final short = contentId.substring(0, 12);
-    if (!await _storage.hasFile(contentId)) return false;
+    void checkOwner() {
+      if (!_ownsFetchSavePath(contentId, sink)) {
+        throw const _DownloadPreparationRetired();
+      }
+    }
+
     try {
+      checkOwner();
+      if (!await _storage.hasFile(contentId)) return false;
+      checkOwner();
       final mfBytes = await _storage.loadFile('mf:$contentId');
+      checkOwner();
+      final String name;
+      final int total;
       if (mfBytes != null) {
         final manifest = ContentManifest.fromJson(
           jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
@@ -4265,6 +4290,8 @@ class MessagingService {
         if (manifest == null || manifest.contentId != contentId) {
           throw StateError('stored manifest does not bind content id');
         }
+        name = manifest.name;
+        total = manifest.size;
         devLog(
           () =>
               'xVeil[content]: exporting stored $short '
@@ -4276,10 +4303,12 @@ class MessagingService {
           var want = manifest.size - offset;
           if (want > chunkSize) want = chunkSize;
           final bytes = await _storage.readFileRange(contentId, offset, want);
+          checkOwner();
           if (bytes == null || bytes.length != want) {
             throw StateError('stored range missing at $offset+$want');
           }
           await sink.write(offset, bytes);
+          checkOwner();
           offset += want;
           if (!_contentProgress.isClosed) {
             _contentProgress.add((
@@ -4289,62 +4318,50 @@ class MessagingService {
             ));
           }
         }
-        await sink.close();
-        await _storage.putSetting('saved:$contentId', savedPath);
-        _forgetFetchSavePath(contentId);
-        if (!_contentReceived.isClosed) {
-          _contentReceived.add((
-            contentId: contentId,
-            name: manifest.name,
-            savedToPath: savedPath,
-          ));
-        }
-        devLog(
-          () =>
-              'xVeil[content]: COMPLETE $short '
-              '(${manifest.size}B) exported to $savedPath',
-        );
-        return true;
+      } else {
+        // Old stores may have a local blob without a stream manifest.
+        final bytes = await _storage.loadFile(contentId);
+        checkOwner();
+        if (bytes == null) return false;
+        name = contentId;
+        total = bytes.length;
+        await sink.write(0, bytes);
+        checkOwner();
       }
 
-      // Legacy/small-file fallback: old stores may have the blob but no
-      // persisted stream manifest. This can hold the file in RAM, so the normal
-      // streamed-manifest path above remains the preferred one.
-      final bytes = await _storage.loadFile(contentId);
-      if (bytes == null) return false;
-      devLog(
-        () =>
-            'xVeil[content]: exporting stored $short '
-            '(${bytes.length}B, no manifest) -> $savedPath',
-      );
-      await sink.write(0, bytes);
       await sink.close();
+      checkOwner();
       await _storage.putSetting('saved:$contentId', savedPath);
-      _forgetFetchSavePath(contentId);
-      if (!_contentProgress.isClosed) {
-        _contentProgress.add((
-          contentId: contentId,
-          done: bytes.length,
-          total: bytes.length,
-        ));
+      checkOwner();
+      if (mfBytes == null && !_contentProgress.isClosed) {
+        _contentProgress.add((contentId: contentId, done: total, total: total));
       }
       if (!_contentReceived.isClosed) {
         _contentReceived.add((
           contentId: contentId,
-          name: contentId,
+          name: name,
           savedToPath: savedPath,
         ));
       }
-      _clearGroupPullSources(contentId);
+      if (mfBytes == null) _clearGroupPullSources(contentId);
+      devLog(
+        () =>
+            'xVeil[content]: COMPLETE $short (${total}B) exported to $savedPath',
+      );
       return true;
+    } on _DownloadPreparationRetired {
+      return false;
     } catch (e) {
       devLog(() => 'xVeil[content]: export stored $short failed: $e');
+      if (_ownsFetchSavePath(contentId, sink) && !_contentFailed.isClosed) {
+        _contentFailed.add(contentId);
+      }
+      return false;
+    } finally {
+      _forgetFetchSavePath(contentId, owner: sink.saveOwner);
       try {
         await sink.close();
       } catch (_) {}
-      _forgetFetchSavePath(contentId);
-      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
-      return false;
     }
   }
 

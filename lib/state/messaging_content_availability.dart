@@ -160,9 +160,7 @@ class _MessagingContentAvailability {
           '${sources.length} source(s)',
     );
     holdPending(contentId, sink);
-    final saveOwner = sink == null
-        ? null
-        : _owner._fetchSavePath[contentId]?.owner;
+    final saveOwner = sink?.saveOwner;
     var expired = false;
     final timer = Timer(_reofferTimeout, () {
       expired = true;

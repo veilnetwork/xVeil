@@ -139,11 +139,12 @@ class _MessagingDownloadResume {
     _owner._cancelledDownloads.add(contentId);
     _owner._contentAvailability.cancelReoffers(contentId);
     _owner._clearGroupPullSources(contentId);
+    final destinationSink = _owner._fetchSavePath[contentId]?.sink;
     final savedPath = _owner._forgetFetchSavePath(contentId);
     final parkedSink = _owner._contentAvailability.takePending(contentId);
     final fetch = _owner._contentFetching.take(contentId);
 
-    final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
+    final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink, ?destinationSink};
     Future<void> closeCancelledPulls() async {
       await _owner._contentStreams.abortPulls(contentId);
       // Give outstanding reads time to observe cancellation. If the user
