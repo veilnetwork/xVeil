@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
 
@@ -15,7 +16,9 @@ import 'profile_preferences_routing.dart';
 export 'profile_preferences_file.dart';
 export 'profile_preferences_routing.dart';
 
-typedef _PreferenceEntries = Map<String, ({String type, Object value})>;
+typedef _PreferenceEntry = ({String type, Object value, bool legacyCopy});
+typedef _PreferenceEntries = Map<String, _PreferenceEntry>;
+const _legacyActiveKey = 'flutter.${AppProfiles.activePref}';
 
 /// Stable diagnostic codes, independent of paths and preference contents.
 enum ProfilePreferencesFormatReason {
@@ -177,8 +180,14 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     final entries = _PreferenceEntries();
     for (final entry in raw.entries) {
       final value = entry.value;
-      final decoded = value is Map<String, dynamic>
-          ? _decodeValue(value['t'], value['v'])
+      final decoded =
+          value is Map<String, dynamic> &&
+              (!value.containsKey('legacyCopy') || value['legacyCopy'] is bool)
+          ? _decodeValue(
+              value['t'],
+              value['v'],
+              legacyCopy: value['legacyCopy'] == true,
+            )
           : null;
       if (decoded == null) {
         throw const ProfilePreferencesFormatFailure(
@@ -201,24 +210,25 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     return entry?.type == 'String' ? entry!.value as String : null;
   }
 
-  static ({String type, Object value})? _decodeValue(
+  static _PreferenceEntry? _decodeValue(
     Object? type,
-    Object? value,
-  ) {
+    Object? value, {
+    bool legacyCopy = false,
+  }) {
     if (type is! String) return null;
-    return switch (type) {
-      'Bool' when value is bool => (type: type, value: value),
-      'Int' when value is int => (type: type, value: value),
-      'Double' when value is num && value.isFinite => (
-        type: type,
-        value: value.toDouble(),
-      ),
-      'String' when value is String => (type: type, value: value),
+    final normalized = switch (type) {
+      'Bool' when value is bool => value,
+      'Int' when value is int => value,
+      'Double' when value is num && value.isFinite => value.toDouble(),
+      'String' when value is String => value,
       'StringList'
           when value is List && value.every((item) => item is String) =>
-        (type: type, value: List<String>.from(value)),
+        List<String>.from(value),
       _ => null,
     };
+    return normalized == null
+        ? null
+        : (type: type, value: normalized, legacyCopy: legacyCopy);
   }
 
   /// Apply one operation to the latest file. A concurrent commit invalidates
@@ -245,7 +255,11 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           'v': _version,
           'e': {
             for (final entry in entries.entries)
-              entry.key: {'t': entry.value.type, 'v': entry.value.value},
+              entry.key: {
+                't': entry.value.type,
+                'v': entry.value.value,
+                if (entry.value.legacyCopy) 'legacyCopy': true,
+              },
           },
         });
         final saved =
@@ -429,7 +443,7 @@ Future<String> installProfilePreferences({
     pointerSafe = false;
   }
   final legacySnapshot = await _readLegacyPreferences(legacy);
-  final savedChoice = legacySnapshot['flutter.${AppProfiles.activePref}'];
+  final savedChoice = legacySnapshot[_legacyActiveKey];
   final legacyPointer = savedChoice is String ? savedChoice : null;
   final resolved = AppProfiles.resolveWithSource(
     args: args,
@@ -492,11 +506,16 @@ Future<String> installProfilePreferences({
           )
         : null;
     if (carried != null && carried.source == ProfileSource.legacyPointer) {
-      pointerSafe = await writeRememberedProfile(
-        supportDir,
-        carried.name,
-        onlyIfUnset: true,
-      );
+      final currentChoice = (await _readLegacyPreferences(
+        legacy,
+      ))[_legacyActiveKey];
+      pointerSafe =
+          _sameLegacyValue(savedChoice, currentChoice) &&
+          await writeRememberedProfile(
+            supportDir,
+            carried.name,
+            onlyIfUnset: true,
+          );
       if (!pointerSafe) {
         devLog(
           () =>
@@ -610,11 +629,22 @@ Future<Map<String, Object>> _readLegacyPreferences(
   SharedPreferencesStorePlatform legacy,
 ) async {
   try {
-    return Map.of(await legacy.getAll());
+    return {
+      for (final entry in (await legacy.getAll()).entries)
+        entry.key: switch (entry.value) {
+          final List values => List<Object?>.of(values),
+          final value => value,
+        },
+    };
   } catch (error) {
     devLog(() => 'xVeil[prefs]: no legacy store to migrate: $error');
     return const {};
   }
+}
+
+bool _sameLegacyValue(Object? a, Object? b) {
+  if (a is List && b is List) return listEquals(a, b);
+  return a?.runtimeType == b?.runtimeType && a == b;
 }
 
 Future<void> _migrateLegacy(
@@ -655,21 +685,22 @@ Future<void> _migrateLegacy(
 
   final selected = _PreferenceEntries();
   final elsewhere = <String, _PreferenceEntries>{};
-  final migratedKeys = <String>{};
+  final routes = <String, ({String owner, String key})>{};
+  final published = <String, _PreferenceEntries>{};
   var migrated = true;
   for (final entry in snapshot.entries) {
     final full = entry.key;
     if (!full.startsWith('flutter.')) continue;
-    migratedKeys.add(full);
     final bare = full.substring('flutter.'.length);
     // The active-profile pointer has its own file and was carried there before
     // this ran; the rest is settings.
-    if (bare == AppProfiles.activePref) continue;
+    if (full == _legacyActiveKey) continue;
 
     final routed = routeLegacyKey(bare, known);
     final typed = ProfilePreferencesStore._decodeValue(
       _typeOf(entry.value),
       entry.value,
+      legacyCopy: true,
     );
     if (typed == null) {
       // Migrate readable settings, but keep the source for values this build
@@ -681,11 +712,16 @@ Future<void> _migrateLegacy(
         ? selected
         : (elsewhere[routed.owner] ??= {});
     destination.putIfAbsent('flutter.${routed.key}', () => typed);
+    routes[full] = routed;
   }
 
   // All newly imported keys require a successful write before the legacy
   // source can be cleared. An unchanged snapshot needs no second write.
-  if (!await into._importMissing(selected, ensureFile: true)) migrated = false;
+  if (await into._importMissing(selected, ensureFile: true)) {
+    published[profile] = into._entries;
+  } else {
+    migrated = false;
+  }
   for (final other in elsewhere.entries) {
     final path = profilePrefsPath(supportDir, other.key);
     ProfilePreferencesFile? owner;
@@ -693,7 +729,9 @@ Future<void> _migrateLegacy(
     try {
       owner = await openOwnedFile?.call(path);
       store = await ProfilePreferencesStore.load(path, ownedFile: owner);
-      if (!await store._importMissing(other.value)) {
+      if (await store._importMissing(other.value)) {
+        published[other.key] = store._entries;
+      } else {
         migrated = false;
       }
     } catch (_) {
@@ -725,10 +763,34 @@ Future<void> _migrateLegacy(
     return;
   }
 
-  // Remove only the keys covered by this migration. The platform store can
-  // have gained new keys while the destination files were being written.
-  if (migratedKeys.isEmpty) return;
   try {
+    // Expanding the allowlist would erase values absent from the original
+    // snapshot. A key alone is insufficient: the source can have a different
+    // value now, or the destination can already hold an independent value.
+    final copied = <String>{
+      if (snapshot.containsKey(_legacyActiveKey)) _legacyActiveKey,
+    };
+    for (final entry in routes.entries) {
+      final route = entry.value;
+      final stored = published[route.owner]?['flutter.${route.key}'];
+      // A setting written directly to the profile supersedes the legacy
+      // value. A copy imported on an earlier launch grants no authority to
+      // discard a different value from that same source.
+      if (stored != null &&
+          (!stored.legacyCopy ||
+              _sameLegacyValue(snapshot[entry.key], stored.value))) {
+        copied.add(entry.key);
+      }
+    }
+    if (copied.isEmpty) return;
+    // The platform store has no conditional delete. Keep the final read close
+    // to the clear, and leave other keys untouched when its values have changed.
+    final latest = await legacy.getAll();
+    final migratedKeys = {
+      for (final key in copied)
+        if (_sameLegacyValue(snapshot[key], latest[key])) key,
+    };
+    if (migratedKeys.isEmpty) return;
     if (await legacy.clearWithParameters(
       ClearParameters(
         filter: PreferencesFilter(prefix: 'flutter.', allowList: migratedKeys),

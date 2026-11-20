@@ -432,6 +432,63 @@ Future<void> main(List<String> args) async {
       );
     });
 
+    test('preserves a legacy value changed after the migration snapshot', () async {
+      final source = _ChangesLegacyValueAfterSnapshot(
+        {'flutter.locale': 'ru', 'flutter.apps': ['app']},
+        key: 'flutter.locale',
+        nextValue: 'es',
+      );
+      for (var launch = 0; launch < 2; launch++) {
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: source,
+        );
+        expect(await source.getAll(), {'flutter.locale': 'es'});
+        expect(
+          await SharedPreferencesStorePlatform.instance.getAll(),
+          {'flutter.locale': 'ru', 'flutter.apps': ['app']},
+        );
+      }
+
+      final current = SharedPreferencesStorePlatform.instance;
+      expect(await current.setValue('String', 'flutter.locale', 'fr'), isTrue);
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: source,
+      );
+      expect(await source.getAll(), isEmpty);
+      expect(
+        await SharedPreferencesStorePlatform.instance.getAll(),
+        {'flutter.locale': 'fr', 'flutter.apps': ['app']},
+      );
+    });
+
+    test('does not publish a legacy profile choice that has changed', () async {
+      const key = 'flutter.${AppProfiles.activePref}';
+      final source = _ChangesLegacyValueAfterSnapshot(
+        {key: 'private', 'flutter.locale.private': 'ru'},
+        key: key,
+        nextValue: 'decoy',
+      );
+      Future<String> launch() => installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+        legacyBackend: source,
+      );
+      expect(await launch(), 'private');
+      expect(await readRememberedProfile(support.path), isNull);
+      expect((await source.getAll())[key], 'decoy');
+
+      expect(await launch(), 'decoy');
+      expect(await readRememberedProfile(support.path), 'decoy');
+      expect(await source.getAll(), isEmpty);
+    });
+
     test('the remembered profile decides which file is installed', () async {
       await writeRememberedProfile(support.path, 'decoy');
       SharedPreferencesStorePlatform.instance =
@@ -1003,6 +1060,29 @@ Future<void> main(List<String> args) async {
 /// leaves behind.
 class _SystemStoreStandIn extends InMemorySharedPreferencesStore {
   _SystemStoreStandIn() : super.empty();
+}
+
+class _ChangesLegacyValueAfterSnapshot extends InMemorySharedPreferencesStore {
+  _ChangesLegacyValueAfterSnapshot(
+    super.data, {
+    required this.key,
+    required this.nextValue,
+  }) : super.withData();
+
+  final String key;
+  final String nextValue;
+
+  bool _changed = false;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    final captured = await super.getAll();
+    if (!_changed) {
+      _changed = true;
+      await setValue('String', key, nextValue);
+    }
+    return captured;
+  }
 }
 
 class _AddsPreferencesDuringMigration extends InMemorySharedPreferencesStore {

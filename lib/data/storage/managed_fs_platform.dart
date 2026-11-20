@@ -67,16 +67,27 @@ class ManagedFsPlatform {
     try {
       if (Platform.isWindows) return windows.inspect(path);
       final current = posixEuid();
-      final facts = posixLstat(path);
+      final darwin = Platform.isMacOS || Platform.isIOS;
+      var facts = posixLstat(path);
+      // Darwin's stat witness checks the mode with two calls. A concurrent
+      // chmod can invalidate that observation even for a stable object.
+      if (darwin) facts ??= posixLstat(path);
       if (current == null || facts == null) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
       }
       if (!facts.isDirectory && !facts.isRegularFile) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
       }
-      if ((Platform.isMacOS || Platform.isIOS) &&
-          !_darwinAclSafe(path, facts)) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      if (darwin && !_darwinAclSafe(path, facts)) {
+        final refreshed = posixLstat(path);
+        if (refreshed == null ||
+            !facts.sameObjectAs(refreshed) ||
+            facts.uid != refreshed.uid ||
+            facts.mode == refreshed.mode ||
+            !_darwinAclSafe(path, refreshed)) {
+          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+        }
+        facts = refreshed;
       }
       final policy = managedPosixPathPolicy(
         facts,
