@@ -4797,6 +4797,8 @@ class MessagingService {
     await _quiesceInboundLanes();
     final clearRequests = _conversationAdmin.pendingClearRequestWrites;
     if (clearRequests != null) await clearRequests;
+    final folderWrites = _conversationAdmin.pendingFolderWrites;
+    if (folderWrites != null) await folderWrites;
     await _messageDelivery.quiesce();
     await largeFramesClosed;
     await postReceiptsClosed;
