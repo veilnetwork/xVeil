@@ -1239,6 +1239,7 @@ class _MessagingOutbox {
           peer,
           wire,
           contactIdentity: contactIdentity,
+          requireSubmission: true,
         );
       case WireKind.groupCallSignal:
         return _owner._realtimeControl._sendCallLive(
