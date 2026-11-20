@@ -48,6 +48,7 @@ class _Storage extends FakeSettingStorage {
   final muted = <NodeId>{};
   final delayed = <NodeId, Completer<void>>{};
   Future<List<Conversation>>? unread;
+  bool refuseUnread = false;
 
   @override
   Future<Contact?> getContact(NodeId id) async {
@@ -59,7 +60,10 @@ class _Storage extends FakeSettingStorage {
   }
 
   @override
-  Future<List<Conversation>> loadConversations() async => await unread ?? [];
+  Future<List<Conversation>> loadConversations() async {
+    if (refuseUnread) throw StateError('fixture conversation index unavailable');
+    return await unread ?? [];
+  }
 }
 
 class _Messaging implements MessagingService {
@@ -87,6 +91,12 @@ class _Groups implements GroupService {
 class _UnreadGroups extends _Groups {
   final requested = Completer<void>();
   final release = Completer<List<GroupListEntry>>();
+  final refusedPolicies = <NodeId>{};
+  final spaces = <GroupListEntry>[];
+  final posts = <NodeId, List<SpacePostView>>{};
+
+  @override
+  NodeId get selfId => _id(1);
 
   @override
   Future<List<GroupListEntry>> listGroups() {
@@ -97,10 +107,23 @@ class _UnreadGroups extends _Groups {
   @override
   Future<NotificationMutePolicy> groupNotificationPolicy(
     NodeId groupId,
-  ) async => const NotificationMutePolicy.all();
+  ) async {
+    if (refusedPolicies.contains(groupId)) {
+      throw StateError('fixture group policy unavailable');
+    }
+    return const NotificationMutePolicy.all();
+  }
 
   @override
-  Future<List<GroupListEntry>> listSpaces() async => [];
+  Future<List<GroupListEntry>> listSpaces() async => spaces;
+
+  @override
+  Future<SpaceSubscription> spaceSubscription(NodeId id) async =>
+      SpaceSubscription.memberDefault(id);
+
+  @override
+  Future<List<SpacePostView>> unreadSpacePostViews(NodeId id) async =>
+      posts[id] ?? [];
 
   @override
   Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async =>
@@ -725,6 +748,79 @@ void main() {
         }
       },
     );
+  }
+
+  GroupListEntry unreadGroup(
+    NodeId id, {
+    bool space = false,
+    int timestamp = 1000,
+  }) => (
+    groupId: id,
+    name: 'Unread group',
+    description: '',
+    visibility: null,
+    lifecycleState: SpaceLifecycleState.active,
+    discoverable: false,
+    unread: space ? 0 : 1,
+    postUnread: space ? 1 : 0,
+    muted: false,
+    notificationMode: NotificationMuteMode.all,
+    notificationUntil: null,
+    preview: '',
+    lastTs: timestamp,
+  );
+
+  for (final read in ['conversations', 'group index', 'group policy']) {
+    testWidgets('unread notifications survive failure reading $read', (
+      tester,
+    ) async {
+      await mount(tester, minimize: false);
+      final healthy = _id(3), broken = _id(4);
+      final groups = _UnreadGroups();
+      container.read(_groupSource.notifier).state = groups;
+      storage.refuseUnread = read == 'conversations';
+      final space = read == 'group index';
+      if (space) {
+        final post = SpacePost(
+          spaceId: healthy,
+          author: _id(2),
+          seq: 1,
+          prevHash: '',
+          type: SpacePostType.post,
+          visibility: SpacePostVisibility.public,
+          title: 'Unread post',
+          body: '',
+          policyVersion: 0,
+          createdAtMs: 1000,
+          publishedAtMs: 1000,
+          signature: Uint8List(64),
+        );
+        groups.spaces.add(unreadGroup(healthy, space: true));
+        groups.posts[healthy] = [SpacePostView(root: post, effective: post)];
+      }
+      if (read == 'group policy') groups.refusedPolicies.add(broken);
+      try {
+        await lifecycle(tester, background);
+        if (space) {
+          expect(groups.requested.isCompleted, isTrue);
+          groups.release.completeError(
+            StateError('fixture group index unavailable'),
+          );
+        } else {
+          groups.release.complete([
+            if (read == 'group policy') unreadGroup(broken, timestamp: 2000),
+            unreadGroup(healthy),
+          ]);
+        }
+        await _pump(tester);
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          '${space ? 'space' : 'group'}:${healthy.hex}',
+        ]);
+      } finally {
+        if (!groups.release.isCompleted) groups.release.complete([]);
+        await cleanup(tester);
+      }
+    });
   }
 
   for (final next in ['muted', 'eligible', 'identity change']) {
