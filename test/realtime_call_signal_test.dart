@@ -230,6 +230,38 @@ void main() {
     addTearDown(storage.close);
   });
 
+  for (final retireDuringRead in [false, true]) {
+    test('handover health checks admission after reading consent '
+        '(retired=$retireDuringRead)', () async {
+      final blocked = _BlockingContactStorage();
+      await blocked.open(password: 'pw', createIfMissing: true);
+      addTearDown(blocked.close);
+      await blocked.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+      final messaging = MessagingService(transport, blocked);
+      addTearDown(messaging.dispose);
+      blocked.blockReads = true;
+      var isCurrent = true;
+      final sending = messaging.sendCallHealth(
+        peer,
+        const CallSignal(callId: 'handover-consent', type: CallSignalType.health),
+        admitTransport: () => isCurrent,
+      );
+      try {
+        await blocked.readEntered.future;
+        if (retireDuringRead) isCurrent = false;
+      } finally {
+        blocked.releaseRead.complete();
+      }
+      await sending;
+      final expected = retireDuringRead ? 0 : 1;
+      expect(transport.realtimeSends, expected);
+      expect(transport.relayRealtimeSends, expected);
+      expect(transport.normalSends, 0);
+    });
+  }
+
   for (final realtime in [false, true]) {
     test('retry reaches a late call handler lane=$realtime', () async {
       final messaging = MessagingService(transport, storage)..start();

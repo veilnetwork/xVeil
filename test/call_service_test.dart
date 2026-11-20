@@ -1822,6 +1822,77 @@ void main() {
       },
     );
 
+    for (final retireBy in ['nothing', 'next network', 'hangup', 'deadline']) {
+      test('queued handover health checks the call and network ($retireBy)', () {
+        fakeAsync((async) {
+          const callId = 'queued-handover-health';
+          final wire = _FakeMessaging();
+          final media = _SnapshotMedia()
+            ..openedTransport = CallTransportKind.relay;
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          var generation = 0;
+          final svc = CallService(
+            wire,
+            media: media,
+            now: () => clock.now(),
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            readNetworkChangeGeneration: () => generation,
+          )..start();
+          try {
+            wire.onCallSignal!(peer, offer(callId));
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            wire.sent.clear();
+
+            final waiting = Completer<void>();
+            wire.sendGate = waiting;
+            final signalTime = clock.now().millisecondsSinceEpoch;
+            generation++;
+            network.add(NetworkAttachment.cellular);
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(wire.sent, isEmpty);
+
+            if (retireBy == 'next network') generation++;
+            if (retireBy == 'hangup') unawaited(svc.hangup());
+            if (retireBy == 'deadline') {
+              async.elapse(kCallLivenessTimeout - kCallHeartbeatInterval);
+              wire.onCallSignal!(
+                peer,
+                const CallSignal(callId: callId, type: CallSignalType.health),
+              );
+              async.elapse(kCallHeartbeatInterval);
+              expect(svc.current?.status, CallStatus.active);
+            }
+            waiting.complete();
+            async.flushMicrotasks();
+            expect(
+              wire.sent.where(
+                (signal) =>
+                    signal.type == CallSignalType.health &&
+                    signal.sentAtMs == signalTime,
+              ),
+              hasLength(retireBy == 'nothing' ? 1 : 0),
+            );
+            if (retireBy == 'hangup') {
+              expect(
+                wire.sent.where((signal) => signal.type == CallSignalType.end),
+                hasLength(1),
+              );
+            }
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test(
       'native liveness rechecks a signal received while its snapshot waits',
       () {
@@ -11269,9 +11340,24 @@ class _FakeMessaging implements MessagingService {
   }
 
   @override
-  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) =>
+      _sendSignal(peer, signal);
+
+  @override
+  Future<void> sendCallHealth(
+    NodeId peer,
+    CallSignal signal, {
+    required bool Function() admitTransport,
+  }) => _sendSignal(peer, signal, admitTransport: admitTransport);
+
+  Future<void> _sendSignal(
+    NodeId peer,
+    CallSignal signal, {
+    bool Function()? admitTransport,
+  }) async {
     final gate = sendGate;
     if (gate != null) await gate.future;
+    if (admitTransport?.call() == false) return;
     sent.add(signal);
     sentTo.add((peer, signal));
   }

@@ -638,9 +638,14 @@ class _MessagingRealtimeControl {
     _owner.noteInboundFromPeer(peer);
   }
 
-  Future<void> sendRealtime(NodeId peer, Uint8List wire) {
+  Future<void> sendRealtime(
+    NodeId peer,
+    Uint8List wire, {
+    bool Function()? admitTransport,
+  }) {
     final transport = _owner._transport;
     if (transport is RealtimeTransport) {
+      if (admitTransport?.call() == false) return Future<void>.value();
       if (!_owner._anonymous && transport is DeviceRealtimeTransport) {
         final device = _owner.routeFor?.call(peer);
         final replyDevice = routeCallPayload(peer, wire);
@@ -660,10 +665,15 @@ class _MessagingRealtimeControl {
         anonymous: _owner._anonymous,
       );
     }
-    return _owner._send(peer, wire);
+    return _owner._send(peer, wire, admitTransport: admitTransport);
   }
 
-  Future<void> _sendRelayRealtime(NodeId peer, Uint8List wire) {
+  Future<void> _sendRelayRealtime(
+    NodeId peer,
+    Uint8List wire, {
+    bool Function()? admitTransport,
+  }) {
+    if (admitTransport?.call() == false) return Future<void>.value();
     final transport = _owner._transport;
     if (transport is RelayRealtimeTransport) {
       return (transport as RelayRealtimeTransport).sendRelayRealtime(
@@ -680,10 +690,13 @@ class _MessagingRealtimeControl {
     _RealtimeControlKind kind,
     String scope,
     NodeId peer,
-    Uint8List wire,
-  ) async {
+    Uint8List wire, {
+    bool Function()? admitTransport,
+  }) async {
+    Future<void> sendDirect() =>
+        sendRealtime(peer, wire, admitTransport: admitTransport);
     if (_owner._anonymous) {
-      await _observeSend(kind, () => sendRealtime(peer, wire));
+      await _observeSend(kind, sendDirect);
       return;
     }
     if (_owner._transport is! RealtimeTransport) {
@@ -692,7 +705,7 @@ class _MessagingRealtimeControl {
         scope,
         'contact',
         peer,
-        () => sendRealtime(peer, wire),
+        sendDirect,
       );
       return;
     }
@@ -702,7 +715,7 @@ class _MessagingRealtimeControl {
         scope,
         'realtime direct',
         peer,
-        () => sendRealtime(peer, wire),
+        sendDirect,
       ),
       if (_owner._transport is RelayRealtimeTransport)
         _attempt(
@@ -710,7 +723,7 @@ class _MessagingRealtimeControl {
           scope,
           'realtime relay',
           peer,
-          () => _sendRelayRealtime(peer, wire),
+          () => _sendRelayRealtime(peer, wire, admitTransport: admitTransport),
         ),
     ]);
   }
@@ -855,8 +868,12 @@ class _MessagingRealtimeControl {
     }
   }
 
-  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
-    if (_owner._disposed) return;
+  Future<void> sendCallSignal(
+    NodeId peer,
+    CallSignal signal, {
+    bool Function()? admitHealth,
+  }) async {
+    if (_owner._disposed || admitHealth?.call() == false) return;
     // MY OWN DEVICE, same shape as [sendP2PEndpoints]: the call fan-out's
     // relayed offers and answered-elsewhere signals address a sibling, which
     // is never a contact — this gate silently ate the whole relay while the
@@ -882,7 +899,7 @@ class _MessagingRealtimeControl {
         return;
       }
     }
-    if (_owner._disposed) return;
+    if (_owner._disposed || admitHealth?.call() == false) return;
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _owner._now().millisecondsSinceEpoch)
         : signal;
@@ -898,6 +915,7 @@ class _MessagingRealtimeControl {
         'call-sig',
         peer,
         envelope.encode(),
+        admitTransport: admitHealth,
       );
       return;
     }
