@@ -805,6 +805,7 @@ void main() {
           ? (Uint8List(size + 1)..setRange(0, size, data))
           : data;
       await file.writeAsBytes(initialBytes);
+      if (!extraByte) await sB.putSetting('saved:$cid', file.path);
       tB.openStreamAttempts.clear();
       tB.sendsTo.clear();
 
@@ -853,16 +854,19 @@ void main() {
     });
   }
 
-  for (final (localCopy, lostAtOpen, extraByte) in [
-    (true, false, false),
-    (false, false, false),
-    (true, true, false),
-    (true, false, true),
+  for (final (previousFile, lostAtOpen, extraByte) in [
+    (null, false, false),
+    ('another path', false, false),
+    ('same path', false, false),
+    (null, true, false),
+    (null, false, true),
   ]) {
     test(
       'pending external save survives other copies '
-      '(local copy=$localCopy, lost at open=$lostAtOpen, extra byte=$extraByte)',
+      '(previous file=$previousFile, lost at open=$lostAtOpen, extra byte=$extraByte)',
       () async {
+        final localCopy = previousFile == null;
+        final samePath = previousFile == 'same path';
         await mB.dispose();
         await sB.close();
         final storage = _ObservedResumeStorage(_mem());
@@ -899,8 +903,11 @@ void main() {
             );
           }
         } else {
-          await previous.writeAsBytes(data);
-          await sB.putSetting('saved:$cid', previous.path);
+          final saved = samePath ? destination : previous;
+          await saved.writeAsBytes(
+            samePath ? Uint8List.sublistView(data, 0, 100) : data,
+          );
+          await sB.putSetting('saved:$cid', saved.path);
           healLink();
         }
         tB.openStreamAttempts.clear();
@@ -942,7 +949,7 @@ void main() {
           expect(tB.openStreamAttempts, isEmpty);
           expect(tB.sendsTo, isEmpty);
         } else {
-          expect(await previous.readAsBytes(), data);
+          if (!samePath) expect(await previous.readAsBytes(), data);
           expect(tB.openStreamAttempts, isNotEmpty);
         }
       },

@@ -661,15 +661,12 @@ class _MessagingDownloadResume {
       final path = intent.externalPath;
       final hasStoredCopy = await _owner._storage.hasFile(contentId);
       if (!isCurrent()) return;
-      var completed = hasStoredCopy && path == null;
-      if (path != null) {
-        completed = await _owner.contentSavedPath(contentId) == path;
-        if (!isCurrent()) return;
-      }
-      if (!completed && !hasStoredCopy) {
-        completed = await _owner.isContentUnavailable(contentId);
-        if (!isCurrent()) return;
-      }
+      // A saved path can refer to an earlier copy that was overwritten.
+      // Reopen an outstanding external save so the destination is verified.
+      final completed = hasStoredCopy
+          ? path == null
+          : await _owner.isContentUnavailable(contentId);
+      if (!isCurrent()) return;
       if (completed) {
         complete(contentId);
         return;
