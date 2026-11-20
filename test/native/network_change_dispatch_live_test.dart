@@ -131,9 +131,10 @@ void main() {
           });
           try {
             if (!tcp) {
+              adapter.observeNetworkAttachment(NetworkAttachment.wifi);
               await adapter.networkChanged(NetworkAttachment.wifi);
               await pumpEventQueue();
-              expect(dispatches, 1);
+              expect(dispatches, 2);
               expect(attachments, isEmpty);
             }
             // Keep the connected adapter alive while temporary IPC cannot
@@ -207,6 +208,34 @@ void main() {
             await starts.cancel();
             await subscription.cancel();
             await adapter.dispose();
+          }
+          final returning = await VeilFlutterTransport.connect(
+            plan.ipcSocket(root.path),
+          );
+          final observedHandover = <NetworkAttachment>[];
+          final returningSubscription = returning.networkAttachments.listen(
+            observedHandover.add,
+          );
+          try {
+            // A live node can already own calls while its network observer
+            // first catches up. The first command never reaches the node.
+            returning.observeNetworkAttachment(NetworkAttachment.wifi);
+            final bootstrap = returning.networkChanged(NetworkAttachment.wifi);
+            // Android can report a replacement with the same attachment kind.
+            final next = tcp
+                ? NetworkAttachment.wifi
+                : NetworkAttachment.cellular;
+            returning.observeNetworkAttachment(next);
+            await bootstrap;
+            await pumpEventQueue();
+            expect(observedHandover, isEmpty);
+
+            await returning.networkChanged(next);
+            await pumpEventQueue();
+            expect(observedHandover, [next]);
+          } finally {
+            await returningSubscription.cancel();
+            await returning.dispose();
           }
           final control = await veil.VeilClient.connect(
             plan.ipcSocket(root.path),

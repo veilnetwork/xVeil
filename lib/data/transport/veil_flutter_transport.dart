@@ -230,6 +230,7 @@ class VeilFlutterTransport
   final _networkAttachments = StreamController<NetworkAttachment>.broadcast();
   final _networkChangeStarts = StreamController<void>.broadcast(sync: true);
   NetworkAttachment? _lastNetworkAttachment;
+  int _networkObservations = 0;
   int _networkChangeGeneration = 0;
 
   /// Invalidates media candidates when a new attachment is observed or sent.
@@ -256,7 +257,9 @@ class VeilFlutterTransport
 
   @override
   void observeNetworkAttachment(NetworkAttachment attachment) {
-    if (!_disposing) _recordNetworkChange(attachment);
+    if (_disposing) return;
+    _networkObservations++;
+    _recordNetworkChange(attachment);
   }
 
   @override
@@ -286,7 +289,9 @@ class VeilFlutterTransport
         attachment == NetworkAttachment.offline) {
       return;
     }
-    if (_lastNetworkAttachment != null) {
+    // When the baseline IPC was superseded, the first receipt may already
+    // describe a handover, including a replacement of the same network kind.
+    if (_lastNetworkAttachment != null || _networkObservations > 1) {
       _networkAttachments.add(attachment);
     }
     _lastNetworkAttachment = attachment;
