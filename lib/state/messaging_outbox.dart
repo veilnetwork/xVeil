@@ -527,6 +527,9 @@ class _MessagingOutbox {
     }
     final mailboxEligible =
         envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
+    final consentEpoch = mailboxEligible
+        ? _owner._realtimeControl._consentEpoch(peer)
+        : null;
     final skipLive =
         !_MessagingMailboxDelivery.isCallSignalId(frameId) &&
         !startLiveBeforeEnqueue &&
@@ -606,7 +609,15 @@ class _MessagingOutbox {
     }
     // Contact requests and acceptance use mailbox. Start
     // its deposit before waiting for a live send to an unavailable requester.
-    if (mailboxEligible) _owner._stashInBackground(peer, frameId, wire);
+    if (mailboxEligible) {
+      _owner._stashInBackground(
+        peer,
+        frameId,
+        wire,
+        isCurrent: () =>
+            _owner._realtimeControl._consentCurrent(peer, consentEpoch),
+      );
+    }
     if (skipLive) {
       if (_liveSkipNoted.add(peer.hex)) {
         devLog(
@@ -956,7 +967,13 @@ class _MessagingOutbox {
       // Re-offer a contact handshake only if it has not reached mailbox.
       if (mailboxEligible &&
           !_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
-        _owner._stashInBackground(peer, frame.frameId, frame.wire);
+        _owner._stashInBackground(
+          peer,
+          frame.frameId,
+          frame.wire,
+          isCurrent: () =>
+              _owner._realtimeControl._consentCurrent(peer, consentEpoch),
+        );
       }
       final now = _owner._now();
       if (!snapshot.contains(frame.peerHex, frame.frameId)) continue;

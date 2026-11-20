@@ -73,8 +73,105 @@ class _Sink implements MailboxSink {
   void noteActivity() {}
 }
 
+Future<_HeldStore> _openStore(bool native) async {
+  late AsyncSpaceOpener open;
+  if (native) {
+    expect(ensureHiddenVolumeLoaded(), isTrue);
+    final dir = await Directory.systemTemp.createTemp('xveil-outbox-consent-');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/store.hv';
+    HvKvLogStore(
+      hv.HvSpace.create(
+        path: path,
+        password: Uint8List.fromList(utf8.encode('fixture')),
+        argon: hv.ArgonPreset.min,
+      ),
+    ).close();
+    open = workerSpaceOpener(path);
+  } else {
+    final kv = FakeKvLogStore();
+    open = ({required password, required bool create}) async =>
+        SyncWrappedAsyncKvLogStore(kv);
+  }
+  final storage = _HeldStore(open);
+  addTearDown(storage.close);
+  expect(
+    await storage.open(password: 'fixture', createIfMissing: true),
+    isTrue,
+  );
+  return storage;
+}
+
 void main() {
   for (final native in [false, true]) {
+    for (final source in ['initial-request', 'retry', 'accept', 'outbox']) {
+      for (final decision in ['none', 'block', 'block-unblock']) {
+        test('mailbox uses current contact consent native=$native '
+            'source=$source decision=$decision', () async {
+          final storage = await _openStore(native);
+          final wire = _Wire(), sink = _Sink(), peer = _id(2);
+          final lookupStarted = Completer<void>();
+          final lookupResult = Completer<bool>();
+          final service = MessagingService(wire, storage)
+            ..attachMailbox(sink)
+            ..isOwnDevice = (destination) async {
+              if (destination != peer) return false;
+              if (!lookupStarted.isCompleted) lookupStarted.complete();
+              return lookupResult.future;
+            };
+          addTearDown(wire.dispose);
+          addTearDown(service.dispose);
+          addTearDown(() {
+            if (!lookupResult.isCompleted) lookupResult.complete(false);
+          });
+          if (source != 'initial-request') {
+            await storage.upsertContact(
+              Contact(
+                nodeId: peer,
+                status: switch (source) {
+                  'accept' => ContactStatus.pendingIncoming,
+                  'retry' => ContactStatus.pendingOutgoing,
+                  _ => ContactStatus.accepted,
+                },
+              ),
+            );
+          }
+          if (source == 'outbox') {
+            final id = 'accept:${peer.hex}';
+            await storage.enqueueOutboxFrame(
+              id,
+              peer.hex,
+              const WireEnvelope.accept().withFrameId(id).encode(),
+            );
+          }
+          final work = switch (source) {
+            'initial-request' => service.submitContactRequest(peer, ''),
+            'retry' => service.resendRequest(peer),
+            'accept' => service.acceptContact(peer),
+            _ => service.debugFlushOutboxFrames(),
+          };
+          await lookupStarted.future;
+          // For background stashes, finish the live leg or even the full
+          // flush. That alone must not revoke a valid pending deposit.
+          if (source == 'accept' || source == 'outbox') await work;
+          expect(sink.sent, isEmpty);
+          if (decision != 'none') await service.blockContact(peer);
+          if (decision == 'block-unblock') {
+            await service.unblockContact(peer);
+          }
+          lookupResult.complete(false);
+          await work;
+          await Future<void>.delayed(Duration.zero);
+          final expectedKind = source == 'accept' || source == 'outbox'
+              ? WireKind.accept
+              : WireKind.request;
+          expect(
+            sink.sent.map((frame) => frame.kind),
+            decision == 'none' ? [expectedKind] : isEmpty,
+          );
+        }, skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null);
+      }
+    }
     for (final stage in ['contact', 'worker']) {
       for (final change in [
         'block',
@@ -86,38 +183,14 @@ void main() {
         test(
           'Outbox consent native=$native stage=$stage change=$change',
           () async {
-            Directory? dir;
-            late AsyncSpaceOpener open;
-            if (native) {
-              expect(ensureHiddenVolumeLoaded(), isTrue);
-              dir = await Directory.systemTemp.createTemp(
-                'xveil-outbox-consent-',
-              );
-              final path = '${dir.path}/store.hv';
-              HvKvLogStore(
-                hv.HvSpace.create(
-                  path: path,
-                  password: Uint8List.fromList(utf8.encode('fixture')),
-                  argon: hv.ArgonPreset.min,
-                ),
-              ).close();
-              open = workerSpaceOpener(path);
-            } else {
-              final kv = FakeKvLogStore();
-              open = ({required password, required bool create}) async =>
-                  SyncWrappedAsyncKvLogStore(kv);
-            }
-            final storage = _HeldStore(open), wire = _Wire(), sink = _Sink();
+            final storage = await _openStore(native);
+            final wire = _Wire(), sink = _Sink();
             final service = MessagingService(wire, storage)
               ..liveLegDeadline = const Duration(days: 1)
               ..attachMailbox(sink);
             Future<void>? flushing;
             final peer = _id(2), fid = 'accept:${_id(2).hex}';
             try {
-              expect(
-                await storage.open(password: 'fixture', createIfMissing: true),
-                isTrue,
-              );
               await storage.upsertContact(
                 Contact(nodeId: peer, status: ContactStatus.accepted),
               );
@@ -209,8 +282,6 @@ void main() {
               await flushing;
               await service.dispose();
               await wire.dispose();
-              await storage.close();
-              await dir?.delete(recursive: true);
             }
           },
           skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,

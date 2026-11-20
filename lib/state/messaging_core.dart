@@ -3132,10 +3132,21 @@ class MessagingService {
     String id,
     Uint8List wire, {
     bool awaitAck = false,
-  }) => _mailboxDelivery.stashInBackground(peer, id, wire, awaitAck: awaitAck);
+    required bool Function() isCurrent,
+  }) => _mailboxDelivery.stashInBackground(
+    peer,
+    id,
+    wire,
+    awaitAck: awaitAck,
+    isCurrent: isCurrent,
+  );
 
-  Future<bool> _maybeStash(NodeId peer, String id, Uint8List wire) =>
-      _mailboxDelivery.maybeStash(peer, id, wire);
+  Future<bool> _maybeStash(
+    NodeId peer,
+    String id,
+    Uint8List wire, {
+    required bool Function() isCurrent,
+  }) => _mailboxDelivery.maybeStash(peer, id, wire, isCurrent: isCurrent);
 
   /// Delete a local copy, scrub its plaintext, and stop unreferenced serving.
   Future<void> deleteMessageLocally(String messageId) =>

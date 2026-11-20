@@ -284,6 +284,7 @@ class _MessagingMailboxDelivery {
     // failed, so there is nothing to wait for and waiting would only delay the
     // one copy the recipient is going to get.
     bool awaitAck = false,
+    required bool Function() isCurrent,
   }) {
     if (!mailboxEligible(wire)) return;
     // A peer under the unresolved-peer backoff first: [maybeStash] would
@@ -297,7 +298,16 @@ class _MessagingMailboxDelivery {
       _noteDeferred(peer, id);
       return;
     }
-    unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck, background: true));
+    unawaited(
+      maybeStash(
+        peer,
+        id,
+        wire,
+        awaitAck: awaitAck,
+        background: true,
+        isCurrent: isCurrent,
+      ),
+    );
   }
 
   /// One line per frame per [_suppressionLogEvery], not one per offer.
@@ -347,7 +357,9 @@ class _MessagingMailboxDelivery {
     // Admitted by [stashInBackground] under the one-slot bound, which is
     // checked again where the slot is actually taken. See there.
     bool background = false,
+    required bool Function() isCurrent,
   }) async {
+    if (!isCurrent()) return false;
     if (!mailboxEligible(wire)) return false;
     // The backoff belongs HERE, at the one place a deposit is attempted, not
     // at each call site. It was checked in the outbox flush loop only, so
@@ -415,6 +427,9 @@ class _MessagingMailboxDelivery {
         }
       }
     }
+    // Resolving the device or waiting for an ACK may have crossed a contact
+    // decision. An old offer cannot start a deposit in a new consent epoch.
+    if (!isCurrent()) return false;
     final mailbox = _mailbox;
     if (mailbox == null) {
       devLog(
