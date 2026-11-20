@@ -913,6 +913,87 @@ void main() {
     });
   }
 
+  test(
+    'restored call signals do not block one another on a stalled path',
+    () async {
+      transport.blockRealtime = true;
+      final messaging = MessagingService(transport, storage)
+        ..liveLegDeadline = const Duration(milliseconds: 100);
+      addTearDown(messaging.dispose);
+      addTearDown(transport.realtimeGate.complete);
+      final kinds = [CallSignalType.answer, CallSignalType.end];
+      final received = <CallSignalType>[];
+      transport.onNormalSend = (_, wire) => received.add(
+        CallSignal.tryDecode(WireEnvelope.decode(wire).body)!.type,
+      );
+      for (final kind in kinds) {
+        final id = 'call:restored-stalled-lane:${kind.name}:${peer.hex}';
+        final signal = CallSignal(
+          callId: 'restored-stalled-lane',
+          type: kind,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        );
+        await storage.enqueueOutboxFrame(
+          id,
+          peer.hex,
+          WireEnvelope.callSignal(signal.encode()).withFrameId(id).encode(),
+        );
+      }
+
+      await messaging.flushOutbox();
+
+      expect(received, kinds);
+      expect(transport.realtimeSends, 2);
+      expect(transport.relayRealtimeSends, 2);
+      expect(await storage.pendingOutboxFrames(), hasLength(2));
+    },
+  );
+
+  test('regular redrive reuses the pending path of an early call send', () {
+    fakeAsync((time) {
+      final transport = _RealtimeProbe(me)..blockRealtime = true;
+      final storage = HiddenVolumeStorage(_memOpener());
+      var now = DateTime(2026);
+      final messaging = MessagingService(transport, storage, now: () => now);
+      try {
+        var persisted = false;
+        unawaited(() async {
+          await storage.open(password: 'pw', createIfMissing: true);
+          await storage.upsertContact(
+            Contact(nodeId: peer, status: ContactStatus.accepted),
+          );
+          await messaging.sendCallSignal(
+            peer,
+            const CallSignal(
+              callId: 'shared-stalled-lane',
+              type: CallSignalType.answer,
+            ),
+          );
+          persisted = true;
+        }());
+        time.flushMicrotasks();
+        expect(persisted, isTrue);
+        expect(transport.realtimeSends, 1);
+
+        // Make the durable row eligible without running the fast retry timer.
+        now = now.add(const Duration(seconds: 1));
+        var flushed = false;
+        unawaited(messaging.flushOutbox().then((_) => flushed = true));
+        time.flushMicrotasks();
+
+        expect(transport.realtimeSends, 1);
+        expect(transport.relayRealtimeSends, 2);
+        expect(flushed, isTrue);
+      } finally {
+        transport.realtimeGate.complete();
+        unawaited(messaging.dispose());
+        unawaited(transport.dispose());
+        unawaited(storage.close());
+        time.flushMicrotasks();
+      }
+    });
+  });
+
   test('group announce reaches contact while realtime cannot finish', () async {
     transport.blockRealtime = true;
     final messaging = MessagingService(transport, storage);
