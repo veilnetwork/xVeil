@@ -268,7 +268,9 @@ class VeilFlutterTransport
     // peers: do not add public seeds or bypass this identity's routing policy.
     final client = await VeilClient.connect(_socketPath);
     try {
-      if (_disposing) return;
+      // A newer OS observation may have arrived during IPC setup. The daemon
+      // resets sessions on every dispatch, so skip the obsolete command here.
+      if (_disposing || generation != _networkChangeGeneration) return;
       await client.notifyNetworkChanged(switch (attachment) {
         NetworkAttachment.unknown => NetworkKind.unknown,
         NetworkAttachment.wifi => NetworkKind.wifi,

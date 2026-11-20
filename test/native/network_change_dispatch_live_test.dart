@@ -173,17 +173,9 @@ void main() {
             expect(attachments, [NetworkAttachment.offline, ...changes]);
 
             final stale = adapter.networkChanged(NetworkAttachment.ethernet);
+            // The temporary client is still opening when this arrives.
             adapter.observeNetworkAttachment(NetworkAttachment.offline);
             await stale;
-            await waitUntil(
-              () async => (await log.readAsLines()).any(
-                (line) => line.contains(
-                  'ipc.mobile.network_changed kind=Ethernet mtu_hint=0',
-                ),
-              ),
-              what: 'the previous online notification was applied by the node',
-              timeout: const Duration(seconds: 10),
-            );
             await pumpEventQueue();
             final whileOffline = [
               NetworkAttachment.offline,
@@ -198,6 +190,19 @@ void main() {
             await adapter.networkChanged(NetworkAttachment.cellular);
             await pumpEventQueue();
             expect(attachments, [...whileOffline, NetworkAttachment.cellular]);
+            // The newer dispatch has reached the daemon before its receipt.
+            // A stale dispatch would also be visible by now and would reset
+            // its sessions even though the app suppressed the stale result.
+            final dispatched = (await log.readAsLines()).where(
+              (line) => line.contains('ipc.mobile.network_changed kind='),
+            );
+            expect(dispatched.last, contains('kind=Cellular mtu_hint=0'));
+            expect(
+              dispatched.where(
+                (line) => line.contains('kind=Ethernet mtu_hint=0'),
+              ),
+              isEmpty,
+            );
           } finally {
             await starts.cancel();
             await subscription.cancel();
