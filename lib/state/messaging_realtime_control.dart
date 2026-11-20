@@ -686,7 +686,7 @@ class _MessagingRealtimeControl {
     );
   }
 
-  Future<bool> _sendRealtimePaths(
+  Future<void> _sendRealtimePaths(
     _RealtimeControlKind kind,
     String scope,
     NodeId peer,
@@ -697,24 +697,49 @@ class _MessagingRealtimeControl {
         sendRealtime(peer, wire, admitTransport: admitTransport);
     if (_owner._anonymous) {
       await _observeSend(kind, sendDirect);
-      return true;
+      return;
     }
     if (_owner._transport is! RealtimeTransport) {
-      return _attempt(kind, scope, 'contact', peer, sendDirect);
+      await _attempt(kind, scope, 'contact', peer, sendDirect);
+      return;
     }
-    final submitted = await Future.wait<bool>([
-      _attempt(kind, scope, 'realtime direct', peer, sendDirect),
-      if (_owner._transport is RelayRealtimeTransport)
-        _attempt(
-          kind,
-          scope,
-          'realtime relay',
-          peer,
-          () => _sendRelayRealtime(peer, wire, admitTransport: admitTransport),
-        ),
-    ]);
-    return submitted.contains(true);
+    await Future.wait(
+      _realtimeAttempts(
+        kind,
+        scope,
+        peer,
+        wire,
+        admitTransport: admitTransport,
+      ),
+    );
   }
+
+  List<Future<bool>> _realtimeAttempts(
+    _RealtimeControlKind kind,
+    String scope,
+    NodeId peer,
+    Uint8List wire, {
+    bool Function()? admitTransport,
+    Map<String, Future<bool>>? pendingLanes,
+  }) => [
+    _attempt(
+      kind,
+      scope,
+      'realtime direct',
+      peer,
+      () => sendRealtime(peer, wire, admitTransport: admitTransport),
+      pendingLanes: pendingLanes,
+    ),
+    if (_owner._transport is RelayRealtimeTransport)
+      _attempt(
+        kind,
+        scope,
+        'realtime relay',
+        peer,
+        () => _sendRelayRealtime(peer, wire, admitTransport: admitTransport),
+        pendingLanes: pendingLanes,
+      ),
+  ];
 
   /// Send one already-signed and epoch-encrypted group-call signal. Lifecycle
   /// transitions are durable; heartbeats stay best-effort because the next one
@@ -761,6 +786,7 @@ class _MessagingRealtimeControl {
     Uint8List wire, {
     required bool contactIdentity,
     bool requireSubmission = false,
+    Map<String, Future<bool>>? pendingLanes,
   }) async {
     if (_owner._anonymous) {
       await _observeSend(
@@ -776,21 +802,56 @@ class _MessagingRealtimeControl {
       );
       return;
     }
-    final submitted = await Future.wait<bool>([
+    final attempts = [
       _attempt(
         _RealtimeControlKind.call,
         'call-sig',
         'contact',
         peer,
         () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
+        pendingLanes: pendingLanes,
       ),
       // The realtime endpoint is bound under the identity. A physical device
       // id cannot receive this frame without a device-scoped binding there.
-      _sendRealtimePaths(_RealtimeControlKind.call, 'call-sig', peer, wire),
-    ]);
-    if (requireSubmission && !submitted.contains(true)) {
+      ..._realtimeAttempts(
+        _RealtimeControlKind.call,
+        'call-sig',
+        peer,
+        wire,
+        pendingLanes: pendingLanes,
+      ),
+    ];
+    final submitted = pendingLanes == null
+        ? (await Future.wait(attempts)).contains(true)
+        : await _firstSubmission(attempts);
+    if (requireSubmission && !submitted) {
       throw StateError('All live call signaling paths rejected the frame');
     }
+  }
+
+  /// Transport submission finishes the local race. Only a separate ACK
+  /// retires the durable frame. Other in-flight paths can settle independently.
+  Future<bool> _firstSubmission(List<Future<bool>> attempts) {
+    final result = Completer<bool>();
+    var remaining = attempts.length;
+    for (final attempt in attempts) {
+      unawaited(
+        attempt.then(
+          (submitted) {
+            if (result.isCompleted) return;
+            if (submitted) {
+              result.complete(true);
+            } else if (--remaining == 0) {
+              result.complete(false);
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!result.isCompleted) result.completeError(error, stack);
+          },
+        ),
+      );
+    }
+    return result.future;
   }
 
   /// Endpoint exchange creates the direct session, so race the pre-admission
@@ -847,19 +908,30 @@ class _MessagingRealtimeControl {
     String scope,
     String lane,
     NodeId peer,
-    Future<void> Function() send,
-  ) async {
-    try {
-      await _observeSend(kind, send);
-      return true;
-    } catch (error) {
-      devLog(
-        () =>
-            'xVeil[$scope]: $lane live leg failed '
-            'peer=${peer.short}: $error',
-      );
-      return false;
+    Future<void> Function() send, {
+    Map<String, Future<bool>>? pendingLanes,
+  }) {
+    final pending = pendingLanes?[lane];
+    if (pending != null) return pending;
+    Future<bool> observe() async {
+      try {
+        await _observeSend(kind, send);
+        return true;
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[$scope]: $lane live leg failed '
+              'peer=${peer.short}: $error',
+        );
+        return false;
+      }
     }
+
+    final attempt = observe();
+    if (pendingLanes == null) return attempt;
+    return pendingLanes[lane] = attempt.whenComplete(() {
+      pendingLanes.remove(lane);
+    });
   }
 
   Future<void> sendCallSignal(
@@ -924,6 +996,9 @@ class _MessagingRealtimeControl {
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
               ':${peer.hex}'
         : 'call:${signal.callId}:${signal.type.name}:${peer.hex}';
+    // Early send and fast retries share the same frame. A stalled path keeps
+    // its pending submission while other paths can retry at their normal pace.
+    final pendingLanes = <String, Future<bool>>{};
     await _owner.sendDurable(
       peer,
       frameId,
@@ -933,6 +1008,7 @@ class _MessagingRealtimeControl {
         wire,
         contactIdentity: contactIdentity,
         requireSubmission: true,
+        pendingLanes: pendingLanes,
       ),
       awaitLive: false,
       startLiveBeforeEnqueue: true,
