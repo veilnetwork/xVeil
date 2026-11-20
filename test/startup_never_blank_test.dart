@@ -72,22 +72,25 @@ void main() {
     });
   }
 
-  for (final (busy, fromLegacy, code) in [
-    (false, false, 0),
-    (true, false, 1),
-    (false, true, 2),
-    (true, true, 3),
+  for (final (failure, code) in const [
+    (ProfileChoiceReadFailure(busy: false), 0),
+    (ProfileChoiceReadFailure(busy: true), 1),
+    (ProfileChoiceReadFailure(busy: false, fromLegacy: true), 2),
+    (ProfileChoiceReadFailure(busy: true, fromLegacy: true), 3),
+    (ProfileChoiceReadFailure.malformed(), 4),
   ]) {
     test('startup reports profile choice read failure code $code', () async {
       diagnosticJournal.clear();
       addTearDown(diagnosticJournal.clear);
       Widget? presented;
       await runStartup(
-        loadPreferences: () async =>
-            throw ProfileChoiceReadFailure(busy: busy, fromLegacy: fromLegacy),
+        loadPreferences: () async => throw failure,
         present: (widget) => presented = widget,
       );
-      expect((presented as StartupFailedApp).retryPreferences != null, busy);
+      expect(
+        (presented as StartupFailedApp).retryPreferences != null,
+        failure.busy,
+      );
       final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
       final event = retained?['profileChoiceReadFailed'] as Map?;
       expect(

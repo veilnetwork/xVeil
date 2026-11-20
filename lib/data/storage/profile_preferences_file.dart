@@ -151,12 +151,15 @@ bool _prepareWindowsTemporary(File temp) {
 
 /// Read a valid installation-wide choice. A read failure on an existing entry
 /// propagates so a migration cannot replace a choice it was unable to read.
-Future<String?> readProfileChoice(File file) async {
+/// Use [requireValid] when an unreadable choice must stop startup or migration.
+Future<String?> readProfileChoice(File file, {bool requireValid = false}) async {
   try {
     final name = utf8
         .decode(await file.readAsBytes(), allowMalformed: true)
         .trim();
-    return AppProfiles.isValidName(name) ? name : null;
+    if (AppProfiles.isValidName(name)) return name;
+    if (requireValid) throw const ProfileChoiceReadFailure.malformed();
+    return null;
   } on PathNotFoundException {
     if (FileSystemEntity.typeSync(file.path, followLinks: false) !=
         FileSystemEntityType.notFound) {
@@ -191,12 +194,19 @@ Future<Map<String, Object>> readDesktopLegacyPreferences(File file) async {
 
 /// A saved profile choice could not be read. The cause is safe for diagnostics.
 final class ProfileChoiceReadFailure implements Exception {
-  const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false});
+  const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false})
+    : _malformed = false;
+  const ProfileChoiceReadFailure.malformed()
+    : busy = false,
+      fromLegacy = false,
+      _malformed = true;
+
   final bool busy;
   final bool fromLegacy;
+  final bool _malformed;
 
-  // Preserve the original 0/1 codes for the file-backed profile choice.
-  int get diagnosticCode => (fromLegacy ? 2 : 0) + (busy ? 1 : 0);
+  // Preserve the original 0–3 codes for read failures.
+  int get diagnosticCode => _malformed ? 4 : (fromLegacy ? 2 : 0) + (busy ? 1 : 0);
 }
 
 bool isWindowsFileSharingViolation(Object error) =>
@@ -232,10 +242,13 @@ Future<T> retryProfileChoiceRead<T>(
   }
 }
 
-Future<String?> readStartupProfileChoice(File file) async {
+Future<String?> readStartupProfileChoice(
+  File file, {
+  bool requireValid = false,
+}) async {
   try {
     return await retryProfileChoiceRead(
-      () => readProfileChoice(file),
+      () => readProfileChoice(file, requireValid: requireValid),
       isAbsent: (choice) => choice == null,
     );
   } on FileSystemException catch (error, stack) {
@@ -295,7 +308,9 @@ Future<bool> writeProfileChoiceAtomically(
     }
     // Migration may have resolved the old choice before another process saved
     // a new one. Read again while holding the same lock used by manual saves.
-    if (onlyIfUnset && await readProfileChoice(file) != null) return true;
+    if (onlyIfUnset && await readProfileChoice(file, requireValid: true) != null) {
+      return true;
+    }
     return await writePrivateFileAtomically(file, contents);
   } catch (error) {
     devLog(() => 'xVeil[prefs]: could not save the profile choice: $error');
