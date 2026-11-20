@@ -421,6 +421,8 @@ class VeilFlutterTransport
       _mediaApp.sendCallControl(chan, bytes, relayPrimary: relayPrimary);
   List<Uint8List> pollCallControl(int chan) =>
       _disposing ? const [] : _mediaApp.pollCallControl(chan);
+  bool takeRelayProbeRequest(int chan) =>
+      !_disposing && _mediaApp.takeRelayProbeRequest(chan);
 
   final VeilClient? _mediaDeviceClient;
   final AppHandle? _mediaDeviceApp;
