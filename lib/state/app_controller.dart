@@ -2204,10 +2204,17 @@ class AppController extends Notifier<AppState> {
       if (!ref.mounted || _supersededSince(gen)) return;
       // Collection recovery uses only its access password. Skip the
       // unlock-time repack to preserve every space in the shared container.
-      if (_compactionReopenSelection?.lifecycle != gen) {
-        await _maybeAutoCompactBeforeSession(password);
+      final recheckAfterCompaction =
+          _compactionReopenSelection?.lifecycle != gen &&
+          await _maybeAutoCompactBeforeSession(password);
+      if (!ref.mounted || _supersededSince(gen)) return;
+      if (recheckAfterCompaction &&
+          (!storage.isOpen || !await _isStandaloneCompactionSpace(storage))) {
+        // Another opener could have changed how this password is classified
+        // while the original view was closed. Retry via ordinary unlock.
+        throw const CompactionReopenIncomplete();
       }
-      if (_supersededSince(gen)) return;
+      if (!ref.mounted || _supersededSince(gen)) return;
       await ref.read(profileStorageRouterProvider)?.rememberAccess();
       if (!ref.mounted || _supersededSince(gen)) {
         await storage.close();
@@ -3772,60 +3779,88 @@ class AppController extends Notifier<AppState> {
     await prefs.setBool(kStorageLeanPaddingPref, enabled);
   }
 
-  /// Same trigger as [_maybeAutoCompact], but it runs before booting the node.
+  Future<bool> _isStandaloneCompactionSpace(Storage storage) async {
+    final roster = await _readRosterForCompaction(storage);
+    if (roster != null && roster.isNotEmpty) {
+      _releaseKeys(roster.map((entry) => entry.spaceKeys));
+      return false;
+    }
+    return !masterSetupIsPending(
+          await storage.getSetting(kPendingMasterSetupSetting),
+        ) &&
+        !identitySetupIsPending(
+          await storage.getSetting(kPendingIdentitySetupSetting),
+        ) &&
+        (await storage.getSetting(kPendingIdentityErase))?.isNotEmpty != true;
+  }
+
+  /// Automatic compaction runs before booting the node.
   /// This matters for badly bloated containers: boot reads node/messaging state
   /// and can spend minutes in [AppPhase.preparingNode], so a post-ready compact
   /// never gets a chance to fire. Only runs for single-identity spaces with the
-  /// existing opt-in setting enabled.
-  Future<void> _maybeAutoCompactBeforeSession(String password) async {
+  /// existing opt-in setting enabled. Returns whether the caller still needs
+  /// to validate the view after a failed rewrite or reopen.
+  Future<bool> _maybeAutoCompactBeforeSession(String password) async {
     if (_autoCompactRunning ||
         _compactionInFlight != null ||
         _wipeInFlight != null ||
         !canCompactStorage) {
-      return;
+      return false;
     }
     final lease = leaseIdentity();
     bool current() => ref.mounted && holdsIdentity(lease);
     final storage = ref.read(storageProvider);
     final path = ref.read(deniableBootProvider)?.storePath;
-    if (path == null) return;
+    if (path == null) return false;
+    var reopenedViewNeedsValidation = false;
     try {
       final preferences = ProfilePreferencesLifetime.current();
       final revision = await _automaticCompactionRevision(storage, preferences);
-      if (revision == null || !current()) return;
+      if (revision == null || !current()) return false;
       final size = await File(path).length();
-      if (!current() || size < _autoCompactMinBytes) return;
+      if (!current() || size < _autoCompactMinBytes) return false;
       final lastRaw = await storage.getSetting(_lastCompactSizeKey);
-      if (!current()) return;
+      if (!current()) return false;
       final last = int.tryParse(lastRaw ?? '') ?? 0;
-      if (last > 0 && size < last * _autoCompactGrowthFactor) return;
+      if (last > 0 && size < last * _autoCompactGrowthFactor) return false;
       await _withCompaction(() async {
         _autoCompactRunning = true;
         try {
-          final roster = await _readRosterForCompaction(storage);
-          try {
-            if (!current() || roster?.isNotEmpty == true) return;
-          } finally {
-            _releaseKeys(
-              (roster ?? const <RosterEntry>[]).map((entry) => entry.spaceKeys),
-            );
-          }
+          if (!await _isStandaloneCompactionSpace(storage) || !current()) return;
           devLog(
             () =>
                 'xVeil[storage]: pre-session auto-compact triggered '
                 '(size=$size, lastCompacted=$last)',
           );
+          reopenedViewNeedsValidation = true;
           await storage.close(); // release LOCK_EX before compact_known.
           if (!current()) return;
           final secret = Uint8List.fromList(utf8.encode(password));
           try {
-            await ref.read(containerCompactorProvider)(
+            await ref.read(preparedContainerCompactorProvider)(
               path,
               [secret],
               dylibPath: _hvDylibPath(),
-              beforePublication: () async {
-                // The native preparation holds the source lock here. A setup
-                // in another process could have added a space after close.
+              repairMetadata: (stagedPath) async {
+                if (!current()) {
+                  throw StateError('automatic compaction session ended');
+                }
+                // Preparation holds the source lock. The staged file reflects
+                // any consent or roster change made before it acquired that
+                // lock, even when the external setup revision did not change.
+                final staged = ref.read(compactionStagedStorageProvider)(
+                  stagedPath,
+                );
+                try {
+                  if (!await staged.open(password: password) ||
+                      await staged.getSetting(_autoCompactKey) !=
+                          'v2:$revision' ||
+                      !await _isStandaloneCompactionSpace(staged)) {
+                    throw StateError('automatic compaction consent expired');
+                  }
+                } finally {
+                  await staged.close();
+                }
                 final stillAccepted =
                     await preferences.readPersistedString(
                       _autoCompactSetupRevision,
@@ -3848,6 +3883,8 @@ class AppController extends Notifier<AppState> {
           if (!reopened) {
             throw StateError('container did not reopen after compaction');
           }
+          if (!await _isStandaloneCompactionSpace(storage) || !current()) return;
+          reopenedViewNeedsValidation = false;
           final after = await File(path).length();
           if (!current()) return;
           await storage.putSetting(_lastCompactSizeKey, '$after');
@@ -3870,6 +3907,7 @@ class AppController extends Notifier<AppState> {
     } catch (e) {
       devLog(() => 'xVeil[storage]: pre-session auto-compact failed: $e');
     }
+    return reopenedViewNeedsValidation;
   }
 
   /// Path the compaction worker isolate dlopens the hidden-volume native lib
