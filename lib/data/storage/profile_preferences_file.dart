@@ -196,9 +196,8 @@ Future<Map<String, Object>> readDesktopLegacyPreferences(File file) async {
 final class ProfileChoiceReadFailure implements Exception {
   const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false})
     : _malformed = false;
-  const ProfileChoiceReadFailure.malformed()
+  const ProfileChoiceReadFailure.malformed({this.fromLegacy = false})
     : busy = false,
-      fromLegacy = false,
       _malformed = true;
 
   final bool busy;

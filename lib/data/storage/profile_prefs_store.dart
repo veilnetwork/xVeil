@@ -492,6 +492,21 @@ Future<String> installProfilePreferences({
   }
   final savedChoice = legacySnapshot[_legacyActiveKey];
   final legacyPointer = savedChoice is String ? savedChoice : null;
+  final legacyChoice = AppProfiles.resolveWithSource(
+    args: const [],
+    environment: const {},
+    legacyPointer: legacyPointer,
+  );
+  if (openOwnedFile != null &&
+      legacySnapshot.containsKey(_legacyActiveKey) &&
+      legacyChoice.source != ProfileSource.legacyPointer) {
+    if (needsSavedChoice && pointer == null) {
+      throw const ProfileChoiceReadFailure.malformed(fromLegacy: true);
+    }
+    // Keep the damaged choice in the source. A valid saved or explicit choice
+    // still allows this launch and migration of unrelated settings.
+    legacySnapshot = Map.of(legacySnapshot)..remove(_legacyActiveKey);
+  }
   final resolved = AppProfiles.resolveWithSource(
     args: args,
     environment: environment,
@@ -539,19 +554,10 @@ Future<String> installProfilePreferences({
     // wait for the flag-less case — clearing the store destroys the pointer no
     // matter which source won this particular launch.
     //
-    // The question asked is "would the OLD pointer decide, had this launch been
-    // given no instructions" — deliberately not "did it decide this time". An
-    // empty `args`/`environment` is passed for exactly that reason: a source that
-    // answers here can only be [ProfileSource.legacyPointer], and anything else
-    // means the old pointer held nothing this build would accept and there is
-    // nothing to lose by emptying the store.
-    final carried = pointerSafe && pointer == null
-        ? AppProfiles.resolveWithSource(
-            args: const [],
-            environment: const {},
-            legacyPointer: legacyPointer,
-          )
-        : null;
+    // Carry a valid legacy choice independently of what selected this launch.
+    // A malformed legacy choice in managed mode has already been excluded
+    // from migration cleanup above.
+    final carried = pointerSafe && pointer == null ? legacyChoice : null;
     if (carried != null && carried.source == ProfileSource.legacyPointer) {
       final currentChoice = (await _readLegacyPreferences(
         legacy,
