@@ -4945,6 +4945,8 @@ void main() {
             case 'superseded handover':
               async.elapse(const Duration(milliseconds: 10));
               network.add(NetworkAttachment.cellular);
+              media.liveAdmissionGate = null;
+              media.liveDirectAdmission = true;
               admission.complete(false);
           }
           async.flushMicrotasks();
@@ -4962,7 +4964,8 @@ void main() {
             media.liveAdmissionChecks,
             mode == 'closes on the next tick' ||
                     freshIngress ||
-                    mode == 'snapshot failed with fresh cached ingress'
+                    mode == 'snapshot failed with fresh cached ingress' ||
+                    mode == 'superseded handover'
                 ? [device, device]
                 : mode == 'cached ingress while direct closes'
                 ? [device, device, device]
@@ -5043,11 +5046,12 @@ void main() {
           if (outcome == 'new overlay admission') admissions.add(null);
           if (outcome == 'new handover') network.add(NetworkAttachment.cellular);
           media.liveAdmissionGate = null;
-          media.liveDirectAdmission = outcome == 'sender recovered';
+          media.liveDirectAdmission =
+              outcome == 'sender recovered' || outcome == 'new handover';
           if (delayFirst) {
             first.complete(false);
           } else {
-            confirmation.complete(media.liveDirectAdmission);
+            confirmation.complete(outcome == 'sender recovered');
           }
           async.flushMicrotasks();
           async.elapse(Duration.zero);
@@ -5056,7 +5060,13 @@ void main() {
             'late confirmation',
             'unproven relay',
           }.contains(outcome);
-          expect(media.liveAdmissionChecks, [device, device, device, device]);
+          expect(media.liveAdmissionChecks, [
+            device,
+            device,
+            device,
+            device,
+            if (outcome == 'new handover') device,
+          ]);
           expect(media.switches, startRelay ? [CallTransportKind.relay] : []);
           expect(svc.current?.status, CallStatus.active);
 
@@ -5124,6 +5134,71 @@ void main() {
         async.flushMicrotasks();
       });
     });
+
+    for (final offline in [false, true]) {
+      test('rechecks the newest P2P handover when a stale query ends '
+          '(went offline: $offline)', () {
+        fakeAsync((async) {
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final wire = _FakeMessaging();
+          final old = Completer<bool?>();
+          final fresh = Completer<bool?>();
+          final media = _SnapshotMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..liveAdmissionGate = old;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          final device = NodeId.fromHex('b' * 64);
+          try {
+            wire.onCallSignal!(
+              peer,
+              offer('handover-awaiting-old-admission').copyWith(
+                transport: const CallTransportProposal(CallTransportKind.p2p),
+                replyDevice: device.hex,
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            media.rxAt = clock.now();
+            network.add(NetworkAttachment.cellular);
+            async.flushMicrotasks();
+            expect(media.liveAdmissionChecks, [device]);
+
+            media.liveAdmissionGate = fresh;
+            async.elapse(const Duration(milliseconds: 100));
+            network.add(NetworkAttachment.wifi);
+            network.add(NetworkAttachment.unknown);
+            if (offline) network.add(NetworkAttachment.offline);
+            async.flushMicrotasks();
+            expect(media.liveAdmissionChecks, [device]);
+            expect(media.switches, isEmpty);
+
+            old.complete(false);
+            async.flushMicrotasks();
+            expect(
+              media.liveAdmissionChecks,
+              offline ? [device] : [device, device],
+            );
+            expect(media.switches, isEmpty, reason: 'the old result is stale');
+            fresh.complete(false);
+            async.flushMicrotasks();
+            expect(media.switches, offline ? [] : [CallTransportKind.relay]);
+            expect(svc.current?.status, CallStatus.active);
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
 
     test('unproven early relay keeps the ordinary recovery opportunity', () {
       fakeAsync((async) {
