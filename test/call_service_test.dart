@@ -1822,6 +1822,159 @@ void main() {
       },
     );
 
+    for (final (admissionFirst, probeInFlight) in [
+      (false, false),
+      (true, false),
+      (false, true),
+    ]) {
+      test(
+        'closed direct path can prompt the peer to verify relay '
+        '(admission first: $admissionFirst, existing probe: $probeInFlight)',
+        () {
+          fakeAsync((async) {
+            const id = 'direct-loss-handover-health';
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final admissions = StreamController<void>(sync: true);
+            final senderWire = _FakeMessaging();
+            final receiverWire = _FakeMessaging();
+            final admission = Completer<bool?>();
+            final receiverProbe = Completer<bool>();
+            final previousProbe = Completer<bool>();
+            final senderProbe = Completer<bool>();
+            final senderMedia = _ReconnectRelayMedia()
+              ..liveAdmissionGate = admission
+              ..firstAttempt = senderProbe;
+            final receiverMedia = _ReconnectRelayMedia()
+              ..liveDirectAdmission = true
+              ..firstAttempt = probeInFlight ? previousProbe : receiverProbe;
+            var generation = 0;
+            CallService startDirect(
+              _FakeMessaging wire,
+              _FakeMedia media, {
+              bool changingNetwork = false,
+            }) {
+              final svc = CallService(
+                wire,
+                media: media,
+                now: () => clock.now(),
+                localAllowsP2P: (_) async => true,
+                peerReachableForP2P: (_) async => true,
+                networkAttachments: changingNetwork ? network.stream : null,
+                overlaySessionAdmissions: changingNetwork
+                    ? admissions.stream
+                    : null,
+                readNetworkChangeGeneration: changingNetwork
+                    ? () => generation
+                    : null,
+              )..start();
+              wire.onCallSignal!(
+                peer,
+                offer(id).copyWith(
+                  transport: const CallTransportProposal(CallTransportKind.p2p),
+                ),
+              );
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              media.rxAt = clock.now();
+              wire.sent.clear();
+              return svc;
+            }
+
+            final sender = startDirect(
+              senderWire,
+              senderMedia,
+              changingNetwork: true,
+            );
+            final receiver = startDirect(receiverWire, receiverMedia);
+            Iterable<CallSignal> health() => senderWire.sent.where(
+              (signal) => signal.type == CallSignalType.health,
+            );
+            try {
+              generation++;
+              if (admissionFirst) admissions.add(null);
+              network.add(NetworkAttachment.cellular);
+              async.flushMicrotasks();
+              if (admissionFirst) {
+                final initial = health().single;
+                expect(initial.toJson()['rh'], isNull);
+                receiverWire.onCallSignal!(peer, initial);
+              } else {
+                expect(health(), isEmpty);
+              }
+
+              admission.complete(false);
+              async.flushMicrotasks();
+              if (!admissionFirst) {
+                expect(health(), isEmpty);
+                admissions.add(null);
+              }
+              admissions.add(null);
+              async.flushMicrotasks();
+              final hint = health()
+                  .where((signal) => signal.toJson()['rh'] == true)
+                  .single;
+              final decoded = CallSignal.tryDecode(hint.encode())!;
+              expect(decoded.toJson()['rh'], isTrue);
+              expect(sender.current?.transport, CallTransportKind.p2p);
+              final time = clock.now();
+              if (!admissionFirst) {
+                receiverWire.onCallSignal!(
+                  peer,
+                  CallSignal(
+                    callId: id,
+                    type: CallSignalType.health,
+                    transport: const CallTransportProposal(
+                      CallTransportKind.p2p,
+                    ),
+                    sentAtMs: decoded.sentAtMs,
+                  ),
+                );
+              }
+              final other = NodeId.fromHex('b' * 64);
+              receiverWire.onCallSignal!(other, decoded);
+              receiverWire.onCallSignal!(
+                peer,
+                decoded.copyWith(sentAtMs: decoded.sentAtMs! - 1),
+              );
+              expect(receiverMedia.switches, isEmpty);
+              if (probeInFlight) {
+                unawaited(receiver.requestRelayRecoveryForDiagnostics());
+                async.flushMicrotasks();
+                receiverMedia.nextAttempt = receiverProbe;
+              }
+              receiverWire.onCallSignal!(peer, decoded);
+              receiverWire.onCallSignal!(peer, decoded);
+              async.flushMicrotasks();
+              expect(clock.now(), time);
+              expect(receiverMedia.switches, [CallTransportKind.relay]);
+              expect(receiver.current?.transport, CallTransportKind.p2p);
+              if (probeInFlight) {
+                previousProbe.complete(false);
+                async.flushMicrotasks();
+                expect(receiverMedia.switches, [
+                  CallTransportKind.relay,
+                  CallTransportKind.relay,
+                ]);
+              }
+              receiverProbe.complete(true);
+              async.flushMicrotasks();
+              expect(receiver.current?.transport, CallTransportKind.relay);
+            } finally {
+              sender.dispose();
+              receiver.dispose();
+              if (!senderProbe.isCompleted) senderProbe.complete(false);
+              if (!previousProbe.isCompleted) previousProbe.complete(false);
+              if (!receiverProbe.isCompleted) receiverProbe.complete(false);
+              unawaited(network.close());
+              unawaited(admissions.close());
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     test('queued handover health follows a relay committed before send', () {
       fakeAsync((async) {
         const callId = 'handover-relay-before-health-send';
@@ -1879,6 +2032,7 @@ void main() {
           final health = wire.sent.where((s) => s.type == CallSignalType.health);
           expect(health, hasLength(1));
           expect(health.single.transport?.kind, CallTransportKind.relay);
+            expect(health.single.relayRecoverySuggested, isFalse);
           oldLeg.complete();
           admissions.add(null);
           async.flushMicrotasks();
