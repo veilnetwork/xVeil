@@ -1,19 +1,46 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_media_route_qualification.dart';
 
 void main() {
+  test('relay qualification can accept the first echo at 740 ms', () {
+    fakeAsync((time) {
+      const roundTrip = Duration(milliseconds: 740);
+      bool? qualified;
+      var observations = 0;
+      unawaited(
+        qualifyCallMediaHandover(
+          from: CallTransportKind.p2p,
+          to: CallTransportKind.relay,
+          stillOwned: () => true,
+          qualify: (budget) {
+            observations++;
+            return roundTrip <= budget
+                ? Future.delayed(roundTrip, () => true)
+                : Future.delayed(budget, () => false);
+          },
+        ).then<void>((value) => qualified = value),
+      );
+      time.elapse(const Duration(milliseconds: 739));
+      expect(qualified, isNull);
+      time.elapse(const Duration(milliseconds: 1));
+      expect(qualified, isTrue);
+      expect(observations, 1);
+    });
+  });
+
   test('warming relay can qualify a later fresh bounded challenge', () async {
-    final attempts = List.generate(3, (_) => Completer<bool>());
+    final attempts = List.generate(2, (_) => Completer<bool>());
     var calls = 0;
     var completed = false;
     final result = qualifyCallMediaHandover(
       from: CallTransportKind.p2p,
       to: CallTransportKind.relay,
       stillOwned: () => true,
-      qualify: () => attempts[calls++].future,
+      qualify: (_) => attempts[calls++].future,
     ).whenComplete(() => completed = true);
     expect(calls, 1);
     expect(completed, isFalse);
@@ -21,19 +48,15 @@ void main() {
     await pumpEventQueue();
     expect(calls, 2, reason: 'keep the same candidate while its source warms');
     expect(completed, isFalse);
-    attempts[1].complete(false);
-    await pumpEventQueue();
-    expect(calls, 3);
-    expect(completed, isFalse, reason: 'two failures are never qualification');
-    attempts[2].complete(true);
+    attempts[1].complete(true);
     expect(await result, isTrue);
-    expect(calls, 3);
+    expect(calls, 2);
   });
 
   for (final replies in [
     <bool>[true],
     [false, true],
-    [false, false, false],
+    [false, false],
   ]) {
     test(
       'relay attempts stop at success or the fixed bound $replies',
@@ -44,7 +67,7 @@ void main() {
             from: CallTransportKind.p2p,
             to: CallTransportKind.relay,
             stillOwned: () => true,
-            qualify: () async => replies[calls++],
+            qualify: (_) async => replies[calls++],
           ),
           replies.last,
         );
@@ -53,6 +76,24 @@ void main() {
     );
   }
 
+  test('unanswered relay observations use at most 1800 ms of probe time', () {
+    fakeAsync((time) {
+      bool? qualified;
+      unawaited(
+        qualifyCallMediaHandover(
+          from: CallTransportKind.p2p,
+          to: CallTransportKind.relay,
+          stillOwned: () => true,
+          qualify: (budget) => Future.delayed(budget, () => false),
+        ).then<void>((value) => qualified = value),
+      );
+      time.elapse(const Duration(milliseconds: 1799));
+      expect(qualified, isNull);
+      time.elapse(const Duration(milliseconds: 1));
+      expect(qualified, isFalse);
+    });
+  });
+
   test('P2P upgrade retains one short observation', () async {
     var calls = 0;
     expect(
@@ -60,7 +101,8 @@ void main() {
         from: CallTransportKind.relay,
         to: CallTransportKind.p2p,
         stillOwned: () => true,
-        qualify: () async {
+        qualify: (budget) async {
+          expect(budget, const Duration(milliseconds: 600));
           calls++;
           return false;
         },
@@ -79,7 +121,7 @@ void main() {
         from: CallTransportKind.p2p,
         to: CallTransportKind.relay,
         stillOwned: () => owned,
-        qualify: () {
+        qualify: (_) {
           calls++;
           return pending.future;
         },
@@ -98,7 +140,7 @@ void main() {
         from: CallTransportKind.p2p,
         to: CallTransportKind.relay,
         stillOwned: () => false,
-        qualify: () => throw StateError('must not start'),
+        qualify: (_) => throw StateError('must not start'),
       ),
       isFalse,
     );
@@ -111,7 +153,7 @@ void main() {
         from: CallTransportKind.p2p,
         to: CallTransportKind.relay,
         stillOwned: () => true,
-        qualify: () async {
+        qualify: (_) async {
           calls++;
           throw StateError('candidate closed');
         },

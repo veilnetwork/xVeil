@@ -7,20 +7,17 @@ Future<bool> qualifyCallMediaHandover({
   required CallTransportKind from,
   required CallTransportKind to,
   required bool Function() stillOwned,
-  required Future<bool> Function() qualify,
+  required Future<bool> Function(Duration budget) qualify,
 }) async {
-  // A recovered relay can admit the initial control while its independent
-  // return path is still warming. Discarding the whole candidate after that
-  // observation leaves a dead direct sender until the service's retry/repair.
-  // Keep this candidate for at most three NEW short observations instead.
-  // Each native begin replaces the expired nonce and retains its own deadline;
-  // a late echo from an earlier observation never qualifies the next one.
-  // P2P upgrades retain their single observation of an already usable route.
-  final attempts =
-      from == CallTransportKind.p2p && to == CallTransportKind.relay ? 3 : 1;
-  for (var attempt = 0; attempt < attempts; attempt++) {
+  // A recovered relay's first echo can take longer than 600 ms. Use two
+  // fresh 900-ms observations within the same 1800-ms total probe budget.
+  // Both still require their own matching authenticated echo before expiry.
+  final budgets = from == CallTransportKind.p2p && to == CallTransportKind.relay
+      ? const [Duration(milliseconds: 900), Duration(milliseconds: 900)]
+      : const [Duration(milliseconds: 600)];
+  for (final budget in budgets) {
     if (!stillOwned()) return false;
-    final qualified = await qualify();
+    final qualified = await qualify(budget);
     if (!stillOwned()) return false;
     if (qualified) return true;
   }
