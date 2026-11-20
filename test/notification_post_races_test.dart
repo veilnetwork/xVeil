@@ -54,11 +54,19 @@ class _Storage extends FakeSettingStorage {
   final mentionsOnly = <NodeId>{};
   final refusedContacts = <NodeId>{};
   final delayed = <NodeId, Completer<void>>{};
+  final readCounts = <NodeId, int>{};
+  final delayedPolicyReads = <NodeId, Completer<void>>{};
   Future<List<Conversation>>? unread;
   bool refuseUnread = false;
 
   @override
   Future<Contact?> getContact(NodeId id) async {
+    final reads = readCounts.update(
+      id,
+      (count) => count + 1,
+      ifAbsent: () => 1,
+    );
+    if (reads > 1) await delayedPolicyReads[id]?.future;
     await delayed[id]?.future;
     if (refusedContacts.contains(id)) {
       throw StateError('fixture contact unavailable');
@@ -110,6 +118,7 @@ class _UnreadGroups extends _Groups {
   final mutedGroups = <NodeId>{};
   Completer<NotificationMutePolicy>? pendingPolicy;
   final policyStarted = Completer<void>();
+  int policyReads = 0;
   final spaces = <GroupListEntry>[];
   final posts = <NodeId, List<SpacePostView>>{};
 
@@ -126,6 +135,7 @@ class _UnreadGroups extends _Groups {
   Future<NotificationMutePolicy> groupNotificationPolicy(
     NodeId groupId,
   ) async {
+    policyReads++;
     final pending = pendingPolicy;
     if (pending != null) {
       if (!policyStarted.isCompleted) policyStarted.complete();
@@ -1233,6 +1243,102 @@ void main() {
       await startup;
       await cleanup(tester);
       await groups.closeStreams();
+    }
+  });
+
+  for (final (fromUnread, muteNewer) in [
+    (false, false),
+    (false, true),
+    (true, true),
+  ]) {
+    testWidgets(
+      'a newer alert can pass a slower policy read (unread=$fromUnread, mute=$muteNewer)',
+      (tester) async {
+        final plugin = _PermissionStartupPlugin();
+        final service = NotificationService(plugin: plugin);
+        final startup = service.init(onTap: (_) {});
+        await mount(tester, service: service, minimize: !fromUnread);
+        final groups = _AlertPolicyGroups();
+        final group = _id(5), peer = _id(2);
+        final slow = Completer<NotificationMutePolicy>();
+        final newer = Completer<void>();
+        try {
+          container.read(_groupSource.notifier).state = groups;
+          expect(container.read(groupServiceProvider), same(groups));
+          if (fromUnread) {
+            groups.release.complete([unreadGroup(group)]);
+            await lifecycle(tester, background);
+          } else {
+            groups.messages.add((
+              groupId: group,
+              message: fixtureGroupMessage(group),
+            ));
+            await _pump(tester);
+          }
+          groups.pendingPolicy = slow;
+          plugin.startup.complete(true);
+          await startup;
+          await _pump(tester);
+          expect(groups.policyStarted.isCompleted, isTrue);
+
+          if (muteNewer) storage.delayedPolicyReads[peer] = newer;
+          message(2);
+          await _pump(tester);
+          expect(slow.isCompleted, isFalse);
+          expect(storage.readCounts[peer], 2);
+          if (muteNewer) {
+            expect(plugin.posted, isEmpty);
+            storage.muted.add(peer);
+            newer.complete();
+            await _pump(tester);
+            expect(plugin.posted, isEmpty);
+          } else {
+            expect(plugin.posted.map(resolveShownPayload), [peer.hex]);
+          }
+
+          slow.complete(const NotificationMutePolicy.all());
+          await _pump(tester);
+          expect(groups.policyReads, 2);
+          expect(plugin.posted.map(resolveShownPayload), [
+            muteNewer ? 'group:${group.hex}' : peer.hex,
+          ]);
+        } finally {
+          if (!newer.isCompleted) newer.complete();
+          if (!slow.isCompleted) {
+            slow.complete(const NotificationMutePolicy.all());
+          }
+          if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+          await startup;
+          await cleanup(tester);
+          await groups.closeStreams();
+        }
+      },
+    );
+  }
+
+  testWidgets('resuming releases a pending direct OS policy read', (
+    tester,
+  ) async {
+    await mount(tester);
+    final old = _id(2), fresh = _id(3);
+    final slow = storage.delayedPolicyReads[old] = Completer<void>();
+    try {
+      message(2);
+      await _pump(tester);
+      expect(storage.readCounts[old], 2);
+      expect(notifications.shows, 0);
+      await lifecycle(tester, foreground);
+      await lifecycle(tester, background);
+      message(3);
+      await _pump(tester);
+      expect(slow.isCompleted, isFalse);
+      expect(notifications.visible.values.map(resolveShownPayload), [fresh.hex]);
+      slow.complete();
+      await _pump(tester);
+      expect(notifications.shows, 1);
+    } finally {
+      if (!slow.isCompleted) slow.complete();
+      await cleanup(tester);
     }
   });
 
