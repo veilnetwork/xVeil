@@ -57,6 +57,7 @@ class _Wire extends LoopbackTransport {
 
 class _Sink implements MailboxSink {
   final sent = <WireEnvelope>[];
+  Future<void> Function()? onStash;
   @override
   bool get isRegistered => true;
   @override
@@ -66,7 +67,10 @@ class _Sink implements MailboxSink {
     required NodeId recipient,
     required Uint8List payload,
     required Uint8List contentId,
-  }) async => sent.add(WireEnvelope.decode(payload));
+  }) async {
+    sent.add(WireEnvelope.decode(payload));
+    await onStash?.call();
+  }
   @override
   void nudgeDrain() {}
   @override
@@ -102,8 +106,132 @@ Future<_HeldStore> _openStore(bool native) async {
   return storage;
 }
 
+Future<void> _ackAcceptance(
+  MessagingService service,
+  HiddenVolumeStorage storage,
+  NodeId peer,
+) async {
+  final id = 'accept:${peer.hex}';
+  await service.deliverInbound(
+    InboundMessage(
+      src: peer,
+      payload: WireEnvelope.ack(id).encode(),
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
+  // The ingress starts retirement separately. Read the durable queue until its
+  // deletion is visible before creating any replacement with the same ID.
+  for (var i = 0; i < 50; i++) {
+    final pending = await storage.pendingOutboxFrames();
+    if (!pending.any((frame) => frame.frameId == id)) return;
+    await Future<void>.delayed(Duration.zero);
+  }
+  fail('The peer acknowledgement did not retire its acceptance');
+}
+
 void main() {
   for (final native in [false, true]) {
+    for (final source in ['accept', 'outbox']) {
+      test(
+        'ack retires $source still resolving the mailbox native=$native',
+        () async {
+          final storage = await _openStore(native);
+          final wire = _Wire(), sink = _Sink(), peer = _id(2);
+          final lookupStarted = Completer<void>(), lookup = Completer<bool>();
+          final service = MessagingService(wire, storage)
+            ..attachMailbox(sink)
+            ..isOwnDevice = (destination) {
+              if (destination != peer || lookupStarted.isCompleted) {
+                return Future.value(false);
+              }
+              lookupStarted.complete();
+              return lookup.future;
+            };
+          addTearDown(wire.dispose);
+          addTearDown(service.dispose);
+          addTearDown(() {
+            if (!lookup.isCompleted) lookup.complete(false);
+          });
+          await storage.upsertContact(
+            Contact(
+              nodeId: peer,
+              status: source == 'accept'
+                  ? ContactStatus.pendingIncoming
+                  : ContactStatus.accepted,
+            ),
+          );
+          final id = 'accept:${peer.hex}';
+          if (source == 'outbox') {
+            await storage.enqueueOutboxFrame(
+              id,
+              peer.hex,
+              const WireEnvelope.accept().withFrameId(id).encode(),
+            );
+          }
+          final work = source == 'accept'
+              ? service.acceptContact(peer)
+              : service.debugFlushOutboxFrames();
+          await lookupStarted.future;
+          await work;
+          expect(sink.sent, isEmpty);
+          await _ackAcceptance(service, storage, peer);
+          lookup.complete(false);
+          await Future<void>.delayed(Duration.zero);
+          expect(sink.sent, isEmpty);
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
+    for (final acceptedAtRelay in [false, true]) {
+      test('retired deposit does not settle a replacement native=$native '
+          'old deposit succeeded=$acceptedAtRelay', () async {
+        final storage = await _openStore(native);
+        final wire = _Wire(), sink = _Sink(), peer = _id(2);
+        final entered = Completer<void>(), held = Completer<void>();
+        sink.onStash = () {
+          sink.onStash = null;
+          entered.complete();
+          return held.future;
+        };
+        final service = MessagingService(wire, storage)..attachMailbox(sink);
+        addTearDown(wire.dispose);
+        addTearDown(service.dispose);
+        addTearDown(() {
+          if (!held.isCompleted) held.complete();
+        });
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingIncoming),
+        );
+        final accepting = service.acceptContact(peer);
+        await entered.future;
+        await accepting;
+        await _ackAcceptance(service, storage, peer);
+        await service.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: const WireEnvelope.request('').encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        expect(
+          (await storage.pendingOutboxFrames()).single.frameId,
+          'accept:${peer.hex}',
+        );
+        expect(sink.sent, hasLength(1));
+        if (acceptedAtRelay) {
+          held.complete();
+        } else {
+          held.completeError(StateError('PeerUnresolved'));
+        }
+        await Future<void>.delayed(Duration.zero);
+        await service.debugFlushOutboxFrames();
+        expect(sink.sent.map((env) => env.kind), [
+          WireKind.accept,
+          WireKind.accept,
+        ]);
+      }, skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null);
+    }
+
     for (final source in ['initial-request', 'retry', 'accept', 'outbox']) {
       for (final decision in ['none', 'block', 'block-unblock']) {
         test('mailbox uses current contact consent native=$native '

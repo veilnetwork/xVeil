@@ -184,7 +184,7 @@ class _MessageEditExpiry {
       );
       if (changed) {
         outbox._liveBackoff.remove(_MessagingOutbox._key(peer.hex, frameId));
-        owner._mailboxDelivery.removeStashed(frameId);
+        owner._mailboxDelivery.removeStashed(peer.hex, frameId);
         outbox._pendingSeeded = false;
       }
       // A prior replacement may have committed but failed its scrub. Even

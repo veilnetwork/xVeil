@@ -241,7 +241,7 @@ class _MessagingContacts {
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
-      _owner._mailboxDelivery.removeStashed('accept:${m.src.hex}');
+      _owner._mailboxDelivery.removeStashed(m.src.hex, 'accept:${m.src.hex}');
       await _queueAcceptance(m.src);
       return true;
     }
@@ -310,7 +310,10 @@ class _MessagingContacts {
     if (consent?.contact?.status == ContactStatus.accepted) {
       // Acceptance may have won while discovery waited. Preserve the normal
       // accepted re-request response, without importing its unverified body.
-      _owner._mailboxDelivery.removeStashed('accept:${message.src.hex}');
+      _owner._mailboxDelivery.removeStashed(
+        message.src.hex,
+        'accept:${message.src.hex}',
+      );
       await _queueAcceptance(message.src);
       return true;
     }
@@ -590,7 +593,7 @@ class _MessagingContacts {
     // Same order as [sendRequest], and for a sharper reason: this method is
     // what a person reaches for when the request did not get through, so the
     // peer it addresses is the one already known not to be answering.
-    _owner._mailboxDelivery.removeStashed(frameId);
+    _owner._mailboxDelivery.removeStashed(dst.hex, frameId);
     // The relay keeps the first blob stored under (recipient, contentId).
     // Reusing the original deposit id would report success while leaving a
     // ciphertext the recipient could not open in place. Keep the wire id for
@@ -606,7 +609,7 @@ class _MessagingContacts {
     final deposited = await deposit;
     // The outbox tracks the logical frame, not this manual attempt key.
     // Drop the attempt bookkeeping and remember its successful deposit below.
-    _owner._mailboxDelivery.removeStashed(depositId);
+    _owner._mailboxDelivery.removeStashed(dst.hex, depositId);
     if (!isCurrent()) return deposited;
     if (deposited) _owner._mailboxDelivery.rememberDeposited(frameId);
     // A direct copy may still arrive after a failed deposit. Keep the greeting
