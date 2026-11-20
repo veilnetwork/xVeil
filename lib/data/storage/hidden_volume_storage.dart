@@ -6941,17 +6941,33 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> acceptContactAndEnqueue(
+  Future<bool> acceptContactAndEnqueue(
     NodeId peer,
     String frameId,
     Uint8List wire,
   ) {
     final record = _ownedOutboxRecord(frameId, peer.hex, wire);
-    return _trackLogWrite(
-      (store) => _outboxSerialized(
+    return _trackLogWrite((store) {
+      final floorKey = _sk('$_contactFloorPrefix${peer.hex}');
+      // Observe the decision in contact order before waiting for the Outbox.
+      // Release that lane before joining the combined write, whose lock order
+      // stays Outbox then contact.
+      final admittedFloor = _contactSerialized(
+        () => store.get(Ns.settings, floorKey),
+      );
+      return _outboxSerialized(
         () => _contactSerialized(() async {
           if (!identical(store, _store)) {
             throw StateError('acceptance storage session changed');
+          }
+          final before = await admittedFloor;
+          final current = await store.get(Ns.settings, floorKey);
+          final existing = await getContact(peer);
+          if (before == null
+              ? current != null
+              : !_bytesEqual(current, before)) {
+            if (existing?.status == ContactStatus.accepted) return false;
+            throw const ContactAcceptanceSuperseded();
           }
           if (!await _ensureOutboxLoadedCritical()) {
             throw StateError('durable outbox could not be loaded');
@@ -6962,7 +6978,6 @@ class HiddenVolumeStorage
                   !_bytesEqual(held.frame.wire, record.frame.wire))) {
             throw StateError('conflicting durable acceptance frame');
           }
-          final existing = await getContact(peer);
           final contact = (existing ?? Contact(nodeId: peer)).copyWith(
             status: ContactStatus.accepted,
           );
@@ -6984,7 +6999,7 @@ class HiddenVolumeStorage
           try {
             if (held != null) {
               if (ops.isNotEmpty) await store.commit(ops);
-              return;
+              return true;
             }
             final persisted = await _persistOutboxPayloadsCritical(store, [
               record,
@@ -6992,6 +7007,7 @@ class HiddenVolumeStorage
             for (final item in persisted) {
               _outboxById[item.frame.frameId] = item;
             }
+            return true;
           } catch (error, stack) {
             // A lost reply may follow the full commit. Verify every promised
             // effect while still holding both lanes before publishing consent.
@@ -7013,14 +7029,11 @@ class HiddenVolumeStorage
                       decision,
                     ) &&
                     _bytesEqual(
-                      await store.get(
-                        Ns.settings,
-                        _sk('$_contactFloorPrefix${peer.hex}'),
-                      ),
+                      await store.get(Ns.settings, floorKey),
                       decision,
                     ) &&
                     (await _contactIndex()).contains(peer.hex)) {
-                  return;
+                  return true;
                 }
               }
             } catch (_) {
@@ -7029,8 +7042,8 @@ class HiddenVolumeStorage
             Error.throwWithStackTrace(error, stack);
           }
         }),
-      ),
-    );
+      );
+    });
   }
 
   @override

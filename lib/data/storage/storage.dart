@@ -45,6 +45,14 @@ class PendingContactDecision {
   final String token;
 }
 
+/// A newer relationship decision took effect while acceptance was queued.
+final class ContactAcceptanceSuperseded implements Exception {
+  const ContactAcceptanceSuperseded();
+
+  @override
+  String toString() => 'Contact decision changed before acceptance';
+}
+
 /// An immutable preference snapshot not yet handed to the device journal.
 class PendingContactPreferences {
   const PendingContactPreferences({
@@ -213,7 +221,9 @@ abstract interface class Storage {
   /// transaction. Preserve the contact's other current fields and the age of
   /// an identical pending frame. A lost commit reply may leave both durable;
   /// an uncommitted failure must not publish only the accepted status.
-  Future<void> acceptContactAndEnqueue(
+  /// False means a newer decision already accepted the contact. A newer
+  /// refusal throws [ContactAcceptanceSuperseded].
+  Future<bool> acceptContactAndEnqueue(
     NodeId peer,
     String frameId,
     Uint8List wire,

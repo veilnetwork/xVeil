@@ -705,7 +705,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _accept() => _messaging.acceptContact(_peer);
+  Future<void> _accept() async {
+    try {
+      await _messaging.acceptContact(_peer);
+    } on ContactAcceptanceSuperseded {
+      // The contact stream already reflects the newer decision.
+    }
+  }
 
   Future<void> _block() async {
     await _messaging.blockContact(_peer);
