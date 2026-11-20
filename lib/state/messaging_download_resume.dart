@@ -63,6 +63,7 @@ class _MessagingDownloadResume {
   // A stale continuation may close its own sink, never retire a newer slot.
   final Map<String, Object> _inFlight = {};
   final Map<String, Object> _preparations = {};
+  final Map<String, Completer<void>> _cancellations = {};
   final Set<String> _parked = {};
   final Set<String> _persistedManifests = {};
   final Map<String, int> _activePullCount = {};
@@ -87,6 +88,7 @@ class _MessagingDownloadResume {
 
   /// Replace suspended preparation and manifest waits before choosing a new sink.
   void beginUserRequest(String contentId) {
+    _cancellations.remove(contentId);
     _inFlight.remove(contentId);
     _preparations.remove(contentId);
     _owner._contentAvailability.cancelReoffers(contentId);
@@ -122,6 +124,16 @@ class _MessagingDownloadResume {
   }
 
   Future<String?> cancel(String contentId) async {
+    final pendingCancellation = _cancellations[contentId];
+    if (pendingCancellation != null) {
+      await pendingCancellation.future;
+      return null; // the first caller owns any partial destination
+    }
+    final cancellation = Completer<void>();
+    _cancellations[contentId] = cancellation;
+    bool isCurrent() =>
+        !_owner._disposed && identical(_cancellations[contentId], cancellation);
+
     _inFlight.remove(contentId);
     _preparations.remove(contentId);
     _owner._cancelledDownloads.add(contentId);
@@ -132,27 +144,40 @@ class _MessagingDownloadResume {
     final fetch = _owner._contentFetching.take(contentId);
 
     final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
-    await _owner._contentStreams.abortPulls(contentId);
+    Future<void> closeCancelledPulls() async {
+      await _owner._contentStreams.abortPulls(contentId);
+      // Give outstanding reads time to observe cancellation. If the user
+      // starts over, only close sinks captured by this cancellation.
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (isCurrent() &&
+          (_activePullCount[contentId] ?? 0) > 0 &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      for (final sink in sinks) {
+        try {
+          await sink.close();
+        } catch (_) {}
+      }
+    }
 
-    // Wait briefly for native reads to observe the cancellation latch before
-    // an immediate re-tap is allowed to start a new transfer.
-    final deadline = DateTime.now().add(const Duration(seconds: 2));
-    while (((_activePullCount[contentId] ?? 0) > 0 ||
-            _inFlight.containsKey(contentId)) &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+    try {
+      // Enqueue the removal before any later request can enqueue its write.
+      await Future.wait([_removePending(contentId), closeCancelledPulls()]);
+      // The UI can delete a returned path. A newer attempt may have reused it
+      // even if its transfer has already completed.
+      if (!isCurrent()) return null;
+      if (!_owner._contentCancelled.isClosed) {
+        _owner._contentCancelled.add(contentId);
+      }
+      _owner._signal();
+      return savedPath;
+    } finally {
+      if (identical(_cancellations[contentId], cancellation)) {
+        _cancellations.remove(contentId);
+      }
+      cancellation.complete();
     }
-    for (final sink in sinks) {
-      try {
-        await sink.close();
-      } catch (_) {}
-    }
-    await _removePending(contentId);
-    if (!_owner._contentCancelled.isClosed) {
-      _owner._contentCancelled.add(contentId);
-    }
-    _owner._signal();
-    return savedPath;
   }
 
   Future<int> clearPending() async {

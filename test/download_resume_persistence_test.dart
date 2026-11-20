@@ -564,6 +564,64 @@ void main() {
     );
   });
 
+  for (final samePath in [true, false]) {
+    test('old cancellation preserves a replacement download '
+        '(same path=$samePath)', () async {
+      final contentId = cid(101);
+      const oldPath = '/virtual/cancel-old.bin';
+      final newPath = samePath ? oldPath : '/virtual/cancel-new.bin';
+      final enteredClose = Completer<void>();
+      final releaseClose = Completer<void>();
+      final cancellations = <String>[];
+      final subscription = service.contentDownloadCancelled.listen(
+        cancellations.add,
+      );
+      addTearDown(subscription.cancel);
+      var newCloses = 0;
+      expect(
+        await service.downloadContentToFile(
+          peer,
+          contentId,
+          oldPath,
+          write: (_, _) async => fail('no source supplied content'),
+          close: () async {
+            enteredClose.complete();
+            await releaseClose.future;
+          },
+        ),
+        ContentDownloadResult.requestedReoffer,
+      );
+
+      final cancellation = service.cancelContentDownload(contentId);
+      try {
+        await enteredClose.future;
+        expect(
+          await service.downloadContentToFile(
+            peer,
+            contentId,
+            newPath,
+            write: (_, _) async => fail('no source supplied content'),
+            close: () async => newCloses++,
+          ),
+          ContentDownloadResult.requestedReoffer,
+        );
+      } finally {
+        releaseClose.complete();
+      }
+      final pathToDelete = await cancellation;
+      await pumpEventQueue();
+      final entries = jsonDecode(utf8.decode((await s.loadFile(registry))!));
+      expect(entries, hasLength(1));
+      expect(entries.single['path'], newPath);
+      expect(pathToDelete, isNull);
+      expect(cancellations, isEmpty);
+      expect(newCloses, 0);
+      await restart();
+      expect(await service.pendingAutoResumeContentIds(), [contentId]);
+      expect(newCloses, 1);
+    });
+  }
+
   test(
     'cancel during a held intent write cannot start a late plaintext pull',
     () async {
