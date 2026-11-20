@@ -364,16 +364,22 @@ class _MessagingMessageDelivery {
 
   Future<void> _retryConversation(Conversation conversation) async {
     final peer = conversation.peer.nodeId;
+    final consent = _owner._realtimeControl;
+    final epoch = await consent._acceptedContactEpoch(peer);
+    bool isCurrent() =>
+        !_owner.backgroundStashPaused && consent._consentCurrent(peer, epoch);
+    if (!isCurrent()) return;
     _owner._sendSyncBestEffort(peer);
     final cutoff = await _owner.disappearingCutoffOf(peer);
-    if (_owner._disposed) return;
+    if (!isCurrent()) return;
     final messages = [
       for (final message in await _owner._storage.loadMessages(conversation.id))
         if (cutoff == null || message.timestamp.isAfter(cutoff)) message,
     ];
-    if (_owner._disposed || _owner.backgroundStashPaused) return;
+    if (!isCurrent()) return;
     // Runs before unresolved-peer backoff so dead identities still terminate.
-    final failed = await _maybeReconnect(peer, messages);
+    final failed = await _maybeReconnect(peer, messages, isCurrent: isCurrent);
+    if (!isCurrent()) return;
     final retryable = {
       for (final message in messages)
         if (message.direction == MessageDirection.outgoing &&
@@ -388,13 +394,9 @@ class _MessagingMessageDelivery {
     _retryBackoff.removeWhere(
       (id, value) => value.peer == peer.hex && !retryable.contains(id),
     );
-    if (_owner._disposed ||
-        _owner.backgroundStashPaused ||
-        _activeMessageSends.containsKey(peer.hex)) {
-      return;
-    }
+    if (_activeMessageSends.containsKey(peer.hex)) return;
     for (final message in messages) {
-      if (_owner._disposed || _owner.backgroundStashPaused) return;
+      if (!isCurrent()) return;
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
@@ -414,20 +416,11 @@ class _MessagingMessageDelivery {
         continue;
       }
 
-      if (_owner._disposed || _owner.backgroundStashPaused) return;
+      if (!isCurrent()) return;
       if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
       if (!await _canRetry(peer, message)) continue;
-
-      final count = (backoff?.count ?? 0) + 1;
-      // Clamp the shift: an unbounded count eventually wraps the delay to 0.
-      final delayMs =
-          (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
-              .clamp(0, _maxRetryBackoff.inMilliseconds);
-      _retryBackoff[message.id] = (
-        count: count,
-        nextAt: now.add(Duration(milliseconds: delayMs)),
-        peer: peer.hex,
-      );
+      if (!isCurrent()) return;
+      if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
 
       // A file message re-drives its OFFER — the manifest naming the content,
       // the same frame the original send built and deposited. The bytes are
@@ -439,11 +432,6 @@ class _MessagingMessageDelivery {
       //
       // Preserve the original timestamp and author sequence so retry and
       // gap-fill fold into the same convergent event on the recipient.
-      diagnosticJournal.record(
-        DiagnosticEvent.messageRetry,
-        values: {DiagnosticMetric.attempt: count},
-        minInterval: const Duration(seconds: 1),
-      );
       final Uint8List wire;
       if (message.isFile) {
         final offer = await _owner._fileOfferRetryFrame(message);
@@ -471,25 +459,56 @@ class _MessagingMessageDelivery {
                       ))
                 .encode();
       }
-      devLog(
-        () =>
-            'xVeil[timeline]: retry id=${message.id} '
-            't=${DateTime.now().millisecondsSinceEpoch}',
-      );
       // Only the initial send creates a one-shot reply circuit. Retrying that
       // setup every three seconds was the dominant circuit-build load.
       // Bound this live retry so one unreachable peer does not hold every
       // later conversation's retry behind its dial.
-      if (_owner._disposed || _owner.backgroundStashPaused) return;
+      if (!isCurrent()) return;
+      if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
+      var admitted = false;
+      bool admitTransport() {
+        if (!isCurrent() || _hasDeliveryReceipt(peer.hex, message.id)) {
+          return false;
+        }
+        if (!admitted) {
+          // Ratchet persistence can wait. Start backoff only when transport
+          // can take the retry, once even for a fragmented message.
+          admitted = true;
+          final count = (backoff?.count ?? 0) + 1;
+          final delayMs =
+              (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+                  .clamp(0, _maxRetryBackoff.inMilliseconds);
+          final now = DateTime.now();
+          _retryBackoff[message.id] = (
+            count: count,
+            nextAt: now.add(Duration(milliseconds: delayMs)),
+            peer: peer.hex,
+          );
+          diagnosticJournal.record(
+            DiagnosticEvent.messageRetry,
+            values: {DiagnosticMetric.attempt: count},
+            minInterval: const Duration(seconds: 1),
+          );
+          devLog(
+            () =>
+                'xVeil[timeline]: retry id=${message.id} '
+                't=${now.millisecondsSinceEpoch}',
+          );
+        }
+        return true;
+      }
+
       final lease = Object();
       _activeMessageSends[peer.hex] = lease;
       var settled = false;
-      final live = _owner._send(peer, wire).whenComplete(() {
-        settled = true;
-        if (identical(_activeMessageSends[peer.hex], lease)) {
-          _activeMessageSends.remove(peer.hex);
-        }
-      });
+      final live = _owner
+          ._send(peer, wire, admitTransport: admitTransport)
+          .whenComplete(() {
+            settled = true;
+            if (identical(_activeMessageSends[peer.hex], lease)) {
+              _activeMessageSends.remove(peer.hex);
+            }
+          });
       await _owner._outbox.boundedLiveLeg(live);
       // A deadline stops waiting, not the transport. Do not stack the next
       // message or a later pass on this contact until the actual send settles.
@@ -509,14 +528,15 @@ class _MessagingMessageDelivery {
   /// its own terminal deadline so new traffic cannot keep stale work alive.
   Future<Set<String>> _maybeReconnect(
     NodeId peer,
-    List<Message> messages,
-  ) async {
+    List<Message> messages, {
+    required bool Function() isCurrent,
+  }) async {
     final now = _owner._now();
     var failedAny = false;
     final failed = <String>{};
     var anyTrying = false;
     for (final message in messages) {
-      if (_owner._disposed) break;
+      if (!isCurrent()) break;
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
@@ -537,7 +557,7 @@ class _MessagingMessageDelivery {
       }
     }
     if (failedAny) _owner._signal();
-    if (_owner._disposed) return failed;
+    if (!isCurrent()) return failed;
 
     final reconnectFrameId = 'reconnect:${peer.hex}';
     if (!anyTrying) {
@@ -557,6 +577,7 @@ class _MessagingMessageDelivery {
       peer,
       reconnectFrameId,
       const WireEnvelope.reconnect(''),
+      liveSender: (wire) => _owner._send(peer, wire, admitTransport: isCurrent),
     );
     devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
     return failed;

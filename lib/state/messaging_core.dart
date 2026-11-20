@@ -1047,6 +1047,8 @@ class MessagingService {
   /// not a reused circuit).
   /// [cancelOnDispose] lets inline device notices stop before transport
   /// admission if their session closes during ratchet preparation.
+  /// [admitTransport] runs synchronously after ratchet preparation, once per
+  /// carrier. Returning false leaves the payload with the caller's queue.
   Future<void> _send(
     NodeId dst,
     Uint8List payload, {
@@ -1055,6 +1057,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    bool Function()? admitTransport,
   }) async {
     if (cancelOnDispose && _disposed) {
       throw StateError('messaging is disposing');
@@ -1074,22 +1077,10 @@ class MessagingService {
         wantReply: wantReply,
         requireIdentityAddress: requireIdentityAddress,
         background: background,
+        admitTransport: admitTransport,
       );
     }
     if (!kDiagnosticReportEnabled) {
-      return _sendImpl(
-        dst,
-        payload,
-        wantReply: wantReply,
-        deferRatchetWrite: deferRatchetWrite,
-        requireIdentityAddress: requireIdentityAddress,
-        background: background,
-        cancelOnDispose: cancelOnDispose,
-      );
-    }
-    final clock = Stopwatch()..start();
-    var success = false;
-    try {
       await _sendImpl(
         dst,
         payload,
@@ -1098,8 +1089,24 @@ class MessagingService {
         requireIdentityAddress: requireIdentityAddress,
         background: background,
         cancelOnDispose: cancelOnDispose,
+        admitTransport: admitTransport,
       );
-      success = true;
+      return;
+    }
+    final clock = Stopwatch()..start();
+    var success = false;
+    var admitted = true;
+    try {
+      success = admitted = await _sendImpl(
+        dst,
+        payload,
+        wantReply: wantReply,
+        deferRatchetWrite: deferRatchetWrite,
+        requireIdentityAddress: requireIdentityAddress,
+        background: background,
+        cancelOnDispose: cancelOnDispose,
+        admitTransport: admitTransport,
+      );
     } catch (error, stack) {
       errorJournal.record(
         kind: 'transport-send',
@@ -1109,22 +1116,24 @@ class MessagingService {
       );
       rethrow;
     } finally {
-      diagnosticJournal.record(
-        success
-            ? DiagnosticEvent.transportSent
-            : DiagnosticEvent.transportFailed,
-        values: {
-          DiagnosticMetric.durationMs: clock.elapsedMilliseconds,
-          DiagnosticMetric.anonymous: _anonymous ? 1 : 0,
-          DiagnosticMetric.background: background ? 1 : 0,
-          DiagnosticMetric.wantReply: wantReply ? 1 : 0,
-        },
-        minInterval: const Duration(seconds: 1),
-      );
+      if (admitted) {
+        diagnosticJournal.record(
+          success
+              ? DiagnosticEvent.transportSent
+              : DiagnosticEvent.transportFailed,
+          values: {
+            DiagnosticMetric.durationMs: clock.elapsedMilliseconds,
+            DiagnosticMetric.anonymous: _anonymous ? 1 : 0,
+            DiagnosticMetric.background: background ? 1 : 0,
+            DiagnosticMetric.wantReply: wantReply ? 1 : 0,
+          },
+          minInterval: const Duration(seconds: 1),
+        );
+      }
     }
   }
 
-  Future<void> _sendImpl(
+  Future<bool> _sendImpl(
     NodeId dst,
     Uint8List payload, {
     bool wantReply = false,
@@ -1132,6 +1141,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    bool Function()? admitTransport,
   }) async {
     devLog(
       () =>
@@ -1221,6 +1231,7 @@ class MessagingService {
     if (cancelOnDispose && _disposed) {
       throw StateError('messaging is disposing');
     }
+    if (admitTransport?.call() == false) return false;
     final sw = Stopwatch()..start();
     final sourceTransport = _transport;
     if (background && !wantReply && sourceTransport is LocalSourceTransport) {
@@ -1261,6 +1272,7 @@ class MessagingService {
             'ratchet ${totalMs - transportMs}ms bytes=${payload.length}',
       );
     }
+    return true;
   }
 
   /// Send a delivery ACK for [id] back to the sender of inbound [m]. When [m]
