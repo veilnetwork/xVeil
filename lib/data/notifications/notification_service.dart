@@ -77,11 +77,13 @@ class NotificationService {
   );
 
   /// Apply presentation policy after queue, startup and clear waits, just
-  /// before handing the post to the OS. [prepare] must be synchronous.
+  /// before handing the post to the OS. [checkPolicy] may read persisted
+  /// preferences. [prepare] must be synchronous.
   Future<bool> showPreparedIfCurrent({
     required bool Function() isCurrent,
     required int id,
     required NotificationPost Function() prepare,
+    Future<bool> Function()? checkPolicy,
   }) {
     final result = (_posts[id] ?? Future<void>.value()).then((_) async {
       if (!isCurrent()) return false;
@@ -93,8 +95,17 @@ class NotificationService {
       // Readiness checked by a caller can precede metadata/queue waits. A
       // global clear requested meanwhile must finish before this post, across
       // every OS id; otherwise a queued clear can erase a fresh accepted alert.
-      await _waitForNativeClears();
-      if (!isCurrent() || _clearWanted) return false;
+      do {
+        await _waitForNativeClears();
+        if (!isCurrent() || _clearWanted) return false;
+        if (checkPolicy != null) {
+          if (!await checkPolicy() || !isCurrent() || _clearWanted) {
+            return false;
+          }
+        }
+        // A clear may have started during the policy read. Wait and read
+        // again before preparing content for the platform.
+      } while (_nativeClear != null);
       final post = prepare();
       try {
         final posted = await show(
