@@ -1632,84 +1632,117 @@ void main() {
       });
     });
 
-    test('a new network admission sends health before the peer times out', () {
-      fakeAsync((async) {
-        const callId = 'reconnect-before-peer-timeout';
-        final remote = snapshotCall(async, callId, () async => null);
-        final network = StreamController<NetworkAttachment>(sync: true);
-        final admissions = StreamController<void>(sync: true);
-        final wire = _FakeMessaging();
-        final media = _CompactHealthMedia()
-          ..openedTransport = CallTransportKind.relay;
-        final local = CallService(
-          wire,
-          media: media,
-          now: () => clock.now(),
-          networkAttachments: network.stream,
-          overlaySessionAdmissions: admissions.stream,
-        )..start();
-        try {
-          wire.onCallSignal!(
-            peer,
-            const CallSignal(
-              callId: callId,
-              type: CallSignalType.offer,
-              media: CallMedia(audio: true),
-              posture: CallPosture.direct,
-              protocolVersion: kCallSignalProtocolVersion,
-            ),
-          );
-          unawaited(local.accept());
-          async.flushMicrotasks();
-          expect(local.current?.status, CallStatus.active);
-          wire.sent.clear();
-          admissions.add(null);
-          expect(wire.sent, isEmpty, reason: 'admission on a steady network');
-          network.add(NetworkAttachment.offline);
-          async.elapse(kCallLivenessTimeout + const Duration(seconds: 4));
-          wire.sent.clear();
-          admissions.add(null);
-          expect(wire.sent, isEmpty, reason: 'notification while offline');
+    for (final (admissionBeforeDispatch, offline) in [
+      (false, true),
+      (true, true),
+      (false, false),
+      (true, false),
+    ]) {
+      test(
+        'a new network admission sends health before the peer times out '
+        '(admission first=$admissionBeforeDispatch, offline=$offline)',
+        () {
+          fakeAsync((async) {
+            const callId = 'reconnect-before-peer-timeout';
+            final remote = snapshotCall(async, callId, () async => null);
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final admissions = StreamController<void>(sync: true);
+            var generation = 0;
+            final wire = _FakeMessaging();
+            final media = _CompactHealthMedia()
+              ..openedTransport = CallTransportKind.relay;
+            final local = CallService(
+              wire,
+              media: media,
+              now: () => clock.now(),
+              networkAttachments: network.stream,
+              overlaySessionAdmissions: admissions.stream,
+              readNetworkChangeGeneration: () => generation,
+            )..start();
+            try {
+              wire.onCallSignal!(
+                peer,
+                const CallSignal(
+                  callId: callId,
+                  type: CallSignalType.offer,
+                  media: CallMedia(audio: true),
+                  posture: CallPosture.direct,
+                  protocolVersion: kCallSignalProtocolVersion,
+                ),
+              );
+              unawaited(local.accept());
+              async.flushMicrotasks();
+              expect(local.current?.status, CallStatus.active);
+              wire.sent.clear();
+              admissions.add(null);
+              expect(wire.sent, isEmpty, reason: 'admission on a steady network');
+              if (offline) {
+                generation++;
+                network.add(NetworkAttachment.offline);
+              }
+              async.elapse(kCallLivenessTimeout + const Duration(seconds: 4));
+              wire.sent.clear();
+              admissions.add(null);
+              expect(wire.sent, isEmpty, reason: 'admission on the old network');
 
-          network.add(NetworkAttachment.cellular);
-          wire.onCallSignal!(
-            peer,
-            const CallSignal(
-              callId: callId,
-              type: CallSignalType.health,
-              sentAtMs: 1,
-              capture: CallMedia(),
-              protocolVersion: kCallSignalProtocolVersion,
-              compactHealthReady: true,
-            ),
-          );
-          expect(wire.sent, isEmpty, reason: 'new attachment before admission');
-          final before = clock.now();
-          admissions.add(null);
-          admissions.add(null);
-          async.flushMicrotasks();
-          expect(clock.now(), before);
-          expect(media.compact, isEmpty, reason: 'old media can be stalled');
-          expect(wire.sent, hasLength(1), reason: 'one live control frame');
-          final health = wire.sent.single;
-          expect(health.type, CallSignalType.health);
-          expect(health.callId, callId);
-          expect(health.sentAtMs, before.millisecondsSinceEpoch);
-          expect(health.mediaRepairRequested, isFalse);
-          remote.wire.onCallSignal!(peer, health);
-          async.elapse(const Duration(seconds: 1));
-          expect(remote.svc.current?.callId, callId);
-          expect(remote.svc.current?.status, CallStatus.active);
-        } finally {
-          local.dispose();
-          remote.svc.dispose();
-          unawaited(network.close());
-          unawaited(admissions.close());
-          unawaited(media.health.close());
-          async.flushMicrotasks();
-        }
-      });
-    });
+              wire.onCallSignal!(
+                peer,
+                const CallSignal(
+                  callId: callId,
+                  type: CallSignalType.health,
+                  sentAtMs: 1,
+                  capture: CallMedia(),
+                  protocolVersion: kCallSignalProtocolVersion,
+                  compactHealthReady: true,
+                ),
+              );
+              // Native dispatch has begun. Its admission and Dart's dispatch
+              // notification arrive independently.
+              generation++;
+              admissions.add(null);
+              expect(wire.sent, isEmpty, reason: 'superseded dispatch');
+              generation++;
+              if (admissionBeforeDispatch) {
+                admissions.add(null);
+                expect(wire.sent, isEmpty, reason: 'dispatch is still pending');
+              }
+              final before = clock.now();
+              network.add(NetworkAttachment.cellular);
+              if (!admissionBeforeDispatch) {
+                expect(
+                  wire.sent,
+                  isEmpty,
+                  reason: 'new attachment before admission',
+                );
+                admissions.add(null);
+              }
+              expect(wire.sent, hasLength(1), reason: 'one live control frame');
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(clock.now(), before);
+              expect(media.compact, isEmpty, reason: 'old media can be stalled');
+              expect(wire.sent, hasLength(1), reason: 'one live control frame');
+              final health = wire.sent.single;
+              expect(health.type, CallSignalType.health);
+              expect(health.callId, callId);
+              expect(health.sentAtMs, before.millisecondsSinceEpoch);
+              expect(health.mediaRepairRequested, isFalse);
+              remote.wire.onCallSignal!(peer, health);
+              async.elapse(const Duration(seconds: 1));
+              expect(remote.svc.current?.callId, callId);
+              expect(remote.svc.current?.status, CallStatus.active);
+            } finally {
+              local.dispose();
+              remote.svc.dispose();
+              unawaited(network.close());
+              unawaited(admissions.close());
+              unawaited(media.health.close());
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
 
     test(
       'native liveness rechecks a signal received while its snapshot waits',
