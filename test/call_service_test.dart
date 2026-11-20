@@ -5775,6 +5775,63 @@ void main() {
       });
     });
 
+    for (final admission in [false, true, null]) {
+      test(
+        'closed direct session can advance one relay retry ($admission)',
+        () {
+          fakeAsync((async) {
+            final fake = _FakeMessaging();
+            final firstCandidate = Completer<bool>();
+            final media = _ReconnectRelayMedia()
+              ..liveDirectAdmission = false
+              ..firstAttempt = firstCandidate;
+            final svc = CallService(
+              fake,
+              now: () => clock.now(),
+              media: media,
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+            )..start();
+            try {
+              fake.onCallSignal!(
+                peer,
+                offer('confirmed-direct-loss').copyWith(
+                  transport: const CallTransportProposal(CallTransportKind.p2p),
+                ),
+              );
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              media.rxAt = clock.now();
+              async.elapse(kCallDirectSessionSilence);
+              expect(media.switches, [CallTransportKind.relay]);
+
+              async.elapse(const Duration(milliseconds: 1800));
+              firstCandidate.complete(false);
+              media.liveDirectAdmission = admission;
+              async.flushMicrotasks();
+              async.elapse(const Duration(milliseconds: 1199));
+              expect(media.switches, hasLength(1));
+              async.elapse(const Duration(milliseconds: 1));
+              expect(media.switches, hasLength(admission == false ? 2 : 1));
+              expect(svc.current?.transport, CallTransportKind.p2p);
+
+              final remaining = admission == false ? 5000 : 3800;
+              async.elapse(Duration(milliseconds: remaining - 1));
+              expect(media.switches, hasLength(admission == false ? 2 : 1));
+              media.proven = true;
+              async.elapse(const Duration(milliseconds: 1));
+              expect(media.switches, hasLength(admission == false ? 3 : 2));
+              expect(svc.current?.transport, CallTransportKind.relay);
+            } finally {
+              svc.dispose();
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     for (final readyDuringWake in [false, true]) {
       test('an early reconnect wake preserves the handover deadline '
           '(proved relay during wake: $readyDuringWake)', () {

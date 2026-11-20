@@ -317,6 +317,8 @@ abstract class CallMediaController {
 
 enum _PeerRelayWake { available, requested, used }
 
+enum _RelayRetryTrigger { overlay, timer, closedDirect }
+
 /// The call-session state machine (control plane). One active call at a time.
 /// Subscribes to [MessagingService.onCallSignal] for inbound offers/answers/…
 /// and sends outbound signals via [MessagingService.sendCallSignal]. Media is
@@ -600,9 +602,11 @@ class CallService {
   })?
   _relayFallbackFlight;
   bool get _relayRebuildInProgress =>
-      _relayRebuildAdmission != null || _relayFallbackFlight?.rebuilding == true;
+      _relayRebuildAdmission != null ||
+      _relayFallbackFlight?.rebuilding == true;
   ({
     String callId,
+    DateTime failedAt,
     DateTime until,
     DateTime? handoverRecoveryAt,
     ({DateTime until, Completer<void> released})? handoverLiveness,
@@ -610,6 +614,7 @@ class CallService {
   _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
   var _peerRelayWake = _PeerRelayWake.available;
+  bool _closedDirectRetrySpent = false;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
   // temporary route failure changes the active transport. A direct posture
@@ -631,6 +636,7 @@ class CallService {
     _cancelRelayCandidateRetry();
     _relayFallbackFlight = null;
     _peerRelayWake = _PeerRelayWake.available;
+    _closedDirectRetrySpent = false;
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
@@ -941,7 +947,11 @@ class CallService {
         } else if (_relayCandidateRetryTimer == null) {
           // The timer may have expired during the outage. Keep its retry for
           // this call and do not advance a deadline that is still pending.
-          _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
+          _wakeDeferredRelay(
+            call.peer,
+            call.callId,
+            trigger: _RelayRetryTrigger.timer,
+          );
         }
       }
       final relay = call.transport == CallTransportKind.relay;
@@ -2416,14 +2426,14 @@ class CallService {
     NodeId peer,
     String callId,
     Duration delay, {
-    bool fromOverlay = false,
+    _RelayRetryTrigger trigger = _RelayRetryTrigger.timer,
   }) {
     _relayCandidateRetryTimer?.cancel();
     late final Timer timer;
     timer = Timer(delay, () {
       if (!identical(_relayCandidateRetryTimer, timer)) return;
       _relayCandidateRetryTimer = null;
-      _wakeDeferredRelay(peer, callId, fromOverlay: fromOverlay);
+      _wakeDeferredRelay(peer, callId, trigger: trigger);
     });
     _relayCandidateRetryTimer = timer;
   }
@@ -2431,7 +2441,7 @@ class CallService {
   void _wakeDeferredRelay(
     NodeId peer,
     String callId, {
-    bool fromOverlay = true,
+    _RelayRetryTrigger trigger = _RelayRetryTrigger.overlay,
   }) {
     final retry = _relayCandidateRetry;
     if (retry == null || retry.callId != callId) return;
@@ -2455,7 +2465,7 @@ class CallService {
         peer,
         callId,
         const Duration(seconds: 1),
-        fromOverlay: fromOverlay,
+        trigger: trigger,
       );
       return;
     }
@@ -2474,11 +2484,14 @@ class CallService {
       _peerRelayWake = _PeerRelayWake.used;
       devLog(() => 'xVeil[call-media]: peer on relay; retrying deferred relay');
     } else {
-      devLog(
-        () => fromOverlay
-            ? 'xVeil[call-media]: overlay reconnected; retrying deferred relay'
-            : 'xVeil[call-media]: deferred relay retry deadline reached',
-      );
+      devLog(() => switch (trigger) {
+        _RelayRetryTrigger.overlay =>
+          'xVeil[call-media]: overlay reconnected; retrying deferred relay',
+        _RelayRetryTrigger.timer =>
+          'xVeil[call-media]: deferred relay retry deadline reached',
+        _RelayRetryTrigger.closedDirect =>
+          'xVeil[call-media]: closed direct session woke relay retry',
+      });
     }
     unawaited(_followRelayFallback(peer, callId, retryBy: retryBy));
   }
@@ -2662,6 +2675,7 @@ class CallService {
       };
       _relayCandidateRetry = (
         callId: callId,
+        failedAt: now,
         until: now.add(delay),
         handoverRecoveryAt: retryBy,
         handoverLiveness: network == _overlayAdmissionNetwork
@@ -2978,7 +2992,20 @@ class CallService {
       return current;
     }
 
-    if (_establishedAudioReceiveStalled(call)) {
+    final retry = _relayCandidateRetry;
+    // The endpoint switching networks already retries on its own admission.
+    // The far endpoint can have the same relay sessions throughout.
+    final canAdvanceRetry =
+        !early &&
+        networkChangedAt == null &&
+        !_closedDirectRetrySpent &&
+        retry != null &&
+        retry.callId == call.callId &&
+        retry.handoverLiveness == null &&
+        _now().isBefore(retry.until) &&
+        _now().difference(retry.failedAt) >= _mediaWatchdogInterval;
+
+    if (!canAdvanceRetry && _establishedAudioReceiveStalled(call)) {
       _mediaWatchdogCheckBusy = true;
       DateTime? latestRxAt;
       try {
@@ -3065,6 +3092,18 @@ class CallService {
     if (admitted != false ||
         current == null ||
         (early ? !sameHandover() : !_directSessionSilent(current))) {
+      return;
+    }
+    if (canAdvanceRetry && _relayCandidateRetry == retry) {
+      // A fresh registry result confirms that the direct sender is gone.
+      // Try the retained relay once before the regular retry deadline. The
+      // existing sealed peer probe still decides whether it can take over.
+      _closedDirectRetrySpent = true;
+      _wakeDeferredRelay(
+        current.peer,
+        current.callId,
+        trigger: _RelayRetryTrigger.closedDirect,
+      );
       return;
     }
     devLog(
@@ -3945,6 +3984,7 @@ class CallService {
     }
     if (_current?.transport != call.transport) {
       _peerRelayWake = _PeerRelayWake.available;
+      _closedDirectRetrySpent = false;
       _localNetworkHandoverAt = null;
       _relayHandover =
           _current?.callId == call.callId &&
