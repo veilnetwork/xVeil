@@ -159,6 +159,56 @@ void main() {
     });
   }
 
+  for (final invalid in ['bad/profile', 27, '']) {
+    test('invalid legacy profile choice ($invalid)', () async {
+      const key = 'flutter.${AppProfiles.activePref}';
+      final old = {key: invalid, 'flutter.locale': 'ru'};
+      legacy = InMemorySharedPreferencesStore.withData(old);
+      SharedPreferencesStorePlatform.instance = legacy;
+      final saved = contents();
+
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ProfileChoiceReadFailure>()
+              .having((e) => e.fromLegacy, 'legacy source', isTrue)
+              .having((e) => e.diagnosticCode, 'malformed choice', 4),
+        ),
+      );
+      expect(files, isEmpty);
+      expect(contents(), saved);
+      expect(await legacy.getAll(), old);
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+
+      expect(await legacy.setValue('String', key, ' Owner '), isTrue);
+      expect(await install(), 'owner');
+      expect(await readRememberedProfile(support.path), 'owner');
+    });
+  }
+
+  for (final choice in ['saved', 'explicit']) {
+    test('$choice profile retains a malformed legacy choice', () async {
+      const key = 'flutter.${AppProfiles.activePref}';
+      const old = {key: 'bad/profile', 'flutter.locale.selected': 'de'};
+      legacy = InMemorySharedPreferencesStore.withData(old);
+      SharedPreferencesStorePlatform.instance = legacy;
+      final args = choice == 'explicit' ? ['--profile', 'selected'] : <String>[];
+      if (choice == 'saved') {
+        expect(await writeRememberedProfile(support.path, 'selected'), isTrue);
+      }
+      expect(await install(args: args), 'selected');
+      expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+        'flutter.locale': 'de',
+      });
+      expect(await legacy.getAll(), {key: 'bad/profile'});
+      expect(File(prefs()).existsSync(), isFalse);
+      expect(
+        await readRememberedProfile(support.path),
+        choice == 'saved' ? 'selected' : isNull,
+      );
+    });
+  }
+
   for (final legacyRead in ['cleared', 'stale', 'refused']) {
     test(
       'startup sees a choice saved during a $legacyRead legacy read',
