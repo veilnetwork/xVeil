@@ -1249,9 +1249,18 @@ class CallService {
         c.status != CallStatus.ringing) {
       return;
     }
-    _cancelRingTimeout();
-    final peerProposedP2P = c.transport == CallTransportKind.p2p;
-    final localAllowsP2P = await _localAllowsP2P(c.peer);
+    // Only a possible direct path needs peer-specific P2P consent. Keep
+    // ringing bounded while that policy reads the contact or device record.
+    var transport = negotiateCallTransport(
+      local: c.localPosture,
+      peer: c.peerPosture ?? CallPosture.anonymous,
+      localConsentsP2P: true,
+      peerConsentsP2P: c.transport == CallTransportKind.p2p,
+      peerReachable: true,
+    );
+    if (transport == CallTransportKind.p2p && !await _localAllowsP2P(c.peer)) {
+      transport = CallTransportKind.relay;
+    }
     final current = _current;
     if (current == null ||
         current.callId != c.callId ||
@@ -1259,17 +1268,11 @@ class CallService {
         current.status != CallStatus.ringing) {
       return;
     }
+    _cancelRingTimeout();
     _directSessionUnavailable = false;
     // Like the offer, the answer expresses policy consent. Actual admission
     // is checked by the native channel opener, which fails fast to the
     // permitted relay fallback. Do not hold the answer for a full NAT ladder.
-    final transport = negotiateCallTransport(
-      local: c.localPosture,
-      peer: c.peerPosture ?? CallPosture.anonymous,
-      localConsentsP2P: localAllowsP2P,
-      peerConsentsP2P: peerProposedP2P,
-      peerReachable: true,
-    );
     _lateP2PConsent = transport == CallTransportKind.p2p;
     _set(
       c.copyWith(

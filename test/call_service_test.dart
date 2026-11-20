@@ -1494,6 +1494,83 @@ void main() {
       expect(media.startedWith, [CallTransportKind.p2p]);
     });
 
+    for (final (posture, proposal, expected) in [
+      (CallPosture.direct, CallTransportKind.relay, CallTransportKind.relay),
+      (CallPosture.anonymous, CallTransportKind.p2p, CallTransportKind.onion),
+    ]) {
+      test('incoming ${expected.name} answer bypasses P2P policy lookup', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final policy = Completer<bool>();
+          final svc = CallService(
+            fake,
+            localAllowsP2P: (_) => policy.future,
+          )..start();
+          try {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'answer-without-p2p',
+                type: CallSignalType.offer,
+                posture: posture,
+                transport: CallTransportProposal(proposal),
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+
+            final answer = fake.sent.single;
+            expect(answer.type, CallSignalType.answer);
+            expect(answer.transport?.kind, expected);
+            expect(policy.isCompleted, isFalse);
+          } finally {
+            svc.dispose();
+            policy.complete(false);
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
+    test('an unresolved P2P policy cannot extend incoming ring timeout', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final policy = Completer<bool>();
+        final svc = CallService(
+          fake,
+          localAllowsP2P: (_) => policy.future,
+        )..start();
+        try {
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'pending-p2p-policy',
+              type: CallSignalType.offer,
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.ringing);
+          expect(fake.sent, isEmpty);
+
+          async.elapse(kCallRingTimeout);
+
+          expect(fake.sent.single.type, CallSignalType.reject);
+          expect(fake.sent.single.reason, CallEndReason.timeout);
+          expect(svc.current?.isLive, isNot(true));
+          policy.complete(true);
+          async.flushMicrotasks();
+          expect(fake.sent, hasLength(1));
+        } finally {
+          svc.dispose();
+          if (!policy.isCompleted) policy.complete(false);
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     test(
       'incoming answer does not wait for NAT and announces actual relay fallback',
       () {
@@ -11322,6 +11399,7 @@ void main() {
           type: CallSignalType.offer,
           media: const CallMedia(audio: true),
           posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.p2p),
           protocolVersion: kCallSignalProtocolVersion,
           sentAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
