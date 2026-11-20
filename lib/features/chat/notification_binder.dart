@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/widgets.dart';
@@ -41,6 +42,12 @@ typedef _MessageAlertCandidate = ({
 });
 
 enum _MessageAlertOutcome { skipped, rejectedByPolicy, submitted }
+
+typedef _QueuedMessageAlert = ({
+  _MessageAlertAttempt attempt,
+  Future<_MessageAlertOutcome> Function() submit,
+  Completer<_MessageAlertOutcome> completion,
+});
 
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
 /// OS notifications, applying the privacy + lifecycle policy. A widget (not a
@@ -106,7 +113,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   int _groupNotificationGeneration = 0;
   final _groupAlertWaits = <VoidCallback>{};
   int _notificationSequence = 0;
-  int _latestEligibleSequence = 0;
+  int _latestSubmittedSequence = 0;
+  final _queuedMessageAlerts = SplayTreeMap<int, _QueuedMessageAlert>();
+  bool _drainingMessageAlerts = false;
   // Clear requests have a separate OS id. An ordinary message supersedes the
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
@@ -130,8 +139,53 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       attempt.generation == _notificationGeneration &&
       (attempt.groupGeneration == null ||
           attempt.groupGeneration == _groupNotificationGeneration) &&
-      attempt.sequence >= _latestEligibleSequence &&
+      attempt.sequence >= _latestSubmittedSequence &&
       ref.read(appControllerProvider).identity?.nodeId == attempt.owner;
+
+  Future<_MessageAlertOutcome> _queueMessageAlert(
+    _MessageAlertAttempt attempt,
+    Future<_MessageAlertOutcome> Function() submit,
+  ) async {
+    if (!_canContinueMessageAlert(attempt)) return _MessageAlertOutcome.skipped;
+    final completion = Completer<_MessageAlertOutcome>();
+    _queuedMessageAlerts[attempt.sequence] = (
+      attempt: attempt,
+      submit: submit,
+      completion: completion,
+    );
+    if (!_drainingMessageAlerts) unawaited(_drainMessageAlerts());
+    return completion.future;
+  }
+
+  Future<void> _drainMessageAlerts() async {
+    _drainingMessageAlerts = true;
+    try {
+      // Select after backend startup and pending clears so a newer alert
+      // can try first. An unsuccessful policy check leaves older work live.
+      await ref.read(notificationServiceProvider).waitUntilReady();
+      while (_queuedMessageAlerts.isNotEmpty) {
+        final entry = _queuedMessageAlerts.remove(
+          _queuedMessageAlerts.lastKey(),
+        )!;
+        try {
+          entry.completion.complete(
+            _canContinueMessageAlert(entry.attempt)
+                ? await entry.submit()
+                : _MessageAlertOutcome.skipped,
+          );
+        } catch (error, stack) {
+          entry.completion.completeError(error, stack);
+        }
+      }
+    } catch (error, stack) {
+      for (final entry in _queuedMessageAlerts.values) {
+        entry.completion.completeError(error, stack);
+      }
+      _queuedMessageAlerts.clear();
+    } finally {
+      _drainingMessageAlerts = false;
+    }
+  }
 
   void _rememberSpaceComment(
     String thread,
@@ -1099,29 +1153,36 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // Preserve the original order on ties, including direct before group.
       return byTime == 0 ? a.$1.compareTo(b.$1) : byTime;
     });
-    for (final (_, (:candidate, attempt: candidateAttempt)) in ranked) {
-      if (!_canContinueMessageAlert(attempt)) return;
-      if (!_canContinueMessageAlert(candidateAttempt)) continue;
-      final outcome = await _show(
-        attempt: candidateAttempt,
-        checkPolicy: candidate.checkPolicy,
-        convHex: candidate.convHex,
-        name: candidate.name,
-        shortId: candidate.shortId,
-        preview: candidate.preview,
-        settings: settings,
-        allowReply: candidate.allowReply,
-        isMention: candidate.isMention,
-      );
-      // A native call may already have shown an alert even when it reports
-      // failure. Only try the next chat after a local policy rejection or
-      // group-service retirement before submission.
-      if (outcome == _MessageAlertOutcome.submitted ||
-          (outcome == _MessageAlertOutcome.skipped &&
-              _canContinueMessageAlert(candidateAttempt))) {
-        return;
+    if (ranked.isEmpty) return;
+    // The whole scan shares one queue entry. A rejected first choice should
+    // have a chance to try the next chat before an older arrival takes over.
+    await _queueMessageAlert(attempt, () async {
+      for (final (_, (:candidate, attempt: candidateAttempt)) in ranked) {
+        if (!_canContinueMessageAlert(attempt)) break;
+        if (!_canContinueMessageAlert(candidateAttempt)) continue;
+        final outcome = await _show(
+          attempt: candidateAttempt,
+          checkPolicy: candidate.checkPolicy,
+          convHex: candidate.convHex,
+          name: candidate.name,
+          shortId: candidate.shortId,
+          preview: candidate.preview,
+          settings: settings,
+          allowReply: candidate.allowReply,
+          isMention: candidate.isMention,
+          withinQueue: true,
+        );
+        // A native call may already have shown an alert even when it reports
+        // failure. Only try the next chat after a local policy rejection or
+        // group-service retirement before submission.
+        if (outcome == _MessageAlertOutcome.submitted ||
+            (outcome == _MessageAlertOutcome.skipped &&
+                _canContinueMessageAlert(candidateAttempt))) {
+          return outcome;
+        }
       }
-    }
+      return _MessageAlertOutcome.skipped;
+    });
   }
 
   /// Announce requests that have not been announced yet.
@@ -1191,14 +1252,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     required Future<bool> Function() checkPolicy,
     bool allowReply = true,
     bool isMention = false,
+    bool withinQueue = false,
   }) async {
     if (!_canContinueMessageAlert(attempt)) return _MessageAlertOutcome.skipped;
     final liveSettings = ref.read(notificationSettingsProvider);
     if (!liveSettings.enabled) return _MessageAlertOutcome.skipped;
-    // An arrival can replace the pending alert only after passing policy.
-    // Compare arrival order so even if an older lookup finishes after a
-    // newer eligible one, the OS keeps the newer message.
-    _latestEligibleSequence = attempt.sequence;
     final l = AppL10n.of(context);
     final mayShowFull =
         settings.preview == NotificationPreview.full &&
@@ -1227,66 +1285,77 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final owners = ref.read(notificationOwnersProvider);
     final owner = attempt.owner?.hex;
     final id = notificationIdForIncomingMessage(convHex);
-    var outcome = _MessageAlertOutcome.skipped;
-    var postedFull = false;
-    bool current() {
-      if (!_canContinueMessageAlert(attempt)) return false;
-      final settings = ref.read(notificationSettingsProvider);
-      return settings.enabled &&
-          (!postedFull || settings.preview == NotificationPreview.full);
+    Future<_MessageAlertOutcome> submit() async {
+      var outcome = _MessageAlertOutcome.skipped;
+      var postedFull = false;
+      bool current() {
+        if (!_canContinueMessageAlert(attempt)) return false;
+        final settings = ref.read(notificationSettingsProvider);
+        return settings.enabled &&
+            (!postedFull || settings.preview == NotificationPreview.full);
+      }
+
+      final posted = await ref
+          .read(notificationServiceProvider)
+          .showPreparedIfCurrent(
+            isCurrent: current,
+            id: id,
+            checkPolicy: () async {
+              final allowed = attempt.groupGeneration == null
+                  ? await checkPolicy()
+                  : await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
+                        false;
+              if (!allowed) outcome = _MessageAlertOutcome.rejectedByPolicy;
+              return allowed;
+            },
+            prepare: () {
+              outcome = _MessageAlertOutcome.submitted;
+              // A downgrade applies immediately. An alert that opted out of
+              // full text earlier cannot gain it while queued.
+              postedFull =
+                  mayShowFull &&
+                  ref.read(notificationSettingsProvider).preview ==
+                      NotificationPreview.full;
+              final content = notificationContent(
+                mode: postedFull
+                    ? NotificationPreview.full
+                    : NotificationPreview.hidden,
+                contactName: name,
+                shortId: shortId,
+                preview: resolved,
+                hiddenBody: isMention
+                    ? l.notificationMention
+                    : l.notificationNewMessage,
+              );
+              // Earlier alerts are obsolete only once a newer one clears
+              // its last policy check and is about to reach the OS.
+              _latestSubmittedSequence = attempt.sequence;
+              return (
+                title: content.title,
+                body: content.body,
+                // Keep conversation IDs out of the OS database in hidden mode.
+                payload: postedFull
+                    ? convHex
+                    : ref
+                          .read(opaqueNotificationPayloadsProvider)
+                          .mint(convHex),
+                replyLabel: postedFull && allowReply
+                    ? l.notificationReply
+                    : null,
+                replyHint: postedFull && allowReply
+                    ? l.notificationReplyHint
+                    : null,
+              );
+            },
+          );
+      if (!posted) return outcome;
+      // The service orders a stale post's take-down BEFORE a newer post using
+      // this id. Never cancel here: the id may already belong to a later alert.
+      if (current()) owners.remember(convHex, owner);
+      return outcome;
     }
 
-    final posted = await ref
-        .read(notificationServiceProvider)
-        .showPreparedIfCurrent(
-          isCurrent: current,
-          id: id,
-          checkPolicy: () async {
-            final allowed = attempt.groupGeneration == null
-                ? await checkPolicy()
-                : await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
-                      false;
-            if (!allowed) outcome = _MessageAlertOutcome.rejectedByPolicy;
-            return allowed;
-          },
-          prepare: () {
-            outcome = _MessageAlertOutcome.submitted;
-            // A downgrade applies immediately. An alert that opted out of
-            // full text earlier cannot gain it while queued.
-            postedFull =
-                mayShowFull &&
-                ref.read(notificationSettingsProvider).preview ==
-                    NotificationPreview.full;
-            final content = notificationContent(
-              mode: postedFull
-                  ? NotificationPreview.full
-                  : NotificationPreview.hidden,
-              contactName: name,
-              shortId: shortId,
-              preview: resolved,
-              hiddenBody: isMention
-                  ? l.notificationMention
-                  : l.notificationNewMessage,
-            );
-            return (
-              title: content.title,
-              body: content.body,
-              // Keep conversation IDs out of the OS database in hidden mode.
-              payload: postedFull
-                  ? convHex
-                  : ref.read(opaqueNotificationPayloadsProvider).mint(convHex),
-              replyLabel: postedFull && allowReply ? l.notificationReply : null,
-              replyHint: postedFull && allowReply
-                  ? l.notificationReplyHint
-                  : null,
-            );
-          },
-        );
-    if (!posted) return outcome;
-    // The service orders a stale post's take-down BEFORE a newer post using
-    // this id. Never cancel here: the id may already belong to a later alert.
-    if (current()) owners.remember(convHex, owner);
-    return outcome;
+    return withinQueue ? submit() : _queueMessageAlert(attempt, submit);
   }
 
   Future<bool> _directAlertAllowed(
