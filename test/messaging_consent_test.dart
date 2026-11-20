@@ -152,6 +152,18 @@ void main() {
       expect((await sB.getContact(a))!.status, ContactStatus.accepted);
       expect((await sA.getContact(b))!.status, ContactStatus.accepted);
 
+      // The pre-consent greeting was already stored at B. Its normal retry
+      // gets an exact receipt without storing a second copy.
+      final greeting = (await sA.loadMessages(b.hex)).single;
+      expect(greeting.status, MessageStatus.sent);
+      await mA.flushOutbox();
+      await _pump();
+      expect((await sB.loadMessages(a.hex)).single.id, greeting.id);
+      expect(
+        (await sA.loadMessageById(b.hex, greeting.id))?.status,
+        MessageStatus.delivered,
+      );
+
       // Now free messaging works both ways.
       await mA.sendText(b, 'hello');
       await _pump();
