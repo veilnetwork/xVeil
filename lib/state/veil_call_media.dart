@@ -1422,6 +1422,9 @@ class VeilCallMediaController implements CallMediaController {
       _chan = candidate;
       _chanPeer = opened.peer.hex;
       _chanTransport = target;
+      // Preserve receive evidence for liveness, but give the new path its
+      // own startup grace before the watchdog can request another rebuild.
+      _receiveSessionStartedAt = _statsNow();
       _activeCall = current!.copyWith(
         transport: target,
         mediaRoutePeer: opened.peer,
@@ -2033,7 +2036,7 @@ class VeilCallMediaController implements CallMediaController {
     _mediaReceiveActivity.reset(preserveLastRxAt: preserveReceiveHistory);
     _lastRxPkts = 0;
     _audioReceiveActivity.reset();
-    _receiveSessionStartedAt = DateTime.now();
+    _receiveSessionStartedAt = _statsNow();
     _sourcePressure.reset();
     _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
@@ -2899,7 +2902,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastNativeRxCount = 0;
     _audioReceiveActivity.reset();
     _peerAudioPlayout.invalidateMeasurement();
-    _receiveSessionStartedAt = clearActiveCall ? null : DateTime.now();
+    _receiveSessionStartedAt = clearActiveCall ? null : _statsNow();
     _engineRxStalledSince = null;
     // Congestion belongs to the call, not the native engine. A route rebuild
     // must start video at its reduced budget instead of injecting a new burst.
