@@ -254,10 +254,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final attempt = _beginMessageAlert();
     final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
-    Contact? contact;
+    final Contact? contact;
     try {
       contact = await ref.read(storageProvider).getContact(notice.from);
-    } catch (_) {}
+    } catch (_) {
+      // A failed read cannot establish that the conversation is unmuted.
+      return;
+    }
     if (!_canContinueMessageAlert(attempt)) return;
     final self = ref.read(appControllerProvider).identity?.nodeId;
     final isMention = self != null && messageMentionsNode(notice.preview, self);
@@ -305,18 +308,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final attempt = _beginMessageAlert(groupScoped: true);
     final l = AppL10n.of(context);
     final settings = ref.read(notificationSettingsProvider);
-    var policy = const NotificationMutePolicy.all();
-    GroupService? service;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    final NotificationMutePolicy policy;
     try {
-      service = ref.read(groupServiceProvider);
-      policy =
-          await service?.groupNotificationPolicy(n.groupId) ??
-          const NotificationMutePolicy.all();
-    } catch (_) {}
+      policy = await service.groupNotificationPolicy(n.groupId);
+    } catch (_) {
+      return;
+    }
     if (!_canContinueMessageAlert(attempt)) return;
-    final self =
-        service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
-    final isMention = self != null && messageMentionsNode(n.message.body, self);
+    final isMention = messageMentionsNode(n.message.body, service.selfId);
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
       muted: !notificationModeAllows(
@@ -329,7 +330,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
     String? name;
     try {
-      name = (await service?.stateOf(n.groupId))?.name;
+      name = (await service.stateOf(n.groupId))?.name;
     } catch (_) {}
     if (!_canContinueMessageAlert(attempt)) return;
     await _show(
@@ -362,28 +363,23 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!mounted) return;
     final attempt = _beginMessageAlert(groupScoped: true);
     final settings = ref.read(notificationSettingsProvider);
-    var notificationsEnabled = false;
-    var policy = const NotificationMutePolicy.all();
-    String? name;
-    GroupService? service;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    final SpaceSubscription subscription;
+    final NotificationMutePolicy policy;
     try {
-      service = ref.read(groupServiceProvider);
-      final subscription = await service?.spaceSubscription(n.spaceId);
-      notificationsEnabled = subscription?.notificationsEnabled ?? false;
-      policy =
-          await service?.groupNotificationPolicy(n.spaceId) ??
-          const NotificationMutePolicy.all();
-      name = (await service?.stateOf(n.spaceId))?.name;
-    } catch (_) {}
+      subscription = await service.spaceSubscription(n.spaceId);
+      policy = await service.groupNotificationPolicy(n.spaceId);
+    } catch (_) {
+      return;
+    }
     if (!_canContinueMessageAlert(attempt)) return;
-    final self =
-        service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
     final mentionText = '${n.post.title}\n${n.post.body}';
-    final isMention = self != null && messageMentionsNode(mentionText, self);
+    final isMention = messageMentionsNode(mentionText, service.selfId);
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
       muted:
-          (!notificationsEnabled && !isMention) ||
+          (!subscription.notificationsEnabled && !isMention) ||
           !notificationModeAllows(
             policy.effectiveAt(DateTime.now()),
             isMention: isMention,
@@ -392,6 +388,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     )) {
       return;
     }
+    String? name;
+    try {
+      name = (await service.stateOf(n.spaceId))?.name;
+    } catch (_) {}
+    if (!_canContinueMessageAlert(attempt)) return;
     await _show(
       attempt: attempt,
       convHex: isMention
