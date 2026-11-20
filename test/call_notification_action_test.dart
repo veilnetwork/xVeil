@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,17 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/notifications.dart';
 
 import 'support/queued_clear_notification_plugin.dart';
+
+class _HeldLaunchPlugin extends QueuedClearNotificationPlugin {
+  final launchEntered = Completer<void>();
+  final launchReply = Completer<NotificationAppLaunchDetails>();
+
+  @override
+  Future<NotificationAppLaunchDetails?> getNotificationAppLaunchDetails() {
+    launchEntered.complete();
+    return launchReply.future;
+  }
+}
 
 class _DesktopAlerts extends NotificationService {
   final visible = <int, ({String title, String body, String? payload})>{};
@@ -242,6 +254,64 @@ void main() {
         channel,
         null,
       ),
+    );
+  }
+
+  for (final clearBeforeStartup in [false, true]) {
+    testWidgets(
+      'a Windows call posts during the launch response read '
+      'clearBeforeStartup=$clearBeforeStartup',
+      (tester) async {
+        readOnlyWindows(tester);
+        final plugin = _HeldLaunchPlugin()..holdFirstClear = clearBeforeStartup;
+        final alerts = NotificationService(plugin: plugin);
+        if (clearBeforeStartup) await alerts.cancelAll();
+        final taps = <String?>[];
+        final starting = alerts.init(onTap: taps.add);
+        final f = await mountDesktop(tester, alerts);
+        try {
+          expect(plugin.launchEntered.isCompleted, isTrue);
+          expect(alerts.isReady, isTrue);
+          f.wire.onCallSignal!(
+            NodeId.fromHex('a' * 64),
+            _desktopOffer('pending-launch-response'),
+          );
+          await tester.idle();
+          expect(f.service.current?.status, CallStatus.ringing);
+          if (clearBeforeStartup) {
+            expect(plugin.posts, 0);
+            expect(plugin.firstClearEntered.isCompleted, isTrue);
+            plugin.release();
+            await tester.idle();
+            expect(plugin.clearCalls, 1);
+          }
+          expect(plugin.launchReply.isCompleted, isFalse);
+          expect(plugin.visible, {
+            kNotificationIdIncomingCall: kNotificationPayloadIncomingCall,
+          });
+          expect(plugin.posts, 1);
+          expect(taps, isEmpty);
+        } finally {
+          plugin.release();
+          plugin.launchReply.complete(
+            const NotificationAppLaunchDetails(
+              true,
+              notificationResponse: NotificationResponse(
+                notificationResponseType:
+                    NotificationResponseType.selectedNotification,
+                payload: 'fixture-launch',
+              ),
+            ),
+          );
+          await starting;
+          await f.service.hangup();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.idle();
+        }
+        expect(taps, ['fixture-launch']);
+        expect(plugin.visible, isEmpty);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
   }
 
