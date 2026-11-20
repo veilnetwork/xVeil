@@ -31,6 +31,8 @@ import 'data/storage/profile_preferences.dart';
 import 'data/storage/profile_preferences_bootstrap.dart';
 import 'data/storage/profile_preferences_file.dart'
     show ProfileChoiceReadFailure;
+import 'data/storage/profile_prefs_store.dart'
+    show ProfilePreferencesFormatFailure;
 import 'data/storage/cold_profile_erasure_recovery.dart';
 import 'core/background_service_lifetime.dart';
 import 'core/local_authentication.dart';
@@ -142,6 +144,12 @@ Future<void> runStartup({
         values: {DiagnosticMetric.code: e.busy ? 1 : 0},
       );
     }
+    if (e is ProfilePreferencesFormatFailure) {
+      diagnosticJournal.record(
+        DiagnosticEvent.profilePreferencesFormatFailed,
+        values: {DiagnosticMetric.code: e.reason.index},
+      );
+    }
     errorJournal.record(
       kind: 'startup',
       error: e,
@@ -159,6 +167,8 @@ Future<void> runStartup({
                         ManagedPreferencesFailureReason.busy));
     present(
       StartupFailedApp(
+        preferencesFormatFailed:
+            loadingPreferences && e is ProfilePreferencesFormatFailure,
         retryPreferences: canRetry
             ? () =>
                   runStartup(loadPreferences: loadPreferences, present: present)

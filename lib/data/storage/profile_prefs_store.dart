@@ -17,6 +17,18 @@ export 'profile_preferences_routing.dart';
 
 typedef _PreferenceEntries = Map<String, ({String type, Object value})>;
 
+/// Stable diagnostic codes, independent of paths and preference contents.
+enum ProfilePreferencesFormatReason {
+  invalidJson,
+  unsupportedVersion,
+  invalidEntries,
+}
+
+final class ProfilePreferencesFormatFailure implements Exception {
+  const ProfilePreferencesFormatFailure(this.reason);
+  final ProfilePreferencesFormatReason reason;
+}
+
 /// App preferences, held in a FILE under the app-support directory instead of
 /// the platform's system preference store (audit XV-16).
 ///
@@ -100,9 +112,8 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     if (_retired) throw StateError('profile preference store has retired');
   }
 
-  /// Load the store at [path] (an absent or unreadable file is an empty store —
-  /// this is preferences, and refusing to start over a corrupt preference file
-  /// would be the worse failure).
+  /// Load the store at [path]. A native owner refuses damaged or unsupported
+  /// snapshots. The unowned legacy backend still recovers invalid JSON.
   static Future<ProfilePreferencesStore> load(
     String path, {
     ProfilePreferencesFile? ownedFile,
@@ -120,10 +131,13 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     final contents = ownedFile != null
         ? await ownedFile.read()
         : await _readUnowned(file).onError<FileSystemException>((_, _) => null);
-    final (entries, _) = _decodeSnapshot(file, contents);
+    final entries = _decodeSnapshot(
+      contents,
+      recoverInvalidJson: ownedFile == null,
+    );
     return ProfilePreferencesStore._(
       file,
-      entries,
+      entries ?? {},
       ownedFile,
       legacyPreferences,
     );
@@ -135,30 +149,45 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   Future<String?> _readContents() => _ownedFile?.read() ?? _readUnowned(_file);
 
-  static (_PreferenceEntries, bool) _decodeSnapshot(
-    File file,
-    String? contents,
-  ) {
-    final entries = _PreferenceEntries();
-    var loadedSnapshot = false;
+  static _PreferenceEntries? _decodeSnapshot(
+    String? contents, {
+    bool recoverInvalidJson = false,
+  }) {
+    if (contents == null) return null;
+    final Object? snapshot;
     try {
-      if (contents != null) {
-        final json = jsonDecode(contents);
-        if (json is Map<String, dynamic> && json['v'] == _version) {
-          final raw = json['e'];
-          if (raw is Map<String, dynamic>) {
-            loadedSnapshot = true;
-            for (final entry in raw.entries) {
-              final decoded = _decode(entry.value);
-              if (decoded != null) entries[entry.key] = decoded;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      devLog(() => 'xVeil[prefs]: could not read ${file.path}: $e');
+      snapshot = jsonDecode(contents);
+    } on FormatException {
+      if (recoverInvalidJson) return null;
+      throw const ProfilePreferencesFormatFailure(
+        ProfilePreferencesFormatReason.invalidJson,
+      );
     }
-    return (entries, loadedSnapshot);
+    if (snapshot is! Map<String, dynamic> || snapshot['v'] != _version) {
+      throw const ProfilePreferencesFormatFailure(
+        ProfilePreferencesFormatReason.unsupportedVersion,
+      );
+    }
+    final raw = snapshot['e'];
+    if (raw is! Map<String, dynamic>) {
+      throw const ProfilePreferencesFormatFailure(
+        ProfilePreferencesFormatReason.invalidEntries,
+      );
+    }
+    final entries = _PreferenceEntries();
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      final decoded = value is Map<String, dynamic>
+          ? _decodeValue(value['t'], value['v'])
+          : null;
+      if (decoded == null) {
+        throw const ProfilePreferencesFormatFailure(
+          ProfilePreferencesFormatReason.invalidEntries,
+        );
+      }
+      entries[entry.key] = decoded;
+    }
+    return entries;
   }
 
   /// Safety decisions must see the file even when this process has a cached
@@ -167,28 +196,27 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     _requireWritable();
     await _writes;
     _requireWritable();
-    final (entries, _) = _decodeSnapshot(_file, await _readContents());
-    final entry = entries['$_defaultPrefix$key'];
+    final entries = _decodeSnapshot(await _readContents());
+    final entry = entries?['$_defaultPrefix$key'];
     return entry?.type == 'String' ? entry!.value as String : null;
   }
 
-  static ({String type, Object value})? _decode(Object? encoded) {
-    if (encoded is! Map<String, dynamic>) return null;
-    final type = encoded['t'];
-    final value = encoded['v'];
-    if (type is! String || value == null) return null;
+  static ({String type, Object value})? _decodeValue(
+    Object? type,
+    Object? value,
+  ) {
+    if (type is! String) return null;
     return switch (type) {
       'Bool' when value is bool => (type: type, value: value),
       'Int' when value is int => (type: type, value: value),
-      'Double' when value is num => (type: type, value: value.toDouble()),
-      'String' when value is String => (type: type, value: value),
-      'StringList' when value is List => (
+      'Double' when value is num && value.isFinite => (
         type: type,
-        value: <String>[
-          for (final item in value)
-            if (item is String) item,
-        ],
+        value: value.toDouble(),
       ),
+      'String' when value is String => (type: type, value: value),
+      'StringList'
+          when value is List && value.every((item) => item is String) =>
+        (type: type, value: List<String>.from(value)),
       _ => null,
     };
   }
@@ -204,8 +232,12 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       final elapsed = Stopwatch()..start();
       while (true) {
         final raw = await _readContents();
-        final (entries, loaded) = _decodeSnapshot(_file, raw);
-        if (!change(entries) && (!ensureFile || loaded)) {
+        final snapshot = _decodeSnapshot(
+          raw,
+          recoverInvalidJson: _ownedFile == null,
+        );
+        final entries = snapshot ?? _PreferenceEntries();
+        if (!change(entries) && (!ensureFile || snapshot != null)) {
           _entries = entries;
           return true;
         }
@@ -232,10 +264,9 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) {
-    final entry = (
-      type: valueType,
-      value: value is List<String> ? List<String>.of(value) : value,
-    );
+    _requireWritable();
+    final entry = _decodeValue(valueType, value);
+    if (entry == null) return Future.value(false);
     return _edit((entries) {
       entries[key] = entry;
       return true;
@@ -550,7 +581,11 @@ Future<String> installProfilePreferencesOrFallback({
       legacyBackend: legacyBackend,
     );
   } catch (e, st) {
-    if (openOwnedFile != null || e is ProfileChoiceReadFailure) rethrow;
+    if (openOwnedFile != null ||
+        e is ProfileChoiceReadFailure ||
+        e is ProfilePreferencesFormatFailure) {
+      rethrow;
+    }
     onError?.call(e, st);
     installEphemeralPreferences();
     return AppProfiles.defaultName;
@@ -621,6 +656,7 @@ Future<void> _migrateLegacy(
   final selected = _PreferenceEntries();
   final elsewhere = <String, _PreferenceEntries>{};
   final migratedKeys = <String>{};
+  var migrated = true;
   for (final entry in snapshot.entries) {
     final full = entry.key;
     if (!full.startsWith('flutter.')) continue;
@@ -631,7 +667,16 @@ Future<void> _migrateLegacy(
     if (bare == AppProfiles.activePref) continue;
 
     final routed = routeLegacyKey(bare, known);
-    final typed = (type: _typeOf(entry.value), value: entry.value);
+    final typed = ProfilePreferencesStore._decodeValue(
+      _typeOf(entry.value),
+      entry.value,
+    );
+    if (typed == null) {
+      // Migrate readable settings, but keep the source for values this build
+      // cannot write in its own format.
+      migrated = false;
+      continue;
+    }
     final destination = routed.owner == profile
         ? selected
         : (elsewhere[routed.owner] ??= {});
@@ -640,7 +685,7 @@ Future<void> _migrateLegacy(
 
   // All newly imported keys require a successful write before the legacy
   // source can be cleared. An unchanged snapshot needs no second write.
-  var migrated = await into._importMissing(selected, ensureFile: true);
+  if (!await into._importMissing(selected, ensureFile: true)) migrated = false;
   for (final other in elsewhere.entries) {
     final path = profilePrefsPath(supportDir, other.key);
     ProfilePreferencesFile? owner;

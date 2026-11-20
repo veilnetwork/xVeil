@@ -15,9 +15,14 @@ import '../settings/error_report.dart';
 /// The screen offers diagnostic export and, when preferences are busy, a retry.
 /// The stack trace stays in the log and error journal.
 class StartupFailedApp extends StatelessWidget {
-  const StartupFailedApp({super.key, this.retryPreferences});
+  const StartupFailedApp({
+    super.key,
+    this.retryPreferences,
+    this.preferencesFormatFailed = false,
+  });
 
   final Future<void> Function()? retryPreferences;
+  final bool preferencesFormatFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -32,15 +37,22 @@ class StartupFailedApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: _StartupFailedScreen(retryPreferences: retryPreferences),
+      home: _StartupFailedScreen(
+        retryPreferences: retryPreferences,
+        preferencesFormatFailed: preferencesFormatFailed,
+      ),
     );
   }
 }
 
 class _StartupFailedScreen extends StatefulWidget {
-  const _StartupFailedScreen({required this.retryPreferences});
+  const _StartupFailedScreen({
+    required this.retryPreferences,
+    required this.preferencesFormatFailed,
+  });
 
   final Future<void> Function()? retryPreferences;
+  final bool preferencesFormatFailed;
 
   @override
   State<_StartupFailedScreen> createState() => _StartupFailedScreenState();
@@ -82,9 +94,11 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                 const SizedBox(height: 16),
                 const CopyErrorReportTile(phase: 'startup-failed'),
                 Text(
-                  retryPreferences == null
-                      ? l.startupFailedAction
-                      : l.startupPreferencesBusy,
+                  widget.preferencesFormatFailed
+                      ? l.startupPreferencesFormatFailed
+                      : retryPreferences != null
+                      ? l.startupPreferencesBusy
+                      : l.startupFailedAction,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),

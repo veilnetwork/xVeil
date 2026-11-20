@@ -140,6 +140,10 @@ class AppL10nEs extends AppL10n {
       'El archivo de ajustes está en uso. Espera un momento y vuelve a intentarlo.';
 
   @override
+  String get startupPreferencesFormatFailed =>
+      'Los ajustes del perfil están dañados o usan un formato incompatible. Se conservó el archivo original.';
+
+  @override
   String get startupRetry => 'Reintentar';
 
   @override

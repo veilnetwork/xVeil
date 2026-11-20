@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
-import 'package:xveil/data/storage/profile_preferences_file.dart';
+import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
 import 'package:xveil/features/settings/error_report.dart';
@@ -171,6 +171,29 @@ void main() {
           : isNull,
     );
   });
+
+  testWidgets(
+    'invalid preference format preserves a specific startup failure',
+    (tester) async {
+      diagnosticJournal.clear();
+      addTearDown(diagnosticJournal.clear);
+      Widget? presented;
+      const reason = ProfilePreferencesFormatReason.unsupportedVersion;
+      await runStartup(
+        loadPreferences: () async =>
+            throw const ProfilePreferencesFormatFailure(reason),
+        present: (widget) => presented = widget,
+      );
+      await tester.pumpWidget(presented!);
+      expect(find.textContaining('unsupported format'), findsOneWidget);
+      final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
+      final event = retained?['profilePreferencesFormatFailed'] as Map?;
+      expect(
+        event?['values'],
+        diagnosticJournal.enabled ? {'code': reason.index} : isNull,
+      );
+    },
+  );
 
   testWidgets('a startup that throws still puts something on screen', (
     tester,

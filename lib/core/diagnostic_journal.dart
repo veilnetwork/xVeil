@@ -64,6 +64,7 @@ enum DiagnosticEvent {
   profilePreferencesReadFailed,
   // code: unreadable=0, busy=1.
   profileChoiceReadFailed,
+  profilePreferencesFormatFailed,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -639,6 +640,7 @@ class DiagnosticJournal {
     DiagnosticEvent.profilePreferencesOpenFailed,
     DiagnosticEvent.profilePreferencesReadFailed,
     DiagnosticEvent.profileChoiceReadFailed,
+    DiagnosticEvent.profilePreferencesFormatFailed,
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
     DiagnosticEvent.notificationPermission,

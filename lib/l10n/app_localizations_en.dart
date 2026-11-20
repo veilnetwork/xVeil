@@ -139,6 +139,10 @@ class AppL10nEn extends AppL10n {
       'The settings file is in use. Wait a moment, then try again.';
 
   @override
+  String get startupPreferencesFormatFailed =>
+      'The profile settings are damaged or use an unsupported format. The original file was preserved.';
+
+  @override
   String get startupRetry => 'Try again';
 
   @override

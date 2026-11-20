@@ -228,6 +228,99 @@ void main() {
     },
   );
 
+  for (final (raw, reason) in [
+    (
+      '{"v":2,"e":{"flutter.locale":{"t":"String","v":"es"}}}',
+      ProfilePreferencesFormatReason.unsupportedVersion,
+    ),
+    ('{"v":1,"e":', ProfilePreferencesFormatReason.invalidJson),
+    (
+      '{"v":1,"e":{"flutter.locale":{"t":"FutureType","v":"es"}}}',
+      ProfilePreferencesFormatReason.invalidEntries,
+    ),
+    (
+      '{"v":1,"e":{"flutter.apps":{"t":"StringList","v":["app",2]}}}',
+      ProfilePreferencesFormatReason.invalidEntries,
+    ),
+  ]) {
+    test(
+      'refuses startup migration over unsupported preferences $raw',
+      () async {
+        final previous = await open(prefs());
+        expect(await previous.write(raw), isTrue);
+        await previous.close();
+        final source = await legacy.getAll();
+
+        final outcome = await install().then<Object>(
+          (value) => value,
+          onError: (Object error) => error,
+        );
+
+        expect(File(prefs()).readAsStringSync(), raw);
+        expect(
+          outcome,
+          isA<ProfilePreferencesFormatFailure>().having(
+            (e) => e.reason,
+            'reason',
+            reason,
+          ),
+        );
+        expect(await legacy.getAll(), source);
+        expect(SharedPreferencesStorePlatform.instance, same(legacy));
+        expect(File(activeProfilePath(support.path)).existsSync(), isFalse);
+      },
+    );
+  }
+
+  test(
+    'a running preference writer never replaces an unknown snapshot',
+    () async {
+      const original = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}';
+      const future = '{"v":2,"e":{"flutter.locale":{"codec":2,"value":"es"}}}';
+      final owner = await open(prefs());
+      expect(await owner.write(original), isTrue);
+      final store = await ProfilePreferencesStore.load(
+        prefs(),
+        ownedFile: owner,
+      );
+      stores.add(store);
+      final other = await open(prefs());
+      expect(await other.write(future), isTrue);
+      await expectLater(
+        store.setValue('Bool', 'flutter.changed', true),
+        throwsA(isA<ProfilePreferencesFormatFailure>()),
+      );
+      await expectLater(
+        store.readPersistedString('locale'),
+        throwsA(isA<ProfilePreferencesFormatFailure>()),
+      );
+      expect(await other.read(), future);
+      expect(await store.getAll(), {'flutter.locale': 'es'});
+
+      expect(await other.write(original), isTrue);
+      expect(await store.setValue('Bool', 'flutter.changed', true), isTrue);
+      expect(await store.getAll(), {
+        'flutter.locale': 'es',
+        'flutter.changed': true,
+      });
+    },
+  );
+
+  test('an unsupported sibling keeps its file and the legacy source', () async {
+    const future = '{"v":2,"e":{"flutter.locale":{"codec":2,"value":"es"}}}';
+    final sibling = await open(prefs('decoy'));
+    expect(await sibling.write(future), isTrue);
+    await sibling.close();
+    await legacy.setValue('String', 'flutter.locale.decoy', 'en');
+    final source = await legacy.getAll();
+
+    expect(await install(), AppProfiles.defaultName);
+
+    expect(File(prefs('decoy')).readAsStringSync(), future);
+    expect(await legacy.getAll(), source);
+    expect(await stores.single.getAll(), {'flutter.locale': 'ru'});
+  });
+
   test('preference admission preserves the typed filesystem reason', () async {
     Directory(base()).createSync(recursive: true);
     final marker = File(managed())..writeAsStringSync('fixture');
