@@ -10,11 +10,12 @@ typedef _ContentManifestRefOffer = ({
   Map<String, NodeId> peers,
 });
 
-typedef _RetryReofferReceipt = ({
+typedef _ReofferRequest = ({
   NodeId peer,
   NodeId device,
   String contentId,
-  Completer<bool> receipt,
+  Completer<bool>? receipt,
+  bool Function() acceptsReceipt,
 });
 
 /// Reoffer and terminal-availability lifecycle for large content.
@@ -58,21 +59,25 @@ class _MessagingContentAvailability {
   /// A local send completion only means the reoffer was enqueued. A retry
   /// must give the source time to relearn the requester's authenticated device
   /// before opening a stream which cannot prove that ownership itself.
-  final _retryReoffers = <String, _RetryReofferReceipt>{};
+  final _reofferRequests = <String, _ReofferRequest>{};
   static const _retryReofferInterval = Duration(seconds: 2);
   static const _maxRetryReofferSends = 8;
 
-  void cancelRetryReoffers([String? contentId]) {
-    for (final entry in _retryReoffers.entries.toList()) {
+  void cancelReoffers([String? contentId]) {
+    for (final entry in _reofferRequests.entries.toList()) {
       if (contentId != null && entry.value.contentId != contentId) continue;
-      _retryReoffers.remove(entry.key);
-      if (!entry.value.receipt.isCompleted) entry.value.receipt.complete(false);
+      _reofferRequests.remove(entry.key);
+      final receipt = entry.value.receipt;
+      if (receipt != null && !receipt.isCompleted) receipt.complete(false);
     }
   }
 
   bool confirmRetryReoffer(InboundMessage message, String? frameId) {
-    final pending = _retryReoffers[frameId];
+    final pending = _reofferRequests[frameId];
+    final receipt = pending?.receipt;
     if (pending == null ||
+        receipt == null ||
+        !pending.acceptsReceipt() ||
         !message.provenance.isAuthenticated ||
         message.src != pending.peer) {
       return false;
@@ -88,7 +93,7 @@ class _MessagingContentAvailability {
         !_owner.deviceProofAllowed(pending.peer, device)) {
       return false;
     }
-    if (!pending.receipt.isCompleted) pending.receipt.complete(true);
+    if (!receipt.isCompleted) receipt.complete(true);
     return true;
   }
 
@@ -144,7 +149,9 @@ class _MessagingContentAvailability {
           '${sources.length} source(s)',
     );
     holdPending(contentId, sink);
+    var expired = false;
     _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+      expired = true;
       if (_owner._cancelledDownloads.contains(contentId)) return;
       _pendingTimers.remove(contentId);
       final parked = _pending.remove(contentId);
@@ -160,7 +167,15 @@ class _MessagingContentAvailability {
       }
     });
     for (final peer in sources) {
-      unawaited(_owner._send(peer, contentReofferEnvelope(contentId).encode()));
+      unawaited(
+        requestContentReoffer(
+          peer,
+          contentId,
+          // One answer can start the pull while the other sources are still
+          // preparing. Those offers can still join the download.
+          isWanted: () => !expired,
+        ).then<void>((_) {}, onError: _reportReofferFailure),
+      );
     }
     return ContentDownloadResult.requestedReoffer;
   }
@@ -223,7 +238,7 @@ class _MessagingContentAvailability {
       _holderDevices[contentId]?[holder.hex] ?? holder;
 
   Future<void> clearSession() async {
-    cancelRetryReoffers();
+    cancelReoffers();
     for (final timer in _pendingTimers.values) {
       timer.cancel();
     }
@@ -269,91 +284,114 @@ class _MessagingContentAvailability {
     NodeId peer,
     String contentId, {
     Duration? confirmationTimeout,
+    bool Function()? isWanted,
   }) async {
-    final contact = await _owner._storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) {
-      return false;
-    }
-    devLog(
-      () =>
-          'xVeil[content]: requesting manifest re-advertise '
-          '${contentId.substring(0, 12)} from ${peer.short}',
-    );
-    final envelope = contentReofferEnvelope(contentId);
-    if (confirmationTimeout == null) {
-      await _owner._send(peer, envelope.encode());
-      return true;
-    }
     if (_owner._disposed ||
         _owner._cancelledDownloads.contains(contentId) ||
-        _retryReoffers.length >= _maxOffers) {
+        _reofferRequests.length >= _maxOffers ||
+        isWanted?.call() == false) {
       return false;
     }
+
+    // Register before reading consent so cancel/restart also retires requests
+    // suspended in storage. An unconfirmed request keeps its id local.
     final frameId = 'reoffer:${_uuid.v4()}';
-    final receipt = Completer<bool>();
-    _retryReoffers[frameId] = (
+    final receipt = confirmationTimeout == null ? null : Completer<bool>();
+    final consent = _owner._realtimeControl;
+    final epoch = consent._consentEpoch(peer);
+    var wasAdmitted = false;
+    bool isCurrent() =>
+        _reofferRequests.containsKey(frameId) &&
+        !_owner._cancelledDownloads.contains(contentId) &&
+        consent._consentCurrent(peer, epoch) &&
+        isWanted?.call() != false;
+    _reofferRequests[frameId] = (
       peer: peer,
       device: streamTargetFor(peer, contentId),
       contentId: contentId,
       receipt: receipt,
+      acceptsReceipt: () => wasAdmitted && isCurrent(),
     );
     Timer? retryTimer;
-    final payload = envelope.withFrameId(frameId).encode();
-    Future<void> sendUntilConfirmed() async {
-      for (var attempt = 0; attempt < _maxRetryReofferSends; attempt++) {
-        if (receipt.isCompleted ||
-            _owner._disposed ||
-            _owner._cancelledDownloads.contains(contentId)) {
-          return;
-        }
-        if (attempt > 0) {
-          final current = await _owner._storage.getContact(peer);
-          if (current?.status != ContactStatus.accepted) {
+    try {
+      if (!identical(await consent._acceptedContactEpoch(peer), epoch) ||
+          !isCurrent()) {
+        return false;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: requesting manifest re-advertise '
+            '${contentId.substring(0, 12)} from ${peer.short}',
+      );
+      final envelope = contentReofferEnvelope(contentId);
+      final payload =
+          (receipt == null ? envelope : envelope.withFrameId(frameId)).encode();
+
+      Future<bool> send() async {
+        if (!isCurrent() || receipt?.isCompleted == true) return false;
+        var admitted = false;
+        await _owner._send(
+          peer,
+          payload,
+          admitTransport: () {
+            admitted = isCurrent() && receipt?.isCompleted != true;
+            wasAdmitted = wasAdmitted || admitted;
+            return admitted;
+          },
+        );
+        return admitted;
+      }
+
+      if (receipt == null) return await send();
+
+      Future<void> sendUntilConfirmed() async {
+        for (var attempt = 0; attempt < _maxRetryReofferSends; attempt++) {
+          if (receipt.isCompleted) return;
+          if ((attempt > 0 &&
+                  !identical(
+                    await consent._acceptedContactEpoch(peer),
+                    epoch,
+                  )) ||
+              !await send()) {
             if (!receipt.isCompleted) receipt.complete(false);
             return;
           }
-          if (receipt.isCompleted || _owner._disposed) return;
-        }
-        await _owner._send(peer, payload);
-        if (receipt.isCompleted || attempt + 1 == _maxRetryReofferSends) return;
-        // A live send can be lost or arrive without usable identity proof
-        // while a source restarts or its route warms.
-        // Reuse the unpredictable frame id: a source that already processed
-        // it only repeats its ACK, without rebuilding the manifest again.
-        final delay = Completer<void>();
-        retryTimer = Timer(_retryReofferInterval, delay.complete);
-        try {
-          await Future.any<void>([
-            delay.future,
-            receipt.future.then<void>((_) {}),
-          ]);
-        } finally {
-          retryTimer?.cancel();
-          retryTimer = null;
+          if (receipt.isCompleted || attempt + 1 == _maxRetryReofferSends) {
+            return;
+          }
+          // Reuse the id. A source that already processed it repeats its ACK
+          // without rebuilding the manifest.
+          final delay = Completer<void>();
+          retryTimer = Timer(_retryReofferInterval, delay.complete);
+          try {
+            await Future.any<void>([
+              delay.future,
+              receipt.future.then<void>((_) {}),
+            ]);
+          } finally {
+            retryTimer?.cancel();
+            retryTimer = null;
+          }
         }
       }
-    }
 
-    try {
-      // Existing generic ACKs make this compatible with sources which do not
-      // know about this wait. Do not persist retries or send them to mailbox.
-      // Timeout covers BOTH local enqueue and the remote receipt.
+      // Timeout covers both local enqueue and the authenticated receipt.
+      // Cancellation can leave an already admitted transport call running.
       return await (() async {
         final sent = sendUntilConfirmed();
         await Future.any<void>([
           sent,
           receipt.future.then<void>((confirmed) async {
-            // Cancellation need not join a wedged enqueue. Success still
-            // waits for the send's ratchet persistence before opening a stream.
+            // Success still joins this send's ratchet persistence.
             if (confirmed) await sent;
           }),
         ]);
-        return receipt.future;
-      })().timeout(confirmationTimeout, onTimeout: () => false);
+        return await receipt.future && isCurrent();
+      })().timeout(confirmationTimeout!, onTimeout: () => false);
     } finally {
       retryTimer?.cancel();
-      _retryReoffers.remove(frameId);
-      if (!receipt.isCompleted) receipt.complete(false);
+      _reofferRequests.remove(frameId);
+      if (receipt != null && !receipt.isCompleted) receipt.complete(false);
     }
   }
 

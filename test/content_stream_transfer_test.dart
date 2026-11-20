@@ -24,10 +24,30 @@ import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/multi_identity_session.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
 
 import 'support/fake_multi_space.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
+
+class _HeldReofferRatchet extends Fake implements RatchetPersistence {
+  final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  bool get degraded => false;
+
+  @override
+  Future<void> reserveBeforePublish(NodeId peer) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+  }
+
+  @override
+  Future<int> flush({String why = 'unknown', bool now = false}) async => 0;
+
+  @override
+  Future<int> close() async => 0;
+}
 
 Uint8List _rnd(int n, int seed) {
   final r = Random(seed);
@@ -1755,6 +1775,7 @@ void main() {
     'dispose',
     'lost-ack',
     'cancel-enqueue',
+    'cancel-ratchet',
   ]) {
     test(
       'retry waits for its source to receive the authenticated reoffer ($mode)',
@@ -1793,6 +1814,10 @@ void main() {
         tA.dropAckFrames = mode == 'lost-ack';
         final enqueueStarted = Completer<void>(),
             releaseEnqueue = Completer<void>();
+        final heldRatchet = mode == 'cancel-ratchet'
+            ? _HeldReofferRatchet()
+            : null;
+        if (heldRatchet != null) mB.ratchet = heldRatchet;
         if (mode == 'cancel-enqueue') {
           tB.beforeSend = (bytes) async {
             if (WireEnvelope.decode(bytes).kind == WireKind.contentReoffer) {
@@ -1805,6 +1830,24 @@ void main() {
             ? null
             : mB.contentReceived.firstWhere((e) => e.contentId == cid);
         expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+        if (heldRatchet != null) {
+          try {
+            await heldRatchet.entered.future.timeout(
+              const Duration(seconds: 2),
+            );
+            expect(tB.heldReoffers, isEmpty);
+            expect(tB.openStreamAttemptCount, 1);
+            await mB
+                .cancelContentDownload(cid)
+                .timeout(const Duration(seconds: 2));
+          } finally {
+            heldRatchet.release.complete();
+          }
+          await Future<void>.delayed(Duration.zero);
+          expect(tB.heldReoffers, isEmpty);
+          expect(tB.openStreamAttemptCount, 1);
+          return;
+        }
         if (mode == 'cancel-enqueue') {
           await enqueueStarted.future.timeout(const Duration(seconds: 2));
         } else {

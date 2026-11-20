@@ -21,6 +21,7 @@ class _Storage extends HiddenVolumeStorage {
   Future<void> Function(String id)? beforeFailureWrite;
   Future<void> Function(String id)? beforeDeletedRead;
   Future<void> Function(String id, bool deleted)? afterDeletedRead;
+  Future<void> Function(NodeId)? afterContactRead;
   bool deferMessageHandoff = false;
   int fileReads = 0;
 
@@ -28,6 +29,13 @@ class _Storage extends HiddenVolumeStorage {
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) {
     fileReads++;
     return super.loadFile(fileId, maxBytes: maxBytes);
+  }
+
+  @override
+  Future<Contact?> getContact(NodeId nodeId) async {
+    final contact = await super.getContact(nodeId);
+    await afterContactRead?.call(nodeId);
+    return contact;
   }
 
   @override
@@ -97,6 +105,7 @@ class _Transport implements VeilTransport {
   final sent = <({NodeId peer, String id})>[];
   final fileFrames = <WireEnvelope>[];
   final historyFrames = <WireEnvelope>[];
+  final reofferRequests = <WireEnvelope>[];
   Future<void> Function(WireEnvelope)? onFileFrame;
   int active = 0, peak = 0;
   @override
@@ -108,6 +117,7 @@ class _Transport implements VeilTransport {
     bool anonymous = false,
   }) async {
     final frame = WireEnvelope.decode(bytes);
+    if (frame.kind == WireKind.contentReoffer) reofferRequests.add(frame);
     if (const {
           WireKind.edit,
           WireKind.voidSeq,
@@ -765,6 +775,82 @@ void main() {
       expect(transport.fileFrames, isEmpty);
     },
   );
+
+  for (final parked in [false, true]) {
+    for (final change in [
+      'cancel',
+      'cancel and restart',
+      'block then unblock',
+    ]) {
+      final mode = parked ? 'parked' : 'direct';
+      test('$mode reoffer request rechecks $change at handoff', () async {
+        final peer = _id(2);
+        final cid = List.filled(64, 'b').join();
+        await storage.upsertContact(Contact(nodeId: peer));
+        final entered = Completer<void>(), release = Completer<void>();
+        service.ratchet = _HeldReservation(entered, release);
+        Future<bool>? sending;
+        if (parked) {
+          expect(
+            await service.downloadContent(peer, cid),
+            ContentDownloadResult.requestedReoffer,
+          );
+        } else {
+          sending = service.requestContentReoffer(peer, cid);
+        }
+        try {
+          await entered.future.timeout(const Duration(seconds: 3));
+          expect(transport.reofferRequests, isEmpty);
+          if (change == 'block then unblock') {
+            await service.blockContact(peer);
+            await service.unblockContact(peer);
+          } else {
+            await service.cancelContentDownload(cid);
+            if (change == 'cancel and restart') {
+              expect(
+                await service.downloadContent(peer, cid),
+                ContentDownloadResult.requestedReoffer,
+              );
+            }
+          }
+        } finally {
+          release.complete();
+          if (sending != null) expect(await sending, isFalse);
+        }
+        await barrier();
+        if (change == 'cancel and restart') {
+          expect(transport.reofferRequests.single.body, cid);
+        } else {
+          expect(transport.reofferRequests, isEmpty);
+        }
+      });
+    }
+  }
+
+  test('a reoffer cannot adopt a newer contact decision mid-read', () async {
+    final peer = _id(2);
+    final cid = List.filled(64, 'b').join();
+    await storage.upsertContact(Contact(nodeId: peer));
+    final entered = Completer<void>(), release = Completer<void>();
+    storage.afterContactRead = (id) async {
+      if (id != peer || entered.isCompleted) return;
+      entered.complete();
+      await release.future;
+    };
+    final sending = service.requestContentReoffer(peer, cid);
+    try {
+      await Future.any([
+        entered.future,
+        sending.then((_) => fail('request finished before the contact read')),
+      ]);
+      await service.blockContact(peer);
+      await service.unblockContact(peer);
+    } finally {
+      release.complete();
+    }
+    expect(await sending, isFalse);
+    expect(transport.reofferRequests, isEmpty);
+  });
 
   Future<void> requestHistory(NodeId peer, Map<String, Object> body) =>
       service.deliverInbound(
