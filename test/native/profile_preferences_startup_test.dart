@@ -336,6 +336,52 @@ void main() {
     },
   );
 
+  for (final (label, bytes) in [
+    ('no content', const <int>[]),
+    ('invalid UTF-8', const [0xff]),
+    ('an invalid profile name', utf8.encode('../unusable')),
+  ]) {
+    test('a saved choice with $label requires an explicit profile', () async {
+      final pointer = File(activeProfilePath(support.path))
+        ..writeAsBytesSync(bytes, flush: true);
+      final source = await legacy.getAll();
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ProfileChoiceReadFailure>().having(
+            (error) => error.diagnosticCode,
+            'code',
+            4,
+          ),
+        ),
+      );
+      expect(files, isEmpty);
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+      expect(await legacy.getAll(), source);
+      expect(pointer.readAsBytesSync(), bytes);
+
+      expect(await install(args: const ['--profile=decoy']), 'decoy');
+      expect(pointer.readAsBytesSync(), bytes);
+      expect(await legacy.getAll(), source);
+      await stores.last.releaseFile();
+      SharedPreferencesStorePlatform.instance = legacy;
+
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(await install(), 'decoy');
+      expect(pointer.readAsStringSync(), 'decoy');
+    });
+  }
+
+  test('an automatic migration preserves a malformed saved choice', () async {
+    final pointer = File(activeProfilePath(support.path))
+      ..writeAsStringSync('../unusable', flush: true);
+    expect(
+      await writeRememberedProfile(support.path, 'legacy', onlyIfUnset: true),
+      isFalse,
+    );
+    expect(pointer.readAsStringSync(), '../unusable');
+  });
+
   test('a cold restart refreshes a retained legacy setting', () async {
     const key = 'flutter.locale';
     expect(

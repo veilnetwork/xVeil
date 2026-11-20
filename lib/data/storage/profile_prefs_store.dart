@@ -371,15 +371,21 @@ String profilePrefsPath(String supportDir, String profile) =>
 /// backups, so the name of the profile in use never rides out with one.
 String activeProfilePath(String supportDir) => '$supportDir/xveil.profile';
 
-/// The remembered profile name, or null when nothing valid is recorded.
-Future<String?> readRememberedProfile(String supportDir) =>
-    readStartupProfileChoice(File(activeProfilePath(supportDir)));
+/// The remembered profile name, or null if absent or unusable. With
+/// [requireValid], a malformed choice raises [ProfileChoiceReadFailure].
+Future<String?> readRememberedProfile(
+  String supportDir, {
+  bool requireValid = false,
+}) => readStartupProfileChoice(
+  File(activeProfilePath(supportDir)),
+  requireValid: requireValid,
+);
 
 Future<void> _profileChoiceWrites = Future<void>.value();
 
 /// Remember [profile] as the one to launch next time. False means the write
 /// could not be confirmed. With [onlyIfUnset], a valid choice already on disk
-/// also counts as success.
+/// also counts as success and a malformed choice is left in place.
 ///
 /// Written the same way as everything else here: to a temporary name, fsynced,
 /// renamed, the directory fsynced, mode 0600 applied before any content exists
@@ -441,10 +447,12 @@ Future<String> installProfilePreferences({
   SharedPreferencesStorePlatform? legacyBackend,
 }) async {
   final legacy = legacyBackend ?? SharedPreferencesStorePlatform.instance;
+  Future<String?> readChoice() =>
+      readRememberedProfile(supportDir, requireValid: openOwnedFile != null);
   String? pointer;
   var pointerSafe = true;
   try {
-    pointer = await readRememberedProfile(supportDir);
+    pointer = await readChoice();
   } on ProfileChoiceReadFailure {
     final explicit = AppProfiles.resolveWithSource(
       args: args,
@@ -474,13 +482,13 @@ Future<String> installProfilePreferences({
     // A concurrent launch may have carried the only old choice while this
     // reader was waiting. If a new choice is available, leave migration for
     // a launch that can read the old source.
-    pointer = await readRememberedProfile(supportDir);
+    pointer = await readChoice();
     if (pointer == null) rethrow;
   }
   if (needsSavedChoice) {
     // The first read and the legacy snapshot are not atomic. Read the newer
     // record again before choosing a profile or opening its storage.
-    pointer ??= await readRememberedProfile(supportDir);
+    pointer ??= await readChoice();
   }
   final savedChoice = legacySnapshot[_legacyActiveKey];
   final legacyPointer = savedChoice is String ? savedChoice : null;
