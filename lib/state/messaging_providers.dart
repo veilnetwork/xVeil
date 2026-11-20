@@ -372,9 +372,24 @@ final contentResumingProvider =
       (ref) => ContentResumingNotifier(ref.watch(messagingServiceProvider)),
     );
 
+Stream<T> _messagingSnapshots<T>(
+  Stream<void> changes,
+  Future<T> Function() read,
+) => Stream<void>.multi((events) {
+  // Subscribe before the first read. The broadcast stream cannot replay a
+  // change that lands while the initial storage snapshot is in flight.
+  final subscription = changes.listen(
+    events.add,
+    onError: events.addError,
+    onDone: events.close,
+  );
+  events.onCancel = subscription.cancel;
+  events.add(null);
+}).asyncMap((_) => read());
+
 /// Conversations, re-loaded on first build and whenever the service signals a
 /// change. StreamProvider yields the same AsyncValue the UI already consumes.
-final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
+final conversationsProvider = StreamProvider<List<Conversation>>((ref) {
   // DesktopTrayHost watches this provider for its unread badge even while the
   // app is locked. Do not let that eager listener construct the messaging
   // pipeline or touch HiddenVolumeStorage before AppController has completed
@@ -383,8 +398,7 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   // the stream with "storage is locked" and the chat list stayed on that error
   // after a successful unlock.
   if (ref.watch(sessionWorkIdentityProvider) == null) {
-    yield const <Conversation>[];
-    return;
+    return Stream.value(const <Conversation>[]);
   }
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
@@ -410,10 +424,7 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
     return result;
   }
 
-  yield await visibleConversations();
-  await for (final _ in service.changes) {
-    yield await visibleConversations();
-  }
+  return _messagingSnapshots(service.changes, visibleConversations);
 });
 
 /// Requests to empty a conversation that nobody has answered yet.
@@ -426,18 +437,15 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
 /// Guarded by the same locked-phase check as [conversationsProvider], and for
 /// the same reason — an eager listener must not touch the container before
 /// unlock has finished.
-final pendingClearRequestsProvider =
-    StreamProvider<List<PendingClearRequest>>((ref) async* {
-      if (ref.watch(sessionWorkIdentityProvider) == null) {
-        yield const <PendingClearRequest>[];
-        return;
-      }
-      final service = ref.watch(messagingServiceProvider);
-      yield await service.pendingClearRequests();
-      await for (final _ in service.changes) {
-        yield await service.pendingClearRequests();
-      }
-    });
+final pendingClearRequestsProvider = StreamProvider<List<PendingClearRequest>>((
+  ref,
+) {
+  if (ref.watch(sessionWorkIdentityProvider) == null) {
+    return Stream.value(const <PendingClearRequest>[]);
+  }
+  final service = ref.watch(messagingServiceProvider);
+  return _messagingSnapshots(service.changes, service.pendingClearRequests);
+});
 
 /// Reactions overlay for one conversation: msgId → (reactorHex → emoji).
 /// Reloaded on every service change so a new reaction (local or inbound)
@@ -475,7 +483,7 @@ final chatWindowProvider = StateProvider.autoDispose.family<int, String>(
 final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String>((
   ref,
   conversationId,
-) async* {
+) {
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
   // Load only the newest `window` messages, not the whole conversation — bounds
@@ -514,18 +522,16 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
     );
   }
 
-  yield await visibleMessages();
   // Each `changes` tick re-loads + DECRYPTS the conversation window from the
   // container and rebuilds the ListView (+ auto-scroll). A burst of state
   // signals (sends, inbound re-sends, status flips) therefore thrashed the UI
   // isolate into a visible freeze. Coalesce bursts: reload at most ~5x/s
   // (trailing edge), so the latest state still renders within ~200ms but a
   // flurry collapses into ONE decrypt+rebuild.
-  await for (final _ in service.changes.auditTrailing(
-    const Duration(milliseconds: 200),
-  )) {
-    yield await visibleMessages();
-  }
+  return _messagingSnapshots(
+    service.changes.auditTrailing(const Duration(milliseconds: 200)),
+    visibleMessages,
+  );
 });
 
 List<Message> _visibleChatMessages(
@@ -587,15 +593,9 @@ extension _AuditTrailing<T> on Stream<T> {
 
 /// The stored contact (with relationship status) for a peer, refreshed on
 /// every change. Null until we have a record of them.
-final contactProvider = StreamProvider.family<Contact?, String>((
-  ref,
-  peerHex,
-) async* {
+final contactProvider = StreamProvider.family<Contact?, String>((ref, peerHex) {
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
   final id = NodeId.fromHex(peerHex);
-  yield await storage.getContact(id);
-  await for (final _ in service.changes) {
-    yield await storage.getContact(id);
-  }
+  return _messagingSnapshots(service.changes, () => storage.getContact(id));
 });
