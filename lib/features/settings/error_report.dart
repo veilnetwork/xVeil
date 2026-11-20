@@ -73,6 +73,13 @@ String buildErrorReport({required String phase}) => errorJournal.toJson(
 /// The OS description can contain a kernel builder/hostname. Export just a
 /// numeric release/build; an unrecognised description is omitted as unknown.
 String anonymousOsVersion(String raw) {
+  // Dart can prefix the Windows version with the localized product name.
+  // Keep the numeric build so reports distinguish Windows 10 and Windows 11.
+  final windows = RegExp(
+    r'^"[^"\r\n]*\bWindows\b[^"\r\n]*" (\d+\.\d+) \(Build (\d+)\)$',
+  ).firstMatch(raw);
+  if (windows != null) return '${windows[1]}.${windows[2]}';
+
   final patterns = [
     RegExp(r'^\[?Version[ :]+(\d+(?:\.\d+){1,3})', caseSensitive: false),
     RegExp(r'^Windows.*?\[Version (\d+(?:\.\d+){1,3})', caseSensitive: false),
