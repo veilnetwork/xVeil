@@ -212,6 +212,48 @@ void main() {
     );
   });
 
+  test(
+    'a queued recommendation observes a contact change before sending',
+    () async {
+      final card = SpaceRecommendationCard(
+        campaignId: 'ab' * 32,
+        spaceId: _id(8),
+        name: 'Public lab',
+        description: 'Take a look',
+        text: 'A recommendation',
+        joinCode: _joinCode(_id(8), a, '11' * 32),
+      );
+      await sA.upsertContact(Contact(nodeId: b));
+      await sB.upsertContact(Contact(nodeId: a));
+      final entered = Completer<void>(), release = Completer<void>();
+      mA.onMessageStored = (_, _) async {
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+      };
+      final sending = mA.sendSpaceRecommendation(b, card);
+      late final String? reported;
+      try {
+        await entered.future;
+        await mA.blockContact(b);
+      } finally {
+        release.complete();
+        reported = await sending;
+      }
+      expect(reported, isNull);
+      final outgoing = (await sA.loadMessages(b.hex)).single;
+      expect(
+        tA.sentPayloads
+            .map(WireEnvelope.decode)
+            .where((frame) => frame.kind == WireKind.spaceRecommendation),
+        isEmpty,
+      );
+      await mA.unblockContact(b);
+      await mA.flushOutbox();
+      await _pump();
+      expect((await sB.loadMessages(a.hex)).single.id, outgoing.id);
+    },
+  );
+
   test('plain text and edit APIs cannot forge or rewrite a card', () async {
     final card = SpaceRecommendationCard(
       campaignId: 'bc' * 32,
