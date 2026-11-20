@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences_linux/shared_preferences_linux.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
@@ -680,7 +681,20 @@ Future<Map<String, Object>> _readLegacyPreferences(
   bool requiredForChoice = false,
 }) async {
   try {
-    Future<Map<String, Object>> read() => _freshLegacyReader(legacy).getAll();
+    Future<Map<String, Object>> read() async {
+      if (requiredForChoice &&
+          (legacy is SharedPreferencesLinux ||
+              legacy is SharedPreferencesWindows)) {
+        // Both desktop plugins turn an empty or non-object file into an
+        // empty map. For startup that cannot distinguish a damaged choice
+        // from a clean install. Use the same platform path and read it once.
+        final support = await getApplicationSupportDirectory();
+        return readDesktopLegacyPreferences(
+          File.fromUri(support.uri.resolve('shared_preferences.json')),
+        );
+      }
+      return _freshLegacyReader(legacy).getAll();
+    }
     final snapshot = requiredForChoice
         ? await retryProfileChoiceRead(
             read,

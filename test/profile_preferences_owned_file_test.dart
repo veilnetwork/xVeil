@@ -47,6 +47,43 @@ void main() {
     await store.releaseFile();
     expect(owner.closes, 1);
   });
+
+  test(
+    'desktop legacy preferences distinguish absent and valid data',
+    () async {
+      final legacy = File('${fixture.path}/shared_preferences.json');
+      expect(await readDesktopLegacyPreferences(legacy), isEmpty);
+      legacy.writeAsStringSync('{}');
+      expect(await readDesktopLegacyPreferences(legacy), isEmpty);
+      const settings = {
+        'flutter.${AppProfiles.activePref}': 'older',
+        'flutter.locale.older': 'ru',
+      };
+      legacy.writeAsStringSync(jsonEncode({...settings, 'other': 'ignored'}));
+      expect(await readDesktopLegacyPreferences(legacy), settings);
+    },
+  );
+
+  for (final invalid in [
+    '',
+    '[]',
+    'null',
+    '{"flutter.profile.active.v1":null}',
+  ]) {
+    test(
+      'desktop legacy preferences refuse invalid data (${invalid.length})',
+      () async {
+        final legacy = File('${fixture.path}/shared_preferences.json')
+          ..writeAsStringSync(invalid);
+        await expectLater(
+          readDesktopLegacyPreferences(legacy),
+          throwsFormatException,
+        );
+        expect(legacy.readAsStringSync(), invalid);
+      },
+    );
+  }
+
   for (final temporary in [true, false]) {
     test(
       'Windows legacy profile choice sharing refusal temporary=$temporary',
