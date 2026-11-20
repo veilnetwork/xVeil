@@ -665,6 +665,7 @@ class _MessagingContacts {
         .then<void>(
           (_) {},
           onError: (Object error, StackTrace stack) {
+            if (error is ContactAcceptanceSuperseded) return;
             // Joining owned work also observes its error. Keep a safe diagnostic
             // even when a UI callback does not await the returned future.
             const message = 'Contact acceptance could not be completed';
@@ -700,10 +701,11 @@ class _MessagingContacts {
     final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
     // User-visible consent and the response obligation share one transaction.
     // No callback/live send can advertise a decision with no durable answer.
-    await _withConsentWrite(
+    final admitted = await _withConsentWrite(
       peer,
       () => _owner._outbox.enqueueAcceptance(peer, frameId, wire),
     );
+    if (!admitted) return;
     try {
       if (_owner._disposed) return;
       await _afterStatusSaved(peer, ContactStatus.accepted);

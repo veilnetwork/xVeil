@@ -417,13 +417,18 @@ class _MessagingOutbox {
     _recordEnqueued(peer, frameId, wire);
   }
 
-  Future<void> enqueueAcceptance(
+  Future<bool> enqueueAcceptance(
     NodeId peer,
     String frameId,
     Uint8List wire,
   ) async {
-    await _owner._storage.acceptContactAndEnqueue(peer, frameId, wire);
-    if (!_owner._disposed) _recordEnqueued(peer, frameId, wire);
+    final admitted = await _owner._storage.acceptContactAndEnqueue(
+      peer,
+      frameId,
+      wire,
+    );
+    if (admitted && !_owner._disposed) _recordEnqueued(peer, frameId, wire);
+    return admitted;
   }
 
   Future<bool> admitInitialRequest(

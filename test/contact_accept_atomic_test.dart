@@ -14,6 +14,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -91,6 +92,120 @@ void main() {
   setUp(errorJournal.clear);
   tearDown(errorJournal.clear);
   for (final native in [false, true]) {
+    for (final unblock in [false, true]) {
+      test(
+        'waiting contact acceptance preserves later decisions native=$native unblock=$unblock',
+        () async {
+          Directory? dir;
+          late AsyncSpaceOpener open;
+          if (native) {
+            expect(ensureHiddenVolumeLoaded(), isTrue);
+            dir = await Directory.systemTemp.createTemp('xveil-accept-wait-');
+            final path = '${dir.path}/store.hv';
+            HvKvLogStore(
+              hv.HvSpace.create(
+                path: path,
+                password: Uint8List.fromList(utf8.encode('fixture')),
+                argon: hv.ArgonPreset.min,
+              ),
+            ).close();
+            open = workerSpaceOpener(path);
+          } else {
+            final fake = FakeKvLogStore();
+            open = ({required password, required bool create}) async =>
+                SyncWrappedAsyncKvLogStore(fake);
+          }
+          late _Fault fault;
+          final storage = HiddenVolumeStorage.async(({
+            required password,
+            required bool create,
+          }) async {
+            final inner = await open(password: password, create: create);
+            return inner == null ? null : fault = _Fault(inner, 'hold-frame');
+          });
+          final peer = _id(2), unrelated = _id(3), wire = _Wire();
+          final service = MessagingService(wire, storage);
+          final published = <ContactStatus>[];
+          service.onContactStatusChanged = (_, status) => published.add(status);
+          Future<void>? held;
+          Future<Object?>? accepting;
+          try {
+            expect(await storage.open(password: 'fixture'), isTrue);
+            await storage.upsertContact(
+              Contact(nodeId: peer, status: ContactStatus.pendingIncoming),
+            );
+            fault.armed = true;
+            held = storage.enqueueOutboxFrame(
+              'fixture-unrelated',
+              unrelated.hex,
+              Uint8List.fromList([1, 2, 3]),
+            );
+            await fault.entered.future;
+            accepting = service
+                .acceptContact(peer)
+                .then<Object?>((_) => null, onError: (Object error) => error);
+            await service.blockContact(peer);
+            if (unblock) {
+              // Release the block locally while the unrelated Outbox work is
+              // still held. This change owes no acceptance to the other peer.
+              await storage.setContactStatus(peer, ContactStatus.accepted);
+            }
+            final later = await storage.contactDecisionFloor(peer);
+            final expected = unblock
+                ? ContactStatus.accepted
+                : ContactStatus.blocked;
+            expect(later?.status, expected);
+            fault.release.complete();
+            await held;
+            final refusal = await accepting;
+            await service.dispose();
+            await storage.close();
+            expect(await storage.open(password: 'fixture'), isTrue);
+            expect((await storage.getContact(peer))?.status, expected);
+            expect(
+              (await storage.contactDecisionFloor(peer))?.token,
+              later!.token,
+            );
+            expect(
+              (await storage.pendingOutboxFrames()).map((f) => f.frameId),
+              ['fixture-unrelated'],
+            );
+            expect(wire.sent, isEmpty);
+            expect(published, [ContactStatus.blocked]);
+            expect(
+              refusal,
+              unblock ? isNull : isA<ContactAcceptanceSuperseded>(),
+            );
+            if (!unblock) {
+              // A separate acceptance submitted after the block sees the
+              // current decision and may intentionally change it.
+              final id = 'accept:${peer.hex}';
+              expect(
+                await storage.acceptContactAndEnqueue(
+                  peer,
+                  id,
+                  const WireEnvelope.accept().withFrameId(id).encode(),
+                ),
+                isTrue,
+              );
+              expect(
+                (await storage.getContact(peer))?.status,
+                ContactStatus.accepted,
+              );
+            }
+          } finally {
+            if (!fault.release.isCompleted) fault.release.complete();
+            await held;
+            await accepting;
+            await service.dispose();
+            await wire.dispose();
+            await storage.close();
+            await dir?.delete(recursive: true);
+          }
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
     test(
       'acceptance preserves indexes, owned wire, existing age and conflicts native=$native',
       () async {
