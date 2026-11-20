@@ -5816,8 +5816,9 @@ void main() {
               expect(media.switches, hasLength(admission == false ? 2 : 1));
               expect(svc.current?.transport, CallTransportKind.p2p);
 
-              final remaining = admission == false ? 5000 : 3800;
-              async.elapse(Duration(milliseconds: remaining - 1));
+            // The early probe is optional. Its failure cannot push the
+            // original 4.8 s + 5 s retry opportunity further out.
+            async.elapse(const Duration(milliseconds: 3799));
               expect(media.switches, hasLength(admission == false ? 2 : 1));
               media.proven = true;
               async.elapse(const Duration(milliseconds: 1));

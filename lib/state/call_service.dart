@@ -608,7 +608,7 @@ class CallService {
     String callId,
     DateTime failedAt,
     DateTime until,
-    DateTime? handoverRecoveryAt,
+    DateTime? preservedRetryAt,
     ({DateTime until, Completer<void> released})? handoverLiveness,
   })?
   _relayCandidateRetry;
@@ -2471,14 +2471,13 @@ class CallService {
     }
     // A wake hint cannot authorize a route. The native candidate still needs
     // fresh sealed proof.
-    final handoverRecoveryAt = retry.handoverRecoveryAt;
-    // A reconnect can wake this attempt before the ordinary recovery point.
-    // Keep that opportunity if its probes also fail. An attempt that starts
-    // at or after the point consumes it and returns to the steady cadence.
-    final retryBy =
-        handoverRecoveryAt != null && _now().isBefore(handoverRecoveryAt)
-        ? handoverRecoveryAt
-        : null;
+    // A wake can start an extra attempt before a scheduled opportunity.
+    // Keep that opportunity if the extra attempt fails. An attempt that
+    // starts at or after it consumes it and returns to the steady cadence.
+    final retryAt = trigger == _RelayRetryTrigger.closedDirect
+        ? retry.until
+        : retry.preservedRetryAt;
+    final retryBy = retryAt != null && _now().isBefore(retryAt) ? retryAt : null;
     _cancelRelayCandidateRetry();
     if (_peerRelayWake == _PeerRelayWake.requested) {
       _peerRelayWake = _PeerRelayWake.used;
@@ -2665,9 +2664,9 @@ class CallService {
       // absent. The old engine still owns its route. Keep it alive and bound
       // retries instead of ending a call on an unproven replacement path.
       final now = _now();
-      // An observation started before the silence grace can lose its echo
-      // while the replacement network is still coming up. Keep the ordinary
-      // recovery opportunity once, then return to the normal retry cadence.
+      // A probe can fail while the replacement path is still coming up.
+      // Keep the scheduled opportunity, including when it elapsed during
+      // this attempt. The following attempt returns to the normal cadence.
       final delay = switch (retryBy?.difference(now)) {
         final remaining? when remaining.isNegative => Duration.zero,
         final remaining? when remaining < kCallRelayCandidateRetry => remaining,
@@ -2677,7 +2676,7 @@ class CallService {
         callId: callId,
         failedAt: now,
         until: now.add(delay),
-        handoverRecoveryAt: retryBy,
+        preservedRetryAt: retryBy,
         handoverLiveness: network == _overlayAdmissionNetwork
             ? null
             : (until: livenessUntil, released: Completer<void>()),
