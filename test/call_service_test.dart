@@ -1769,13 +1769,21 @@ void main() {
       });
     });
 
-    for (final relayResponds in [true, false]) {
+    for (final (relayResponds, replaceCandidate) in [
+      (true, false),
+      (false, false),
+      (true, true),
+      (false, true),
+    ]) {
       test(
-        'native liveness awaits an in-flight relay candidate ($relayResponds)',
+        'native liveness awaits relay qualification '
+        '(response=$relayResponds, replacement=$replaceCandidate)',
         () {
           fakeAsync((async) {
             const callId = 'relay-qualifying-at-liveness-deadline';
             final gate = Completer<bool>();
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final admissions = StreamController<void>(sync: true);
             final wire = _FakeMessaging();
             final media = _ReconnectRelayMedia()
               ..liveDirectAdmission = true
@@ -1790,6 +1798,8 @@ void main() {
               now: () => clock.now(),
               localAllowsP2P: (_) async => true,
               peerReachableForP2P: (_) async => true,
+              networkAttachments: network.stream,
+              overlaySessionAdmissions: admissions.stream,
             )..start();
             try {
               wire.onCallSignal!(
@@ -1823,17 +1833,35 @@ void main() {
               expect(media.snapshotReads, 1);
               final ends = wire.sent.where((s) => s.type == CallSignalType.end);
               expect(ends, isEmpty);
+              var candidate = gate;
+              var elapsed = tick;
+              if (replaceCandidate) {
+                async.elapse(tick);
+                elapsed += tick;
+                candidate = Completer<bool>();
+                media.nextAttempt = candidate;
+                network.add(NetworkAttachment.cellular);
+                admissions.add(null);
+                gate.complete(false);
+                async.flushMicrotasks();
+                expect(media.switches, hasLength(2));
+                expect(svc.current?.status, CallStatus.active);
+                expect(ends, isEmpty);
+              }
               if (relayResponds) {
-                gate.complete(true);
+                candidate.complete(true);
                 async.flushMicrotasks();
                 expect(svc.current?.transport, CallTransportKind.relay);
                 expect(svc.current?.callId, callId);
                 expect(ends, isEmpty);
               } else {
-                async.elapse(kCallMediaStartTimeout - tick);
+                const lastStep = Duration(milliseconds: 1);
+                async.elapse(kCallMediaStartTimeout - elapsed - lastStep);
+                expect(svc.current?.status, CallStatus.active);
+                async.elapse(lastStep);
                 expect(svc.current, isNull);
                 expect(ends.single.reason, CallEndReason.timeout);
-                gate.complete(false);
+                candidate.complete(false);
                 async.flushMicrotasks();
                 expect(svc.current, isNull);
                 expect(ends, hasLength(1));
@@ -1841,6 +1869,8 @@ void main() {
               expect(media.snapshotReads, 2);
             } finally {
               svc.dispose();
+              unawaited(network.close());
+              unawaited(admissions.close());
               async.flushMicrotasks();
             }
           });

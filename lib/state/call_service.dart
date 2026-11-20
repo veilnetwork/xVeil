@@ -3666,21 +3666,27 @@ class CallService {
         if (alive == null || now.difference(alive) <= timeout) return;
         if (_holdLivenessForRecovery(cur, now)) return;
         if (attempt == 0) {
-          final fallback = _relayFallbackFlight;
+          var fallback = _relayFallbackFlight;
           if (fallback != null &&
               fallback.callId == cur.callId &&
               fallback.peer == cur.peer &&
               now.isBefore(fallback.livenessUntil)) {
-            // An authorized relay candidate may still be testing delivery
-            // while the direct path is silent. Give this attempt only the
-            // time left in its original budget, then sample the live route.
-            try {
-              await fallback.future.timeout(
-                fallback.livenessUntil.difference(now),
-                onTimeout: () {},
-              );
-            } catch (_) {
-              // A failed switch still needs the ordinary liveness decision.
+            // Finishing an obsolete candidate may start a replacement for
+            // the same call. Both share the first candidate's deadline.
+            final until = fallback.livenessUntil;
+            while (fallback != null &&
+                fallback.callId == cur.callId &&
+                fallback.peer == cur.peer) {
+              final remaining = until.difference(_now());
+              if (remaining <= Duration.zero) break;
+              try {
+                await fallback.future.timeout(remaining);
+              } catch (_) {
+                // A failed or expired switch still needs a liveness sample.
+                break;
+              }
+              if (!identical(_livenessProbeToken, token)) return;
+              fallback = _relayFallbackFlight;
             }
             if (!identical(_livenessProbeToken, token)) return;
             continue;
