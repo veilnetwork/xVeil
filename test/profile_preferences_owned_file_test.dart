@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show nullptr;
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:win32/win32.dart' as win;
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
@@ -44,6 +47,98 @@ void main() {
     await store.releaseFile();
     expect(owner.closes, 1);
   });
+  for (final temporary in [true, false]) {
+    test(
+      'Windows legacy profile choice sharing refusal temporary=$temporary',
+      () async {
+        fixture.deleteSync(recursive: true);
+        fixture = Directory(Platform.environment['LOCALAPPDATA']!)
+            .createTempSync('xveil-legacy-share-test-');
+        const choiceKey = 'flutter.${AppProfiles.activePref}';
+        const source = {choiceKey: 'older', 'flutter.locale.older': 'ru'};
+        final legacyFile = File('${fixture.path}/legacy.json')
+          ..writeAsStringSync(jsonEncode(source));
+        final legacy = _FileLegacySource(legacyFile, source);
+        Directory(
+          AppProfiles.directory(fixture.path, 'older'),
+        ).createSync(recursive: true);
+        final path = legacyFile.path.toNativeUtf16();
+        final handle = win.CreateFile(
+          path,
+          win.GENERIC_READ,
+          0,
+          nullptr,
+          win.OPEN_EXISTING,
+          win.FILE_ATTRIBUTE_NORMAL,
+          0,
+        );
+        calloc.free(path);
+        expect(handle, isNot(win.INVALID_HANDLE_VALUE));
+        var held = true;
+        void release() {
+          if (!held) return;
+          held = false;
+          expect(win.CloseHandle(handle), isNot(0));
+        }
+
+        addTearDown(release);
+        final opened = <String>[];
+        Future<String> startup() => installProfilePreferences(
+          supportDir: fixture.path,
+          args: const [],
+          environment: const {},
+          legacyBackend: legacy,
+          openOwnedFile: (path) async {
+            opened.add(path);
+            return _FileOwner(path);
+          },
+        );
+        // Attach the verdict before releasing the handle. The first real
+        // sharing refusal must have already reached the legacy read.
+        final running = startup();
+        final checked = temporary
+            ? expectLater(running, completion('older'))
+            : expectLater(
+                running,
+                throwsA(
+                  isA<ProfileChoiceReadFailure>()
+                      .having((e) => e.fromLegacy, 'legacy source', isTrue)
+                      .having((e) => e.busy, 'sharing refusal', isTrue),
+                ),
+              );
+        try {
+          expect(await legacy.refused.future, 32);
+          expect(opened, isEmpty);
+          if (temporary) {
+            release();
+            await checked;
+          } else {
+            await checked;
+            expect(opened, isEmpty);
+            expect(File(activeProfilePath(fixture.path)).existsSync(), isFalse);
+            release();
+            expect(await legacy.getAll(), source);
+            expect(await startup(), 'older');
+          }
+          expect(opened, [profilePrefsPath(fixture.path, 'older')]);
+          expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+            'flutter.locale': 'ru',
+          });
+          final remembered = await readRememberedProfile(fixture.path);
+          if (remembered == null) {
+            // A refusal to publish the new pointer must preserve the old one.
+            expect(await legacy.getAll(), source);
+          } else {
+            expect(remembered, 'older');
+            expect(await legacy.getAll(), isEmpty);
+          }
+        } finally {
+          release();
+        }
+      },
+      skip: Platform.isWindows ? false : 'Requires Windows file sharing',
+    );
+  }
   test(
     'owned read refusal propagates instead of loading locally or starting empty',
     () async {
@@ -347,6 +442,24 @@ void main() {
       expect(local.readAsStringSync(), original);
     },
   );
+}
+
+class _FileLegacySource extends InMemorySharedPreferencesStore {
+  _FileLegacySource(this.file, super.values) : super.withData();
+
+  final File file;
+  final refused = Completer<int?>();
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    try {
+      await file.readAsString();
+    } on FileSystemException catch (error) {
+      if (!refused.isCompleted) refused.complete(error.osError?.errorCode);
+      rethrow;
+    }
+    return super.getAll();
+  }
 }
 
 class _FileOwner implements ProfilePreferencesFile {

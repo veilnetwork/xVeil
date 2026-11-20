@@ -666,8 +666,15 @@ Future<Map<String, Object>> _readLegacyPreferences(
   bool requiredForChoice = false,
 }) async {
   try {
+    Future<Map<String, Object>> read() => _freshLegacyReader(legacy).getAll();
+    final snapshot = requiredForChoice
+        ? await retryProfileChoiceRead(
+            read,
+            isAbsent: (data) => data.isEmpty,
+          )
+        : await read();
     return {
-      for (final entry in (await _freshLegacyReader(legacy).getAll()).entries)
+      for (final entry in snapshot.entries)
         entry.key: switch (entry.value) {
           final List values => List<Object?>.of(values),
           final value => value,
