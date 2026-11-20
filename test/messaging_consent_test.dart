@@ -66,6 +66,33 @@ SpaceOpener _memOpener() {
   return ({required password, required bool create}) => store;
 }
 
+class _FolderStorage extends HiddenVolumeStorage {
+  _FolderStorage() : super(_memOpener());
+
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  bool holdNextFolderRead = false;
+  bool failNextFolderRead = false;
+
+  @override
+  Future<String?> getSetting(String key) =>
+      key == 'chat_folders' ? _readFolders(key) : super.getSetting(key);
+
+  Future<String?> _readFolders(String key) async {
+    if (failNextFolderRead) {
+      failNextFolderRead = false;
+      throw StateError('fixture folder read failed');
+    }
+    final snapshot = await super.getSetting(key);
+    if (holdNextFolderRead) {
+      holdNextFolderRead = false;
+      entered.complete();
+      await release.future;
+    }
+    return snapshot;
+  }
+}
+
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 20));
 
 String _joinCode(NodeId space, NodeId approver, String ticketId) {
@@ -85,7 +112,8 @@ String _joinCode(NodeId space, NodeId approver, String ticketId) {
 void main() {
   late NodeId a, b;
   late _FakeTransport tA, tB;
-  late HiddenVolumeStorage sA, sB;
+  late _FolderStorage sA;
+  late HiddenVolumeStorage sB;
   late MessagingService mA, mB;
 
   setUp(() async {
@@ -95,7 +123,7 @@ void main() {
     tB = _FakeTransport(b);
     tA.peer = tB;
     tB.peer = tA;
-    sA = HiddenVolumeStorage(_memOpener());
+    sA = _FolderStorage();
     sB = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
     await sB.open(password: 'b', createIfMissing: true);
@@ -440,6 +468,82 @@ void main() {
     final left = await mA.loadFolders();
     expect(left.length, 1);
     expect(left.single.id, fam.id);
+  });
+
+  test(
+    'overlapping folder edits survive a messaging service replacement',
+    () async {
+      final folder = await mA.createFolder('Work');
+      final next = MessagingService(tA, sA);
+      addTearDown(next.dispose);
+      sA.holdNextFolderRead = true;
+      final membership = mA.setFolderMembership(folder.id, b.hex, true);
+      await sA.entered.future;
+      final rename = next.renameFolder(folder.id, 'Projects');
+      try {
+        // Give the successor its turn while the old writer still holds a
+        // snapshot without the new name.
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        sA.release.complete();
+      }
+      await Future.wait([membership, rename]);
+      final updated = (await next.loadFolders()).single;
+      expect(updated.name, 'Projects');
+      expect(updated.memberHexes, [b.hex]);
+    },
+  );
+
+  test('a failed folder read cannot overwrite saved folders', () async {
+    final folder = await mA.createFolder('Work', members: [b.hex]);
+    sA.failNextFolderRead = true;
+    final failure = await mA
+        .createFolder('Family')
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    expect((await mA.loadFolders()).map((f) => f.id), [folder.id]);
+    expect(failure, isA<StateError>());
+
+    await mA.createFolder('Family');
+    final folders = await mA.loadFolders();
+    expect(folders.map((f) => f.name), ['Work', 'Family']);
+    expect(folders.first.memberHexes, [b.hex]);
+  });
+
+  test(
+    'a folder read failure does not undo a completed chat deletion',
+    () async {
+      final original = await mA.createFolder('Work', members: [b.hex]);
+      await sA.upsertContact(Contact(nodeId: b));
+      expect(await sA.getContact(b), isNotNull);
+      sA.failNextFolderRead = true;
+
+      await mA.deleteConversation(b);
+
+      expect(await sA.getContact(b), isNull);
+      final remaining = (await mA.loadFolders()).single;
+      expect(remaining.id, original.id);
+      expect(remaining.memberHexes, [b.hex]);
+    },
+  );
+
+  test('closing messaging waits for an admitted folder edit', () async {
+    sA.holdNextFolderRead = true;
+    final editing = mA.createFolder('Work');
+    await sA.entered.future;
+    var disposed = false;
+    final closing = mA.dispose().then((_) => disposed = true);
+    late final bool closedBeforeEdit;
+    try {
+      await Future<void>.delayed(Duration.zero);
+      closedBeforeEdit = disposed;
+    } finally {
+      sA.release.complete();
+    }
+    final folder = await editing;
+    await closing;
+    expect(closedBeforeEdit, isFalse);
+    expect((await mA.loadFolders()).single.id, folder.id);
+    await expectLater(mA.createFolder('Too late'), throwsStateError);
   });
 
   test('forbidding peer-delete makes their unsend keep our copy', () async {

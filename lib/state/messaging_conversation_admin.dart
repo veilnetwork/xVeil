@@ -482,15 +482,47 @@ class _MessagingConversationAdmin {
     }
   }
 
+  Future<List<ChatFolder>> _readFolders() async =>
+      ChatFolder.decodeList(await _owner._storage.getSetting(_kFoldersKey));
+
   Future<List<ChatFolder>> loadFolders() async {
     try {
-      return ChatFolder.decodeList(
-        await _owner._storage.getSetting(_kFoldersKey),
-      );
+      return await _readFolders();
     } catch (_) {
       return const [];
     }
   }
+
+  // A replacement messaging service can use the same storage while the
+  // retiring service is still finishing a write.
+  static final _folderWrites = Expando<Future<void>>();
+  Future<void>? _folderWrite;
+
+  Future<void>? get pendingFolderWrites => _folderWrite;
+
+  Future<T> _withFolderWrite<T>(Future<T> Function() write) async {
+    if (_owner._disposed) throw StateError('chat folder owner is closing');
+    final storage = _owner._storage;
+    final previous = _folderWrites[storage];
+    final done = Completer<void>();
+    _folderWrites[storage] = _folderWrite = done.future;
+    try {
+      await previous;
+      return await write();
+    } finally {
+      done.complete();
+      if (identical(_folderWrite, done.future)) _folderWrite = null;
+      if (identical(_folderWrites[storage], done.future)) {
+        _folderWrites[storage] = null;
+      }
+    }
+  }
+
+  Future<T> _editFolders<T>(Future<T> Function(List<ChatFolder>) edit) =>
+      _withFolderWrite(() async {
+        // A read failure must never become the starting point for a rewrite.
+        return edit(await _readFolders());
+      });
 
   Future<void> _saveFolders(List<ChatFolder> folders) async {
     await _owner._storage.putSetting(
@@ -503,38 +535,35 @@ class _MessagingConversationAdmin {
   Future<ChatFolder> createFolder(
     String name, {
     List<String> members = const [],
-  }) async {
-    final folders = List<ChatFolder>.from(await loadFolders());
+  }) {
     final folder = ChatFolder(
       id: _uuid.v4(),
       name: name.trim(),
-      memberHexes: members,
+      memberHexes: List.of(members),
     );
-    folders.add(folder);
-    await _saveFolders(folders);
-    return folder;
+    return _editFolders((folders) async {
+      await _saveFolders([...folders, folder]);
+      return folder;
+    });
   }
 
-  Future<void> renameFolder(String folderId, String name) async {
-    final folders = await loadFolders();
-    await _saveFolders([
+  Future<void> renameFolder(String folderId, String name) => _editFolders(
+    (folders) => _saveFolders([
       for (final f in folders)
         if (f.id == folderId) f.copyWith(name: name.trim()) else f,
-    ]);
-  }
+    ]),
+  );
 
-  Future<void> deleteFolder(String folderId) async {
-    final folders = await loadFolders();
-    await _saveFolders(folders.where((f) => f.id != folderId).toList());
-  }
+  Future<void> deleteFolder(String folderId) => _editFolders(
+    (folders) => _saveFolders(folders.where((f) => f.id != folderId).toList()),
+  );
 
   Future<void> setFolderMembership(
     String folderId,
     String peerHex,
     bool member,
-  ) async {
-    final folders = await loadFolders();
-    await _saveFolders([
+  ) => _editFolders(
+    (folders) => _saveFolders([
       for (final f in folders)
         if (f.id != folderId)
           f
@@ -546,19 +575,22 @@ class _MessagingConversationAdmin {
                       : [...f.memberHexes, peerHex])
                 : f.memberHexes.where((h) => h != peerHex).toList(),
           ),
-    ]);
-  }
+    ]),
+  );
 
-  Future<void> _removeFromAllFolders(String peerHex) async {
-    final folders = await loadFolders();
-    if (!folders.any((f) => f.contains(peerHex))) return;
-    await _saveFolders([
-      for (final f in folders)
-        f.copyWith(
-          memberHexes: f.memberHexes.where((h) => h != peerHex).toList(),
-        ),
-    ]);
-  }
+  Future<void> _removeFromAllFolders(String peerHex) =>
+      _withFolderWrite(() async {
+        // Chat deletion already committed. A read failure skips this cleanup
+        // without rewriting the folder list.
+        final folders = await loadFolders();
+        if (!folders.any((f) => f.contains(peerHex))) return;
+        await _saveFolders([
+          for (final f in folders)
+            f.copyWith(
+              memberHexes: f.memberHexes.where((h) => h != peerHex).toList(),
+            ),
+        ]);
+      });
 
   /// Empty a conversation here, at the peer, and on my other devices.
   ///
