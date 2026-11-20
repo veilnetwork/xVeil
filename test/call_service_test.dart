@@ -4448,8 +4448,45 @@ void main() {
       });
     }
 
+    test('dial timeout runs while the durable offer is still pending', () {
+      fakeAsync((async) {
+        final enqueue = Completer<void>();
+        final fake = _FakeMessaging()..sendGate = enqueue;
+        final svc = CallService(fake)..start();
+        try {
+          var placed = false;
+          unawaited(
+            svc.placeCall(peer, const CallMedia(audio: true)).then((_) {
+              placed = true;
+            }),
+          );
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.dialing);
+          expect(placed, isFalse);
+          final callId = svc.current!.callId;
+          fake.sendGate = null; // The timeout's cancel can complete normally.
+
+          async.elapse(kCallRingTimeout);
+
+          expect(svc.current, isNull);
+          final cancel = fake.sent.single;
+          expect(cancel.callId, callId);
+          expect(cancel.type, CallSignalType.cancel);
+          expect(cancel.reason, CallEndReason.timeout);
+          enqueue.complete();
+          async.flushMicrotasks();
+          expect(placed, isTrue);
+          expect(svc.current, isNull);
+        } finally {
+          svc.dispose();
+          if (!enqueue.isCompleted) enqueue.complete();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     test(
-      'answer racing a slow durable offer never arms a timer on the active call',
+      'answer racing a slow durable offer keeps the active call connected',
       () {
         fakeAsync((async) {
           final fake = _FakeMessaging()..sendGate = Completer<void>();
@@ -10365,6 +10402,50 @@ void main() {
   group('CallService instant local teardown', () {
     final peer = NodeId.fromHex('d' * 64);
 
+    for (final incoming in [false, true]) {
+      test('hangup during device lookup suppresses the pending '
+          '${incoming ? 'answer' : 'offer'}', () {
+        fakeAsync((async) {
+          final device = Completer<NodeId>();
+          var readingDevice = false;
+          final fake = _FakeMessaging()
+            ..readLocalDevice = () {
+              readingDevice = true;
+              return device.future;
+            };
+          final media = _FakeMedia();
+          final svc = CallService(fake, media: media)..start();
+          try {
+            if (incoming) fake.onCallSignal!(peer, _diagnosticOffer());
+            unawaited(
+              incoming
+                  ? svc.accept()
+                  : svc.placeCall(peer, const CallMedia(audio: true)),
+            );
+            async.flushMicrotasks();
+            expect(readingDevice, isTrue);
+            expect(svc.current?.isLive, isTrue);
+            expect(fake.sent, isEmpty);
+            final callId = svc.current!.callId;
+
+            unawaited(svc.hangup());
+            async.flushMicrotasks();
+            expect(svc.current, isNull);
+            expect(fake.sent.single.callId, callId);
+
+            device.complete(NodeId.fromHex('f' * 64));
+            async.flushMicrotasks();
+            expect(fake.sent, hasLength(1));
+            expect(media.startedWith, isEmpty);
+          } finally {
+            svc.dispose();
+            if (!device.isCompleted) device.complete(NodeId.fromHex('f' * 64));
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test(
       'hangup while dialing clears the call before the signal is sent',
       () async {
@@ -11816,6 +11897,7 @@ class _FakeMessaging implements MessagingService {
   /// completes — models the slow durable (encrypted-store) enqueue.
   Completer<void>? sendGate;
   Completer<void>? rejectedHealthCompletion;
+  Future<NodeId> Function()? readLocalDevice;
 
   @override
   bool get isAnonymousIdentity => anon;
@@ -11827,7 +11909,8 @@ class _FakeMessaging implements MessagingService {
   bool Function(NodeId peer, CallSignal signal)? acceptsCallDeviceSignal;
 
   @override
-  Future<NodeId> localDeviceId() async => NodeId.fromHex('f' * 64);
+  Future<NodeId> localDeviceId() async =>
+      readLocalDevice?.call() ?? NodeId.fromHex('f' * 64);
 
   @override
   void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {

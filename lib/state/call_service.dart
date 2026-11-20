@@ -1176,6 +1176,11 @@ class CallService {
         localMediaKey: localMediaKey,
       ),
     );
+    bool stillDialing() =>
+        _current?.callId == callId &&
+        _current?.peer == peer &&
+        _current?.status == CallStatus.dialing;
+
     // Advisory proposal from our side; the answer finalizes the path once the
     // callee knows both postures. An anonymous caller is never P2P.
     final localAllowsP2P =
@@ -1189,17 +1194,16 @@ class CallService {
           ? CallTransportKind.onion
           : (localAllowsP2P ? CallTransportKind.p2p : CallTransportKind.relay),
     );
-    final current = _current;
-    if (current == null ||
-        current.callId != callId ||
-        current.status != CallStatus.dialing) {
-      return;
-    }
-    _directSessionUnavailable = false;
-    _outgoingProposal = proposal.kind;
+    if (!stillDialing()) return;
     final replyDevice = posture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
+    if (!stillDialing()) return;
+    _directSessionUnavailable = false;
+    _outgoingProposal = proposal.kind;
+    // The realtime leg can reach the peer before durable enqueue completes.
+    // Start the deadline at submission. An accepted answer cancels it.
+    _armRingTimeout(callId);
     final sendOffer = _sendCallSignal(
       peer,
       CallSignal(
@@ -1218,27 +1222,13 @@ class CallService {
     if (localAllowsP2P) {
       unawaited(
         _peerReachableWithoutBlockingSignal(peer).then((connected) {
-          final current = _current;
-          if (current != null &&
-              current.callId == callId &&
-              current.status == CallStatus.dialing) {
+          if (stillDialing()) {
             _directSessionUnavailable = !connected;
           }
         }),
       );
     }
     await sendOffer;
-    // The realtime leg can deliver the offer and its answer while the durable
-    // enqueue above is still completing. In that race `_onAnswer` already
-    // moved this call to connecting/active before this future resumes; arming
-    // a 75-second timer here would later cancel a perfectly healthy call.
-    final stillDialing = _current;
-    if (stillDialing != null &&
-        stillDialing.callId == callId &&
-        stillDialing.peer == peer &&
-        stillDialing.status == CallStatus.dialing) {
-      _armRingTimeout(callId);
-    }
   }
 
   /// Accept the ringing incoming call.
@@ -1282,12 +1272,18 @@ class CallService {
       ),
     );
     _startHeartbeat();
+    bool stillAccepting() =>
+        _current?.callId == c.callId &&
+        _current?.peer == c.peer &&
+        _current?.isLive == true;
+
     // The answer is authenticated under the shared identity, but native media
     // packets are attributed to the physical device that picked up. Carry its
     // address explicitly so the caller opens the media channel for that device.
     final answerDevice = c.localPosture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
+    if (!stillAccepting()) return;
     final sendAnswer = _sendCallSignal(
       c.peer,
       CallSignal(
@@ -1305,11 +1301,7 @@ class CallService {
       unawaited(_peerReachableWithoutBlockingSignal(c.peer));
     }
     await sendAnswer;
-    if (_disposed ||
-        _current?.callId != c.callId ||
-        !(_current?.isLive ?? false)) {
-      return;
-    }
+    if (!stillAccepting()) return;
     // Device fan-out: the ring may still be sounding on this identity's other
     // devices. Tell THEM (never the caller) it was answered here, so their
     // ringing stops without a missed call. `onBehalfOf` carries the caller so
