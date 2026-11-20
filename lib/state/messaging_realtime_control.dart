@@ -686,7 +686,7 @@ class _MessagingRealtimeControl {
     );
   }
 
-  Future<void> _sendRealtimePaths(
+  Future<bool> _sendRealtimePaths(
     _RealtimeControlKind kind,
     String scope,
     NodeId peer,
@@ -697,26 +697,13 @@ class _MessagingRealtimeControl {
         sendRealtime(peer, wire, admitTransport: admitTransport);
     if (_owner._anonymous) {
       await _observeSend(kind, sendDirect);
-      return;
+      return true;
     }
     if (_owner._transport is! RealtimeTransport) {
-      await _attempt(
-        kind,
-        scope,
-        'contact',
-        peer,
-        sendDirect,
-      );
-      return;
+      return _attempt(kind, scope, 'contact', peer, sendDirect);
     }
-    await Future.wait<void>([
-      _attempt(
-        kind,
-        scope,
-        'realtime direct',
-        peer,
-        sendDirect,
-      ),
+    final submitted = await Future.wait<bool>([
+      _attempt(kind, scope, 'realtime direct', peer, sendDirect),
       if (_owner._transport is RelayRealtimeTransport)
         _attempt(
           kind,
@@ -726,6 +713,7 @@ class _MessagingRealtimeControl {
           () => _sendRelayRealtime(peer, wire, admitTransport: admitTransport),
         ),
     ]);
+    return submitted.contains(true);
   }
 
   /// Send one already-signed and epoch-encrypted group-call signal. Lifecycle
@@ -772,6 +760,7 @@ class _MessagingRealtimeControl {
     NodeId peer,
     Uint8List wire, {
     required bool contactIdentity,
+    bool requireSubmission = false,
   }) async {
     if (_owner._anonymous) {
       await _observeSend(
@@ -787,7 +776,7 @@ class _MessagingRealtimeControl {
       );
       return;
     }
-    await Future.wait<void>([
+    final submitted = await Future.wait<bool>([
       _attempt(
         _RealtimeControlKind.call,
         'call-sig',
@@ -799,6 +788,9 @@ class _MessagingRealtimeControl {
       // id cannot receive this frame without a device-scoped binding there.
       _sendRealtimePaths(_RealtimeControlKind.call, 'call-sig', peer, wire),
     ]);
+    if (requireSubmission && !submitted.contains(true)) {
+      throw StateError('All live call signaling paths rejected the frame');
+    }
   }
 
   /// Endpoint exchange creates the direct session, so race the pre-admission
@@ -850,7 +842,7 @@ class _MessagingRealtimeControl {
     }
   }
 
-  Future<void> _attempt(
+  Future<bool> _attempt(
     _RealtimeControlKind kind,
     String scope,
     String lane,
@@ -859,12 +851,14 @@ class _MessagingRealtimeControl {
   ) async {
     try {
       await _observeSend(kind, send);
+      return true;
     } catch (error) {
       devLog(
         () =>
             'xVeil[$scope]: $lane live leg failed '
             'peer=${peer.short}: $error',
       );
+      return false;
     }
   }
 
@@ -934,8 +928,12 @@ class _MessagingRealtimeControl {
       peer,
       frameId,
       envelope,
-      liveSender: (wire) =>
-          _sendCallLive(peer, wire, contactIdentity: contactIdentity),
+      liveSender: (wire) => _sendCallLive(
+        peer,
+        wire,
+        contactIdentity: contactIdentity,
+        requireSubmission: true,
+      ),
       awaitLive: false,
       startLiveBeforeEnqueue: true,
     );

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -44,6 +45,7 @@ class _RealtimeProbe
   bool? lastRealtimeAnonymous;
   bool? lastNormalAnonymous;
   bool failSends = false;
+  bool failRealtimeSends = false;
   NodeId? lastNormalDestination;
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
@@ -79,7 +81,9 @@ class _RealtimeProbe
     bool anonymous = false,
   }) async {
     realtimeSends++;
-    if (failSends) throw StateError('private-peer /private/model/path');
+    if (failSends || failRealtimeSends) {
+      throw StateError('private-peer /private/model/path');
+    }
     lastRealtimeDestination = dst;
     lastRealtimeAnonymous = anonymous;
     lastRealtimePayload = Uint8List.fromList(payload);
@@ -100,7 +104,9 @@ class _RealtimeProbe
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) async {
     relayRealtimeSends++;
-    if (failSends) throw StateError('private-peer /private/model/path');
+    if (failSends || failRealtimeSends) {
+      throw StateError('private-peer /private/model/path');
+    }
     lastRelayRealtimeDestination = dst;
   }
 
@@ -1011,6 +1017,34 @@ void main() {
       transport.realtimeGate.complete();
     },
   );
+
+  for (final rejectContact in [false, true]) {
+    test('durable call live result reflects lane admission '
+        '(contact rejected: $rejectContact)', () async {
+      transport.failSends = rejectContact;
+      transport.failRealtimeSends = true;
+      final messaging = MessagingService(transport, storage);
+      addTearDown(messaging.dispose);
+      final callId = 'answer-admission-$rejectContact';
+      final frameId = 'call:$callId:answer:${peer.hex}';
+
+      await messaging.sendCallSignal(
+        peer,
+        CallSignal(callId: callId, type: CallSignalType.answer),
+      );
+
+      expect(transport.normalSends, 1);
+      expect(transport.realtimeSends, 1);
+      expect(transport.relayRealtimeSends, 1);
+      expect((await storage.pendingOutboxFrames()).single.frameId, frameId);
+      final liveResults = devLogSnapshot().lines.where(
+        (line) =>
+            line.contains('xVeil[durable]: live leg') &&
+            line.contains('fid=$frameId '),
+      );
+      expect(liveResults.single, contains(rejectContact ? 'FAILED' : 'ok'));
+    });
+  }
 
   test('cold call answer keeps identity for all certificate lanes', () async {
     final device = _id(3);
