@@ -46,6 +46,7 @@ class _App extends AppController {
 
 class _Storage extends FakeSettingStorage {
   final muted = <NodeId>{};
+  final refusedContacts = <NodeId>{};
   final delayed = <NodeId, Completer<void>>{};
   Future<List<Conversation>>? unread;
   bool refuseUnread = false;
@@ -53,6 +54,9 @@ class _Storage extends FakeSettingStorage {
   @override
   Future<Contact?> getContact(NodeId id) async {
     await delayed[id]?.future;
+    if (refusedContacts.contains(id)) {
+      throw StateError('fixture contact unavailable');
+    }
     return Contact(
       nodeId: id,
       mutedUntil: muted.contains(id) ? kMuteForever : null,
@@ -174,6 +178,25 @@ class _CommentGroups extends _Groups {
     String postId, {
     bool applyLocalRetention = true,
   }) async => [SpacePostCommentView(root: comment)];
+}
+
+class _IncomingGroups extends _UnreadGroups {
+  final messages =
+      StreamController<({NodeId groupId, GroupMessage message})>.broadcast();
+  final publications =
+      StreamController<({NodeId spaceId, SpacePostView post})>.broadcast();
+
+  @override
+  Stream<({NodeId groupId, GroupMessage message})> get incoming =>
+      messages.stream;
+
+  @override
+  Stream<({NodeId spaceId, SpacePostView post})> get incomingPosts =>
+      publications.stream;
+
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) async =>
+      throw StateError('fixture display name unavailable');
 }
 
 class _Notifications extends NotificationService {
@@ -658,6 +681,93 @@ void main() {
       await cleanup(tester);
     }
   });
+
+  for (final kind in ['contact', 'group', 'member space']) {
+    testWidgets('an unreadable $kind policy keeps the queued alert intact', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service);
+      final groups = _IncomingGroups();
+      final broken = _id(3);
+
+      void incoming() {
+        switch (kind) {
+          case 'contact':
+            message(3);
+          case 'group':
+            groups.messages.add((
+              groupId: broken,
+              message: GroupMessage(
+                groupId: broken,
+                author: _id(2),
+                seq: 1,
+                prevHash: '',
+                body: 'Group message',
+                policyVersion: 0,
+                createdAtMs: 1000,
+                signature: Uint8List(64),
+              ),
+            ));
+          case 'member space':
+            final post = SpacePost(
+              spaceId: broken,
+              author: _id(2),
+              seq: 1,
+              prevHash: '',
+              type: SpacePostType.post,
+              visibility: SpacePostVisibility.public,
+              title: 'Space publication',
+              body: '',
+              policyVersion: 0,
+              createdAtMs: 1000,
+              publishedAtMs: 1000,
+              signature: Uint8List(64),
+            );
+            groups.publications.add((
+              spaceId: broken,
+              post: SpacePostView(root: post, effective: post),
+            ));
+        }
+      }
+
+      try {
+        container.read(_groupSource.notifier).state = groups;
+        expect(container.read(groupServiceProvider), same(groups));
+        expect(groups.messages.hasListener, isTrue);
+        expect(groups.publications.hasListener, isTrue);
+        storage.refusedContacts.add(broken);
+        groups.refusedPolicies.add(broken);
+        message(2);
+        await _pump(tester);
+        incoming();
+        await _pump(tester);
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [_id(2).hex]);
+
+        storage.refusedContacts.clear();
+        groups.refusedPolicies.clear();
+        incoming();
+        await _pump(tester);
+        final payload = switch (kind) {
+          'group' => 'group:${broken.hex}',
+          'member space' => 'space:${broken.hex}',
+          _ => broken.hex,
+        };
+        expect(plugin.posted.map(resolveShownPayload), [_id(2).hex, payload]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+        await groups.messages.close();
+        await groups.publications.close();
+      }
+    });
+  }
 
   testWidgets('one background transition only scans and posts unread once', (
     tester,
