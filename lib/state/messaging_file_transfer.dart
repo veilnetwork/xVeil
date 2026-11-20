@@ -41,14 +41,16 @@ class _MessagingFileTransfer {
     String name, {
     String? sourcePath,
   }) async {
-    final contact = await _owner._storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    // The recipient will pull large content shortly; avoid a cold serve pool.
-    _owner._warmStreamPeer(peer);
     if (bytes.length > MessagingService._contentThreshold) {
       await _owner._sendAsContent(peer, bytes, name, sourcePath: sourcePath);
       return;
     }
+    final epoch = await _owner._realtimeControl._acceptedContactEpoch(peer);
+    if (epoch == null ||
+        !_owner._realtimeControl._consentCurrent(peer, epoch)) {
+      return;
+    }
+    _owner._warmStreamPeer(peer);
     if (bytes.length > kMaxStoredFileBytes) {
       devLog(() => 'xVeil[sendFile]: ${bytes.length}B over cap — dropped');
       return;
@@ -70,42 +72,33 @@ class _MessagingFileTransfer {
     );
     if (stored == null) return;
     _owner._signal();
-    await _sendFrames(
-      peer,
-      fileId,
-      name,
-      bytes,
-      stored.seq,
-      stored.timestamp.millisecondsSinceEpoch,
-    );
-  }
 
-  Future<void> _sendFrames(
-    NodeId peer,
-    String transferId,
-    String? name,
-    Uint8List bytes,
-    int? seq,
-    int? sentAtMs,
-  ) async {
     final chunks = chunkBytes(
       bytes,
-      transferId: transferId,
+      transferId: fileId,
       maxChunk: _wireChunkBytes,
     );
-    await _owner._send(
-      peer,
+    final eligibility = _StoredPostEligibility(_owner, peer, stored);
+    final sent = await eligibility.send(
       fileMetaEnvelope(
-        transferId: transferId,
+        transferId: fileId,
         name: name,
         size: bytes.length,
         count: chunks.length,
-        seq: seq,
-        sentAtMs: sentAtMs,
+        seq: stored.seq,
+        sentAtMs: stored.timestamp.millisecondsSinceEpoch,
       ).encode(),
+      epoch,
     );
+    if (!sent) return;
     for (final chunk in chunks) {
-      await _sendChunk(peer, chunk);
+      if (!await eligibility.send(
+        _encodeChunk(chunk),
+        epoch,
+        background: true,
+      )) {
+        return;
+      }
       // Native send completes when fragmented cells are queued, not drained.
       await Future<void>.delayed(_owner._contentPacing);
     }
@@ -337,7 +330,7 @@ class _MessagingFileTransfer {
     var sent = 0;
     for (final chunk in chunks) {
       if (wanted != null && !wanted.contains(chunk.index)) continue;
-      await _sendChunk(peer, chunk);
+      await _owner._send(peer, _encodeChunk(chunk), background: true);
       await Future<void>.delayed(_owner._contentPacing);
       if (++sent >= _nackChunkCap) break;
     }
@@ -353,16 +346,12 @@ class _MessagingFileTransfer {
     return _inFlight.length < kMaxConcurrentIncomingFiles;
   }
 
-  Future<void> _sendChunk(NodeId peer, FileChunk chunk) => _owner._send(
-    peer,
-    fileChunkEnvelope(
-      transferId: chunk.transferId,
-      index: chunk.index,
-      total: chunk.total,
-      data: chunk.data,
-    ).encode(),
-    background: true,
-  );
+  Uint8List _encodeChunk(FileChunk chunk) => fileChunkEnvelope(
+    transferId: chunk.transferId,
+    index: chunk.index,
+    total: chunk.total,
+    data: chunk.data,
+  ).encode();
 }
 
 /// In-flight inbound file reassembly state.

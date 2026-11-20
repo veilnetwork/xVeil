@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -80,6 +81,8 @@ class _Transport implements VeilTransport {
   final gates = <String, Completer<void>>{};
   final failAfterGate = <String>{};
   final sent = <({NodeId peer, String id})>[];
+  final fileFrames = <WireEnvelope>[];
+  Future<void> Function(WireEnvelope)? onFileFrame;
   int active = 0, peak = 0;
   @override
   Future<NodeId> nodeId() async => _id(1);
@@ -90,6 +93,15 @@ class _Transport implements VeilTransport {
     bool anonymous = false,
   }) async {
     final frame = WireEnvelope.decode(bytes);
+    if (const {
+      WireKind.fileMeta,
+      WireKind.fileChunk,
+      WireKind.contentManifest,
+    }.contains(frame.kind)) {
+      fileFrames.add(frame);
+      await onFileFrame?.call(frame);
+      return;
+    }
     if (frame.kind != WireKind.message) return;
     final id = frame.id!;
     sent.add((peer: peer, id: id));
@@ -376,6 +388,102 @@ void main() {
       expect(ids(2), isEmpty);
     });
   }
+
+  Future<void> sendAttachment(String mode, NodeId peer) async {
+    final bytes = Uint8List(mode == 'manifest' ? 140 * 1024 : 12000);
+    if (mode == 'stream') {
+      await service.sendFileStreaming(
+        peer,
+        'fixture.bin',
+        bytes.length,
+        (offset, length) async =>
+            Uint8List.sublistView(bytes, offset, offset + length),
+        close: () async {},
+      );
+    } else {
+      await service.sendFile(peer, bytes, 'fixture.bin');
+    }
+  }
+
+  for (final mode in ['inline', 'manifest', 'stream', 'share']) {
+    for (final change in ['delete', 'expire', 'block then unblock']) {
+      test('$mode attachment rechecks $change after ratchet wait', () async {
+        final peer = _id(2);
+        final start = testNow = DateTime.now();
+        await storage.upsertContact(
+          Contact(nodeId: peer, disappearingTtlSeconds: 30),
+        );
+        final shareId = mode == 'share'
+            ? await service.sendContent(peer, Uint8List(12000), 'fixture.bin')
+            : null;
+        transport.fileFrames.clear();
+        final entered = Completer<void>(), release = Completer<void>();
+        service.ratchet = _HeldReservation(entered, release);
+        final sending = shareId == null
+            ? sendAttachment(mode, peer)
+            : service.shareStoredContent(peer, shareId).then<void>((_) {});
+        late final Message row;
+        try {
+          await entered.future;
+          row = (await storage.loadMessages(peer.hex)).single;
+          expect(transport.fileFrames, isEmpty);
+          if (change == 'delete') {
+            await storage.deleteMessage(peer.hex, row.id);
+          } else if (change == 'expire') {
+            testNow = start.add(const Duration(seconds: 30));
+          } else {
+            await service.blockContact(peer);
+            await service.unblockContact(peer);
+          }
+        } finally {
+          release.complete();
+          await sending;
+        }
+        expect(transport.fileFrames, isEmpty);
+        if (mode != 'inline' && change == 'block then unblock') {
+          await flush();
+          final frame = transport.fileFrames.single;
+          expect(frame.kind, WireKind.contentManifest);
+          expect(jsonDecode(frame.body)['mid'], row.id);
+        }
+      });
+    }
+  }
+
+  for (final mode in ['manifest', 'stream']) {
+    test('$mode first offer carries the stored message timestamp', () async {
+      final peer = _id(2);
+      final start = testNow = DateTime.now();
+      await storage.upsertContact(Contact(nodeId: peer));
+      await sendAttachment(mode, peer);
+      final frame = transport.fileFrames.single;
+      expect(frame.kind, WireKind.contentManifest);
+      expect(jsonDecode(frame.body)['mts'], start.millisecondsSinceEpoch);
+    });
+  }
+
+  test('deletion after inline metadata stops every unsent chunk', () async {
+    final peer = _id(2);
+    await storage.upsertContact(Contact(nodeId: peer));
+    final entered = Completer<void>(), release = Completer<void>();
+    transport.onFileFrame = (frame) async {
+      if (frame.kind != WireKind.fileMeta) return;
+      entered.complete();
+      await release.future;
+    };
+    final sending = sendAttachment('inline', peer);
+    try {
+      await entered.future;
+      final row = (await storage.loadMessages(peer.hex)).single;
+      await storage.deleteMessage(peer.hex, row.id);
+    } finally {
+      release.complete();
+      await sending;
+    }
+    expect(transport.fileFrames.map((frame) => frame.kind), [
+      WireKind.fileMeta,
+    ]);
+  });
 
   test('a held message does not delay another contact', () async {
     await queue(2, 'slow');
