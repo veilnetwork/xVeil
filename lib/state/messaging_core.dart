@@ -2972,8 +2972,9 @@ class MessagingService {
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) =>
       _conversationAdmin.applyMirroredReadMark(conversationId, tsMs);
 
-  /// Returns whether a live message was stored and sent. `false` also covers
-  /// expiry/deletion while append waited: no live row or network send remains.
+  /// Returns whether the entire stored message reached transport or already
+  /// has a delivery receipt. If consent changes, the row remains for retries
+  /// under a later accepted decision. Expired/deleted rows cannot be sent.
   /// Empty/malformed text and a peer without consent are refused before append.
   /// The API/debug hook must not report success for a message sent nowhere.
   Future<bool> sendText(
@@ -2988,8 +2989,8 @@ class MessagingService {
     if (isSpaceRecommendationMessageBody(trimmed)) return false;
     if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return false;
     // Consent gate — only free-message an accepted contact.
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) {
+    final epoch = await _realtimeControl._acceptedContactEpoch(dst);
+    if (epoch == null || !_realtimeControl._consentCurrent(dst, epoch)) {
       return false;
     }
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
@@ -3007,33 +3008,62 @@ class MessagingService {
       customEmoji: customEmoji,
     );
     if (stored == null) return false;
-    final id = stored.id;
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
     // on reconnect, so a message written offline goes out when we come back. The
     // event seq travels so the peer folds it under OUR (author, seq) and can spot
     // a gap for gap-fill.
-    final wire = WireEnvelope.message(
-      trimmed,
-      id: id,
-      sentAtMs: sentAt.millisecondsSinceEpoch,
-      seq: stored.seq,
-      replyTo: replyToId,
-      forwardedFrom: forwardedFrom,
-      customEmoji: customEmoji,
-    ).encode();
+    return _sendStoredPost(
+      dst,
+      stored,
+      epoch,
+      WireEnvelope.message(
+        trimmed,
+        id: stored.id,
+        sentAtMs: sentAt.millisecondsSinceEpoch,
+        seq: stored.seq,
+        replyTo: replyToId,
+        forwardedFrom: forwardedFrom,
+        customEmoji: customEmoji,
+      ),
+    );
+  }
+
+  Future<bool> _sendStoredPost(
+    NodeId dst,
+    Message stored,
+    Object epoch,
+    WireEnvelope envelope,
+  ) async {
+    final id = stored.id;
+    bool hasReceipt() => _messageDelivery._hasDeliveryReceipt(dst.hex, id);
+    bool isCurrent() => _realtimeControl._consentCurrent(dst, epoch);
+    if (hasReceipt()) return true;
+    if (!isCurrent()) return false;
+
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
     // resolve+circuit-build round-trip on their side.
-    // [timeline] id + send-time only (random uuid + ms clock — no body/keys), so
-    // receive-latency vs ACK-latency can be measured per message from the logs.
-    devLog(
-      () =>
-          'xVeil[timeline]: send id=$id '
-          't0=${sentAt.millisecondsSinceEpoch} wantReply=true',
+    // A later denied fragment makes the whole handoff incomplete.
+    bool? admitted;
+    await _send(
+      dst,
+      envelope.encode(),
+      wantReply: true,
+      admitTransport: () {
+        final allowed = isCurrent() && !hasReceipt();
+        if (allowed && admitted == null) {
+          devLog(
+            () =>
+                'xVeil[timeline]: send id=$id '
+                't0=${stored.timestamp.millisecondsSinceEpoch} wantReply=true',
+          );
+        }
+        admitted = allowed;
+        return allowed;
+      },
     );
-    await _send(dst, wire, wantReply: true);
-    return true;
+    return admitted == true || hasReceipt();
   }
 
   /// Send one recommendation card after the caller's explicit recipient
@@ -3052,8 +3082,8 @@ class MessagingService {
     } catch (_) {
       return null;
     }
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) {
+    final epoch = await _realtimeControl._acceptedContactEpoch(dst);
+    if (epoch == null || !_realtimeControl._consentCurrent(dst, epoch)) {
       return null;
     }
     final sentAt = _now();
@@ -3066,14 +3096,18 @@ class MessagingService {
     );
     if (stored == null) return null;
     _signal();
-    final wire = WireEnvelope.spaceRecommendation(
-      card,
-      id: stored.id,
-      sentAtMs: sentAt.millisecondsSinceEpoch,
-      seq: stored.seq,
-    ).encode();
-    await _send(dst, wire, wantReply: true);
-    return stored.id;
+    final sent = await _sendStoredPost(
+      dst,
+      stored,
+      epoch,
+      WireEnvelope.spaceRecommendation(
+        card,
+        id: stored.id,
+        sentAtMs: sentAt.millisecondsSinceEpoch,
+        seq: stored.seq,
+      ),
+    );
+    return sent ? stored.id : null;
   }
 
   static const _spaceRecommendationsEnabledSetting =

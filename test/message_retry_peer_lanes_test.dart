@@ -169,6 +169,60 @@ void main() {
       if (sent.peer == _id(peer)) sent.id,
   ];
 
+  for (final stage in ['journal', 'ratchet']) {
+    for (final change in ['block', 'block then unblock', 'sibling receipt']) {
+      test('first send rechecks $change after waiting on $stage', () async {
+        final peer = _id(2);
+        await storage.upsertContact(Contact(nodeId: peer));
+        final entered = Completer<void>(), release = Completer<void>();
+        if (stage == 'journal') {
+          service.onMessageStored = (_, _) async {
+            if (!entered.isCompleted) entered.complete();
+            await release.future;
+          };
+        } else {
+          service.ratchet = _HeldReservation(entered, release);
+        }
+
+        final sending = service.sendText(peer, 'first attempt');
+        final acknowledged = change == 'sibling receipt';
+        late final Message original;
+        late final bool reported;
+        try {
+          await entered.future;
+          original = (await storage.loadMessages(peer.hex)).single;
+          expect(ids(2), isEmpty);
+          if (acknowledged) {
+            await service.applyMirroredMessageStatus(
+              peer: peer,
+              msgId: original.id,
+              status: MessageStatus.delivered,
+            );
+          } else {
+            await service.blockContact(peer);
+            if (change == 'block then unblock') {
+              await service.unblockContact(peer);
+            }
+          }
+        } finally {
+          release.complete();
+          reported = await sending;
+        }
+        expect(ids(2), isEmpty);
+        expect(reported, acknowledged);
+        final saved = (await storage.loadMessages(peer.hex)).single;
+        expect(saved.id, original.id);
+        expect(
+          saved.status,
+          acknowledged ? MessageStatus.delivered : MessageStatus.sent,
+        );
+        if (change == 'block') await service.unblockContact(peer);
+        await flush();
+        expect(ids(2), acknowledged ? isEmpty : [original.id]);
+      });
+    }
+  }
+
   for (final stage in ['storage', 'ratchet']) {
     for (final change in ['block', 'block then unblock', 'receipt']) {
       test('retry rechecks $change after waiting on $stage', () async {

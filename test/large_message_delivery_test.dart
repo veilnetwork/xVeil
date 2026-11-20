@@ -175,6 +175,33 @@ void main() {
       expect(_acks(r.b.sent, id), 1);
     },
   );
+  test('a first send with unsent parts reports the interrupted send', () async {
+    final r = await _rig();
+    r.a.peer = null;
+    final entered = Completer<void>(), release = Completer<void>();
+    r.a.beforeSend = (_, payload) async {
+      if (isLargeFrame(payload) && !entered.isCompleted) {
+        entered.complete();
+        await release.future;
+      }
+    };
+    final sending = r.ma.sendText(r.b.id, _longText());
+    late final bool sent;
+    try {
+      await entered.future;
+      await r.ma.blockContact(r.b.id);
+    } finally {
+      release.complete();
+      sent = await sending;
+    }
+    expect(sent, isFalse);
+    expect(r.a.sent.where(isLargeFrame), hasLength(1));
+    expect(
+      (await r.sa.loadMessages(r.b.id.hex)).single.status,
+      MessageStatus.sent,
+    );
+  });
+
   test('blocking a contact stops the remaining parts of a retry', () async {
     final r = await _rig();
     r.a.peer = null;
