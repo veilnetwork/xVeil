@@ -723,6 +723,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     );
   }
 
+  Future<T?> _readUnread<T>(String source, Future<T> Function() read) async {
+    try {
+      return await read();
+    } catch (error) {
+      // A failed summary or policy read says nothing about the other chats.
+      devLog(() => 'xVeil[notify]: unread $source failed (${error.runtimeType})');
+      return null;
+    }
+  }
+
   Future<void> _flushUnread() async {
     if (!mounted) return;
     // Captured once before any await: the localized labels the per-candidate
@@ -739,16 +749,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
     if (!settings.enabled) return;
     final active = ref.read(activeConversationProvider);
-    List<Conversation> convs;
-    try {
-      convs = await ref.read(storageProvider).loadConversations();
-    } catch (_) {
-      return;
-    }
+    final convs = await _readUnread(
+      'chats',
+      () => ref.read(storageProvider).loadConversations(),
+    );
     if (!_canContinueMessageAlert(attempt)) return;
     final directCandidates = <_MessageAlertCandidate>[];
     final self = ref.read(appControllerProvider).identity?.nodeId;
-    for (final c in convs) {
+    for (final c in convs ?? const <Conversation>[]) {
+      if (!_canContinueMessageAlert(attempt)) return;
       final mode = c.peer.notificationModeAt(DateTime.now());
       if (!shouldAlertOnMinimize(
         enabled: settings.enabled,
@@ -761,7 +770,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       Message? mention;
       if (mode == NotificationMuteMode.mentionsOnly) {
         if (self == null) continue;
-        mention = await _newestUnreadDirectMention(c, self);
+        mention = await _readUnread<Message?>(
+          'chat mentions',
+          () => _newestUnreadDirectMention(c, self),
+        );
         if (mention == null) continue;
       }
       directCandidates.add((
@@ -796,8 +808,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (gsvc == null) {
       devLog(() => 'xVeil[notify]: flush — no group service');
     } else {
+      Future<T?> readGroup<T>(String source, Future<T> Function() read) async {
+        if (!_canContinueMessageAlert(groupAttempt)) return null;
+        return _readUnread(source, read);
+      }
+
       try {
-        final groups = await gsvc.listGroups();
+        final groups = await readGroup('groups', gsvc.listGroups) ?? [];
         devLog(
           () =>
               'xVeil[notify]: flush — ${groups.length} groups, unread: '
@@ -805,15 +822,20 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         );
         if (!_canContinueMessageAlert(attempt)) return;
         for (final g in groups) {
-          final policy = await gsvc.groupNotificationPolicy(g.groupId);
-          final mode = policy.effectiveAt(DateTime.now());
-          if (g.unread <= 0 ||
-              mode == NotificationMuteMode.none ||
-              'group:${g.groupId.hex}' == active) {
+          if (g.unread <= 0 || 'group:${g.groupId.hex}' == active) continue;
+          final policy = await readGroup(
+            'group policy',
+            () => gsvc.groupNotificationPolicy(g.groupId),
+          );
+          final mode = policy?.effectiveAt(DateTime.now());
+          if (mode == null || mode == NotificationMuteMode.none) {
             continue;
           }
           final mention = mode == NotificationMuteMode.mentionsOnly
-              ? await _newestUnreadGroupMention(gsvc, g.groupId)
+              ? await readGroup<GroupMessage?>(
+                  'group mentions',
+                  () => _newestUnreadGroupMention(gsvc, g.groupId),
+                )
               : null;
           if (mode == NotificationMuteMode.mentionsOnly && mention == null) {
             continue;
@@ -832,17 +854,27 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             isMention: mention != null,
           ));
         }
-        final spaces = await gsvc.listSpaces();
+        final spaces = await readGroup('spaces', gsvc.listSpaces) ?? [];
         for (final space in spaces) {
-          final subscription = await gsvc.spaceSubscription(space.groupId);
-          final policy = await gsvc.groupNotificationPolicy(space.groupId);
-          final mode = policy.effectiveAt(DateTime.now());
-          if (space.postUnread <= 0 ||
-              mode == NotificationMuteMode.none ||
-              'space:${space.groupId.hex}' == active) {
+          if (space.postUnread <= 0 || 'space:${space.groupId.hex}' == active) {
             continue;
           }
-          final unreadPosts = await gsvc.unreadSpacePostViews(space.groupId);
+          final policy = await readGroup(
+            'space policy',
+            () => gsvc.groupNotificationPolicy(space.groupId),
+          );
+          final mode = policy?.effectiveAt(DateTime.now());
+          if (mode == null || mode == NotificationMuteMode.none) continue;
+          final subscription = await readGroup(
+            'space subscription',
+            () => gsvc.spaceSubscription(space.groupId),
+          );
+          if (subscription == null) continue;
+          final unreadPosts = await readGroup(
+            'space posts',
+            () => gsvc.unreadSpacePostViews(space.groupId),
+          );
+          if (unreadPosts == null) continue;
           final requireMention =
               mode == NotificationMuteMode.mentionsOnly ||
               !subscription.notificationsEnabled;
@@ -881,15 +913,25 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             isMention: isMention,
           ));
         }
-        for (final public in await gsvc.publicSpaceSubscriptions()) {
+        final publicSpaces =
+            await readGroup('public spaces', gsvc.publicSpaceSubscriptions) ??
+            [];
+        for (final public in publicSpaces) {
           final spaceId = public.descriptor.spaceId;
-          final policy = await gsvc.groupNotificationPolicy(spaceId);
-          final mode = policy.effectiveAt(DateTime.now());
-          if (mode == NotificationMuteMode.none ||
-              'space:${spaceId.hex}' == active) {
+          if ('space:${spaceId.hex}' == active) continue;
+          final policy = await readGroup(
+            'public space policy',
+            () => gsvc.groupNotificationPolicy(spaceId),
+          );
+          final mode = policy?.effectiveAt(DateTime.now());
+          if (mode == null || mode == NotificationMuteMode.none) {
             continue;
           }
-          final unreadPosts = await gsvc.unreadSpacePostViews(spaceId);
+          final unreadPosts = await readGroup(
+            'public space posts',
+            () => gsvc.unreadSpacePostViews(spaceId),
+          );
+          if (unreadPosts == null) continue;
           final requireMention =
               mode == NotificationMuteMode.mentionsOnly ||
               !public.subscription.notificationsEnabled;
@@ -929,8 +971,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           ));
         }
       } catch (e) {
-        // A group-index failure must not suppress a valid 1:1 candidate.
-        devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
+        // Keep any healthy candidate even if its peer's projection fails.
+        devLog(
+          () => 'xVeil[notify]: unread projection failed (${e.runtimeType})',
+        );
       }
     }
     if (!_canContinueMessageAlert(attempt)) return;
