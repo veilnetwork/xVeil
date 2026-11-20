@@ -21,6 +21,13 @@ class _Storage extends HiddenVolumeStorage {
   Future<void> Function(String id)? beforeFailureWrite;
   Future<void> Function(String id)? beforeDeletedRead;
   Future<void> Function(String id, bool deleted)? afterDeletedRead;
+  bool deferMessageHandoff = false;
+
+  @override
+  bool Function() captureMessageSendReadFence() {
+    final current = super.captureMessageSendReadFence();
+    return () => !deferMessageHandoff && current();
+  }
 
   @override
   Future<bool> isMessageDeleted(String conversationId, String messageId) async {
@@ -82,6 +89,7 @@ class _Transport implements VeilTransport {
   final failAfterGate = <String>{};
   final sent = <({NodeId peer, String id})>[];
   final fileFrames = <WireEnvelope>[];
+  final historyFrames = <WireEnvelope>[];
   Future<void> Function(WireEnvelope)? onFileFrame;
   int active = 0, peak = 0;
   @override
@@ -93,6 +101,14 @@ class _Transport implements VeilTransport {
     bool anonymous = false,
   }) async {
     final frame = WireEnvelope.decode(bytes);
+    if (const {
+          WireKind.edit,
+          WireKind.voidSeq,
+          WireKind.fileQuery,
+        }.contains(frame.kind) ||
+        (frame.kind == WireKind.sync && frame.body.contains('"echo"'))) {
+      historyFrames.add(frame);
+    }
     if (const {
       WireKind.fileMeta,
       WireKind.fileChunk,
@@ -484,6 +500,152 @@ void main() {
       WireKind.fileMeta,
     ]);
   });
+
+  Future<void> requestHistory(NodeId peer, Map<String, Object> body) =>
+      service.deliverInbound(
+        InboundMessage(
+          src: peer,
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.sync(jsonEncode(body)).encode(),
+        ),
+      );
+
+  for (final mode in [
+    'post',
+    'edit',
+    'file query',
+    'manifest',
+    'echo',
+    'edited echo',
+  ]) {
+    for (final change in ['delete', 'expire', 'block then unblock']) {
+      test('history $mode rechecks $change after ratchet wait', () async {
+        final peer = _id(2);
+        final now = testNow = DateTime.now();
+        final sentAt = now.subtract(const Duration(seconds: 20));
+        final echo = mode.endsWith('echo');
+        const echoId = 'echo-original';
+        int floor = 0;
+        if (mode == 'file query' || mode == 'manifest') {
+          await storage.upsertContact(Contact(nodeId: peer));
+          await sendAttachment(
+            mode == 'manifest' ? 'manifest' : 'inline',
+            peer,
+          );
+        } else if (echo) {
+          await storage.appendMessage(
+            Message(
+              id: echoId,
+              conversationId: peer.hex,
+              direction: MessageDirection.incoming,
+              author: peer.hex,
+              body: 'echo body',
+              seq: 1,
+              timestamp: sentAt,
+            ),
+          );
+          if (mode == 'edited echo') {
+            await storage.editMessage(peer.hex, echoId, 'edited echo', seq: 2);
+          }
+        } else {
+          await queue(2, 'original', timestamp: sentAt);
+          if (mode == 'edit') {
+            await storage.editMessage(peer.hex, 'original', 'edited', seq: 2);
+            floor = 1;
+          }
+        }
+        await storage.upsertContact(
+          Contact(nodeId: peer, disappearingTtlSeconds: 30),
+        );
+        final row = (await storage.loadMessages(peer.hex)).single;
+        transport.sent.clear();
+        transport.fileFrames.clear();
+        transport.historyFrames.clear();
+
+        final entered = Completer<void>(), release = Completer<void>();
+        service.ratchet = _HeldReservation(entered, release);
+        final replay = requestHistory(peer, {
+          'hw': {_id(1).hex: floor},
+          if (echo) ...{
+            'ow': [mode == 'edited echo' ? ownEchoKey(echoId) : '01020304'],
+            'os': sentAt.millisecondsSinceEpoch - 1,
+          },
+        });
+        try {
+          await Future.any([
+            entered.future,
+            replay.then(
+              (_) => fail('reply finished without ratchet preparation'),
+            ),
+          ]);
+          expect(ids(2), isEmpty);
+          expect(transport.fileFrames, isEmpty);
+          expect(transport.historyFrames, isEmpty);
+          if (change == 'delete') {
+            await storage.deleteMessage(peer.hex, row.id);
+          } else if (change == 'expire') {
+            testNow = row.timestamp.add(const Duration(seconds: 30));
+          } else {
+            await service.blockContact(peer);
+            await service.unblockContact(peer);
+          }
+        } finally {
+          release.complete();
+          await replay;
+        }
+        expect(ids(2), isEmpty);
+        expect(transport.fileFrames, isEmpty);
+        if (echo || change == 'block then unblock') {
+          expect(transport.historyFrames, isEmpty);
+        } else {
+          final frame = transport.historyFrames.single;
+          expect(frame.kind, WireKind.voidSeq);
+          expect(frame.seq, mode == 'edit' ? 2 : 1);
+          expect(await storage.isMessageDeleted(peer.hex, row.id), isTrue);
+        }
+      });
+    }
+  }
+
+  for (final echo in [true, false]) {
+    final mode = echo ? 'own-device echo' : 'gap-fill';
+    test('$mode counts only admitted rounds towards its retry limit', () async {
+      final peer = _id(2);
+      final now = testNow = DateTime.now();
+      await storage.upsertContact(Contact(nodeId: peer));
+      await storage.appendMessage(
+        Message(
+          id: 'history-row',
+          conversationId: peer.hex,
+          direction: echo
+              ? MessageDirection.incoming
+              : MessageDirection.outgoing,
+          author: echo ? peer.hex : _id(1).hex,
+          body: 'durable history',
+          seq: 1,
+          timestamp: now,
+        ),
+      );
+      for (var round = 0; round < 5; round++) {
+        storage.deferMessageHandoff = round < 2;
+        testNow = now.add(Duration(seconds: round * 6));
+        transport.sent.clear();
+        transport.historyFrames.clear();
+        await requestHistory(peer, {
+          'hw': <String, int>{},
+          if (echo) ...{
+            'ow': ['01020304'],
+            'os': now.millisecondsSinceEpoch - 1,
+          },
+        });
+        expect(
+          echo ? transport.historyFrames.length : ids(2).length,
+          round == 2 || round == 3 ? 1 : 0,
+          reason: 'round $round',
+        );
+      }
+    });
+  }
 
   test('a held message does not delay another contact', () async {
     await queue(2, 'slow');

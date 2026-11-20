@@ -5,44 +5,61 @@ typedef _PersistedAckStatus = ({bool moved, bool delivered});
 /// Take a fresh observation after ratchet waits. Check its witness and the
 /// original post's clock at handoff, including between fragments.
 class _StoredPostEligibility {
-  _StoredPostEligibility(this._owner, this._peer, this._message);
+  _StoredPostEligibility(MessagingService owner, NodeId peer, Message post)
+    : this.forEvent(owner, peer, post.id, post.timestamp);
+
+  _StoredPostEligibility.forEvent(
+    this._owner,
+    this._peer,
+    this._messageId,
+    this._timestamp,
+  );
 
   final MessagingService _owner;
   final NodeId _peer;
-  final Message _message;
+  final String _messageId;
+  final DateTime? _timestamp;
   bool Function()? _current;
   DisappearingSetting? _setting;
 
   bool get hasReceipt =>
-      _owner._messageDelivery._hasDeliveryReceipt(_peer.hex, _message.id);
+      _owner._messageDelivery._hasDeliveryReceipt(_peer.hex, _messageId);
 
   /// True only when the whole payload reached the transport. An earlier
   /// receipt stops further carriers, including the chunks of a small file.
+  /// History requests can explicitly ask for a previously acknowledged row.
   Future<bool> send(
     Uint8List frame,
     Object epoch, {
     bool wantReply = false,
     bool background = false,
+    NodeId? destination,
+    bool stopOnReceipt = true,
+    void Function()? onAdmitted,
   }) async {
     bool canAttempt() =>
-        _owner._realtimeControl._consentCurrent(_peer, epoch) && !hasReceipt;
+        _owner._realtimeControl._consentCurrent(_peer, epoch) &&
+        (!stopOnReceipt || !hasReceipt);
     if (!canAttempt()) return false;
 
     bool? admitted;
     await _owner._send(
-      _peer,
+      destination ?? _peer,
       frame,
       wantReply: wantReply,
       background: background,
       prepareTransport: () => canAttempt() ? prepare() : null,
       admitTransport: () {
         final allowed = canAttempt() && canSend;
-        if (wantReply && allowed && admitted == null) {
-          devLog(
-            () =>
-                'xVeil[timeline]: send id=${_message.id} '
-                't0=${_message.timestamp.millisecondsSinceEpoch} wantReply=true',
-          );
+        if (allowed && admitted == null) {
+          onAdmitted?.call();
+          if (wantReply) {
+            devLog(
+              () =>
+                  'xVeil[timeline]: send id=$_messageId '
+                  't0=${_timestamp?.millisecondsSinceEpoch} wantReply=true',
+            );
+          }
         }
         admitted = allowed;
         return allowed;
@@ -63,16 +80,19 @@ class _StoredPostEligibility {
     if (current?.call() == false) return;
     final setting = await _owner.disappearingOf(_peer);
     if (current?.call() == false) return;
-    if (!await storage.isMessageDeleted(_peer.hex, _message.id)) {
+    if (!await storage.isMessageDeleted(_peer.hex, _messageId)) {
       _setting = setting;
     }
   }
 
   bool get canSend {
     final setting = _setting;
+    final timestamp = _timestamp;
     return setting != null &&
         _current?.call() != false &&
-        !setting.hasExpired(_message.timestamp, _owner._now());
+        (timestamp == null
+            ? !setting.isOn
+            : !setting.hasExpired(timestamp, _owner._now()));
   }
 }
 
