@@ -321,6 +321,12 @@ abstract class AppL10n {
   /// **'The settings file is in use. Wait a moment, then try again.'**
   String get startupPreferencesBusy;
 
+  /// No description provided for @startupPreferencesFormatFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The profile settings are damaged or use an unsupported format. The original file was preserved.'**
+  String get startupPreferencesFormatFailed;
+
   /// No description provided for @startupRetry.
   ///
   /// In en, this message translates to:

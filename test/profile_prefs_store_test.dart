@@ -35,6 +35,50 @@ void main() {
   });
 
   group('the preference file', () {
+    test(
+      'an unknown format does not install an empty startup backend',
+      () async {
+        final path = profilePrefsPath(support.path, AppProfiles.defaultName);
+        const future = '{"v":2,"e":{}}';
+        File(path).writeAsStringSync(future);
+
+        await expectLater(
+          installProfilePreferencesOrFallback(
+            supportDir: () async => support.path,
+            args: const [],
+            environment: const {},
+          ),
+          throwsA(isA<ProfilePreferencesFormatFailure>()),
+        );
+        expect(SharedPreferencesStorePlatform.instance, same(original));
+        expect(File(path).readAsStringSync(), future);
+      },
+    );
+
+    test(
+      'migration keeps unsupported values in the original backend',
+      () async {
+        final input = <String, Object>{
+          'flutter.locale': 'es',
+          'flutter.apps': ['app', 2],
+        };
+        final source = InMemorySharedPreferencesStore.withData(input);
+        expect(
+          await installProfilePreferences(
+            supportDir: support.path,
+            args: const [],
+            environment: const {},
+            legacyBackend: source,
+          ),
+          AppProfiles.defaultName,
+        );
+        final path = profilePrefsPath(support.path, AppProfiles.defaultName);
+        final reopened = await ProfilePreferencesStore.load(path);
+        expect(await reopened.getAll(), {'flutter.locale': 'es'});
+        expect(await source.getAll(), input);
+      },
+    );
+
     test('round-trips every value type the app stores', () async {
       final path = profilePrefsPath(support.path, AppProfiles.defaultName);
       final store = await ProfilePreferencesStore.load(path);

@@ -140,6 +140,10 @@ class AppL10nRu extends AppL10n {
       'Файл настроек занят. Подождите немного и попробуйте снова.';
 
   @override
+  String get startupPreferencesFormatFailed =>
+      'Настройки профиля повреждены или хранятся в неподдерживаемом формате. Исходный файл сохранён.';
+
+  @override
   String get startupRetry => 'Повторить';
 
   @override

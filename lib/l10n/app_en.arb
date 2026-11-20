@@ -37,6 +37,7 @@
   "startupFailedTitle": "xVeil could not start",
   "startupFailedAction": "Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.",
   "startupPreferencesBusy": "The settings file is in use. Wait a moment, then try again.",
+  "startupPreferencesFormatFailed": "The profile settings are damaged or use an unsupported format. The original file was preserved.",
   "startupRetry": "Try again",
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space",
