@@ -4774,7 +4774,7 @@ class MessagingService {
     final contactResponsesClosed = _contactResponseQueue.close();
     final contactAcceptancesClosed = _contacts.close();
     final snapshotValidationClosed = _replication._expiry.close();
-    _contentAvailability.cancelRetryReoffers();
+    _contentAvailability.cancelReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
     final editExpiryClosed = _outbox._editExpiry.close();

@@ -89,6 +89,7 @@ class _MessagingDownloadResume {
   void beginUserRequest(String contentId) {
     _inFlight.remove(contentId);
     _preparations.remove(contentId);
+    _owner._contentAvailability.cancelReoffers(contentId);
     _owner._cancelledDownloads.remove(contentId);
   }
 
@@ -123,7 +124,7 @@ class _MessagingDownloadResume {
     _inFlight.remove(contentId);
     _preparations.remove(contentId);
     _owner._cancelledDownloads.add(contentId);
-    _owner._contentAvailability.cancelRetryReoffers(contentId);
+    _owner._contentAvailability.cancelReoffers(contentId);
     _owner._clearGroupPullSources(contentId);
     final savedPath = _owner._forgetFetchSavePath(contentId);
     final parkedSink = _owner._contentAvailability.takePending(contentId);
