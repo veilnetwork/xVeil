@@ -143,6 +143,78 @@ void main() {
     ]),
   );
 
+  for (final oldPlaintext in [false, true]) {
+    test('a replaced reoffer wait cannot fail the new download '
+        '(old plaintext=$oldPlaintext)', () async {
+      final contentId = cid(98);
+      const newPath = '/virtual/reoffer-new.bin';
+      const reofferTimeout = Duration(
+        milliseconds: int.fromEnvironment(
+          'XVEIL_CONTENT_REOFFER_TIMEOUT_MS',
+          defaultValue: 20000,
+        ),
+      );
+      final failures = <String>[];
+      final subscription = service.contentDownloadFailed.listen(failures.add);
+      addTearDown(subscription.cancel);
+      void Function()? expireOldWait;
+      var oldCloses = 0;
+      var newCloses = 0;
+
+      final oldResult = await runZoned(
+        () => oldPlaintext
+            ? service.downloadContentToFile(
+                peer,
+                contentId,
+                '/virtual/reoffer-old.bin',
+                write: (_, _) async => fail('the old sink received content'),
+                close: () async => oldCloses++,
+              )
+            : service.downloadContent(peer, contentId),
+        zoneSpecification: ZoneSpecification(
+          createTimer: (self, parent, zone, duration, callback) {
+            final timer = parent.createTimer(zone, duration, callback);
+            if (duration == reofferTimeout && expireOldWait == null) {
+              expireOldWait = () {
+                if (!timer.isActive) return;
+                timer.cancel();
+                zone.run(callback);
+              };
+            }
+            return timer;
+          },
+        ),
+      );
+      expect(oldResult, ContentDownloadResult.requestedReoffer);
+      expect(expireOldWait, isNotNull);
+      expect(oldCloses, 0);
+
+      s.lookupEntered = Completer<void>();
+      final gate = Completer<void>();
+      s.lookupRelease = gate;
+      final replacement = service.downloadContentToFile(
+        peer,
+        contentId,
+        newPath,
+        write: (_, _) async => fail('no source supplied content'),
+        close: () async => newCloses++,
+      );
+      try {
+        await s.lookupEntered!.future;
+        expireOldWait!();
+        await pumpEventQueue();
+      } finally {
+        gate.complete();
+      }
+      expect(await replacement, ContentDownloadResult.requestedReoffer);
+      final cancelledPath = await service.cancelContentDownload(contentId);
+      expect(failures, isEmpty);
+      expect(cancelledPath, newPath);
+      expect(oldCloses, oldPlaintext ? 1 : 0);
+      expect(newCloses, 1);
+    });
+  }
+
   test(
     'background resume waits for an open container and resumes after unlock',
     () async {
