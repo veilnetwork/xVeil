@@ -373,6 +373,8 @@ class CallService {
       (_networkAttachmentGeneration, _readNetworkChangeGeneration?.call());
   bool _networkOffline = false;
   DateTime? _localNetworkHandoverAt;
+  int? _pendingHandoverHealthNetwork;
+  int? _lastHealthAdmissionNetwork;
   int? _lastOverlaySessions;
   bool _overlaySessionLossObserved = false;
   bool _overlaySessionGrowthObserved = false;
@@ -912,6 +914,7 @@ class CallService {
       final call = _current;
       if (call == null || call.status != CallStatus.active) return;
       if (_networkOffline) {
+        _pendingHandoverHealthNetwork = null;
         _relayHandover = null;
         // A relay rebuild may already be in flight when the interface drops.
         _localNetworkHandoverAt = call.transport == CallTransportKind.relay
@@ -924,8 +927,12 @@ class CallService {
         // this call and do not advance a deadline that is still pending.
         _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
       }
-      if (call.transport == CallTransportKind.relay) {
-        final at = _localNetworkHandoverAt = _now();
+      final relay = call.transport == CallTransportKind.relay;
+      if (!relay && !_isActiveDirectCall(call)) return;
+      final at = _localNetworkHandoverAt = _now();
+      _pendingHandoverHealthNetwork = _overlayAdmissionNetwork;
+      _announceHandoverHealth();
+      if (relay) {
         // The rebuild can have released its old channel already.
         if (_media?.activeTransport != CallTransportKind.relay) return;
         // Relay can survive as the selected transport while its local network
@@ -939,10 +946,8 @@ class CallService {
         devLog(() => 'xVeil[call-media]: local network handover on relay');
         return;
       }
-      if (!_isActiveDirectCall(call)) return;
       // A route operation can still be running when the network changes.
       // Keep the observation for the watchdog once it can inspect the route.
-      _localNetworkHandoverAt = _now();
       if (_mediaWatchdogCheckBusy) {
         _directHandoverCheckPending = true;
       } else {
@@ -2262,11 +2267,14 @@ class CallService {
   }
 
   void _noteOverlayConnectivity(String description) {
+    if (_disposed) return;
+    final network = _overlayAdmissionNetwork;
+    // The dispatch result and native admission arrive on independent streams.
+    // Remember the hint for signaling even if Dart still sees the old link.
+    _lastHealthAdmissionNetwork = network;
     // A queued admission can be delivered after the local network is gone.
     // It cannot wake recovery until there is a usable local attachment.
-    if (_disposed || _networkOffline) return;
-    final network = _overlayAdmissionNetwork;
-    final firstOnNetwork = _lastOverlayAdmissionNetwork != network;
+    if (_networkOffline) return;
     _relayConnectionGeneration++;
     _lastOverlayAdmissionNetwork = network;
     final waiting = _relayRebuildAdmission;
@@ -2275,16 +2283,25 @@ class CallService {
     if (call != null) {
       devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
-      final handoverAt = _localNetworkHandoverAt;
-      if (firstOnNetwork &&
-          call.status == CallStatus.active &&
-          handoverAt != null &&
-          _now().difference(handoverAt) < kCallLivenessTimeout) {
-        // The peer's timeout can precede our next beat. Send on the regular
-        // control paths while the old media route may still be stalled.
-        unawaited(_announceCapture(allowCompactHealth: false));
-      }
+      _announceHandoverHealth();
     }
+  }
+
+  void _announceHandoverHealth() {
+    final network = _pendingHandoverHealthNetwork;
+    final handoverAt = _localNetworkHandoverAt;
+    if (network == null ||
+        network != _lastHealthAdmissionNetwork ||
+        network != _overlayAdmissionNetwork ||
+        _current?.status != CallStatus.active ||
+        handoverAt == null ||
+        _now().difference(handoverAt) >= kCallLivenessTimeout) {
+      return;
+    }
+    _pendingHandoverHealthNetwork = null;
+    // The peer's timeout can precede our next beat, and the old media route
+    // may still be stalled. This hint only triggers the regular control send.
+    unawaited(_announceCapture(allowCompactHealth: false));
   }
 
   void _cancelRelayCandidateRetry() {
@@ -3766,6 +3783,8 @@ class CallService {
     _mediaRepair = null;
     _livenessProbeToken = null;
     _localNetworkHandoverAt = null;
+    _pendingHandoverHealthNetwork = null;
+    _lastHealthAdmissionNetwork = null;
     final waiting = _relayRebuildAdmission;
     _relayRebuildAdmission = null;
     if (waiting != null && !waiting.isCompleted) waiting.complete(false);
