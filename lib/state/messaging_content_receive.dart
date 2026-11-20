@@ -323,21 +323,29 @@ extension _MessagingContentReceive on MessagingService {
     ContentManifest m, {
     _FetchSink? sink,
   }) async {
-    if (_disposed || _cancelledDownloads.contains(m.contentId)) {
+    final cid = m.contentId;
+    bool canStart() =>
+        !_disposed &&
+        !_cancelledDownloads.contains(cid) &&
+        (sink == null || _ownsFetchSavePath(cid, sink));
+
+    // Expire before checking this same content id so a retry cannot park
+    // behind an abandoned reassembler.
+    if (canStart()) await _contentFetching.evictStale();
+    if (!canStart()) {
       try {
         await sink?.close();
       } catch (_) {}
       return;
     }
-    // Expire before checking this same content id. Previously a stale fetch
-    // matched here forever, so a retry was parked behind an abandoned
-    // reassembler and its plaintext sink handle was leaked.
-    await _contentFetching.evictStale();
-    final existing = _contentFetching.active(m.contentId);
-    if (existing != null) {
+    final existing = _contentFetching.active(cid);
+    final previousSink = existing?.sink;
+    if (previousSink != null && !_ownsFetchSavePath(cid, previousSink)) {
+      unawaited(_contentFetching.discard(cid));
+    } else if (existing != null) {
       if (sink != null) {
         if (existing.sink == null) {
-          _contentAvailability.holdPending(m.contentId, sink);
+          _contentAvailability.holdPending(cid, sink);
           devLog(
             () =>
                 'xVeil[content]: plain-file save parked for '
@@ -349,10 +357,11 @@ extension _MessagingContentReceive on MessagingService {
       }
       return;
     }
+    final transfer = ContentTransfer(m);
     _contentFetching.add(
-      m.contentId,
+      cid,
       manifest: m,
-      xfer: ContentTransfer(m),
+      xfer: transfer,
       peer: peer,
       name: m.name,
       sink: sink,
@@ -360,7 +369,9 @@ extension _MessagingContentReceive on MessagingService {
     _ensureContentTimer();
     await _send(
       peer,
-      pieceRequestEnvelope(contentId: m.contentId, indices: null).encode(),
+      pieceRequestEnvelope(contentId: cid, indices: null).encode(),
+      admitTransport: () =>
+          canStart() && identical(_contentFetching.active(cid)?.xfer, transfer),
     );
   }
 }
