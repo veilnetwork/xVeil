@@ -583,7 +583,13 @@ class CallService {
   int _mediaOperationEpoch = 0;
   Object? _livenessProbeToken;
   ({int epoch, (int, int?) networkVersion, DateTime until})? _mediaRepair;
-  ({NodeId peer, String callId, bool rebuilding, Future<void> future})?
+  ({
+    NodeId peer,
+    String callId,
+    bool rebuilding,
+    DateTime livenessUntil,
+    Future<void> future,
+  })?
   _relayFallbackFlight;
   bool get _relayRebuildInProgress =>
       _relayRebuildAdmission != null || _relayFallbackFlight?.rebuilding == true;
@@ -2381,6 +2387,7 @@ class CallService {
       return Future.value();
     }
     final connections = _relayConnectionGeneration;
+    final livenessUntil = _now().add(kCallMediaStartTimeout);
     _cancelRelayCandidateRetry();
     if (rebuilding) _livenessProbeToken = null;
     late final Future<void> future;
@@ -2405,6 +2412,7 @@ class CallService {
       peer: peer,
       callId: callId,
       rebuilding: rebuilding,
+      livenessUntil: livenessUntil,
       future: future,
     );
     return future;
@@ -3657,11 +3665,28 @@ class CallService {
             : kCallStartupLivenessTimeout;
         if (alive == null || now.difference(alive) <= timeout) return;
         if (_holdLivenessForRecovery(cur, now)) return;
-        // Recheck on the new network before acting on silence observed on
-        // the old one. Allow one retry so repeated changes cannot keep a
-        // dead call alive indefinitely.
-        if (attempt == 0 && networkVersion != _networkObservationVersion) {
-          continue;
+        if (attempt == 0) {
+          final fallback = _relayFallbackFlight;
+          if (fallback != null &&
+              fallback.callId == cur.callId &&
+              fallback.peer == cur.peer &&
+              now.isBefore(fallback.livenessUntil)) {
+            // An authorized relay candidate may still be testing delivery
+            // while the direct path is silent. Give this attempt only the
+            // time left in its original budget, then sample the live route.
+            try {
+              await fallback.future.timeout(
+                fallback.livenessUntil.difference(now),
+                onTimeout: () {},
+              );
+            } catch (_) {
+              // A failed switch still needs the ordinary liveness decision.
+            }
+            if (!identical(_livenessProbeToken, token)) return;
+            continue;
+          }
+          // One retry also covers a network change during the sample.
+          if (networkVersion != _networkObservationVersion) continue;
         }
         devLog(
           () =>
