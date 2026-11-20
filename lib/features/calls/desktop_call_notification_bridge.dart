@@ -28,7 +28,8 @@ const _windowQueryBudget = Duration(milliseconds: 250);
 
 enum _WindowQueryOutcome { observed, timedOut, failed }
 
-typedef _WindowObservation = ({bool background, _WindowQueryOutcome outcome});
+// A native focus event is an observation without a query outcome.
+typedef _WindowObservation = ({bool background, _WindowQueryOutcome? outcome});
 
 /// Bounded first answer, followed by one eventual native answer if still owned.
 /// Neither a pending platform future nor its late callback retains a call,
@@ -160,7 +161,7 @@ class _DesktopCallNotificationBridgeState
   Completer<void>? _labelCancellation;
   _WindowQuery? _windowQuery;
   bool _retired = false, _windowListening = false;
-  bool _windowKnownHidden = false;
+  bool _windowKnownHidden = false, _windowKnownBlurred = false;
 
   bool get _enabled =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -214,16 +215,24 @@ class _DesktopCallNotificationBridgeState
 
   @override
   void onWindowEvent(String eventName) {
-    // Close-to-tray can leave Flutter resumed. Retain native hiding evidence
-    // for the bounded query's fallback, but never infer focus from show/restore.
+    // Flutter can stay resumed when Windows hides the window or switches to
+    // another app. Keep visibility and focus evidence separate.
     switch (eventName) {
       case 'hide':
       case kWindowEventMinimize:
         _windowKnownHidden = true;
+      case kWindowEventBlur:
+        _windowKnownBlurred = true;
       case 'show':
       case kWindowEventRestore:
+        _windowKnownHidden = false;
       case kWindowEventFocus:
         _windowKnownHidden = false;
+        _windowKnownBlurred = false;
+        // Retire any alert now. An in-flight or unavailable query must not
+        // leave a queued post eligible after native focus has returned.
+        _refresh(windowObservation: (background: false, outcome: null));
+        return;
     }
     _refresh();
   }
@@ -249,12 +258,12 @@ class _DesktopCallNotificationBridgeState
     );
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     var background =
-        (_windows && _windowKnownHidden) ||
+        (_windows && (_windowKnownHidden || _windowKnownBlurred)) ||
         (lifecycle != null && lifecycle != AppLifecycleState.resumed);
     _WindowQueryOutcome? windowQuery;
     if (_windows && settings.enabled && (directRinging || groupRinging)) {
       // Optional window chrome must not suppress an alert backed by lifecycle
-      // or a native hide/minimize event. A successful query remains decisive.
+      // or a native background event. A successful query remains decisive.
       if (windowObservation == null) {
         final query = _windowQueryForOwner(
           background,
@@ -269,9 +278,10 @@ class _DesktopCallNotificationBridgeState
     }
     if (_retired || !mounted || request != _request) return;
     if (windowQuery == _WindowQueryOutcome.observed && !background) {
-      // Recover even if a show/restore event was missed. A later failed query
-      // must not resurrect superseded evidence that this window was hidden.
+      // Recover if the foreground event was missed. A later failed query
+      // must not resurrect superseded background evidence.
       _windowKnownHidden = false;
+      _windowKnownBlurred = false;
     }
     if (windowQuery != null) {
       diagnosticJournal.record(
