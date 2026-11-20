@@ -271,6 +271,10 @@ abstract class CallMediaController {
   /// Call-key-authenticated state from this controller's current call only.
   /// Setup and terminal commands never use this optional, lossy carrier.
   Stream<CallSignal> get peerCallControl => const Stream<CallSignal>.empty();
+
+  /// A fresh, authenticated request from the peer to probe the relay route.
+  /// Each controller only emits observations for its current direct channel.
+  Stream<Call> get peerRelayProbes => const Stream<Call>.empty();
   bool sendEphemeralCallControl(CallSignal signal) => false;
   bool get canReceiveEphemeralHealth => false;
 
@@ -567,6 +571,7 @@ class CallService {
   int _cameraOperationEpoch = 0;
   int _cameraSelectionEpoch = 0;
   StreamSubscription<CallSignal>? _peerCallControlSub;
+  StreamSubscription<Call>? _peerRelayProbeSub;
   StreamSubscription<CallReceiveRepairRequest>? _localReceiveRepairSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
@@ -1022,6 +1027,15 @@ class CallService {
         devLog(() => 'xVeil[call-media]: relay settlement received on media');
       }
       _onSignal(call.peer, signal);
+    });
+    _peerRelayProbeSub = _media?.peerRelayProbes.listen((owner) {
+      final call = _current;
+      if (call != null &&
+          call.callId == owner.callId &&
+          call.peer == owner.peer &&
+          call.peerDevice == owner.peerDevice) {
+        _requestRelayOnPeerPathLoss(call, fromProbe: true);
+      }
     });
     _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
@@ -2427,10 +2441,7 @@ class CallService {
 
   void _notePeerDirectLoss(Call call, CallSignal signal) {
     final at = signal.sentAtMs;
-    if (_peerDirectLossWake != _PeerRelayWake.available ||
-        _networkOffline ||
-        !_isActiveDirectCall(call) ||
-        signal.transport?.kind != CallTransportKind.p2p ||
+    if (signal.transport?.kind != CallTransportKind.p2p ||
         signal.onBehalfOf != null ||
         signal.mediaRepairRequested ||
         at == null ||
@@ -2439,7 +2450,23 @@ class CallService {
       return;
     }
     // A coincident ordinary direct heartbeat can have the same timestamp.
-    // Consume the hint at most once on this active direct route.
+    _requestRelayOnPeerPathLoss(call);
+  }
+
+  void _requestRelayOnPeerPathLoss(Call call, {bool fromProbe = false}) {
+    if (_disposed ||
+        _networkOffline ||
+        !_isActiveDirectCall(call) ||
+        _peerDirectLossWake != _PeerRelayWake.available) {
+      return;
+    }
+    // Both authenticated observations share one wake on this direct route.
+    // The candidate still earns a fresh echo in the existing route operation.
+    if (fromProbe) {
+      devLog(
+        () => 'xVeil[call-media]: authenticated relay probe woke recovery',
+      );
+    }
     if (_relayFallbackFlight != null ||
         _relayCandidateRetry?.callId == call.callId) {
       _peerDirectLossWake = _PeerRelayWake.requested;
@@ -4436,6 +4463,8 @@ class CallService {
     _cameraUnavailableSub = null;
     unawaited(_peerCallControlSub?.cancel());
     _peerCallControlSub = null;
+    unawaited(_peerRelayProbeSub?.cancel());
+    _peerRelayProbeSub = null;
     unawaited(_localReceiveRepairSub?.cancel());
     _localReceiveRepairSub = null;
     unawaited(_overlaySessionsSub?.cancel());

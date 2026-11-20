@@ -495,6 +495,7 @@ class VeilCallMediaController implements CallMediaController {
 
   final VeilFlutterTransport _transport;
   final _peerCallControl = StreamController<CallSignal>.broadcast();
+  final _peerRelayProbes = StreamController<Call>.broadcast(sync: true);
   final _localReceiveRepairRequests =
       StreamController<CallReceiveRepairRequest>.broadcast(sync: true);
   final _microphoneUnavailable = StreamController<String>.broadcast();
@@ -503,6 +504,9 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Stream<CallSignal> get peerCallControl => _peerCallControl.stream;
+
+  @override
+  Stream<Call> get peerRelayProbes => _peerRelayProbes.stream;
 
   @override
   Stream<CallReceiveRepairRequest> get localReceiveRepairRequests =>
@@ -551,8 +555,15 @@ class VeilCallMediaController implements CallMediaController {
     if (!_transport.supportsCallControl) return;
     _controlPollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       final call = _activeCall;
-      if (call == null ||
-          (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion) {
+      if (call == null) return;
+      final active = _chan;
+      if (_peerRelayProbes.hasListener &&
+          active != null &&
+          _chanTransport == CallTransportKind.p2p &&
+          _transport.takeRelayProbeRequest(active)) {
+        _peerRelayProbes.add(call);
+      }
+      if ((call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion) {
         return;
       }
       // Older receive bindings remain valid through a make-before-break

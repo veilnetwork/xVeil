@@ -1975,6 +1975,77 @@ void main() {
       );
     }
 
+    for (final alreadyProbing in [false, true]) {
+      test(
+        'authenticated peer relay probe can wake recovery ($alreadyProbing)',
+        () {
+          fakeAsync((async) {
+            final wire = _FakeMessaging();
+            final first = Completer<bool>();
+            final next = Completer<bool>();
+            final media = _RelayObservationMedia()
+              ..liveDirectAdmission = true
+              ..firstAttempt = first;
+            final service = CallService(
+              wire,
+              media: media,
+              now: () => clock.now(),
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+            )..start();
+            try {
+              wire.onCallSignal!(
+                peer,
+                offer('peer-probe').copyWith(
+                  transport: const CallTransportProposal(CallTransportKind.p2p),
+                ),
+              );
+              unawaited(service.accept());
+              async.flushMicrotasks();
+              final call = service.current!;
+              expect(call.transport, CallTransportKind.p2p);
+              media.rxAt = clock.now();
+
+              media.relayProbes.add(
+                call.copyWith(peerDevice: NodeId.fromHex('c' * 64)),
+              );
+              async.flushMicrotasks();
+              expect(media.switches, isEmpty);
+              if (alreadyProbing) {
+                unawaited(service.requestRelayRecoveryForDiagnostics());
+                async.flushMicrotasks();
+                media.nextAttempt = next;
+              }
+              media.relayProbes.add(call);
+              media.relayProbes.add(call);
+              async.flushMicrotasks();
+              expect(media.switches, [CallTransportKind.relay]);
+              expect(service.current?.transport, CallTransportKind.p2p);
+              first.complete(!alreadyProbing);
+              async.flushMicrotasks();
+              if (alreadyProbing) {
+                expect(media.switches, [
+                  CallTransportKind.relay,
+                  CallTransportKind.relay,
+                ]);
+                expect(service.current?.transport, CallTransportKind.p2p);
+                next.complete(true);
+                async.flushMicrotasks();
+              }
+              expect(service.current?.transport, CallTransportKind.relay);
+              media.relayProbes.add(call);
+              async.flushMicrotasks();
+              expect(media.switches, hasLength(alreadyProbing ? 2 : 1));
+            } finally {
+              service.dispose();
+              unawaited(media.relayProbes.close());
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     test('queued handover health follows a relay committed before send', () {
       fakeAsync((async) {
         const callId = 'handover-relay-before-health-send';
@@ -11810,4 +11881,11 @@ class _ReconnectRelayMedia extends _SnapshotMedia {
     if (ok) openedTransport = transport;
     return ok;
   }
+}
+
+class _RelayObservationMedia extends _ReconnectRelayMedia {
+  final relayProbes = StreamController<Call>.broadcast(sync: true);
+
+  @override
+  Stream<Call> get peerRelayProbes => relayProbes.stream;
 }
