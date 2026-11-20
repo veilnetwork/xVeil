@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, setEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -123,11 +124,21 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   int _clearRequestGeneration = 0;
   bool _permissionRequestPending = false;
   bool _permissionDecided = false;
+  late bool _windowWasVisible;
 
-  bool get _foreground =>
+  bool get _hasInputFocus =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
       // Null only at the very first frame — treat as foreground (suppress).
       WidgetsBinding.instance.lifecycleState == null;
+
+  bool get _notificationWindowVisible {
+    // A mobile system dialog or focus loss can leave the app visible in
+    // inactive. Desktop alerts keep using focus (e.g. a window behind another).
+    return _hasInputFocus ||
+        (WidgetsBinding.instance.lifecycleState == AppLifecycleState.inactive &&
+            (defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS));
+  }
 
   _MessageAlertAttempt _beginMessageAlert({bool groupScoped = false}) => (
     generation: _notificationGeneration,
@@ -246,6 +257,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   @override
   void initState() {
     super.initState();
+    _windowWasVisible = _notificationWindowVisible;
     WidgetsBinding.instance.addObserver(this);
     // Defer until after the first frame so the unlock→home provider cascade has
     // fully settled before we attach any listener.
@@ -283,7 +295,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   Future<void> _requestNotificationPermission() async {
-    if (_permissionDecided || _permissionRequestPending || !_foreground) {
+    if (_permissionDecided || _permissionRequestPending || !_hasInputFocus) {
       return;
     }
     _permissionRequestPending = true;
@@ -293,7 +305,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // method cannot ask Android/iOS until that initialization has finished.
       if (!await service.waitUntilReady() ||
           !mounted ||
-          !_foreground ||
+          !_hasInputFocus ||
           ref.read(appControllerProvider).phase != AppPhase.ready) {
         return;
       }
@@ -369,7 +381,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
       muted: !notificationModeAllows(mode, isMention: isMention),
-      foreground: _foreground,
+      foreground: _notificationWindowVisible,
     )) {
       return;
     }
@@ -425,7 +437,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         policy.effectiveAt(DateTime.now()),
         isMention: isMention,
       ),
-      foreground: _foreground,
+      foreground: _notificationWindowVisible,
     )) {
       return;
     }
@@ -487,7 +499,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             policy.effectiveAt(DateTime.now()),
             isMention: isMention,
           ),
-      foreground: _foreground,
+      foreground: _notificationWindowVisible,
     )) {
       return;
     }
@@ -551,7 +563,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             policy.effectiveAt(DateTime.now()),
             isMention: isMention,
           ),
-      foreground: _foreground,
+      foreground: _notificationWindowVisible,
     )) {
       return;
     }
@@ -662,7 +674,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       allowReply: false,
       isMention: isMention,
     );
-    if (_foreground) {
+    if (_notificationWindowVisible) {
       _rememberSpaceComment(ordinaryPayload, attempt, candidate);
       return;
     }
@@ -771,7 +783,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       allowReply: false,
       isMention: isMention,
     );
-    if (_foreground) {
+    if (_notificationWindowVisible) {
       _rememberSpaceComment(ordinaryPayload, attempt, candidate);
       return;
     }
@@ -797,12 +809,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // Invalidate contact/group lookups that began while backgrounded so they
-      // cannot re-post an alert after cancelAll completes.
+    final visible = _notificationWindowVisible;
+    final becameVisible = visible && !_windowWasVisible;
+    _windowWasVisible = visible;
+    if (becameVisible || state == AppLifecycleState.resumed) {
       _notificationGeneration++;
-      _clearRequestGeneration++;
       _wakeRetiredAlertWaits();
+    }
+    if (state == AppLifecycleState.resumed) {
+      _clearRequestGeneration++;
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       unawaited(_requestNotificationPermission());
@@ -812,6 +827,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       try {
         ref.read(messagingServiceProvider).onAppResumed();
       } catch (_) {}
+    } else if (becameVisible) {
+      // A visible mobile window may remain inactive while a call or system
+      // dialog holds focus. Only withdraw the chat alert at this boundary.
+      unawaited(
+        ref
+            .read(notificationServiceProvider)
+            .cancelAfterPosts(notificationIdForIncomingMessage('')),
+      );
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       // Mobile can emit hidden, paused, then hidden again before resume.
@@ -1334,7 +1357,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       var outcome = _MessageAlertOutcome.skipped;
       var postedFull = false;
       bool current() {
-        if (!_canContinueMessageAlert(attempt)) return false;
+        if (_notificationWindowVisible || !_canContinueMessageAlert(attempt)) {
+          return false;
+        }
         final settings = ref.read(notificationSettingsProvider);
         if (!settings.enabled ||
             (postedFull && settings.preview != NotificationPreview.full)) {

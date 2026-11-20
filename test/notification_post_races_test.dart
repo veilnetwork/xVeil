@@ -1498,43 +1498,164 @@ void main() {
     });
   }
 
-  testWidgets('one background transition only scans and posts unread once', (
-    tester,
-  ) async {
-    await mount(tester, minimize: false);
-    final first = _id(2), live = _id(3), reread = _id(4);
-    void unreadFrom(NodeId peer) {
-      storage.unread = Future.value([
-        Conversation(peer: Contact(nodeId: peer), unread: 1),
-      ]);
-    }
+  testWidgets(
+    'one background transition only scans and posts unread once',
+    (tester) async {
+      await mount(tester, minimize: false);
+      final first = _id(2), live = _id(3), reread = _id(4);
+      void unreadFrom(NodeId peer) {
+        storage.unread = Future.value([
+          Conversation(peer: Contact(nodeId: peer), unread: 1),
+        ]);
+      }
 
-    try {
-      unreadFrom(first);
-      await lifecycle(tester, background.take(2).toList());
-      expect(notifications.visible.values.map(resolveShownPayload), [first.hex]);
-      expect(notifications.shows, 1);
-      await lifecycle(tester, [AppLifecycleState.paused]);
-      expect(notifications.shows, 1);
+      try {
+        unreadFrom(first);
+        await lifecycle(tester, background.take(2).toList());
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          first.hex,
+        ]);
+        expect(notifications.shows, 1);
+        await lifecycle(tester, [AppLifecycleState.paused]);
+        expect(notifications.shows, 1);
 
-      message(3);
-      await _pump(tester);
-      expect(notifications.visible.values.map(resolveShownPayload), [live.hex]);
-      expect(notifications.shows, 2);
-      await lifecycle(tester, foreground.take(2).toList());
-      expect(notifications.visible.values.map(resolveShownPayload), [live.hex]);
-      expect(notifications.shows, 2);
+        message(3);
+        await _pump(tester);
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          live.hex,
+        ]);
+        expect(notifications.shows, 2);
+        await lifecycle(tester, foreground.take(2).toList());
+        expect(notifications.visible, isEmpty);
+        expect(notifications.shows, 2);
 
-      await lifecycle(tester, [AppLifecycleState.resumed]);
-      expect(notifications.visible, isEmpty);
-      unreadFrom(reread);
-      await lifecycle(tester, [AppLifecycleState.paused]);
-      expect(notifications.visible.values.map(resolveShownPayload), [reread.hex]);
-      expect(notifications.shows, 3);
-    } finally {
-      await cleanup(tester);
-    }
-  });
+        await lifecycle(tester, [AppLifecycleState.resumed]);
+        expect(notifications.visible, isEmpty);
+        unreadFrom(reread);
+        await lifecycle(tester, [AppLifecycleState.paused]);
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          reread.hex,
+        ]);
+        expect(notifications.shows, 3);
+      } finally {
+        await cleanup(tester);
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets(
+    'a visible inactive window does not post incoming messages',
+    (tester) async {
+      await mount(tester, minimize: false);
+      final peer = _id(2);
+      try {
+        await lifecycle(tester, [AppLifecycleState.inactive]);
+        message(2);
+        await _pump(tester);
+        expect(notifications.shows, 0);
+
+        storage.unread = Future.value([unreadDirect(peer, 1000)]);
+        await lifecycle(tester, background.skip(1).toList());
+        expect(notifications.shows, 1);
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          peer.hex,
+        ]);
+      } finally {
+        await cleanup(tester);
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets(
+    'desktop focus loss remains eligible for message alerts',
+    (tester) async {
+      await mount(tester, minimize: false);
+      try {
+        await lifecycle(tester, [AppLifecycleState.inactive]);
+        message(2);
+        await _pump(tester);
+        expect(notifications.visible.values.map(resolveShownPayload), [
+          _id(2).hex,
+        ]);
+      } finally {
+        await cleanup(tester);
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'a visible inactive window retires a pending background post',
+    (tester) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service);
+      try {
+        message(2);
+        await _pump(tester);
+        expect(plugin.posted, isEmpty);
+        await lifecycle(tester, foreground.take(2).toList());
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted, isEmpty);
+
+        await lifecycle(tester, background.skip(1).toList());
+        message(3);
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [_id(3).hex]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets(
+    'showing the window without focus starts a new unread cycle',
+    (tester) async {
+      await mount(tester, minimize: false);
+      final first = _id(2), second = _id(3);
+      final id = notificationIdForIncomingMessage('');
+      try {
+        storage.unread = Future.value([unreadDirect(first, 1000)]);
+        await lifecycle(tester, background);
+        expect(notifications.shows, 1);
+        expect(resolveShownPayload(notifications.visible[id]), first.hex);
+        notifications.visible[kNotificationIdIncomingCall] =
+            kNotificationPayloadIncomingCall;
+        await lifecycle(tester, foreground.take(2).toList());
+        expect(notifications.visible, {
+          kNotificationIdIncomingCall: kNotificationPayloadIncomingCall,
+        });
+
+        storage.unread = Future.value([unreadDirect(second, 2000)]);
+        await lifecycle(tester, background.skip(1).toList());
+        expect(notifications.shows, 2);
+        expect(resolveShownPayload(notifications.visible[id]), second.hex);
+      } finally {
+        await cleanup(tester);
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
 
   for (final waitingOn in ['contact lookup', 'OS post', 'unread snapshot']) {
     testWidgets(
@@ -1814,6 +1935,7 @@ void main() {
 
   for (final duringStartup in [
     'visible',
+    'inactive',
     'background',
     'locked',
     'unmounted',
@@ -1832,6 +1954,8 @@ void main() {
           await lifecycle(tester, background);
           await lifecycle(tester, foreground);
           expect(service.prompts, 0);
+        } else if (duringStartup == 'inactive') {
+          await lifecycle(tester, [AppLifecycleState.inactive]);
         } else if (duringStartup == 'background') {
           await lifecycle(tester, background);
         } else if (duringStartup == 'locked') {
@@ -1843,6 +1967,10 @@ void main() {
         await startup;
         await _pump(tester);
         expect(service.prompts, duringStartup == 'visible' ? 1 : 0);
+        if (duringStartup == 'inactive') {
+          await lifecycle(tester, [AppLifecycleState.resumed]);
+          expect(service.prompts, 1);
+        }
         if (duringStartup == 'background') {
           await lifecycle(tester, foreground);
           expect(service.prompts, 1);
