@@ -1769,15 +1769,18 @@ void main() {
       });
     });
 
-    for (final (relayResponds, replaceCandidate) in [
-      (true, false),
-      (false, false),
-      (true, true),
-      (false, true),
+    for (final (relayResponds, handover) in [
+      (true, 'none'),
+      (false, 'none'),
+      (true, 'admission first'),
+      (false, 'admission first'),
+      (true, 'admission later'),
+      (true, 'already deferred'),
+      (false, 'offline'),
     ]) {
       test(
         'native liveness awaits relay qualification '
-        '(response=$relayResponds, replacement=$replaceCandidate)',
+        '(response=$relayResponds, handover=$handover)',
         () {
           fakeAsync((async) {
             const callId = 'relay-qualifying-at-liveness-deadline';
@@ -1828,6 +1831,12 @@ void main() {
               expect(media.switches, [CallTransportKind.relay]);
               expect(svc.current?.transport, CallTransportKind.p2p);
 
+              if (handover == 'already deferred') {
+                network.add(NetworkAttachment.cellular);
+                gate.complete(false);
+                async.flushMicrotasks();
+                expect(media.switches, hasLength(1));
+              }
               async.elapse(tick);
               expect(svc.current?.status, CallStatus.active);
               expect(media.snapshotReads, 1);
@@ -1835,16 +1844,34 @@ void main() {
               expect(ends, isEmpty);
               var candidate = gate;
               var elapsed = tick;
-              if (replaceCandidate) {
+              if (handover != 'none') {
                 async.elapse(tick);
                 elapsed += tick;
                 candidate = Completer<bool>();
                 media.nextAttempt = candidate;
-                network.add(NetworkAttachment.cellular);
-                admissions.add(null);
-                gate.complete(false);
-                async.flushMicrotasks();
-                expect(media.switches, hasLength(2));
+                if (handover != 'already deferred') {
+                  network.add(
+                    handover == 'offline'
+                        ? NetworkAttachment.offline
+                        : NetworkAttachment.cellular,
+                  );
+                  if (handover == 'admission first') admissions.add(null);
+                  gate.complete(false);
+                  async.flushMicrotasks();
+                }
+                if (handover == 'admission later' ||
+                    handover == 'already deferred') {
+                  expect(media.switches, hasLength(1));
+                  expect(svc.current?.status, CallStatus.active);
+                  async.elapse(tick);
+                  elapsed += tick;
+                  admissions.add(null);
+                  async.flushMicrotasks();
+                }
+                expect(
+                  media.switches,
+                  hasLength(handover == 'offline' ? 1 : 2),
+                );
                 expect(svc.current?.status, CallStatus.active);
                 expect(ends, isEmpty);
               }

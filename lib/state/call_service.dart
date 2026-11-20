@@ -593,7 +593,12 @@ class CallService {
   _relayFallbackFlight;
   bool get _relayRebuildInProgress =>
       _relayRebuildAdmission != null || _relayFallbackFlight?.rebuilding == true;
-  ({String callId, DateTime until, DateTime? handoverRecoveryAt})?
+  ({
+    String callId,
+    DateTime until,
+    DateTime? handoverRecoveryAt,
+    ({DateTime until, Completer<void> released})? handoverLiveness,
+  })?
   _relayCandidateRetry;
   Timer? _relayCandidateRetryTimer;
   var _peerRelayWake = _PeerRelayWake.available;
@@ -2273,7 +2278,9 @@ class CallService {
   void _cancelRelayCandidateRetry() {
     _relayCandidateRetryTimer?.cancel();
     _relayCandidateRetryTimer = null;
+    final retry = _relayCandidateRetry;
     _relayCandidateRetry = null;
+    retry?.handoverLiveness?.released.complete();
   }
 
   void _notePeerRelay(Call call, CallSignal signal) {
@@ -2396,6 +2403,7 @@ class CallService {
       callId,
       retryBy: retryBy,
       rebuilding: rebuilding,
+      livenessUntil: livenessUntil,
     ).whenComplete(
       () {
         if (identical(_relayFallbackFlight?.future, future)) {
@@ -2423,6 +2431,7 @@ class CallService {
     String callId, {
     DateTime? retryBy,
     required bool rebuilding,
+    required DateTime livenessUntil,
   }) async {
     final media = _media;
     final before = _current;
@@ -2489,6 +2498,7 @@ class CallService {
     final startBudget = before.media.video || before.media.screen
         ? kCallVisualMediaStartTimeout
         : kCallMediaStartTimeout;
+    final network = _overlayAdmissionNetwork;
     final ok = rebuilding
         ? await rebuildRelay().timeout(
             startBudget,
@@ -2542,6 +2552,9 @@ class CallService {
         callId: callId,
         until: now.add(delay),
         handoverRecoveryAt: retryBy,
+        handoverLiveness: network == _overlayAdmissionNetwork
+            ? null
+            : (until: livenessUntil, released: Completer<void>()),
       );
       // Inbound media may stay fresh while our outbound P2P path is dead.
       // A cooldown alone never retries in that asymmetric state: silence
@@ -3666,28 +3679,9 @@ class CallService {
         if (alive == null || now.difference(alive) <= timeout) return;
         if (_holdLivenessForRecovery(cur, now)) return;
         if (attempt == 0) {
-          var fallback = _relayFallbackFlight;
-          if (fallback != null &&
-              fallback.callId == cur.callId &&
-              fallback.peer == cur.peer &&
-              now.isBefore(fallback.livenessUntil)) {
-            // Finishing an obsolete candidate may start a replacement for
-            // the same call. Both share the first candidate's deadline.
-            final until = fallback.livenessUntil;
-            while (fallback != null &&
-                fallback.callId == cur.callId &&
-                fallback.peer == cur.peer) {
-              final remaining = until.difference(_now());
-              if (remaining <= Duration.zero) break;
-              try {
-                await fallback.future.timeout(remaining);
-              } catch (_) {
-                // A failed or expired switch still needs a liveness sample.
-                break;
-              }
-              if (!identical(_livenessProbeToken, token)) return;
-              fallback = _relayFallbackFlight;
-            }
+          final until = _pendingRelayRecovery(cur)?.until;
+          if (until != null && now.isBefore(until)) {
+            await _awaitRelayRecovery(cur, token, until);
             if (!identical(_livenessProbeToken, token)) return;
             continue;
           }
@@ -3713,6 +3707,40 @@ class CallService {
       }
     } finally {
       if (identical(_livenessProbeToken, token)) _livenessProbeToken = null;
+    }
+  }
+
+  ({DateTime until, Future<void> future})? _pendingRelayRecovery(Call call) {
+    final fallback = _relayFallbackFlight;
+    if (fallback != null &&
+        fallback.callId == call.callId &&
+        fallback.peer == call.peer) {
+      return (until: fallback.livenessUntil, future: fallback.future);
+    }
+    final retry = _relayCandidateRetry;
+    final wait = retry?.handoverLiveness;
+    if (retry?.callId != call.callId || wait == null) return null;
+    return (until: wait.until, future: wait.released.future);
+  }
+
+  Future<void> _awaitRelayRecovery(
+    Call call,
+    Object token,
+    DateTime until,
+  ) async {
+    // The old path can fail before the new network admits a session. A started
+    // candidate and a retry deferred by that change share the original budget.
+    while (identical(_livenessProbeToken, token)) {
+      final remaining = until.difference(_now());
+      if (remaining <= Duration.zero) return;
+      final pending = _pendingRelayRecovery(call);
+      if (pending == null) return;
+      try {
+        await pending.future.timeout(remaining);
+      } catch (_) {
+        // A failed or expired switch still needs a liveness sample.
+        return;
+      }
     }
   }
 
