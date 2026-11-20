@@ -912,7 +912,6 @@ class CallService {
         // this call and do not advance a deadline that is still pending.
         _wakeDeferredRelay(call.peer, call.callId, fromOverlay: false);
       }
-      if (attachment == NetworkAttachment.unknown) return;
       if (call.transport == CallTransportKind.relay) {
         final at = _localNetworkHandoverAt = _now();
         // The rebuild can have released its old channel already.

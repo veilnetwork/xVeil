@@ -3312,6 +3312,7 @@ void main() {
     for (final mode in [
       'confirmed stall',
       'only pre-change audio',
+      'unclassified attachment',
       'stale pre-change audio',
       'no echo for pre-change audio',
       'audio resumes while probing',
@@ -3362,6 +3363,7 @@ void main() {
           );
           final preChangeAudio = const {
             'only pre-change audio',
+            'unclassified attachment',
             'stale pre-change audio',
             'no echo for pre-change audio',
             'audio resumes while probing',
@@ -3371,7 +3373,13 @@ void main() {
             async.elapse(const Duration(seconds: 4));
           }
           async.elapse(const Duration(milliseconds: 100));
-          if (mode != 'without a network change') network.add(NetworkAttachment.cellular);
+          if (mode != 'without a network change') {
+            network.add(
+              mode == 'unclassified attachment'
+                  ? NetworkAttachment.unknown
+                  : NetworkAttachment.cellular,
+            );
+          }
           async.elapse(const Duration(milliseconds: 100));
           if (!preChangeAudio) media.audioRxAt = clock.now();
           media.rxAt = clock.now();
@@ -3415,7 +3423,10 @@ void main() {
           async.flushMicrotasks();
           expect(
             boundRelay,
-            shouldProbe ? mode == 'only pre-change audio' : null,
+            shouldProbe
+                ? mode == 'only pre-change audio' ||
+                      mode == 'unclassified attachment'
+                : null,
           );
           expect(media.repairs, mode == 'confirmed stall' ? 1 : 0);
           if (mode == 'no echo for pre-change audio') {
@@ -4835,6 +4846,7 @@ void main() {
 
     for (final mode in [
       'closed',
+      'closed on an unclassified attachment',
       'closes on the next tick',
       'still admitted',
       'unknown',
@@ -4900,7 +4912,11 @@ void main() {
             async.elapse(const Duration(milliseconds: 250));
           }
           if (mode == 'superseded handover') media.liveAdmissionGate = admission;
-          network.add(NetworkAttachment.cellular);
+          network.add(
+            mode == 'closed on an unclassified attachment'
+                ? NetworkAttachment.unknown
+                : NetworkAttachment.cellular,
+          );
           async.flushMicrotasks();
           expect(media.liveAdmissionChecks, [device]);
           switch (mode) {
@@ -4934,6 +4950,7 @@ void main() {
           async.flushMicrotasks();
           final switched = const {
             'closed',
+            'closed on an unclassified attachment',
             'closes on the next tick',
             'cached ingress while direct closes',
             'fresh ingress but no sender',
