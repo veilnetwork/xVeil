@@ -2,6 +2,42 @@ part of 'messaging_core.dart';
 
 typedef _PersistedAckStatus = ({bool moved, bool delivered});
 
+/// Take a fresh observation after ratchet waits. Check its witness and the
+/// original post's clock at handoff, including between fragments.
+class _StoredPostEligibility {
+  _StoredPostEligibility(this._owner, this._peer, this._message);
+
+  final MessagingService _owner;
+  final NodeId _peer;
+  final Message _message;
+  bool Function()? _current;
+  DisappearingSetting? _setting;
+
+  Future<void>? prepare() => _current?.call() == true ? null : _read();
+
+  Future<void> _read() async {
+    _setting = null;
+    final storage = _owner._storage;
+    final current = storage is MessageSendReadFence
+        ? (storage as MessageSendReadFence).captureMessageSendReadFence()
+        : null;
+    _current = current;
+    if (current?.call() == false) return;
+    final setting = await _owner.disappearingOf(_peer);
+    if (current?.call() == false) return;
+    if (!await storage.isMessageDeleted(_peer.hex, _message.id)) {
+      _setting = setting;
+    }
+  }
+
+  bool get canSend {
+    final setting = _setting;
+    return setting != null &&
+        _current?.call() != false &&
+        !setting.hasExpired(_message.timestamp, _owner._now());
+  }
+}
+
 /// Retry, acknowledgement and bounded reconnect lifecycle for ordinary chat
 /// messages.
 ///
@@ -465,9 +501,12 @@ class _MessagingMessageDelivery {
       // later conversation's retry behind its dial.
       if (!isCurrent()) return;
       if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
+      final eligibility = _StoredPostEligibility(_owner, peer, message);
       var admitted = false;
       bool admitTransport() {
-        if (!isCurrent() || _hasDeliveryReceipt(peer.hex, message.id)) {
+        if (!isCurrent() ||
+            _hasDeliveryReceipt(peer.hex, message.id) ||
+            !eligibility.canSend) {
           return false;
         }
         if (!admitted) {
@@ -502,7 +541,15 @@ class _MessagingMessageDelivery {
       _activeMessageSends[peer.hex] = lease;
       var settled = false;
       final live = _owner
-          ._send(peer, wire, admitTransport: admitTransport)
+          ._send(
+            peer,
+            wire,
+            prepareTransport: () =>
+                isCurrent() && !_hasDeliveryReceipt(peer.hex, message.id)
+                ? eligibility.prepare()
+                : null,
+            admitTransport: admitTransport,
+          )
           .whenComplete(() {
             settled = true;
             if (identical(_activeMessageSends[peer.hex], lease)) {

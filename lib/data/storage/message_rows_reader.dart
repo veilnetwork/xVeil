@@ -12,6 +12,12 @@ abstract interface class MessageRowsReader {
   Future<List<Message>> loadMessageRows(String conversationId);
 }
 
+/// A synchronous witness for a tombstone and expiry-policy observation used
+/// at live transport handoff. Capture it before reading either value.
+abstract interface class MessageSendReadFence {
+  bool Function() captureMessageSendReadFence();
+}
+
 /// Stores without this capability retain their ordinary read path. A failure
 /// of an advertised capability propagates; it must not become an empty or
 /// remembered successful snapshot.

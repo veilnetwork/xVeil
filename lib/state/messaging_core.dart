@@ -1047,7 +1047,8 @@ class MessagingService {
   /// not a reused circuit).
   /// [cancelOnDispose] lets inline device notices stop before transport
   /// admission if their session closes during ratchet preparation.
-  /// [admitTransport] runs synchronously after ratchet preparation, once per
+  /// [prepareTransport] can refresh storage observations after ratchet
+  /// preparation. [admitTransport] runs synchronously at handoff, once per
   /// carrier. Returning false leaves the payload with the caller's queue.
   Future<void> _send(
     NodeId dst,
@@ -1057,6 +1058,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    Future<void>? Function()? prepareTransport,
     bool Function()? admitTransport,
   }) async {
     if (cancelOnDispose && _disposed) {
@@ -1077,6 +1079,7 @@ class MessagingService {
         wantReply: wantReply,
         requireIdentityAddress: requireIdentityAddress,
         background: background,
+        prepareTransport: prepareTransport,
         admitTransport: admitTransport,
       );
     }
@@ -1089,6 +1092,7 @@ class MessagingService {
         requireIdentityAddress: requireIdentityAddress,
         background: background,
         cancelOnDispose: cancelOnDispose,
+        prepareTransport: prepareTransport,
         admitTransport: admitTransport,
       );
       return;
@@ -1105,6 +1109,7 @@ class MessagingService {
         requireIdentityAddress: requireIdentityAddress,
         background: background,
         cancelOnDispose: cancelOnDispose,
+        prepareTransport: prepareTransport,
         admitTransport: admitTransport,
       );
     } catch (error, stack) {
@@ -1141,6 +1146,7 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
     bool cancelOnDispose = false,
+    Future<void>? Function()? prepareTransport,
     bool Function()? admitTransport,
   }) async {
     devLog(
@@ -1228,6 +1234,8 @@ class MessagingService {
     // already spent, because the recovery on start steps over every index the
     // reservation covers.
     await _reserveRatchetSendWindow(dst);
+    final preparation = prepareTransport?.call();
+    if (preparation != null) await preparation;
     if (cancelOnDispose && _disposed) {
       throw StateError('messaging is disposing');
     }
@@ -3045,13 +3053,16 @@ class MessagingService {
     // back over THIS circuit (fast), flipping us to "delivered" without a full
     // resolve+circuit-build round-trip on their side.
     // A later denied fragment makes the whole handoff incomplete.
+    final eligibility = _StoredPostEligibility(this, dst, stored);
     bool? admitted;
     await _send(
       dst,
       envelope.encode(),
       wantReply: true,
+      prepareTransport: () =>
+          isCurrent() && !hasReceipt() ? eligibility.prepare() : null,
       admitTransport: () {
-        final allowed = isCurrent() && !hasReceipt();
+        final allowed = isCurrent() && !hasReceipt() && eligibility.canSend;
         if (allowed && admitted == null) {
           devLog(
             () =>

@@ -16,6 +16,7 @@ class _MessagingLargeFrames {
     required bool wantReply,
     required bool requireIdentityAddress,
     required bool background,
+    Future<void>? Function()? prepareTransport,
     bool Function()? admitTransport,
   }) {
     if (_closed || _owner._disposed) {
@@ -58,6 +59,7 @@ class _MessagingLargeFrames {
                 wantReply: wantReply,
                 requireIdentityAddress: true,
                 background: background,
+                prepareTransport: prepareTransport,
                 admitTransport: admitTransport,
               );
               if (!sent) return;
@@ -82,6 +84,7 @@ class _MessagingLargeFrames {
               wantReply: wantReply && i == parts.length - 1,
               requireIdentityAddress: true,
               background: background,
+              prepareTransport: prepareTransport,
               admitTransport: admitTransport == null
                   ? null
                   : () => admitted = admitTransport(),
