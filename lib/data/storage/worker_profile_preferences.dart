@@ -18,11 +18,6 @@ enum ManagedPreferencesFailureReason {
   filePermissions,
 }
 
-bool _isWindowsPreferenceReadBusy(Object error) =>
-    Platform.isWindows &&
-    error is FileSystemException &&
-    (error.osError?.errorCode == 32 || error.osError?.errorCode == 33);
-
 ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
     switch (error) {
       ManagedFsFailure(:final kind) => switch (kind) {
@@ -45,7 +40,7 @@ ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
       ManagedLeaseFailure() ||
       ManagedCatalogFailure() => ManagedPreferencesFailureReason.invalidRole,
       ManagedSqliteFailure() => ManagedPreferencesFailureReason.sqlite,
-      FileSystemException() when _isWindowsPreferenceReadBusy(error) =>
+      FileSystemException() when isWindowsFileSharingViolation(error) =>
         ManagedPreferencesFailureReason.busy,
       FileSystemException() => ManagedPreferencesFailureReason.filesystemIo,
       _ => ManagedPreferencesFailureReason.other,
@@ -437,7 +432,7 @@ void _profilePreferencesEntry(
                 message.reply.send(_Ok(value));
                 break;
               } on FileSystemException catch (error) {
-                if (!_isWindowsPreferenceReadBusy(error) ||
+                if (!isWindowsFileSharingViolation(error) ||
                     elapsed.elapsed >= const Duration(seconds: 1)) {
                   rethrow;
                 }
@@ -487,7 +482,7 @@ void _profilePreferencesEntry(
         message.reply.send(
           message is _PreferencesReadReq
               ? _ManagedWorkerErr(
-                  _isWindowsPreferenceReadBusy(error)
+                  isWindowsFileSharingViolation(error)
                       ? ManagedWorkerFailureKind.busy
                       : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),

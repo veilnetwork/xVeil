@@ -686,7 +686,7 @@ Future<void> main(List<String> args) async {
     test('of the carried pointer also stops the system store being emptied', () async {
       // X-01 and X-02 meeting: if the pointer cannot be recorded, clearing the
       // store would forget which profile this install runs on.
-      blockWritesTo(activeProfilePath(support.path));
+      blockWritesTo('${activeProfilePath(support.path)}.tmp');
       SharedPreferencesStorePlatform.instance =
           InMemorySharedPreferencesStore.withData({
             'flutter.${AppProfiles.activePref}': 'private',
