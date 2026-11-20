@@ -40,6 +40,8 @@ typedef _MessageAlertCandidate = ({
   bool isMention,
 });
 
+enum _MessageAlertOutcome { skipped, rejectedByPolicy, submitted }
+
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
 /// OS notifications, applying the privacy + lifecycle policy. A widget (not a
 /// bare provider) so it has a [BuildContext] for localized, preview-respecting
@@ -1071,8 +1073,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
     }
     if (!_canContinueMessageAlert(attempt)) return;
-    _MessageAlertCandidate? groupLatest;
-    if (_canContinueMessageAlert(groupAttempt)) {
+    final includeGroups = _canContinueMessageAlert(groupAttempt);
+    if (includeGroups) {
       final pendingComments = _pendingSpaceComments.entries.toList();
       _pendingSpaceComments.clear();
       for (final pending in pendingComments) {
@@ -1082,29 +1084,44 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         }
         groupCandidates.add(pending.value.candidate);
       }
-      groupLatest = newestByTimestamp(groupCandidates, (c) => c.timestampMs);
     }
-    final directLatest = newestByTimestamp(
-      directCandidates,
-      (c) => c.timestampMs,
-    );
-    final useGroup =
-        groupLatest != null &&
-        (directLatest == null ||
-            groupLatest.timestampMs > directLatest.timestampMs);
-    final latest = useGroup ? groupLatest : directLatest;
-    if (latest == null) return;
-    await _show(
-      attempt: useGroup ? groupAttempt : attempt,
-      checkPolicy: latest.checkPolicy,
-      convHex: latest.convHex,
-      name: latest.name,
-      shortId: latest.shortId,
-      preview: latest.preview,
-      settings: settings,
-      allowReply: latest.allowReply,
-      isMention: latest.isMention,
-    );
+    final ranked = [
+      for (final candidate in directCandidates)
+        (candidate: candidate, attempt: attempt),
+      if (includeGroups)
+        for (final candidate in groupCandidates)
+          (candidate: candidate, attempt: groupAttempt),
+    ].indexed.toList();
+    ranked.sort((a, b) {
+      final byTime = b.$2.candidate.timestampMs.compareTo(
+        a.$2.candidate.timestampMs,
+      );
+      // Preserve the original order on ties, including direct before group.
+      return byTime == 0 ? a.$1.compareTo(b.$1) : byTime;
+    });
+    for (final (_, (:candidate, attempt: candidateAttempt)) in ranked) {
+      if (!_canContinueMessageAlert(attempt)) return;
+      if (!_canContinueMessageAlert(candidateAttempt)) continue;
+      final outcome = await _show(
+        attempt: candidateAttempt,
+        checkPolicy: candidate.checkPolicy,
+        convHex: candidate.convHex,
+        name: candidate.name,
+        shortId: candidate.shortId,
+        preview: candidate.preview,
+        settings: settings,
+        allowReply: candidate.allowReply,
+        isMention: candidate.isMention,
+      );
+      // A native call may already have shown an alert even when it reports
+      // failure. Only try the next chat after a local policy rejection or
+      // group-service retirement before submission.
+      if (outcome == _MessageAlertOutcome.submitted ||
+          (outcome == _MessageAlertOutcome.skipped &&
+              _canContinueMessageAlert(candidateAttempt))) {
+        return;
+      }
+    }
   }
 
   /// Announce requests that have not been announced yet.
@@ -1164,20 +1181,20 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   /// Post the single latest-message notification with the configured preview.
-  Future<void> _show({
+  Future<_MessageAlertOutcome> _show({
     required _MessageAlertAttempt attempt,
     required String convHex,
     required String? name,
     required String shortId,
     required String preview,
     required NotificationSettings settings,
+    required Future<bool> Function() checkPolicy,
     bool allowReply = true,
     bool isMention = false,
-    required Future<bool> Function() checkPolicy,
   }) async {
-    if (!_canContinueMessageAlert(attempt)) return;
+    if (!_canContinueMessageAlert(attempt)) return _MessageAlertOutcome.skipped;
     final liveSettings = ref.read(notificationSettingsProvider);
-    if (!liveSettings.enabled) return;
+    if (!liveSettings.enabled) return _MessageAlertOutcome.skipped;
     // An arrival can replace the pending alert only after passing policy.
     // Compare arrival order so even if an older lookup finishes after a
     // newer eligible one, the OS keeps the newer message.
@@ -1191,7 +1208,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final resolved = mayShowFull
         ? await resolveMentionsForLocalDisplay(ref, preview)
         : '';
-    if (!_canContinueMessageAlert(attempt)) return;
+    if (!_canContinueMessageAlert(attempt)) return _MessageAlertOutcome.skipped;
     // Whose notification this is, so a reply can only go out from that
     // identity. Recorded against the RESOLVED payload — the reply callback
     // resolves an opaque token back to this before it looks.
@@ -1210,6 +1227,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final owners = ref.read(notificationOwnersProvider);
     final owner = attempt.owner?.hex;
     final id = notificationIdForIncomingMessage(convHex);
+    var outcome = _MessageAlertOutcome.skipped;
     var postedFull = false;
     bool current() {
       if (!_canContinueMessageAlert(attempt)) return false;
@@ -1223,12 +1241,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         .showPreparedIfCurrent(
           isCurrent: current,
           id: id,
-          checkPolicy: attempt.groupGeneration == null
-              ? checkPolicy
-              : () async =>
-                    await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
-                    false,
+          checkPolicy: () async {
+            final allowed = attempt.groupGeneration == null
+                ? await checkPolicy()
+                : await _readWhileGroupAlertIsCurrent(attempt, checkPolicy) ??
+                      false;
+            if (!allowed) outcome = _MessageAlertOutcome.rejectedByPolicy;
+            return allowed;
+          },
           prepare: () {
+            outcome = _MessageAlertOutcome.submitted;
             // A downgrade applies immediately. An alert that opted out of
             // full text earlier cannot gain it while queued.
             postedFull =
@@ -1260,11 +1282,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             );
           },
         );
-    if (!posted) return;
+    if (!posted) return outcome;
     // The service orders a stale post's take-down BEFORE a newer post using
     // this id. Never cancel here: the id may already belong to a later alert.
-    if (!current()) return;
-    owners.remember(convHex, owner);
+    if (current()) owners.remember(convHex, owner);
+    return outcome;
   }
 
   Future<bool> _directAlertAllowed(

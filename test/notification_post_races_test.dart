@@ -929,6 +929,113 @@ void main() {
     lastTs: timestamp,
   );
 
+  Conversation unreadDirect(NodeId peer, int timestamp) => Conversation(
+    peer: Contact(nodeId: peer),
+    unread: 1,
+    lastMessage: Message(
+      id: 'fixture-$timestamp',
+      conversationId: peer.hex,
+      direction: MessageDirection.incoming,
+      body: 'Unread message',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+    ),
+  );
+
+  for (final change in [
+    'group muted',
+    'contact muted',
+    'group retired',
+    'two rejected',
+    'new message',
+    'equal timestamp',
+  ]) {
+    testWidgets('keeps the newest eligible unread alert ($change)', (
+      tester,
+    ) async {
+      final plugin = _PermissionStartupPlugin();
+      final service = NotificationService(plugin: plugin);
+      final startup = service.init(onTap: (_) {});
+      await mount(tester, service: service, minimize: false);
+      final group = _id(5), newer = _id(3), older = _id(2);
+      final groups = _UnreadGroups();
+      final source = container.read(_groupSource.notifier)..state = groups;
+      expect(container.read(groupServiceProvider), same(groups));
+      groups.release.complete([unreadGroup(group, timestamp: 3000)]);
+      storage.unread = Future.value([
+        unreadDirect(older, 1000),
+        unreadDirect(newer, switch (change) {
+          'contact muted' => 4000,
+          'equal timestamp' => 3000,
+          _ => 2000,
+        }),
+      ]);
+      try {
+        await lifecycle(tester, background);
+        expect(plugin.posted, isEmpty);
+        switch (change) {
+          case 'group muted':
+            groups.mutedGroups.add(group);
+          case 'contact muted':
+            storage.muted.add(newer);
+          case 'group retired':
+            source.state = null;
+            expect(container.read(groupServiceProvider), isNull);
+          case 'two rejected':
+            groups.mutedGroups.add(group);
+            storage.refusedContacts.add(newer);
+          case 'new message':
+            groups.mutedGroups.add(group);
+            message(7);
+            await _pump(tester);
+        }
+        plugin.startup.complete(true);
+        await startup;
+        await _pump(tester);
+        expect(plugin.posted.map(resolveShownPayload), [
+          switch (change) {
+            'contact muted' => 'group:${group.hex}',
+            'two rejected' => older.hex,
+            'new message' => _id(7).hex,
+            _ => newer.hex,
+          },
+        ]);
+      } finally {
+        if (!plugin.startup.isCompleted) plugin.startup.complete(true);
+        await startup;
+        await cleanup(tester);
+      }
+    });
+  }
+
+  testWidgets('an OS attempt does not trigger a second unread post', (
+    tester,
+  ) async {
+    await mount(tester, minimize: false);
+    final newer = _id(3), older = _id(2);
+    // The backend shows a notification but returns false to the caller.
+    // Trying another unread candidate can produce a second system alert.
+    notifications.firstCompletion = 'false';
+    storage.unread = Future.value([
+      unreadDirect(older, 1000),
+      unreadDirect(newer, 2000),
+    ]);
+    try {
+      await lifecycle(tester, background);
+      expect(notifications.shows, 1);
+      expect(notifications.visible.values.map(resolveShownPayload), [
+        newer.hex,
+      ]);
+      expect(
+        container
+            .read(notificationOwnersProvider)
+            .mayReplyAs(newer.hex, _id(1).hex),
+        isFalse,
+      );
+    } finally {
+      await cleanup(tester);
+    }
+  });
+
   SpacePostView fixtureSpacePost(NodeId space) {
     final post = SpacePost(
       spaceId: space,
