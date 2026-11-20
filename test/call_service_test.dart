@@ -4448,6 +4448,55 @@ void main() {
       });
     }
 
+    for (final readsPolicy in [true, false]) {
+      final lookup = readsPolicy ? 'P2P policy' : 'device lookup';
+      test('dial timeout covers a pending $lookup', () {
+        fakeAsync((async) {
+          final pending = Completer<void>();
+          var lookupStarted = false;
+          Future<void> waitForLookup() {
+            lookupStarted = true;
+            return pending.future;
+          }
+
+          final fake = _FakeMessaging();
+          if (!readsPolicy) {
+            fake.readLocalDevice = () async {
+              await waitForLookup();
+              return NodeId.fromHex('f' * 64);
+            };
+          }
+          final svc = CallService(
+            fake,
+            localAllowsP2P: (_) async {
+              if (readsPolicy) await waitForLookup();
+              return true;
+            },
+          )..start();
+          try {
+            unawaited(svc.placeCall(peer, const CallMedia(audio: true)));
+            async.flushMicrotasks();
+            expect(lookupStarted, isTrue);
+            expect(svc.current?.status, CallStatus.dialing);
+            expect(fake.sent, isEmpty);
+
+            async.elapse(kCallRingTimeout);
+
+            expect(svc.current, isNull);
+            expect(fake.sent.single.type, CallSignalType.cancel);
+            expect(fake.sent.single.reason, CallEndReason.timeout);
+            pending.complete();
+            async.flushMicrotasks();
+            expect(fake.sent, hasLength(1));
+          } finally {
+            svc.dispose();
+            if (!pending.isCompleted) pending.complete();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('dial timeout runs while the durable offer is still pending', () {
       fakeAsync((async) {
         final enqueue = Completer<void>();
