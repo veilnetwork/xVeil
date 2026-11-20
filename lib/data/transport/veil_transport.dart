@@ -161,7 +161,14 @@ class PeerInfo {
 }
 
 /// Coarse OS attachment only; never an SSID, IP address or interface name.
-enum NetworkAttachment { unknown, wifi, cellular, ethernet, offline }
+enum NetworkAttachment {
+  /// The OS reports a network whose transport is unclassified (e.g. VPN).
+  unknown,
+  wifi,
+  cellular,
+  ethernet,
+  offline,
+}
 
 /// Optional control plane for a transport backed by a running local node.
 abstract interface class NetworkChangeTransport {
