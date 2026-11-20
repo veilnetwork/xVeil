@@ -1822,6 +1822,79 @@ void main() {
       },
     );
 
+    test('queued handover health follows a relay committed before send', () {
+      fakeAsync((async) {
+        const callId = 'handover-relay-before-health-send';
+        final wire = _FakeMessaging();
+        final network = StreamController<NetworkAttachment>(sync: true);
+        final admissions = StreamController<void>(sync: true);
+        final relay = Completer<bool>();
+        final send = Completer<void>();
+        final oldLeg = Completer<void>();
+        final media = _ReconnectRelayMedia()
+          ..liveDirectAdmission = false
+          ..firstAttempt = relay;
+        final svc = CallService(
+          wire,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+          networkAttachments: network.stream,
+          overlaySessionAdmissions: admissions.stream,
+        )..start();
+        try {
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: callId,
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          media.rxAt = clock.now();
+          wire.sent.clear();
+          wire.sendGate = send;
+          wire.rejectedHealthCompletion = oldLeg;
+
+          network.add(NetworkAttachment.cellular);
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.relay]);
+          admissions.add(null);
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          expect(wire.sent, isEmpty);
+
+          relay.complete(true);
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          send.complete();
+          async.flushMicrotasks();
+
+          final health = wire.sent.where((s) => s.type == CallSignalType.health);
+          expect(health, hasLength(1));
+          expect(health.single.transport?.kind, CallTransportKind.relay);
+          oldLeg.complete();
+          admissions.add(null);
+          async.flushMicrotasks();
+          expect(health, hasLength(1));
+        } finally {
+          if (!relay.isCompleted) relay.complete(false);
+          if (!send.isCompleted) send.complete();
+          if (!oldLeg.isCompleted) oldLeg.complete();
+          svc.dispose();
+          unawaited(network.close());
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     for (final retireBy in ['nothing', 'next network', 'hangup', 'deadline']) {
       test('queued handover health checks the call and network ($retireBy)', () {
         fakeAsync((async) {
@@ -11381,6 +11454,7 @@ class _FakeMessaging implements MessagingService {
   /// When set, [sendCallSignal] records the signal only after the gate
   /// completes — models the slow durable (encrypted-store) enqueue.
   Completer<void>? sendGate;
+  Completer<void>? rejectedHealthCompletion;
 
   @override
   bool get isAnonymousIdentity => anon;
@@ -11417,7 +11491,10 @@ class _FakeMessaging implements MessagingService {
   }) async {
     final gate = sendGate;
     if (gate != null) await gate.future;
-    if (admitTransport?.call() == false) return;
+    if (admitTransport?.call() == false) {
+      await rejectedHealthCompletion?.future;
+      return;
+    }
     sent.add(signal);
     sentTo.add((peer, signal));
   }

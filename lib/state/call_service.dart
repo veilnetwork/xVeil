@@ -2331,7 +2331,7 @@ class CallService {
     }
   }
 
-  void _announceHandoverHealth() {
+  void _announceHandoverHealth({bool retryOnRouteChange = true}) {
     final pending = _pendingHandoverHealth;
     final call = _current;
     if (pending == null ||
@@ -2344,23 +2344,44 @@ class CallService {
       return;
     }
     _pendingHandoverHealth = null;
+    Call? currentOwner() {
+      final current = _current;
+      if (_disposed ||
+          _networkOffline ||
+          current == null ||
+          current.callId != pending.callId ||
+          current.status != CallStatus.active ||
+          current.peer != call.peer ||
+          current.peerDevice != call.peerDevice ||
+          pending.network != _overlayAdmissionNetwork ||
+          !_now().isBefore(pending.until)) {
+        return null;
+      }
+      return current;
+    }
+
+    var mayRetry = retryOnRouteChange;
     // The peer's timeout can precede our next beat, and the old media route
     // may still be stalled. This hint only triggers the regular control send.
     unawaited(
       _announceCapture(
         allowCompactHealth: false,
         admitHealth: () {
-          final current = _current;
-          return !_disposed &&
-              !_networkOffline &&
-              current != null &&
-              current.callId == pending.callId &&
-              current.status == CallStatus.active &&
-              current.peer == call.peer &&
-              current.peerDevice == call.peerDevice &&
-              current.transport == call.transport &&
-              pending.network == _overlayAdmissionNetwork &&
-              _now().isBefore(pending.until);
+          final current = currentOwner();
+          if (current == null) return false;
+          if (current.transport == call.transport) return true;
+          if (mayRetry) {
+            mayRetry = false;
+            // Send a fresh snapshot once, even if another leg of the old
+            // send is still waiting. Keep the original handover deadline.
+            scheduleMicrotask(() {
+              if (_pendingHandoverHealth == null && currentOwner() != null) {
+                _pendingHandoverHealth = pending;
+                _announceHandoverHealth(retryOnRouteChange: false);
+              }
+            });
+          }
+          return false;
         },
       ),
     );
