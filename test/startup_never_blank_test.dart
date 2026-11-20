@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/profile_preferences_file.dart';
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
 import 'package:xveil/features/settings/error_report.dart';
@@ -68,6 +69,25 @@ void main() {
       await tester.pumpWidget(presented!);
       expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
       expect(find.byType(StartupFailedApp), findsNothing);
+    });
+  }
+
+  for (final busy in [true, false]) {
+    test('startup reports profile choice read failures (busy=$busy)', () async {
+      diagnosticJournal.clear();
+      addTearDown(diagnosticJournal.clear);
+      Widget? presented;
+      await runStartup(
+        loadPreferences: () async => throw ProfileChoiceReadFailure(busy: busy),
+        present: (widget) => presented = widget,
+      );
+      expect((presented as StartupFailedApp).retryPreferences != null, busy);
+      final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
+      final event = retained?['profileChoiceReadFailed'] as Map?;
+      expect(
+        event?['values'],
+        diagnosticJournal.enabled ? {'code': busy ? 1 : 0} : isNull,
+      );
     });
   }
 

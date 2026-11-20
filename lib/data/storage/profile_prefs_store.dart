@@ -314,13 +314,8 @@ String profilePrefsPath(String supportDir, String profile) =>
 String activeProfilePath(String supportDir) => '$supportDir/xveil.profile';
 
 /// The remembered profile name, or null when nothing valid is recorded.
-Future<String?> readRememberedProfile(String supportDir) async {
-  try {
-    return await readProfileChoice(File(activeProfilePath(supportDir)));
-  } catch (_) {
-    return null;
-  }
-}
+Future<String?> readRememberedProfile(String supportDir) =>
+    readStartupProfileChoice(File(activeProfilePath(supportDir)));
 
 Future<void> _profileChoiceWrites = Future<void>.value();
 
@@ -388,7 +383,20 @@ Future<String> installProfilePreferences({
   SharedPreferencesStorePlatform? legacyBackend,
 }) async {
   final legacy = legacyBackend ?? SharedPreferencesStorePlatform.instance;
-  final pointer = await readRememberedProfile(supportDir);
+  String? pointer;
+  var pointerSafe = true;
+  try {
+    pointer = await readRememberedProfile(supportDir);
+  } on ProfileChoiceReadFailure {
+    final explicit = AppProfiles.resolveWithSource(
+      args: args,
+      environment: environment,
+    );
+    if (explicit.source == ProfileSource.fallbackDefault) rethrow;
+    // An explicit launch can proceed while leaving the saved choice and the
+    // legacy source available for a future ordinary launch.
+    pointerSafe = false;
+  }
   final legacySnapshot = await _readLegacyPreferences(legacy);
   final savedChoice = legacySnapshot['flutter.${AppProfiles.activePref}'];
   final legacyPointer = savedChoice is String ? savedChoice : null;
@@ -445,14 +453,13 @@ Future<String> installProfilePreferences({
     // answers here can only be [ProfileSource.legacyPointer], and anything else
     // means the old pointer held nothing this build would accept and there is
     // nothing to lose by emptying the store.
-    final carried = pointer == null
+    final carried = pointerSafe && pointer == null
         ? AppProfiles.resolveWithSource(
             args: const [],
             environment: const {},
             legacyPointer: legacyPointer,
           )
         : null;
-    var pointerSafe = true;
     if (carried != null && carried.source == ProfileSource.legacyPointer) {
       pointerSafe = await writeRememberedProfile(
         supportDir,
@@ -543,7 +550,7 @@ Future<String> installProfilePreferencesOrFallback({
       legacyBackend: legacyBackend,
     );
   } catch (e, st) {
-    if (openOwnedFile != null) rethrow;
+    if (openOwnedFile != null || e is ProfileChoiceReadFailure) rethrow;
     onError?.call(e, st);
     installEphemeralPreferences();
     return AppProfiles.defaultName;

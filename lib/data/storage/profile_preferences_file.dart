@@ -153,6 +153,38 @@ Future<String?> readProfileChoice(File file) async {
   }
 }
 
+/// A saved profile choice could not be read. The cause is safe for diagnostics.
+final class ProfileChoiceReadFailure implements Exception {
+  const ProfileChoiceReadFailure({required this.busy});
+  final bool busy;
+}
+
+bool isWindowsFileSharingViolation(Object error) =>
+    Platform.isWindows &&
+    error is FileSystemException &&
+    (error.osError?.errorCode == 32 || error.osError?.errorCode == 33);
+
+Future<String?> readStartupProfileChoice(File file) async {
+  final elapsed = Stopwatch()..start();
+  var wasBusy = false;
+  while (true) {
+    try {
+      final choice = await readProfileChoice(file);
+      if (choice == null && wasBusy) {
+        throw const ProfileChoiceReadFailure(busy: true);
+      }
+      return choice;
+    } on FileSystemException catch (error, stack) {
+      final busy = isWindowsFileSharingViolation(error);
+      if (!busy || elapsed.elapsed >= const Duration(seconds: 1)) {
+        Error.throwWithStackTrace(ProfileChoiceReadFailure(busy: busy), stack);
+      }
+      wasBusy = true;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+}
+
 /// Save the installation-wide profile choice shared by separate app processes.
 /// The empty lock file stays in place so every writer locks the same object.
 Future<bool> writeProfileChoiceAtomically(

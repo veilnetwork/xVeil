@@ -29,6 +29,8 @@ import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/storage/profile_preferences.dart';
 import 'data/storage/profile_preferences_bootstrap.dart';
+import 'data/storage/profile_preferences_file.dart'
+    show ProfileChoiceReadFailure;
 import 'data/storage/cold_profile_erasure_recovery.dart';
 import 'core/background_service_lifetime.dart';
 import 'core/local_authentication.dart';
@@ -134,6 +136,12 @@ Future<void> runStartup({
         },
       );
     }
+    if (e is ProfileChoiceReadFailure) {
+      diagnosticJournal.record(
+        DiagnosticEvent.profileChoiceReadFailed,
+        values: {DiagnosticMetric.code: e.busy ? 1 : 0},
+      );
+    }
     errorJournal.record(
       kind: 'startup',
       error: e,
@@ -142,10 +150,13 @@ Future<void> runStartup({
     );
     final canRetry =
         loadingPreferences &&
-        e is ManagedWorkerFailure &&
-        e.kind == ManagedWorkerFailureKind.busy &&
-        (e.preferencesOpenReason == ManagedPreferencesFailureReason.busy ||
-            e.preferencesReadReason == ManagedPreferencesFailureReason.busy);
+        (e is ProfileChoiceReadFailure && e.busy ||
+            e is ManagedWorkerFailure &&
+                e.kind == ManagedWorkerFailureKind.busy &&
+                (e.preferencesOpenReason ==
+                        ManagedPreferencesFailureReason.busy ||
+                    e.preferencesReadReason ==
+                        ManagedPreferencesFailureReason.busy));
     present(
       StartupFailedApp(
         retryPreferences: canRetry

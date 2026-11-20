@@ -190,6 +190,44 @@ void main() {
     );
   }
 
+  test(
+    'an unreadable remembered choice never opens the default profile',
+    () async {
+      final pointer = Directory(activeProfilePath(support.path))..createSync();
+      final marker = File('${pointer.path}/fixture')..writeAsStringSync('keep');
+      final source = await legacy.getAll();
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ProfileChoiceReadFailure>().having((e) => e.busy, 'busy', false),
+        ),
+      );
+      expect(files, isEmpty);
+      expect(SharedPreferencesStorePlatform.instance, same(legacy));
+      expect(await legacy.getAll(), source);
+      expect(marker.readAsStringSync(), 'keep');
+      expect(File(prefs()).existsSync(), isFalse);
+
+      pointer.deleteSync(recursive: true);
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(await install(), 'decoy');
+      expect(files.first.path, prefs('decoy'));
+    },
+  );
+
+  test(
+    'an explicit profile keeps the legacy source when choice cannot be read',
+    () async {
+      final pointer = Directory(activeProfilePath(support.path))..createSync();
+      await legacy.setValue('String', 'flutter.locale.decoy', 'ru');
+      final source = await legacy.getAll();
+      expect(await install(args: const ['--profile=decoy']), 'decoy');
+      expect(pointer.existsSync(), isTrue);
+      expect(await legacy.getAll(), source);
+      expect(files.any((file) => file.path == prefs('decoy')), isTrue);
+    },
+  );
+
   test('preference admission preserves the typed filesystem reason', () async {
     Directory(base()).createSync(recursive: true);
     final marker = File(managed())..writeAsStringSync('fixture');
