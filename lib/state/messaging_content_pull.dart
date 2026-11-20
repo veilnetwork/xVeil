@@ -329,6 +329,26 @@ extension _MessagingContentPull on MessagingService {
     return false;
   }
 
+  Future<bool> _tryCompletePlainFileFromDisk(
+    ContentManifest manifest,
+    _FetchSink sink,
+  ) async {
+    final read = sink.read;
+    if (read == null) return false;
+    final cid = manifest.contentId;
+    for (var index = 0; index < manifest.pieceCount; index++) {
+      if (!_ownsFetchSavePath(cid, sink)) break;
+      final bytes = await read(
+        index * manifest.pieceSize,
+        manifest.pieceLength(index),
+      );
+      if (!_ownsFetchSavePath(cid, sink)) break;
+      if (bytes == null || !manifest.verifyPiece(index, bytes)) return false;
+    }
+    await _finishPlainFile(manifest, sink, reseed: true, verifiedOnDisk: true);
+    return true;
+  }
+
   Future<bool> _pullSwarmStreamToFile(
     NodeId preferred,
     String cid,
@@ -337,10 +357,11 @@ extension _MessagingContentPull on MessagingService {
     _FetchSink sink,
     String savedPath,
   ) async {
-    if (_transport is! StreamTransport) {
-      return false;
-    }
-    if (!_streamRangeEnabled || manifest.pieceCount < 2) {
+    if (_transport is! StreamTransport ||
+        !_streamRangeEnabled ||
+        manifest.pieceCount < 2) {
+      if (await _tryCompletePlainFileFromDisk(manifest, sink)) return true;
+      if (_transport is! StreamTransport) return false;
       devLog(
         () =>
             'xVeil[content]: swarm-range-to-file disabled '
@@ -358,7 +379,7 @@ extension _MessagingContentPull on MessagingService {
       _orderedPullPeers(preferred, peers),
       contentId: cid,
     );
-    if (sources.isEmpty) return false;
+    if (sources.isEmpty) return _tryCompletePlainFileFromDisk(manifest, sink);
     // A RESUME (sink.read != null) MUST take the range path even for one
     // source: only the range swarm hash-verifies pieces off disk and skips the
     // ones already written. The sequential stream would re-fetch from byte 0,
@@ -969,6 +990,14 @@ extension _MessagingContentPull on MessagingService {
       ));
     }
     if (pending.isEmpty) {
+      if (sink != null) {
+        return _finishPlainFile(
+          manifest,
+          sink,
+          reseed: true,
+          verifiedOnDisk: true,
+        );
+      }
       if (!await _storage.hasFile(cid)) return false;
       if (!await _finishReceived(
         sourceList().first,
@@ -2170,23 +2199,21 @@ extension _MessagingContentPull on MessagingService {
   }
 
   Future<bool> _finishPlainFile(
-    NodeId peer,
     ContentManifest manifest,
     _FetchSink sink, {
     required bool reseed,
-    required bool groupScoped,
+    NodeId? receiptPeer,
+    bool verifiedOnDisk = false,
   }) async {
     final cid = manifest.contentId;
     final savedPath = _fetchSavePath[cid]?.path;
     bool isCurrent() => _ownsFetchSavePath(cid, sink);
 
-    try {
-      await sink.close();
-    } catch (error) {
+    bool fail(Object error) {
       if (isCurrent()) {
         devLog(
           () =>
-              'xVeil[content]: plaintext close failed '
+              'xVeil[content]: plaintext finalization failed '
               '${cid.substring(0, 12)} -> $savedPath: $error',
         );
         _forgetFetchSavePath(cid, owner: sink.saveOwner);
@@ -2194,9 +2221,27 @@ extension _MessagingContentPull on MessagingService {
       }
       return false;
     }
+
+    try {
+      final read = sink.read;
+      if (isCurrent() && read != null) {
+        final tail = await read(manifest.size, 1);
+        if (tail?.isNotEmpty == true || (verifiedOnDisk && tail == null)) {
+          throw StateError('Download destination length does not match');
+        }
+      }
+      await sink.close();
+    } catch (error) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      return fail(error);
+    }
     if (!isCurrent() || savedPath == null) return false;
+    var pathRecorded = false;
     try {
       await _storage.putSetting('saved:$cid', savedPath);
+      pathRecorded = true;
       if (reseed && isCurrent()) {
         // Stream downloads can serve the verified file from disk after restart.
         await _persistServeManifest(manifest);
@@ -2211,14 +2256,16 @@ extension _MessagingContentPull on MessagingService {
           }),
         );
       }
-    } catch (_) {
+    } catch (error) {
+      // Without the durable path a resumed check must remain retryable.
+      if (verifiedOnDisk && !pathRecorded) return fail(error);
       // The file is already saved. A settings failure does not undo the write.
     }
     if (!isCurrent()) return false;
-    if (!groupScoped) {
+    if (receiptPeer != null) {
       try {
         await _send(
-          peer,
+          receiptPeer,
           WireEnvelope.ack(manifest.msgId ?? cid).encode(),
           admitTransport: isCurrent,
         );
@@ -2265,11 +2312,10 @@ extension _MessagingContentPull on MessagingService {
     );
     if (sink != null) {
       return _finishPlainFile(
-        peer,
         m,
         sink,
         reseed: true,
-        groupScoped: groupScoped,
+        receiptPeer: groupScoped ? null : peer,
       );
     }
     devLog(
@@ -2394,11 +2440,10 @@ extension _MessagingContentPull on MessagingService {
     final ackId = fetch.manifest.msgId ?? f.contentId;
     if (sink != null) {
       await _finishPlainFile(
-        fetch.peer,
         fetch.manifest,
         sink,
         reseed: false,
-        groupScoped: false,
+        receiptPeer: fetch.peer,
       );
       return;
     }

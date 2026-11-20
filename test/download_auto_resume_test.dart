@@ -128,10 +128,12 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   /// Stream opens per destination — lets a test say WHO was contacted.
   final openStreamAttempts = <String, int>{};
+  void Function()? onStreamOpen;
 
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
     openStreamAttempts[dst.hex] = (openStreamAttempts[dst.hex] ?? 0) + 1;
+    onStreamOpen?.call();
     final p = peer;
     if (p == null) return null;
     final aToB = _Chan(), bToA = _Chan();
@@ -774,6 +776,81 @@ void main() {
     expect(opens, 0);
     expect(await mB.pendingAutoResumeContentIds(), contains(cid));
   }, timeout: const Timeout(Duration(minutes: 1)));
+
+  for (final (size, extraByte) in [
+    (32000, false),
+    (400000, false),
+    (400000, true),
+  ]) {
+    test('plaintext destination is verified offline after restart '
+        '(size=$size, extra byte=$extraByte)', () async {
+      final data = _rnd(size, 201);
+      final cid = await offerToB(data, 'complete-before-restart.bin');
+      final dir = await Directory.systemTemp.createTemp('xveil-offline-resume');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/destination.bin');
+      cutLink();
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        file.path,
+        write: (_, _) async => fail('the source is offline'),
+        close: () async {},
+      );
+      expect(await mB.pendingAutoResumeContentIds(), [cid]);
+      await mB.dispose();
+      expect(await sB.loadFile('mf:$cid'), isNotNull);
+      final initialBytes = extraByte
+          ? (Uint8List(size + 1)..setRange(0, size, data))
+          : data;
+      await file.writeAsBytes(initialBytes);
+      tB.openStreamAttempts.clear();
+      tB.sendsTo.clear();
+
+      final outcome = Completer<({String? path, bool openedStream})>();
+      mB = _makeService(tB, sB)..downloadResumeStartDelay = Duration.zero;
+      final received = mB.contentReceived
+          .where((event) => event.contentId == cid)
+          .listen((event) {
+            if (!outcome.isCompleted) {
+              outcome.complete((path: event.savedToPath, openedStream: false));
+            }
+          });
+      addTearDown(received.cancel);
+      if (extraByte) {
+        final failed = mB.contentDownloadFailed.where((id) => id == cid).listen(
+          (_) {
+            if (!outcome.isCompleted) {
+              outcome.complete((path: null, openedStream: false));
+            }
+          },
+        );
+        addTearDown(failed.cancel);
+      }
+      tB.onStreamOpen = () {
+        if (!outcome.isCompleted) {
+          outcome.complete((path: null, openedStream: true));
+        }
+      };
+      mB.start();
+      final expectedPath = extraByte ? null : file.path;
+      expect(await outcome.future.timeout(const Duration(seconds: 5)), (
+        path: expectedPath,
+        openedStream: false,
+      ));
+      expect(await mB.contentSavedPath(cid), expectedPath);
+      expect(await file.readAsBytes(), initialBytes);
+      expect(tB.openStreamAttempts, isEmpty);
+      expect(tB.sendsTo, isEmpty);
+
+      await mB.dispose();
+      mB = _makeService(tB, sB);
+      expect(
+        await mB.pendingAutoResumeContentIds(),
+        extraByte ? [cid] : isEmpty,
+      );
+    });
+  }
 
   test('plain-file download interrupted by shutdown re-drives to the SAME '
       'destination path across a service restart', () async {
