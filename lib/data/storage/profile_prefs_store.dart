@@ -23,18 +23,6 @@ typedef _PreferenceEntry = ({String type, Object value, bool legacyCopy});
 typedef _PreferenceEntries = Map<String, _PreferenceEntry>;
 const _legacyActiveKey = 'flutter.${AppProfiles.activePref}';
 
-/// Stable diagnostic codes, independent of paths and preference contents.
-enum ProfilePreferencesFormatReason {
-  invalidJson,
-  unsupportedVersion,
-  invalidEntries,
-}
-
-final class ProfilePreferencesFormatFailure implements Exception {
-  const ProfilePreferencesFormatFailure(this.reason);
-  final ProfilePreferencesFormatReason reason;
-}
-
 /// App preferences, held in a FILE under the app-support directory instead of
 /// the platform's system preference store (audit XV-16).
 ///

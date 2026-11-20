@@ -24,6 +24,19 @@ abstract interface class ProfilePreferencesFile {
 typedef OpenProfilePreferencesFile =
     Future<ProfilePreferencesFile> Function(String path);
 
+/// Stable diagnostic codes, independent of paths and preference contents.
+enum ProfilePreferencesFormatReason {
+  invalidJson,
+  unsupportedVersion,
+  invalidEntries,
+  invalidEncoding,
+}
+
+final class ProfilePreferencesFormatFailure implements Exception {
+  const ProfilePreferencesFormatFailure(this.reason);
+  final ProfilePreferencesFormatReason reason;
+}
+
 /// Classifies a refused startup; it grants no recovery or deletion authority.
 final class ProfilePreferencesErasurePending implements Exception {
   const ProfilePreferencesErasurePending();
