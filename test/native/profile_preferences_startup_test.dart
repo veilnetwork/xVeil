@@ -159,6 +159,62 @@ void main() {
     });
   }
 
+  for (final legacyRead in ['cleared', 'stale', 'refused']) {
+    test(
+      'startup sees a choice saved during a $legacyRead legacy read',
+      () async {
+        const activeKey = 'flutter.${AppProfiles.activePref}';
+        const oldSettings = {activeKey: 'older', 'flutter.locale.older': 'ru'};
+        final source = _GatedLegacyPreferences(oldSettings);
+        SharedPreferencesStorePlatform.instance = source;
+        Directory(base('older')).createSync(recursive: true);
+        final writer = await ManagedProfilePreferencesFile.open(
+          prefs('selected'),
+        );
+        try {
+          expect(
+            await writer.write(
+              '{"v":1,"e":{"flutter.locale":{"t":"String","v":"de"}}}',
+            ),
+            isTrue,
+          );
+        } finally {
+          await writer.close();
+        }
+
+        final result = expectLater(install(), completion('selected'));
+        await source.started.future;
+        try {
+          expect(files, isEmpty);
+          expect(
+            await writeRememberedProfile(support.path, 'selected'),
+            isTrue,
+          );
+          if (legacyRead == 'cleared') {
+            expect(await source.remove(activeKey), isTrue);
+            expect(await source.remove('flutter.locale.older'), isTrue);
+          } else if (legacyRead == 'refused') {
+            source.unreadable = true;
+          }
+        } finally {
+          source.release.complete();
+        }
+        await result;
+        expect(files.first.path, prefs('selected'));
+        expect(File(prefs()).existsSync(), isFalse);
+        expect(Directory(managed()).existsSync(), isFalse);
+        expect(await SharedPreferencesStorePlatform.instance.getAll(), {
+          'flutter.locale': 'de',
+        });
+        expect(await readRememberedProfile(support.path), 'selected');
+        if (legacyRead == 'refused') {
+          source.unreadable = false;
+          expect(await source.getAll(), oldSettings);
+        }
+      },
+    );
+  }
+
   for (final temporary in [true, false]) {
     test(
       'Windows startup while a file is held open (temporary=$temporary)',
@@ -1031,6 +1087,24 @@ class _UnreadableLegacyPreferences extends InMemorySharedPreferencesStore {
   Future<Map<String, Object>> getAll() async {
     if (unreadable) {
       throw const FileSystemException('fixture could not read legacy settings');
+    }
+    return super.getAll();
+  }
+}
+
+class _GatedLegacyPreferences extends _UnreadableLegacyPreferences {
+  _GatedLegacyPreferences(super.values) {
+    unreadable = false;
+  }
+
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    if (!started.isCompleted) {
+      started.complete();
+      await release.future;
     }
     return super.getAll();
   }

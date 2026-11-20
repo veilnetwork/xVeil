@@ -473,12 +473,26 @@ Future<String> installProfilePreferences({
   );
   // During upgrade the platform store may still hold the only saved choice.
   // A read refusal is not evidence that the default profile was selected.
-  final legacySnapshot = await _readLegacyPreferences(
-    legacy,
-    requiredForChoice:
-        openOwnedFile != null &&
-        choiceWithoutLegacy.source == ProfileSource.fallbackDefault,
-  );
+  final needsSavedChoice =
+      choiceWithoutLegacy.source == ProfileSource.fallbackDefault;
+  var legacySnapshot = const <String, Object>{};
+  try {
+    legacySnapshot = await _readLegacyPreferences(
+      legacy,
+      requiredForChoice: openOwnedFile != null && needsSavedChoice,
+    );
+  } on ProfileChoiceReadFailure {
+    // A concurrent launch may have carried the only old choice while this
+    // reader was waiting. If a new choice is available, leave migration for
+    // a launch that can read the old source.
+    pointer = await readRememberedProfile(supportDir);
+    if (pointer == null) rethrow;
+  }
+  if (needsSavedChoice) {
+    // The first read and the legacy snapshot are not atomic. Read the newer
+    // record again before choosing a profile or opening its storage.
+    pointer ??= await readRememberedProfile(supportDir);
+  }
   final savedChoice = legacySnapshot[_legacyActiveKey];
   final legacyPointer = savedChoice is String ? savedChoice : null;
   final resolved = AppProfiles.resolveWithSource(
