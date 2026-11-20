@@ -1893,6 +1893,52 @@ void main() {
       });
     }
 
+    for (final (lateStamp, keepsCall) in [
+      (100, false),
+      (101, false),
+      (102, true),
+      (99, true),
+    ]) {
+      test('peer health renews liveness once per timestamp ($lateStamp)', () {
+        fakeAsync((async) {
+          const callId = 'health-arrives-on-two-lanes';
+          final t = snapshotCall(async, callId, () async => null);
+          void health(int stamp) => t.wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.health,
+              sentAtMs: stamp,
+            ),
+          );
+
+          try {
+            health(100);
+            health(101);
+            async.elapse(kCallLivenessTimeout);
+            expect(t.svc.current?.status, CallStatus.active);
+            health(lateStamp);
+            async.elapse(kCallHeartbeatInterval);
+            if (keepsCall) {
+              expect(t.svc.current?.status, CallStatus.active);
+            } else {
+              expect(t.svc.current, isNull);
+              expect(
+                t.wire.sent
+                    .where((signal) => signal.type == CallSignalType.end)
+                    .single
+                    .reason,
+                CallEndReason.timeout,
+              );
+            }
+          } finally {
+            t.svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test(
       'native liveness rechecks a signal received while its snapshot waits',
       () {
