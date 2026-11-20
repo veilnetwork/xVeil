@@ -24,7 +24,8 @@ import '../../domain/storage_usage.dart';
 import '../../domain/storage_initialization.dart';
 import '../../domain/master_setup_intent.dart' show kMasterSetupJournalFile;
 import '../../domain/storage_setup.dart';
-import '../transport/wire_envelope.dart' show isServiceEchoBody;
+import '../transport/wire_envelope.dart'
+    show WireEnvelope, WireKind, isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'async_kv_log_store.dart';
@@ -6941,11 +6942,12 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<bool> acceptContactAndEnqueue(
+  Future<ContactAcceptanceAdmission?> acceptContactAndEnqueue(
     NodeId peer,
     String frameId,
-    Uint8List wire,
-  ) {
+    Uint8List wire, {
+    bool replyOnly = false,
+  }) {
     final record = _ownedOutboxRecord(frameId, peer.hex, wire);
     return _trackLogWrite((store) {
       final floorKey = _sk('$_contactFloorPrefix${peer.hex}');
@@ -6966,74 +6968,133 @@ class HiddenVolumeStorage
           if (before == null
               ? current != null
               : !_bytesEqual(current, before)) {
-            if (existing?.status == ContactStatus.accepted) return false;
+            if (replyOnly || existing?.status == ContactStatus.accepted) {
+              return null;
+            }
             throw const ContactAcceptanceSuperseded();
           }
+          final alreadyAccepted = existing?.status == ContactStatus.accepted;
+          if (replyOnly && !alreadyAccepted) return null;
           if (!await _ensureOutboxLoadedCritical()) {
             throw StateError('durable outbox could not be loaded');
           }
-          final held = _outboxById[frameId];
-          if (held != null &&
-              (held.frame.peerHex != peer.hex ||
-                  !_bytesEqual(held.frame.wire, record.frame.wire))) {
+          final sameId = _outboxById[frameId]?.frame;
+          if (sameId != null &&
+              (sameId.peerHex != peer.hex ||
+                  !_bytesEqual(sameId.wire, record.frame.wire))) {
             throw StateError('conflicting durable acceptance frame');
           }
-          final contact = (existing ?? Contact(nodeId: peer)).copyWith(
-            status: ContactStatus.accepted,
-          );
-          final bytes = _encodeContact(contact);
-          final (index, hadShards) = await _contactIndexShards();
-          final indexed = index.contains(peer.hex);
-          if (!indexed) index.add(peer.hex);
-          final ops = <KvLogOp>[
-            if (existing?.status != ContactStatus.accepted)
-              PutOp(Ns.contacts, peer.bytes, bytes),
-            if (!indexed) ..._contactIndexOps(index, hadShards),
+          final prefix = 'accept:${peer.hex}';
+          final pending = [
+            for (final row in _outboxById.values)
+              if (row.frame.peerHex == peer.hex &&
+                  (row.frame.frameId == prefix ||
+                      row.frame.frameId.startsWith('$prefix:')) &&
+                  _isAcceptanceFrame(row.frame))
+                row,
           ];
-          final decision = await _newContactDecision(
-            store,
-            peer,
-            ContactStatus.accepted,
+          // Retries preserve an outstanding answer. Once ACKed, a later
+          // request gets a new ID so a duplicate receipt cannot retire it.
+          final held =
+              sameId ?? (alreadyAccepted ? pending.lastOrNull?.frame : null);
+          final selected = held ?? record.frame;
+          final obsolete = pending.where(
+            (row) => row.frame.frameId != selected.frameId,
           );
-          ops.addAll(_contactDecisionOps(peer, decision));
+          final retiredIds = [for (final row in obsolete) row.frame.frameId];
+          final retiredLogs = {for (final row in obsolete) ...row.logIds};
+          final ops = <KvLogOp>[
+            for (final id in retiredIds)
+              DeleteOp(Ns.outboxIndex, _outboxIndexKey(id)),
+            // Appends and log tombstones require separate transactions.
+            // Retire the old indexes with the decision and new response.
+            if (retiredIds.isNotEmpty)
+              PutOp(
+                Ns.settings,
+                _sk(_outboxCleanupKey),
+                Uint8List.fromList([1]),
+              ),
+          ];
+          Uint8List? decision;
+          if (!replyOnly) {
+            final contact = (existing ?? Contact(nodeId: peer)).copyWith(
+              status: ContactStatus.accepted,
+            );
+            final (index, hadShards) = await _contactIndexShards();
+            if (!alreadyAccepted) {
+              ops.add(PutOp(Ns.contacts, peer.bytes, _encodeContact(contact)));
+            }
+            if (!index.contains(peer.hex)) {
+              index.add(peer.hex);
+              ops.addAll(_contactIndexOps(index, hadShards));
+            }
+            decision = await _newContactDecision(
+              store,
+              peer,
+              ContactStatus.accepted,
+            );
+            ops.addAll(_contactDecisionOps(peer, decision));
+          }
+          ContactAcceptanceAdmission admission() => (
+            frame: OutboxFrame(
+              frameId: selected.frameId,
+              peerHex: selected.peerHex,
+              wire: Uint8List.fromList(selected.wire),
+              enqueuedAtMs: selected.enqueuedAtMs,
+            ),
+            retiredFrameIds: retiredIds,
+          );
           try {
             if (held != null) {
               if (ops.isNotEmpty) await store.commit(ops);
-              return true;
-            }
-            final persisted = await _persistOutboxPayloadsCritical(store, [
-              record,
-            ], companionOps: ops);
-            for (final item in persisted) {
+            } else {
+              final persisted = await _persistOutboxPayloadsCritical(store, [
+                record,
+              ], companionOps: ops);
+              final item = persisted.single;
               _outboxById[item.frame.frameId] = item;
             }
-            return true;
+            for (final id in retiredIds) {
+              _outboxById.remove(id);
+            }
+            if (retiredLogs.isNotEmpty) {
+              try {
+                await _deleteOutboxLogIdsCritical(retiredLogs.toList());
+              } catch (_) {
+                // The durable cleanup marker also covers a crash here.
+              }
+            }
+            return admission();
           } catch (error, stack) {
             // A lost reply may follow the full commit. Verify every promised
             // effect while still holding both lanes before publishing consent.
             // An unavailable read or partial proof remains a failure.
             try {
+              _outboxLoaded = false;
+              _outboxById.clear();
               if (identical(store, _store) &&
                   await _ensureOutboxLoadedCritical()) {
-                final saved = _outboxById[frameId]?.frame;
+                final saved = _outboxById[selected.frameId]?.frame;
                 if (saved != null &&
                     saved.peerHex == peer.hex &&
-                    _bytesEqual(saved.wire, record.frame.wire) &&
+                    _bytesEqual(saved.wire, selected.wire) &&
+                    !retiredIds.any(_outboxById.containsKey) &&
                     (await getContact(peer))?.status ==
                         ContactStatus.accepted &&
-                    _bytesEqual(
-                      await store.get(
-                        Ns.settings,
-                        _sk('$_contactPendingPrefix${peer.hex}'),
-                      ),
-                      decision,
-                    ) &&
-                    _bytesEqual(
-                      await store.get(Ns.settings, floorKey),
-                      decision,
-                    ) &&
-                    (await _contactIndex()).contains(peer.hex)) {
-                  return true;
+                    (decision == null ||
+                        (_bytesEqual(
+                              await store.get(Ns.settings, floorKey),
+                              decision,
+                            ) &&
+                            _bytesEqual(
+                              await store.get(
+                                Ns.settings,
+                                _sk('$_contactPendingPrefix${peer.hex}'),
+                              ),
+                              decision,
+                            ) &&
+                            (await _contactIndex()).contains(peer.hex)))) {
+                  return admission();
                 }
               }
             } catch (_) {
@@ -7044,6 +7105,12 @@ class HiddenVolumeStorage
         }),
       );
     });
+  }
+
+  bool _isAcceptanceFrame(OutboxFrame frame) {
+    final envelope = WireEnvelope.decode(frame.wire);
+    return envelope.kind == WireKind.accept &&
+        envelope.frameId == frame.frameId;
   }
 
   @override
@@ -7230,8 +7297,8 @@ class HiddenVolumeStorage
   ///
   /// The frame is stored with the destination it was addressed to, and the ACK
   /// must come from THAT peer. Retiring on frameId alone let an accepted
-  /// contact who knew the id — `reconnect:`/`accept:` ids are derived from the
-  /// peer, and `gcr:` ids are shared across holders — ACK a frame addressed to
+  /// contact who knew the id — legacy handshake IDs are derived from the peer,
+  /// and `gcr:` ids are shared across holders — ACK a frame addressed to
   /// someone else and stop its delivery (audit XV-02).
   Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex}) {
     if (_store == null || _convSequenceFences > 0) {

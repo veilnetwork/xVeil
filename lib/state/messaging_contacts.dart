@@ -30,7 +30,8 @@ class _MessagingContacts {
   final _acceptanceAdmissions = <String, Object>{};
 
   void retireAcceptance(String peerHex, String frameId) {
-    if (frameId != 'accept:$peerHex') return;
+    final prefix = 'accept:$peerHex';
+    if (frameId != prefix && !frameId.startsWith('$prefix:')) return;
     _acceptanceAdmissions.remove(frameId);
     _owner._contactResponseQueue.cancelPending(frameId);
   }
@@ -241,9 +242,7 @@ class _MessagingContacts {
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
-      _owner._mailboxDelivery.removeStashed(m.src.hex, 'accept:${m.src.hex}');
-      await _queueAcceptance(m.src);
-      return true;
+      return _queueAcceptance(m.src);
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
     // while the intro sits undecided (the durable gate only dedups ACCEPTED
@@ -310,12 +309,7 @@ class _MessagingContacts {
     if (consent?.contact?.status == ContactStatus.accepted) {
       // Acceptance may have won while discovery waited. Preserve the normal
       // accepted re-request response, without importing its unverified body.
-      _owner._mailboxDelivery.removeStashed(
-        message.src.hex,
-        'accept:${message.src.hex}',
-      );
-      await _queueAcceptance(message.src);
-      return true;
+      return _queueAcceptance(message.src);
     }
     // The shared store can also suppress a deleted/expired intro without a
     // consent change. Preserve that handled outcome while it is still owned.
@@ -331,12 +325,19 @@ class _MessagingContacts {
   /// Finish durable admission inside ingress; send on bounded recipient lanes.
   /// A retrying accepted contact must not hold the ordinary inbox behind a
   /// slow reverse route. Failed/dropped jobs keep their durable Outbox copy.
-  Future<void> _queueAcceptance(NodeId peer) async {
-    final frameId = 'accept:${peer.hex}';
+  Future<bool> _queueAcceptance(NodeId peer) async {
+    final frameId = 'accept:${peer.hex}:${_uuid.v4()}';
     final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
-    final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
-    await _owner._outbox.enqueue(peer, frameId, wire);
+    final frame = await _owner._outbox.enqueueAcceptance(
+      peer,
+      frameId,
+      wire,
+      replyOnly: true,
+    );
+    if (frame == null || _owner._disposed) return false;
+    _owner._mailboxDelivery.removeStashed(peer.hex, frame.frameId);
     unawaited(_sendStoredAcceptance(peer, frame));
+    return true;
   }
 
   Future<void> _sendStoredAcceptance(NodeId peer, OutboxFrame frame) {
@@ -718,16 +719,15 @@ class _MessagingContacts {
   }
 
   Future<void> _acceptContact(NodeId peer) async {
-    final frameId = 'accept:${peer.hex}';
+    final frameId = 'accept:${peer.hex}:${_uuid.v4()}';
     final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
-    final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
     // User-visible consent and the response obligation share one transaction.
     // No callback/live send can advertise a decision with no durable answer.
-    final admitted = await _withConsentWrite(
+    final frame = await _withConsentWrite(
       peer,
       () => _owner._outbox.enqueueAcceptance(peer, frameId, wire),
     );
-    if (!admitted) return;
+    if (frame == null) return;
     try {
       if (_owner._disposed) return;
       await _afterStatusSaved(peer, ContactStatus.accepted);

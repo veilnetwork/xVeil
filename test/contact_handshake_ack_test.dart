@@ -10,6 +10,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
@@ -28,13 +29,19 @@ class _Admission extends HiddenVolumeStorage {
   bool armed = true;
 
   @override
-  Future<void> enqueueOutboxFrame(
+  Future<ContactAcceptanceAdmission?> acceptContactAndEnqueue(
+    NodeId peer,
     String id,
-    String peer,
-    Uint8List wire,
-  ) async {
-    if (!armed || id != 'accept:$peer') {
-      return super.enqueueOutboxFrame(id, peer, wire);
+    Uint8List wire, {
+    bool replyOnly = false,
+  }) async {
+    if (!armed || !replyOnly) {
+      return super.acceptContactAndEnqueue(
+        peer,
+        id,
+        wire,
+        replyOnly: replyOnly,
+      );
     }
     armed = false;
     entered.complete();
@@ -50,8 +57,14 @@ class _Admission extends HiddenVolumeStorage {
     if (mode == 'format') {
       throw const FormatException('PRIVATE_REQUEST_SECRET', 'PRIVATE_SOURCE');
     }
-    await super.enqueueOutboxFrame(id, peer, wire);
+    final result = await super.acceptContactAndEnqueue(
+      peer,
+      id,
+      wire,
+      replyOnly: replyOnly,
+    );
     if (mode == 'after') throw StateError('PRIVATE_REQUEST_SECRET');
+    return result;
   }
 }
 
@@ -176,29 +189,23 @@ void main() {
                 await service.deliverInbound(message());
               }
               expect(acks(), hasLength(1));
-              final acceptId = 'accept:${peer.hex}';
-              expect(
-                (await storage.pendingOutboxFrames()).any(
-                  (f) => f.frameId == acceptId,
-                ),
-                isTrue,
-              );
+              final acceptId =
+                  (await storage.pendingOutboxFrames()).single.frameId;
+              expect(acceptId, startsWith('accept:${peer.hex}:'));
               // A later identical request can repair an already-ACKed response.
               await storage.ackOutboxFrame(acceptId, fromPeerHex: peer.hex);
               await service.deliverInbound(message());
               expect(acks(), hasLength(2));
-              expect(
-                (await storage.pendingOutboxFrames()).any(
-                  (f) => f.frameId == acceptId,
-                ),
-                isTrue,
-              );
+              final retryId =
+                  (await storage.pendingOutboxFrames()).single.frameId;
+              expect(retryId, startsWith('accept:${peer.hex}:'));
+              expect(retryId, isNot(acceptId));
               await service.dispose();
               await storage.close();
               expect(await storage.open(password: 'fixture'), isTrue);
               expect(
                 (await storage.pendingOutboxFrames()).any(
-                  (f) => f.frameId == acceptId,
+                  (f) => f.frameId == retryId,
                 ),
                 isTrue,
               );

@@ -10,6 +10,7 @@ import 'package:xveil/state/mailbox_orchestrator.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -78,17 +79,18 @@ class _PendingStore extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> enqueueOutboxFrame(
+  Future<ContactAcceptanceAdmission?> acceptContactAndEnqueue(
+    NodeId peer,
     String id,
-    String peer,
-    Uint8List bytes,
-  ) async {
-    if (hold && id == 'accept:$peer') {
+    Uint8List bytes, {
+    bool replyOnly = false,
+  }) async {
+    if (hold && replyOnly) {
       hold = false;
       entered.complete();
       await release.future;
     }
-    await super.enqueueOutboxFrame(id, peer, bytes);
+    return super.acceptContactAndEnqueue(peer, id, bytes, replyOnly: replyOnly);
   }
 }
 
@@ -162,7 +164,7 @@ void main() {
           expect(remaining, mode == 'receipt' ? isEmpty : hasLength(1));
           final rows = await storage.pendingOutboxFrames();
           expect(
-            rows.any((f) => f.frameId == 'accept:${peer.hex}'),
+            rows.any((f) => f.frameId.startsWith('accept:${peer.hex}:')),
             mode == 'receipt',
           );
           if (mode == 'storage') {
@@ -172,7 +174,7 @@ void main() {
             await handled;
             expect(
               (await storage.pendingOutboxFrames()).any(
-                (f) => f.frameId == 'accept:${peer.hex}',
+                (f) => f.frameId.startsWith('accept:${peer.hex}:'),
               ),
               true,
             );
