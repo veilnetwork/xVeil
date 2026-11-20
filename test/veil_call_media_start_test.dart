@@ -230,6 +230,7 @@ class _HandoverTransport extends _RepairingTransport {
   int directOpenAttempts = 0;
   int peerAdmissionChecks = 0;
   final probeRequests = <int>[];
+  final probeBudgets = <Duration>[];
   bool failRelayOpen = false;
   Completer<int>? directOpenGate;
   final directOpening = Completer<void>();
@@ -293,8 +294,12 @@ class _HandoverTransport extends _RepairingTransport {
   int setRelayMediaBatching(int channel, bool on, {bool compact = false}) => 0;
 
   @override
-  Future<bool> qualifyMediaRoute(int channel) {
+  Future<bool> qualifyMediaRoute(
+    int channel, {
+    Duration budget = const Duration(milliseconds: 600),
+  }) {
     probeRequests.add(channel);
+    probeBudgets.add(budget);
     final proven = proofAvailable;
     if (proven != null) return Future.value(proven);
     qualifying.complete(channel);
@@ -2334,7 +2339,11 @@ void main() {
         now = now.add(kCallMediaRepairAfter);
         expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
         expect(transport.opened, [42, 43]);
-        expect(transport.probeRequests, [43, 43, 43]);
+        expect(transport.probeRequests, [43, 43]);
+        expect(
+          transport.probeBudgets,
+          List.filled(2, const Duration(milliseconds: 900)),
+        );
         expect(controller.activeTransport, CallTransportKind.p2p);
         expect(controller.receiveSessionStartedAt, directReceiveStart);
         expect(engine.rebound, isEmpty);
@@ -2346,13 +2355,13 @@ void main() {
         );
         expect(transport.opened, [42, 43]);
         if (retrySucceeds) {
-          expect(transport.probeRequests, [43, 43, 43, 43]);
+          expect(transport.probeRequests, [43, 43, 43]);
           expect(transport.closed, isNot(contains(43)));
           expect(engine.rebound, [43]);
           expect(controller.activeTransport, CallTransportKind.relay);
           expect(controller.receiveSessionStartedAt, now);
         } else {
-          expect(transport.probeRequests, List.filled(6, 43));
+          expect(transport.probeRequests, List.filled(4, 43));
           expect(transport.closed, [43]);
           expect(engine.rebound, isEmpty);
           expect(controller.receiveSessionStartedAt, directReceiveStart);
@@ -2552,14 +2561,14 @@ void main() {
       expect(await controller.start(_call(direct: true)), isTrue);
       expect(await controller.switchRoute(CallTransportKind.relay), isFalse);
       expect(transport.closed, isEmpty);
-      expect(transport.probeRequests, [43, 43, 43]);
+      expect(transport.probeRequests, [43, 43]);
 
       transport.networkChangeGeneration++;
       transport.proofAvailable = true;
       expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
       expect(transport.closed, contains(43));
       expect(transport.opened, [42, 43, 44]);
-      expect(transport.probeRequests, [43, 43, 43, 44]);
+      expect(transport.probeRequests, [43, 43, 44]);
       expect(engine.rebound, [44]);
     } finally {
       await controller.stop();

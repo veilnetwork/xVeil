@@ -1372,14 +1372,14 @@ class VeilCallMediaController implements CallMediaController {
             from: previousTransport,
             to: target,
             stillOwned: stillOwned,
-            qualify: () {
+            qualify: (budget) {
               observations++;
               devLog(
                 () =>
                     'xVeil[call-media]: ${target.name} candidate '
                     'delivery observation=$observations',
               );
-              return _transport.qualifyMediaRoute(opened.channel);
+              return _transport.qualifyMediaRoute(opened.channel, budget: budget);
             },
           ),
           retired.future,

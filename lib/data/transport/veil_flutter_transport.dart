@@ -970,7 +970,10 @@ class VeilFlutterTransport
     peerEndpoint: veilMediaEndpointId,
   );
 
-  Future<bool> qualifyMediaRoute(int chan) => _mediaApp.qualifyMediaPath(chan);
+  Future<bool> qualifyMediaRoute(
+    int chan, {
+    Duration budget = const Duration(milliseconds: 600),
+  }) => _mediaApp.qualifyMediaPath(chan, budget: budget);
 
   /// Inbound media datagrams from [peerNode] (32 bytes) that OPENED against the
   /// channel key, since process start. A stranger who writes into the receive
