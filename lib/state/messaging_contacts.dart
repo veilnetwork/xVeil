@@ -492,7 +492,7 @@ class _MessagingContacts {
     // Admission may complete just before a newer decision. Its queued result
     // remains truthful, but no new network attempt belongs to the old lifetime.
     if (!isCurrent()) return ContactRequestSubmission.queued;
-    // Expect the accept/decline back as mailbox mail.
+    // Expect the acceptance back as mailbox mail.
     _owner._mailboxDelivery.noteActivity();
     // Deposit the request at the recipient's mailbox relay so a NAT'd /
     // offline peer can receive it later. The live leg uses available routes;
@@ -506,7 +506,10 @@ class _MessagingContacts {
       wire,
       isCurrent: isCurrent,
     );
-    await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
+    // The ratchet reservation can outlive the request decision.
+    await _owner._outbox.boundedLiveLeg(
+      _owner._send(dst, wire, admitTransport: isCurrent),
+    );
     final deposited = await deposit;
     // A failed mailbox deposit does not prove the live leg failed. On a phone
     // the direct leg can arrive minutes later as routes warm up. Keep the
@@ -615,7 +618,9 @@ class _MessagingContacts {
       wire,
       isCurrent: isCurrent,
     );
-    await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
+    await _owner._outbox.boundedLiveLeg(
+      _owner._send(dst, wire, admitTransport: isCurrent),
+    );
     final deposited = await deposit;
     // The outbox tracks the logical frame, not this manual attempt key.
     // Drop the attempt bookkeeping and remember its successful deposit below.

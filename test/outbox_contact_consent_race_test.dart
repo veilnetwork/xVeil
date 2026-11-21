@@ -155,6 +155,77 @@ Future<void> _ackAcceptance(
 
 void main() {
   for (final native in [false, true]) {
+    for (final retry in [false, true]) {
+      for (final change in [
+        'replace request',
+        'block and unblock',
+        'other contact',
+      ]) {
+        test('user contact request checks consent at transport handoff '
+            'native=$native retry=$retry change=$change', () async {
+          final storage = await _openStore(native);
+          final wire = _Wire(), peer = _id(2);
+          final ratchet = _HeldReservation();
+          final service = MessagingService(wire, storage)
+            ..liveLegDeadline = const Duration(days: 1);
+          addTearDown(wire.dispose);
+          addTearDown(service.dispose);
+          addTearDown(() {
+            if (!ratchet.release.isCompleted) ratchet.release.complete();
+          });
+          if (retry) {
+            expect(
+              (await service.submitContactRequest(peer, 'previous')).admitted,
+              isTrue,
+            );
+            wire.sent.clear();
+          }
+          service.ratchet = ratchet;
+          final sending = retry
+              ? service.resendRequest(peer)
+              : service.submitContactRequest(peer, 'previous');
+          await ratchet.entered.future;
+          final previous = (await storage.pendingOutboxFrames()).single;
+          expect(wire.sent, isEmpty);
+
+          if (change == 'replace request') {
+            expect(await service.cancelRequest(peer), isTrue);
+            expect(
+              (await service.submitContactRequest(
+                peer,
+                'replacement',
+              )).admitted,
+              isTrue,
+            );
+          } else if (change == 'block and unblock') {
+            await service.blockContact(peer);
+            await service.unblockContact(peer);
+          } else {
+            await service.blockContact(_id(3));
+          }
+
+          ratchet.release.complete();
+          await sending;
+          final requests = wire.sent.where(
+            (frame) => frame.kind == WireKind.request,
+          );
+          expect(requests.map((frame) => frame.body), switch (change) {
+            'replace request' => ['replacement'],
+            'other contact' => ['previous'],
+            _ => [],
+          });
+          final pending = await storage.pendingOutboxFrames();
+          if (change == 'replace request') {
+            expect(pending.single.frameId, requests.single.frameId);
+            expect(pending.single.frameId, isNot(previous.frameId));
+          } else if (change == 'other contact') {
+            expect(requests.single.frameId, previous.frameId);
+            expect(pending.single.frameId, previous.frameId);
+          }
+        }, skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null);
+      }
+    }
+
     for (final (change, timedOut) in [
       ('ack', false),
       ('ack', true),
