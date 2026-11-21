@@ -878,7 +878,8 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: windows-latest
+            # Keep clang-cl compatible with the installed MSVC headers.
+            runner: windows-2022
             engine_asset: veil_media-win-x64.dll
             msvc_arch: amd64
           # arm64. This was called impossible in 0.13.9, with a reason that
