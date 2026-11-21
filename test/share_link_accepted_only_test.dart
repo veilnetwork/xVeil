@@ -63,6 +63,15 @@ void main() {
     // The sheet filtering is not the guarantee — it is the part that stops a
     // person being told a lie. The gate underneath must stay.
     final core = File('lib/state/messaging_core.dart').readAsStringSync();
-    expect(core, contains('contact.status != ContactStatus.accepted'));
+    final sendText = core.substring(
+      core.indexOf('Future<bool> sendText('),
+      core.indexOf('Future<bool> _sendStoredPost('),
+    );
+    expectBefore(sendText, '_acceptedContactEpoch(dst)', 'await _store(');
+    expectBefore(
+      sendText,
+      'epoch == null || !_realtimeControl._consentCurrent(dst, epoch)',
+      'await _store(',
+    );
   });
 }
