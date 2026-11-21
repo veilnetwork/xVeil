@@ -52,6 +52,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'opaque_record_link': 'delivery.opaque_record PRIVATE_CANARY', "
                 "'queue_admission_trace': 'delivery.opaque_trace stage=queue_admission outcome=missing PRIVATE_CANARY', "
                 "'queue_outcome': 'PRIVATE_CANARY', "
+                "'opaque_source_trace': 'ipc.opaque_source operation=787201 PRIVATE_CANARY', "
                 "'registration': 60131466, "
                 "'queue_dequeue_trace': 'delivery.opaque_trace stage=queue_dequeued registration=60131466', "
                 "'queue_state_trace': 'delivery.opaque_trace stage=queue_state state=receiver_dropped registration=60131466', "
@@ -106,6 +107,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                                       'ordered_tcp_binding', 'tcp_ordered_binding',
                                       'record_sha256', 'child_local', 'ordered_record',
                                       'opaque_record_link',
+                                      'opaque_source_trace', 'operation=787201',
                                       'queue_admission_trace', 'stage=queue_admission',
                                       'outcome=missing', 'queue_outcome',
                                       '60131466', 'queue_dequeue_trace', 'queue_state_trace',
