@@ -127,6 +127,7 @@ class CallBitrateAdapter {
   /// End-to-end quality is verified separately with decoded PCM measurements.
   static const int playoutDegradeMs = CallAudioBufferWindow.ceilingMs;
   static const int playoutRecoverMs = 160;
+  static const int _probeRecoveryBoundaryMs = 5;
 
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
   /// leg is TCP-like: congestion NEVER shows as loss (the transport hides
@@ -195,6 +196,13 @@ class CallBitrateAdapter {
   bool _startupRecovery;
   int _startupGoodStreak = 0;
   int _audioRecoveryStreak = 0;
+  bool _audioRecoveryBoundaryHeld = false;
+
+  void _resetAudioRecovery() {
+    _audioRecoveryStreak = 0;
+    _audioRecoveryBoundaryHeld = false;
+  }
+
   int _severeStreak = 0;
   bool _audioReserve = false;
   bool _sourceFloor = false, _sourcePause = false;
@@ -602,7 +610,7 @@ class CallBitrateAdapter {
       _windowFill = 0;
       _goodStreak = 0;
       _startupGoodStreak = 0;
-      _audioRecoveryStreak = 0;
+      _resetAudioRecovery();
       if (previous != null || epoch > 0) _startupRecovery = false;
     }
     if (_videoTimingPeerRefreshRequired &&
@@ -713,7 +721,7 @@ class CallBitrateAdapter {
       _level = ladder.length - 1;
       _goodStreak = 0;
       _startupGoodStreak = 0;
-      _audioRecoveryStreak = 0;
+      _resetAudioRecovery();
     }
   }
 
@@ -1521,7 +1529,7 @@ class CallBitrateAdapter {
       _floorBadStreak = 0;
       _goodStreak = 0;
       _startupGoodStreak = 0;
-      _audioRecoveryStreak = 0;
+      _resetAudioRecovery();
       _severeStreak = 0;
       return null;
     }
@@ -1717,7 +1725,13 @@ class CallBitrateAdapter {
     final receiveRepairAllowsProbe =
         audioReceiveSoftLossSignificant == false ||
         (!audioReceiveConcealmentObserved && !audioReceiveRecoveryObserved);
-    final measuredPlayoutHealthy =
+    bool playoutBelow(int limit) =>
+        (!requirePeerAudioPlayout ||
+            (peerPressureDelay != null && peerPressureDelay < limit)) &&
+        (!requireAudioReceivePlayout ||
+            (receivePressureDelay != null && receivePressureDelay < limit));
+
+    final measuredPlayoutReady =
         (requirePeerAudioPlayout || requireAudioReceivePlayout) &&
         feedbackAvailable &&
         !audioUnproven &&
@@ -1725,20 +1739,17 @@ class CallBitrateAdapter {
         !freshAudioLoss &&
         sendRepairAllowsProbe &&
         receiveRepairAllowsProbe &&
-        (!requirePeerAudioPlayout ||
-            (peerPressureDelay != null &&
-                peerPressureDelay < playoutRecoverMs)) &&
         receiveGood &&
-        (!requireAudioReceivePlayout ||
-            (receivePressureDelay != null &&
-                receivePressureDelay < playoutRecoverMs)) &&
         rttMs < severeRttMs;
-    if (_audioReserve &&
+    final measuredPlayoutHealthy =
+        measuredPlayoutReady && playoutBelow(playoutRecoverMs);
+    final mayRecover =
+        _audioReserve &&
         !freshAudioLoss &&
         !videoLossObserved &&
         !videoNetworkLossObserved &&
-        (measuredPlayoutHealthy || audioGood) &&
-        (audioTxDrops != null || !newDrops)) {
+        (audioTxDrops != null || !newDrops);
+    if (mayRecover && (measuredPlayoutHealthy || audioGood)) {
       _audioRecoveryStreak++;
       final resumeAfter = measuredPlayoutHealthy
           ? probeResumeAfter
@@ -1747,8 +1758,19 @@ class CallBitrateAdapter {
         _releaseAudioHold();
         return target;
       }
+    } else if (mayRecover &&
+        measuredPlayoutReady &&
+        !bufferPressure &&
+        !bufferGrowing &&
+        _audioRecoveryStreak > 0 &&
+        !_audioRecoveryBoundaryHeld &&
+        playoutBelow(playoutRecoverMs + _probeRecoveryBoundaryMs)) {
+      // One marginal sample can preserve prior clean measurements. It
+      // earns no credit and a second one resets the streak. All three
+      // healthy samples are still required before retrying one fps.
+      _audioRecoveryBoundaryHeld = true;
     } else {
-      _audioRecoveryStreak = 0;
+      _resetAudioRecovery();
     }
 
     final measuredAudioFailure =
@@ -1776,7 +1798,7 @@ class CallBitrateAdapter {
         _severeStreak >= degradeAfter) {
       _audioReserve = true;
       _goodStreak = 0;
-      _audioRecoveryStreak = 0;
+      _resetAudioRecovery();
       return target;
     }
 
@@ -1889,7 +1911,7 @@ class CallBitrateAdapter {
     _audioReserve = false;
     _goodStreak = 0;
     _startupGoodStreak = 0;
-    _audioRecoveryStreak = 0;
+    _resetAudioRecovery();
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;
     // The retained floor budget needs no new retune on resume. Start its

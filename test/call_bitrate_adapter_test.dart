@@ -2781,6 +2781,36 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
+  test('one near-threshold audio sample does not restart a video probe', () {
+    CallBitrateAdapter paused() {
+      final adapter = direct(level: 4);
+      native(adapter, peerDelay: 300);
+      native(adapter, peerDelay: 300);
+      expect(adapter.audioReserve, isTrue);
+      return adapter;
+    }
+
+    void sample(CallBitrateAdapter adapter, int delay) => native(
+      adapter,
+      stats: {...healthy(), 'audio_delay_ms': delay, 'rtt_ms': 600},
+    );
+
+    final a = paused();
+    for (final delay in [158, 158, 162]) {
+      sample(a, delay);
+      expect(a.audioReserve, isTrue);
+    }
+    sample(a, 158);
+    expect(a.audioReserve, isFalse);
+    expect(a.target.maxFps, 1.0);
+
+    final b = paused();
+    for (final delay in [158, 158, 162, 162, 158]) {
+      sample(b, delay);
+      expect(b.audioReserve, isTrue);
+    }
+  });
+
   test('fresh primary drops protect audio even without buffer telemetry', () {
     final a = direct();
     for (var i = 0; i < 8; i++) {
