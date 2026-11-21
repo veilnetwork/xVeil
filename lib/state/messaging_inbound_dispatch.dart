@@ -66,6 +66,7 @@ extension _MessagingInboundDispatch on MessagingService {
       await _ackFrame(
         message,
         fid,
+        direct: contactEpoch != null && direct,
         admitTransport: contactEpoch == null
             ? null
             : () => _realtimeControl._consentCurrent(message.src, contactEpoch),
@@ -212,6 +213,13 @@ extension _MessagingInboundDispatch on MessagingService {
         ),
       );
       return Future<void>.value();
+    }
+
+    Future<void> settleHandshake(String frameId, Object epoch) {
+      // Replaying a committed handshake means its first receipt may have
+      // vanished with the one-time reply circuit. Use the regular send path.
+      final first = _outbox.remember(m.src.hex, frameId);
+      return settlePost(m, null, frameId, direct: !first, contactEpoch: epoch);
     }
 
     final env = WireEnvelope.decode(m.payload);
@@ -515,8 +523,7 @@ extension _MessagingInboundDispatch on MessagingService {
           _declinedLocally(m, 'contact changed during repeated acceptance');
           return;
         }
-        _outbox.remember(m.src.hex, fid);
-        await settlePost(m, null, fid, contactEpoch: consent.epoch);
+        await settleHandshake(fid, consent.epoch);
         return;
       } else if (callSignal != null) {
         // The call consumer admits/deduplicates and ACKs at its synchronous
@@ -577,7 +584,7 @@ extension _MessagingInboundDispatch on MessagingService {
       if (handled && deferredHandshakeAck && fid != null) {
         // Use the existing bounded receipt lane, after durable admission.
         // Explicit delivery callers join it; the serialized inbox does not.
-        await settlePost(m, null, fid, contactEpoch: consent.epoch);
+        await settleHandshake(fid, consent.epoch);
       }
     }
 
@@ -592,7 +599,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // the relationship is still accepted after durable queue cleanup.
           final epoch = await _realtimeControl._acceptedContactEpoch(m.src);
           bool isCurrent() => _realtimeControl._consentCurrent(m.src, epoch);
-          if (!isCurrent()) {
+          if (epoch == null || !isCurrent()) {
             _declinedLocally(m, 'contact changed during acceptance');
             return;
           }
@@ -602,8 +609,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // accept is acked here instead: the accepting side retires it from
           // its outbox. Later duplicates use the accepted-sender path above.
           if (fid != null && isCurrent()) {
-            _outbox.remember(m.src.hex, fid);
-            await settlePost(m, null, fid, contactEpoch: epoch);
+            await settleHandshake(fid, epoch);
           }
         } else {
           return;

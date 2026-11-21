@@ -2502,8 +2502,14 @@ class MessagingService {
   Future<void> _ackFrame(
     InboundMessage message,
     String frameId, {
+    bool direct = false,
     bool Function()? admitTransport,
-  }) => _outbox.ackFrame(message, frameId, admitTransport: admitTransport);
+  }) => _outbox.ackFrame(
+    message,
+    frameId,
+    direct: direct,
+    admitTransport: admitTransport,
+  );
 
   /// Send [env] to [peer] durably under [frameId] (see the section comment). The
   /// receiver echoes [frameId] in its ack to retire the frame.

@@ -71,17 +71,92 @@ class _Admission extends HiddenVolumeStorage {
 class _Wire extends LoopbackTransport {
   _Wire() : super(localNodeId: _id(1));
   final sent = <WireEnvelope>[];
+  final replyAttempts = <(int, WireEnvelope)>[];
+  final directAcks = <(NodeId, String?)>[];
+  bool rejectReply = false;
+
   @override
   Future<void> send(
     NodeId dst,
     Uint8List bytes, {
     bool anonymous = false,
   }) async {
-    sent.add(WireEnvelope.decode(bytes));
+    final envelope = WireEnvelope.decode(bytes);
+    sent.add(envelope);
+    if (envelope.kind == WireKind.ack) directAcks.add((dst, envelope.id));
+  }
+
+  @override
+  Future<void> sendReply(int replyId, Uint8List bytes) async {
+    replyAttempts.add((replyId, WireEnvelope.decode(bytes)));
+    if (rejectReply) throw StateError('reply circuit is gone');
   }
 }
 
 void main() {
+  for (final kind in [WireKind.accept, WireKind.request, WireKind.reconnect]) {
+    for (final rejectReply in [false, true]) {
+      test('repeated handshake receipt uses an independent route '
+          'kind=$kind rejectReply=$rejectReply', () async {
+        final kv = FakeKvLogStore();
+        final storage = HiddenVolumeStorage(
+          ({required password, required create}) => kv,
+        );
+        final wire = _Wire()..rejectReply = rejectReply;
+        final service = MessagingService(wire, storage);
+        addTearDown(() async {
+          await service.dispose();
+          await wire.dispose();
+          await storage.close();
+        });
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          isTrue,
+        );
+        final peer = _id(2), device = _id(3), other = _id(4);
+        for (final identity in [peer, other]) {
+          await storage.upsertContact(
+            Contact(
+              nodeId: identity,
+              status: kind == WireKind.accept
+                  ? ContactStatus.pendingOutgoing
+                  : ContactStatus.accepted,
+            ),
+          );
+        }
+        const frameId = 'repeat-contact-handshake';
+        final envelope = switch (kind) {
+          WireKind.accept => const WireEnvelope.accept(),
+          WireKind.request => const WireEnvelope.request('', id: 'intro'),
+          _ => const WireEnvelope.reconnect(''),
+        };
+        final payload = envelope.withFrameId(frameId).encode();
+        InboundMessage received(NodeId identity, int replyId) => InboundMessage(
+          src: identity,
+          srcDevice: identity == peer ? device : null,
+          provenance: SenderProvenance.sessionPeer,
+          replyId: replyId,
+          payload: payload,
+        );
+        await service.deliverInbound(received(peer, 41));
+        expect(wire.replyAttempts.map((e) => e.$1), [41]);
+        final firstReceipt = wire.replyAttempts.single.$2;
+        expect(firstReceipt.kind, WireKind.ack);
+        expect(firstReceipt.id, frameId);
+        expect(wire.directAcks, isEmpty);
+
+        // Local admission can also report success while the ACK is lost.
+        // Exercise both forms by replaying through the very same circuit.
+        await service.deliverInbound(received(peer, 41));
+        expect(wire.directAcks, [(device, frameId)]);
+        expect(wire.replyAttempts.map((e) => e.$1), [41]);
+        await service.deliverInbound(received(other, 42));
+        expect(wire.directAcks, [(device, frameId)]);
+        expect(wire.replyAttempts.map((e) => e.$1), [41, 42]);
+      });
+    }
+  }
+
   for (final native in [false, true]) {
     for (final reconnect in [false, true]) {
       for (final mode in [

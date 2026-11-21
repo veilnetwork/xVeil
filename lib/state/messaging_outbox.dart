@@ -356,8 +356,13 @@ class _MessagingOutbox {
   bool hasSeen(String peerHex, String frameId) =>
       _seenFrames.contains(_key(peerHex, frameId));
 
-  bool remember(String peerHex, String frameId) =>
-      _seenFrames.add(_key(peerHex, frameId));
+  bool remember(String peerHex, String frameId) {
+    if (!_seenFrames.add(_key(peerHex, frameId))) return false;
+    if (_seenFrames.length > _seenFramesCap) {
+      _seenFrames.remove(_seenFrames.first);
+    }
+    return true;
+  }
 
   /// Bring pending control frames forward when authenticated inbound proves
   /// the peer reachable, preserving the growing grace for their ACKs.
@@ -389,12 +394,10 @@ class _MessagingOutbox {
   Future<void> ackFrame(
     InboundMessage message,
     String frameId, {
+    bool direct = false,
     bool Function()? admitTransport,
   }) async {
     if (admitTransport?.call() == false) return;
-    if (_seenFrames.length > _seenFramesCap) {
-      _seenFrames.remove(_seenFrames.first);
-    }
     // A slow ordinary identity/device resolve must not hold back a receipt
     // for control that arrived on an already usable realtime lane.
     unawaited(_owner._realtimeControl.sendCallReceipt(message, frameId));
@@ -402,6 +405,7 @@ class _MessagingOutbox {
       await _owner._ackTo(
         message,
         frameId,
+        direct: direct,
         repeat: _seenFrames.contains(_key(message.src.hex, frameId)),
         admitTransport: admitTransport,
       );
