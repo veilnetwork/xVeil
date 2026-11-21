@@ -16,7 +16,9 @@ class CallVideoDeliveryModel {
   final _streamEpochs = <String, String>{};
   CallVideoDeliveryPhase phase = CallVideoDeliveryPhase.startup;
   DateTime? _lastApply, _drainUntil, _nextProbe;
-  Duration _probeInterval = const Duration(seconds: 3);
+  Duration? _measuredProbeInterval;
+  Duration get _probeInterval =>
+      _measuredProbeInterval ?? const Duration(seconds: 3);
   int? _route;
   String? _membership;
   bool supported = false, queuePressure = false, _credit = false;
@@ -42,7 +44,7 @@ class CallVideoDeliveryModel {
     deliveryKbps = 0;
     phase = CallVideoDeliveryPhase.startup;
     _lastApply = _drainUntil = _nextProbe = null;
-    _probeInterval = const Duration(seconds: 3);
+    _measuredProbeInterval = null;
     _route = null;
     _membership = null;
   }
@@ -80,14 +82,17 @@ class CallVideoDeliveryModel {
     _route = route is int ? route : null;
     // A causal decoder ACK closes each probe; keep at least two measured
     // round trips between cruise probes, with the native 950ms pacing floor.
-    // Unknown RTT retains the conservative legacy interval. Congestion drain
-    // and its first six-second retry are independent and stay unchanged.
-    _probeInterval = rttMs != null && rttMs > 0 && rttMs <= 60000
+    // While RTT is unknown, use the conservative interval for this sample.
+    // Only measured waits can extend the deadline for subsequent samples.
+    final measuredInterval = rttMs != null && rttMs > 0 && rttMs <= 60000
         ? Duration(milliseconds: (2 * rttMs).clamp(950, 3000))
-        : const Duration(seconds: 3);
+        : null;
+    _measuredProbeInterval = measuredInterval;
     final lastApply = _lastApply;
-    if (phase != CallVideoDeliveryPhase.startup && lastApply != null) {
-      final deadline = lastApply.add(_probeInterval);
+    if (phase != CallVideoDeliveryPhase.startup &&
+        lastApply != null &&
+        measuredInterval != null) {
+      final deadline = lastApply.add(measuredInterval);
       if (_nextProbe == null || deadline.isAfter(_nextProbe!)) {
         _nextProbe = deadline;
       }
@@ -261,7 +266,11 @@ class CallVideoDeliveryModel {
       return null;
     }
     final startup = phase == CallVideoDeliveryPhase.startup;
-    if (!startup && _nextProbe != null && now.isBefore(_nextProbe!)) {
+    final lastApply = _lastApply;
+    if (!startup &&
+        ((_nextProbe != null && now.isBefore(_nextProbe!)) ||
+            (lastApply != null &&
+                now.isBefore(lastApply.add(_probeInterval))))) {
       return null;
     }
     // A new causal decoder ACK already closes the previous startup probe.
@@ -315,7 +324,8 @@ class CallVideoDeliveryModel {
       }
       // Startup uses causal decoder ACKs and the native pacing floor. Cruise
       // additionally leaves two measured round trips after the native ACK.
-      _nextProbe = now.add(_probeInterval);
+      final measuredInterval = _measuredProbeInterval;
+      _nextProbe = measuredInterval == null ? null : now.add(measuredInterval);
     }
   }
 

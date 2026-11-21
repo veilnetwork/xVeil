@@ -287,6 +287,39 @@ void main() {
     });
   }
 
+  test('fresh RTT replaces the provisional wait on a cruise probe', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)}, rttMs: 100);
+    m.applied(at(1), reduced: true);
+    observe(m, 7, {'p': report(7)}, rttMs: 100);
+    final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+    m.applied(at(7), reduced: false);
+
+    observe(m, 8, {'p': report(8)}, rttMs: 0);
+    expect(m.propose(first, ceiling, at(8), healthy: true), isNull);
+    observe(m, 9, {'p': report(9)}, rttMs: 100);
+    expect(m.propose(first, ceiling, at(9), healthy: true), (
+      maxBitrateKbps: 24,
+      maxFps: 1.5625,
+    ));
+  });
+
+  test('short RTT does not undo a longer measured probe wait', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)}, rttMs: 100);
+    m.applied(at(1), reduced: true);
+    observe(m, 7, {'p': report(7)}, rttMs: 100);
+    final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+    m.applied(at(7), reduced: false);
+
+    observe(m, 8, {'p': report(8)}, rttMs: 1500);
+    expect(m.propose(first, ceiling, at(8), healthy: true), isNull);
+    observe(m, 9, {'p': report(9)}, rttMs: 100);
+    expect(m.propose(first, ceiling, at(9), healthy: true), isNull);
+    observe(m, 10, {'p': report(10)}, rttMs: 100);
+    expect(m.propose(first, ceiling, at(10), healthy: true), isNotNull);
+  });
+
   for (final failure in ['cached', 'pre-probe', 'audio', 'route']) {
     test('fast cruise cannot ignore $failure evidence', () {
       final m = CallVideoDeliveryModel();
