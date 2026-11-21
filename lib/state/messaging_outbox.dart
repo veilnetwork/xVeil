@@ -386,7 +386,12 @@ class _MessagingOutbox {
     return nudged;
   }
 
-  Future<void> ackFrame(InboundMessage message, String frameId) async {
+  Future<void> ackFrame(
+    InboundMessage message,
+    String frameId, {
+    bool Function()? admitTransport,
+  }) async {
+    if (admitTransport?.call() == false) return;
     if (_seenFrames.length > _seenFramesCap) {
       _seenFrames.remove(_seenFrames.first);
     }
@@ -398,6 +403,7 @@ class _MessagingOutbox {
         message,
         frameId,
         repeat: _seenFrames.contains(_key(message.src.hex, frameId)),
+        admitTransport: admitTransport,
       );
     } catch (error) {
       // Best-effort — a re-drive will prompt another ACK. But say so: a

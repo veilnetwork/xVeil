@@ -83,10 +83,104 @@ class _HeldRatchet extends Fake implements RatchetPersistence {
 
   @override
   Future<int> close() async => 0;
+
+  @override
+  Future<int> forgetPeer(NodeId peer) async => 0;
 }
 
 void main() {
   for (final native in [false, true]) {
+    for (final decision in [
+      'block',
+      'unblock',
+      'replacement request',
+      'fresh receipt',
+    ]) {
+      test(
+        'queued contact receipt follows current decision '
+        'native=$native decision=$decision',
+        () async {
+          final peer = _id(2);
+          final ratchet = _HeldRatchet(peer);
+          final wire = _Wire();
+          late final HiddenVolumeStorage storage;
+          if (native) {
+            expect(ensureHiddenVolumeLoaded(), isTrue);
+            final dir = await Directory.systemTemp.createTemp(
+              'xveil-accept-receipt-',
+            );
+            addTearDown(() => dir.delete(recursive: true));
+            final path = '${dir.path}/store.hv';
+            HvKvLogStore(
+              hv.HvSpace.create(
+                path: path,
+                password: Uint8List.fromList(utf8.encode('fixture')),
+                argon: hv.ArgonPreset.min,
+              ),
+            ).close();
+            storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+          } else {
+            final kv = FakeKvLogStore();
+            storage = HiddenVolumeStorage(
+              ({required password, required create}) => kv,
+            );
+          }
+          final service = MessagingService(wire, storage)..ratchet = ratchet;
+          addTearDown(() async {
+            if (!ratchet.release.isCompleted) ratchet.release.complete();
+            await service.dispose();
+            await wire.dispose();
+            await storage.close();
+          });
+          expect(
+            await storage.open(password: 'fixture', createIfMissing: true),
+            isTrue,
+          );
+          await storage.upsertContact(
+            Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+          );
+          const fid = 'accept-receipt-waits';
+          InboundMessage acceptance() => InboundMessage(
+            src: peer,
+            provenance: SenderProvenance.sessionPeer,
+            payload: const WireEnvelope.accept().withFrameId(fid).encode(),
+          );
+          final pending = service.deliverInbound(acceptance());
+          await ratchet.entered.future;
+          expect(
+            (await storage.getContact(peer))?.status,
+            ContactStatus.accepted,
+          );
+          if (decision == 'replacement request') {
+            await service.deleteConversation(peer);
+            final request = await service.submitContactRequest(peer, '');
+            expect(request.admitted, isTrue);
+            expect(
+              (await storage.getContact(peer))?.status,
+              ContactStatus.pendingOutgoing,
+            );
+          } else {
+            await service.blockContact(peer);
+            if (decision != 'block') await service.unblockContact(peer);
+          }
+          if (decision == 'fresh receipt') {
+            await service.deliverInbound(acceptance(), waitForReceipts: false);
+          }
+          Iterable<WireEnvelope> receipts() =>
+              wire.sent.where((e) => e.kind == WireKind.ack && e.id == fid);
+          expect(receipts(), isEmpty);
+          ratchet.release.complete();
+          await pending;
+          await pumpEventQueue();
+          expect(
+            receipts(),
+            hasLength(decision == 'fresh receipt' ? 1 : 0),
+          );
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
+
     for (final stage in ['contact', 'membership', 'ratchet']) {
       for (final change in [
         'block',

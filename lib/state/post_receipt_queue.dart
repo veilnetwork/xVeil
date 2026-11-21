@@ -14,7 +14,7 @@ class PostReceiptQueue {
 
   final int maxJobs, maxBytes, maxConcurrent;
   final void Function(Object, StackTrace)? onError;
-  final _jobs = <String, _ReceiptJob>{};
+  final _jobs = <Object, _ReceiptJob>{};
   final _waiting = Queue<_ReceiptJob>();
   final _active = <String, _ReceiptJob>{};
   bool _closed = false;
@@ -24,7 +24,7 @@ class PostReceiptQueue {
   int get pendingBytes => _bytes;
 
   Future<void> submit({
-    required String key,
+    required Object key,
     String lane = '',
     required int bytes,
     required Future<void> Function() send,
@@ -53,7 +53,7 @@ class PostReceiptQueue {
 
   /// Forget waiting work that is no longer needed. An active transport future
   /// keeps its lane and budget until it actually settles.
-  bool cancelPending(String key) {
+  bool cancelPending(Object key) {
     final job = _jobs[key];
     if (job == null || !_waiting.remove(job)) return false;
     _release(job);
@@ -116,7 +116,8 @@ class PostReceiptQueue {
 
 class _ReceiptJob {
   _ReceiptJob(this.key, this.lane, this.bytes, this.send);
-  final String key, lane;
+  final Object key;
+  final String lane;
   final int bytes;
   final Future<void> Function() send;
   final done = Completer<void>();

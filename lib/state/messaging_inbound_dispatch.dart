@@ -59,9 +59,18 @@ extension _MessagingInboundDispatch on MessagingService {
     String? id,
     String? fid, {
     bool direct = false,
+    Object? contactEpoch,
   }) async {
     if (id != null) await _ackTo(message, id, direct: direct);
-    if (fid != null && fid != id) await _ackFrame(message, fid);
+    if (fid != null && fid != id) {
+      await _ackFrame(
+        message,
+        fid,
+        admitTransport: contactEpoch == null
+            ? null
+            : () => _realtimeControl._consentCurrent(message.src, contactEpoch),
+      );
+    }
   }
 
   Future<void> _queueStoredPostReceipt(
@@ -69,6 +78,7 @@ extension _MessagingInboundDispatch on MessagingService {
     String? id,
     String? fid, {
     required bool direct,
+    required Object? contactEpoch,
   }) {
     // Never retain a large original body, mailbox callback or reassembly lease
     // while its best-effort ACK waits. Only addressing/reply metadata is used.
@@ -99,9 +109,17 @@ extension _MessagingInboundDispatch on MessagingService {
               .toString();
     final dropped = _postReceipts.dropped;
     final done = _postReceipts.submit(
-      key: key,
+      // A fresh re-delivery can qualify under a different contact decision
+      // while a receipt from the old decision is still unwinding.
+      key: contactEpoch == null ? key : (key, contactEpoch),
       bytes: bytes,
-      send: () => _settleStoredPost(compact, id, fid, direct: direct),
+      send: () => _settleStoredPost(
+        compact,
+        id,
+        fid,
+        direct: direct,
+        contactEpoch: contactEpoch,
+      ),
     );
     final count = _postReceipts.dropped;
     if (count != dropped && count & (count - 1) == 0) {
@@ -173,11 +191,26 @@ extension _MessagingInboundDispatch on MessagingService {
       String? id,
       String? fid, {
       bool direct = false,
+      Object? contactEpoch,
     }) {
       if (onReceipt == null) {
-        return _settleStoredPost(message, id, fid, direct: direct);
+        return _settleStoredPost(
+          message,
+          id,
+          fid,
+          direct: direct,
+          contactEpoch: contactEpoch,
+        );
       }
-      onReceipt(_queueStoredPostReceipt(message, id, fid, direct: direct));
+      onReceipt(
+        _queueStoredPostReceipt(
+          message,
+          id,
+          fid,
+          direct: direct,
+          contactEpoch: contactEpoch,
+        ),
+      );
       return Future<void>.value();
     }
 
@@ -483,7 +516,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         _outbox.remember(m.src.hex, fid);
-        await settlePost(m, null, fid);
+        await settlePost(m, null, fid, contactEpoch: consent.epoch);
         return;
       } else if (callSignal != null) {
         // The call consumer admits/deduplicates and ACKs at its synchronous
@@ -544,7 +577,7 @@ extension _MessagingInboundDispatch on MessagingService {
       if (handled && deferredHandshakeAck && fid != null) {
         // Use the existing bounded receipt lane, after durable admission.
         // Explicit delivery callers join it; the serialized inbox does not.
-        await settlePost(m, null, fid);
+        await settlePost(m, null, fid, contactEpoch: consent.epoch);
       }
     }
 
@@ -570,7 +603,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // its outbox. Later duplicates use the accepted-sender path above.
           if (fid != null && isCurrent()) {
             _outbox.remember(m.src.hex, fid);
-            await settlePost(m, null, fid);
+            await settlePost(m, null, fid, contactEpoch: epoch);
           }
         } else {
           return;

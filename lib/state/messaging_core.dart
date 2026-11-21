@@ -1315,8 +1315,12 @@ class MessagingService {
     bool direct = false,
     bool repeat = false,
     List<NodeId>? ownDeviceTargets,
+    bool Function()? admitTransport,
   }) async {
+    if (admitTransport?.call() == false) return;
     final ack = WireEnvelope.ack(id).encode();
+    Future<void> sendAck(NodeId destination) =>
+        _send(destination, ack, admitTransport: admitTransport);
     final viaReply = !direct && m.replyId != 0;
     // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
     // durable resolve+circuit). id + path enum only — no body/keys. A repeat
@@ -1354,7 +1358,7 @@ class MessagingService {
     if (selfHex != null && m.src.hex == selfHex) {
       if (device != null && device != m.src) {
         try {
-          await _send(device, ack);
+          await sendAck(device);
         } catch (_) {
           // Best-effort: a re-drive asks again.
         }
@@ -1365,7 +1369,7 @@ class MessagingService {
       if (devices.isNotEmpty) {
         for (final device in devices) {
           try {
-            await _send(device, ack);
+            await sendAck(device);
           } catch (_) {
             // Best-effort: a re-drive asks again.
           }
@@ -1379,7 +1383,7 @@ class MessagingService {
     // linked device, the master re-driving 12 frames 76 times a minute and the
     // linked device drowning.
     if (device != null && device != m.src) {
-      await _send(device, ack);
+      await sendAck(device);
       return;
     }
     // A frame that did NOT name its device is answered at every device of that
@@ -1387,12 +1391,12 @@ class MessagingService {
     // the frame retires nothing.
     final known = _devicesOfIdentity(m.src);
     if (known.isEmpty) {
-      await _send(m.src, ack);
+      await sendAck(m.src);
       return;
     }
     for (final d in known) {
       try {
-        await _send(d, ack);
+        await sendAck(d);
       } catch (_) {
         // Best-effort per device: the sender re-drives without this ACK.
       }
@@ -2495,8 +2499,11 @@ class MessagingService {
     }
   }
 
-  Future<void> _ackFrame(InboundMessage message, String frameId) =>
-      _outbox.ackFrame(message, frameId);
+  Future<void> _ackFrame(
+    InboundMessage message,
+    String frameId, {
+    bool Function()? admitTransport,
+  }) => _outbox.ackFrame(message, frameId, admitTransport: admitTransport);
 
   /// Send [env] to [peer] durably under [frameId] (see the section comment). The
   /// receiver echoes [frameId] in its ack to retire the frame.
