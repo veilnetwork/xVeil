@@ -17,6 +17,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
 
 NodeId _id(int value) => NodeId(Uint8List(32)..fillRange(0, 32, value));
 
@@ -61,9 +62,32 @@ class _Wire extends LoopbackTransport {
   }) async => sent.add(WireEnvelope.decode(wire));
 }
 
+class _HeldRatchet extends Fake implements RatchetPersistence {
+  _HeldRatchet(this.peer);
+
+  final NodeId peer;
+  final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  bool get degraded => false;
+
+  @override
+  Future<void> reserveBeforePublish(NodeId dst) async {
+    if (dst != peer || entered.isCompleted) return;
+    entered.complete();
+    await release.future;
+  }
+
+  @override
+  Future<int> flush({String why = 'unknown', bool now = false}) async => 0;
+
+  @override
+  Future<int> close() async => 0;
+}
+
 void main() {
   for (final native in [false, true]) {
-    for (final stage in ['contact', 'membership']) {
+    for (final stage in ['contact', 'membership', 'ratchet']) {
       for (final change in [
         'block',
         'ack',
@@ -96,8 +120,12 @@ void main() {
                   SyncWrappedAsyncKvLogStore(kv);
             }
             final storage = _Held(open), wire = _Wire(), peer = _id(2);
+            final ratchet = stage == 'ratchet' ? _HeldRatchet(peer) : null;
             final service = MessagingService(wire, storage)
+              ..ratchet = ratchet
               ..liveLegDeadline = const Duration(days: 1);
+            final entered = ratchet?.entered ?? storage.entered;
+            final release = ratchet?.release ?? storage.release;
             Future<void>? accepting;
             try {
               expect(
@@ -113,13 +141,13 @@ void main() {
                   // the worker's contact read, never the decision transaction.
                   if (stage == 'contact') {
                     storage.holdRead = true;
-                  } else {
+                  } else if (stage == 'membership') {
                     storage.holdMembership = true;
                   }
                 }
               };
               accepting = service.acceptContact(peer);
-              await storage.entered.future;
+              await entered.future;
               final accepted = (await storage.pendingOutboxFrames()).single;
               expect(accepted.frameId, startsWith('accept:${peer.hex}:'));
               expect(
@@ -147,7 +175,7 @@ void main() {
                   change != 'ack',
                 );
               }
-              storage.release.complete();
+              release.complete();
               await accepting;
               expect(
                 wire.sent.where((envelope) => envelope.kind == WireKind.accept),
@@ -172,7 +200,7 @@ void main() {
                 change != 'ack',
               );
             } finally {
-              if (!storage.release.isCompleted) storage.release.complete();
+              if (!release.isCompleted) release.complete();
               await accepting;
               await service.dispose();
               await wire.dispose();

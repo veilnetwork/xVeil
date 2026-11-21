@@ -382,7 +382,15 @@ class _MessagingContacts {
           );
           if (skipLive) return;
           _owner._outbox.recordQueued(frameId, peer.hex);
-          await _owner._send(peer, wire);
+          await _owner._send(
+            peer,
+            wire,
+            admitTransport: () {
+              // Ratchet preparation can wait on storage after the queue's
+              // membership read. Recheck the admission at the actual handoff.
+              return current() && consentCurrent();
+            },
+          );
         } finally {
           if (identical(_acceptanceAdmissions[frameId], admission)) {
             _acceptanceAdmissions.remove(frameId);
