@@ -711,6 +711,7 @@ class CallService {
         _networkOffline ||
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
+        _mediaRepair?.epoch == _mediaOperationEpoch ||
         _relayFallbackFlight != null ||
         _relayRebuildAdmission != null ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
@@ -723,9 +724,11 @@ class CallService {
     }
     final generation = _lateP2PGeneration;
     final networkVersion = _networkObservationVersion;
+    var epoch = _mediaOperationEpoch;
     _lateP2PBusy = true;
     bool stillCurrent() =>
         generation == _lateP2PGeneration &&
+        epoch == _mediaOperationEpoch &&
         _current?.callId == c.callId &&
         _current?.peer == c.peer &&
         _current?.status == CallStatus.active;
@@ -795,21 +798,13 @@ class CallService {
         return;
       }
       _lateP2PAttempted = true;
-      final epoch = ++_mediaOperationEpoch;
+      epoch = ++_mediaOperationEpoch;
       final ok = await media.switchRoute(
         CallTransportKind.p2p,
         canCommit: () async {
-          if (!sameNetwork() ||
-              epoch != _mediaOperationEpoch ||
-              !_lateP2PConsent) {
-            return false;
-          }
+          if (!sameNetwork() || !_lateP2PConsent) return false;
           final allowed = await _localAllowsP2P(c.mediaIdentity);
-          if (!sameNetwork() ||
-              epoch != _mediaOperationEpoch ||
-              !_lateP2PConsent) {
-            return false;
-          }
+          if (!sameNetwork() || !_lateP2PConsent) return false;
           if (!allowed) {
             _lateP2PConsent = false;
             _lateP2PLocalReady = false;
@@ -818,7 +813,7 @@ class CallService {
           return allowed;
         },
       );
-      if (!stillCurrent() || epoch != _mediaOperationEpoch) return;
+      if (!stillCurrent()) return;
       final cur = _current!;
       if (ok && media.activeTransport == CallTransportKind.p2p) {
         _lateP2PRetryAt = null;
@@ -2136,7 +2131,7 @@ class CallService {
         _networkOffline ||
         _relayRebuildInProgress ||
         _mediaRepair?.epoch == _mediaOperationEpoch ||
-        _lateP2PBusy) {
+        (_lateP2PBusy && _lateP2PAttempted)) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
       // window several seconds). There is no established local route to
@@ -2160,9 +2155,10 @@ class CallService {
       }
       _lastAppliedPeerRepairAtMs = peerRequestAtMs;
     }
-    // A handover claims a new epoch before its native work can leave the
-    // repair queue. An obsolete repair failure must not kill that successor.
-    final epoch = _mediaOperationEpoch;
+    // A repair takes priority over P2P preflight. Results from a policy or
+    // admission read started on the old route cannot qualify its replacement.
+    // A subsequent handover can likewise supersede this repair.
+    final epoch = ++_mediaOperationEpoch;
     final connections = _relayConnectionGeneration;
     final networkVersion = _networkObservationVersion;
     Call? repairOwner() {
@@ -2200,7 +2196,12 @@ class CallService {
     final cur = repairOwner();
     if (cur == null) return;
     final actual = media.activeTransport;
-    if (repaired && actual == cur.transport) return;
+    if (repaired && actual == cur.transport) {
+      // A heartbeat may have reached the P2P retry deadline during repair.
+      // Re-evaluate on the restored relay as soon as the repair releases it.
+      if (actual == CallTransportKind.relay) unawaited(_checkLateP2P());
+      return;
+    }
     // repaired with NO open channel = a rebuild is still converging (repair
     // pending). Ending here would kill a call that is seconds from recovery;
     // a genuinely failed rebuild resurfaces as repaired=false on the peer's

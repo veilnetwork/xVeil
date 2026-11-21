@@ -8087,6 +8087,86 @@ void main() {
       });
     }
 
+    for (final repairFinishesFirst in [false, true]) {
+      test('relay repair supersedes a pending direct policy read '
+          '(repair finishes first: $repairFinishesFirst)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _GatedRepairMedia()
+            ..openedTransport = CallTransportKind.relay;
+          final policy = Completer<bool>();
+          var holdPolicy = false;
+          var pendingReads = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async {
+              if (!holdPolicy) return true;
+              pendingReads++;
+              return policy.future;
+            },
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const id = 'relay-repair-during-direct-policy';
+          try {
+            offer(fake, id);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(svc.current?.status, CallStatus.active);
+
+            holdPolicy = true;
+            fake.onCallSignal!(peer, ready(id));
+            async.flushMicrotasks();
+            expect(pendingReads, 1);
+            fake.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                mediaRepairRequested: true,
+              ),
+            );
+            async.flushMicrotasks();
+            expect(media.repairs, 1);
+            expect(media.switches, isEmpty);
+
+            if (repairFinishesFirst) {
+              media.gate.complete(true);
+              async.flushMicrotasks();
+            }
+            holdPolicy = false;
+            policy.complete(true);
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+            expect(svc.current?.transport, CallTransportKind.relay);
+
+            if (!repairFinishesFirst) {
+              media.rxAt = clock.now();
+              async.elapse(kCallHeartbeatInterval);
+              expect(media.switches, isEmpty);
+              expect(media.repairs, 1);
+              media.gate.complete(true);
+              async.flushMicrotasks();
+            }
+            media.rxAt = clock.now();
+            async.elapse(kCallHeartbeatInterval);
+            expect(media.switches, [CallTransportKind.p2p]);
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            expect(svc.current?.status, CallStatus.active);
+            expect(
+              fake.sent.where((s) => s.type == CallSignalType.end),
+              isEmpty,
+            );
+          } finally {
+            svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('a network change during P2P commit leaves a retry on relay', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
