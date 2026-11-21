@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/call_service.dart'
+    show kCallHeartbeatInterval, kCallLivenessTimeout;
 
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
@@ -13,7 +15,7 @@ import 'multi_device_process_e2e_test.dart' as base;
 void main() {
   final gate = E2eGate.read();
   test(
-    'anonymous sibling answers with bidirectional media while primary is online or offline',
+    'anonymous sibling carries media through primary crash and answers offline',
     () async {
       final fleet = await ProcessFleet.start(gate);
       addTearDown(fleet.dispose);
@@ -53,16 +55,30 @@ void main() {
         await base.introduceProcesses(a, c);
         final ai = (await base.deviceInfo(a))['identity'] as String;
         await base.linkProcesses(a, b);
+        final callIds = <String>{};
         for (final primaryOnline in [true, false]) {
-          if (!primaryOnline) await a.stop();
           final phase = primaryOnline ? 'primary_online' : 'primary_offline';
           result['stage'] = '$phase:ringing';
           final watch = Stopwatch()..start();
-          await c.checked('/call_place', query: {'peer': ai});
+          final placed = await c.checked('/call_place', query: {'peer': ai});
+          final callId = (placed['call'] as Map)['callId'] as String;
+          expect(callIds.add(callId), isTrue);
+          bool carriesCall(Map<String, dynamic>? state) =>
+              state?['callId'] == callId &&
+              state?['status'] == 'active' &&
+              state?['transport'] == 'onion';
           await waitUntil(
-            () async =>
-                (await call(b))?['status'] == 'ringing' &&
-                (!primaryOnline || (await call(a))?['status'] == 'ringing'),
+            () async {
+              final ringing = await call(b);
+              if (ringing?['callId'] != callId ||
+                  ringing?['status'] != 'ringing') {
+                return false;
+              }
+              if (!primaryOnline) return true;
+              final primary = await call(a);
+              return primary?['callId'] == callId &&
+                  primary?['status'] == 'ringing';
+            },
             what: '$phase: C rings every online device of X',
             describe: describe,
             timeout: const Duration(seconds: 60),
@@ -74,10 +90,8 @@ void main() {
           await waitUntil(
             () async {
               final bc = await call(b), cc = await call(c);
-              return live(bc) &&
-                  live(cc) &&
-                  bc?['transport'] == 'onion' &&
-                  cc?['transport'] == 'onion' &&
+              return carriesCall(bc) &&
+                  carriesCall(cc) &&
                   rx(bc) >= 5 &&
                   rx(cc) >= 5 &&
                   (!primaryOnline || !live(await call(a)));
@@ -88,15 +102,28 @@ void main() {
             timeout: const Duration(seconds: 40),
           );
           result['${phase}_answer_media_ms'] = watch.elapsedMilliseconds;
-          final beforeB = rx(await call(b)), beforeC = rx(await call(c));
+          if (primaryOnline) {
+            result['stage'] = '$phase:crash';
+            await a.stop(crash: true);
+            expect(a.lastExitCode, -ProcessSignal.sigkill.signalNumber);
+            result['primary_crash_during_call'] = true;
+          }
+          final beforeB = await call(b), beforeC = await call(c);
+          expect(carriesCall(beforeB) && carriesCall(beforeC), isTrue);
           result['stage'] = '$phase:continuous-media';
-          await Future<void>.delayed(const Duration(seconds: 5));
+          // Keep the original call beyond a full liveness window after the
+          // crash, including the tick that can act on the expired window.
+          final observation = primaryOnline
+              ? kCallLivenessTimeout + kCallHeartbeatInterval
+              : kCallHeartbeatInterval;
+          await Future<void>.delayed(observation);
           final afterB = await call(b), afterC = await call(c);
-          expect(live(afterB) && live(afterC), isTrue);
-          expect(rx(afterB), greaterThan(beforeB));
-          expect(rx(afterC), greaterThan(beforeC));
-          result['${phase}_media_rx_delta_b'] = rx(afterB) - beforeB;
-          result['${phase}_media_rx_delta_c'] = rx(afterC) - beforeC;
+          expect(carriesCall(afterB) && carriesCall(afterC), isTrue);
+          expect(rx(afterB), greaterThan(rx(beforeB)));
+          expect(rx(afterC), greaterThan(rx(beforeC)));
+          result['${phase}_observation_seconds'] = observation.inSeconds;
+          result['${phase}_media_rx_delta_b'] = rx(afterB) - rx(beforeB);
+          result['${phase}_media_rx_delta_c'] = rx(afterC) - rx(beforeC);
           await b.checked('/call_hangup');
           await waitUntil(
             () async => !live(await call(b)) && !live(await call(c)),
