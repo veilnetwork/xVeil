@@ -8,6 +8,24 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.106] - 2026-11-22
+
+### Fixed
+
+- Start on Windows 10 when an older profile settings file has the Windows
+  Administrators group as its owner and its access permissions are safe.
+- Create encrypted and unencrypted identities on Windows 10, including from
+  an elevated process. Reopen the saved identity on restart.
+- Recover ongoing calls after network changes. Stop waiting for an old route
+  when the network has changed, and try restoring direct calling as soon as
+  the retry pause expires.
+- Retry pending calls promptly when the node reconnects. Keep live contact
+  requests and confirmations retrying independently of offline delivery.
+- Keep video adaptation responsive when an audio decoder resets or a
+  receiver estimate becomes unavailable.
+
+This release uses Veil 0.11.58.
+
 ## [0.13.105] - 2026-11-21
 
 ### Fixed
