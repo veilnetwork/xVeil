@@ -755,6 +755,7 @@ void main() {
       'audio_rx_native_age_ms': 520,
       'audio_rtp_lag_ms': 1108,
       'audio_pressure_delay_ms': 1148,
+      'audio_input_duration_ms': 29500,
       'audio_latency_recovery_count': 13,
       'audio_latency_discarded_ms': 280,
       'audio_latency_fallback_frames': 2,
@@ -801,6 +802,7 @@ void main() {
       'audioReceiveAgeMs': 520,
       'audioRtpLagMs': 1108,
       'audioPressureDelayMs': 1148,
+      'audioInputDurationMs': 29500,
       'audioRecoveryCount': 13,
       'audioDiscardedMs': 280,
       'audioRecoveryFallbackFrames': 2,
@@ -834,6 +836,7 @@ void main() {
       journal.recordMediaStats({
         'audio_rtp_lag_ms': invalid,
         'audio_pressure_delay_ms': invalid,
+        'audio_input_duration_ms': -1,
         'audio_jb_target_ms': 300,
       });
       final sample = (journal.toJson()['events'] as List).single as Map;
@@ -843,11 +846,13 @@ void main() {
     journal.recordMediaStats({
       'audio_rtp_lag_ms': -1,
       'audio_pressure_delay_ms': 60000,
+      'audio_input_duration_ms': 1000000000,
     });
     final sample = (journal.toJson()['events'] as List).single as Map;
     expect(sample['values'], {
       'audioRtpLagMs': -1,
       'audioPressureDelayMs': 60000,
+      'audioInputDurationMs': 1000000000,
     });
   });
 

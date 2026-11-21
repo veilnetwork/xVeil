@@ -36,6 +36,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
                 "'audio_jb_target_ms': 260, 'audio_rtp_lag_ms': 1108, "
                 "'audio_pressure_delay_ms': 1148, "
+                "'audio_input_duration_ms': 29500, "
                 "'camera_capturing': 0, 'camera_capture_status': 7, "
                 "'camera_capture_hresult': 0xc00d3ea2, 'camera_capture_reads': 11, "
                 "'camera_capture_samples': 10, 'camera_capture_frames': 8, "
@@ -169,6 +170,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
                             'audioTargetDelayMs': 260, 'audioRtpLagMs': 1108,
                             'audioPressureDelayMs': 1148,
+                            'audioInputDurationMs': 29500,
                             'cameraCapturing': 0,
                             'cameraCaptureStatus': 7, 'cameraCaptureHresult': 0xc00d3ea2,
                             'cameraCaptureReads': 11, 'cameraCaptureSamples': 10,

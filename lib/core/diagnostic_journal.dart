@@ -147,6 +147,7 @@ enum DiagnosticMetric {
   audioDelayMs,
   audioRtpLagMs,
   audioPressureDelayMs,
+  audioInputDurationMs,
   audioRecoveryCount,
   audioDiscardedMs,
   audioRecoveryFallbackFrames,
@@ -458,6 +459,12 @@ class DiagnosticJournal {
       DiagnosticMetric.audioPressureDelayMs,
       -1,
       60000,
+    ),
+    // Cumulative audio supplied to the send stream before encoding.
+    'audio_input_duration_ms': (
+      DiagnosticMetric.audioInputDurationMs,
+      0,
+      1000000000,
     ),
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
