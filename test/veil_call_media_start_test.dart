@@ -2533,6 +2533,9 @@ void main() {
         return _HandoverEngine();
       },
     );
+    final gate = Completer<int>();
+    Future<bool>? opening;
+    Future<bool>? replacement;
     try {
       expect(await controller.start(_call(direct: true)), isTrue);
       transport.directOpenFailures.add('synthetic direct open refusal');
@@ -2541,24 +2544,39 @@ void main() {
       expect(controller.activeTransport, isNull);
 
       transport.failRelayOpen = false;
-      final gate = transport.relayOpenGate = Completer<int>();
-      final opening = controller.switchRoute(CallTransportKind.relay);
+      transport.relayOpenGate = gate;
+      bool? oldResult;
+      opening = controller.switchRoute(CallTransportKind.relay).then((result) {
+        oldResult = result;
+        return result;
+      });
       await Future.any([
         transport.relayOpening.future,
         opening.then((_) => fail('The candidate must reach the relay open')),
       ]);
       transport.dispatchNetworkChange();
-      gate.complete(43);
-      expect(await opening, isFalse);
-      expect(transport.closed, [42, 43]);
-      expect(engineChannels, [42]);
-      expect(controller.activeTransport, isNull);
-
       transport.relayOpenGate = null;
-      expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
+      bool? newResult;
+      replacement = controller
+          .switchRoute(CallTransportKind.relay)
+          .then((result) {
+            newResult = result;
+            return result;
+          });
+      await pumpEventQueue();
+      expect(oldResult, isFalse, reason: 'old open must release the route');
+      expect(newResult, isTrue, reason: 'new open can finish first');
+      expect(transport.closed, [42]);
+      expect(engineChannels, [42, 44]);
+      gate.complete(43);
+      await pumpEventQueue();
+      expect(transport.closed, [42, 43]);
       expect(engineChannels, [42, 44]);
       expect(controller.activeTransport, CallTransportKind.relay);
     } finally {
+      if (!gate.isCompleted) gate.complete(43);
+      await opening;
+      await replacement;
       await controller.stop();
       await transport.networkDispatches.close();
     }
@@ -2578,6 +2596,8 @@ void main() {
         },
       );
       final gate = Completer<int>();
+      Future<bool>? repairing;
+      Future<bool>? replacement;
       try {
         expect(
           await controller.start(_call(direct: true).copyWith(transport: route)),
@@ -2588,7 +2608,11 @@ void main() {
         } else {
           transport.relayOpenGate = gate;
         }
-        final repairing = controller.repairRoute();
+        bool? oldResult;
+        repairing = controller.repairRoute().then((result) {
+          oldResult = result;
+          return result;
+        });
         await Future.any([
           route == CallTransportKind.p2p
               ? transport.directOpening.future
@@ -2596,17 +2620,28 @@ void main() {
           repairing.then((_) => fail('The repair must reach the channel open')),
         ]);
         transport.dispatchNetworkChange();
+        transport.directOpenGate = transport.relayOpenGate = null;
+        bool? newResult;
+        replacement = controller
+            .switchRoute(CallTransportKind.relay)
+            .then((result) {
+              newResult = result;
+              return result;
+            });
+        await pumpEventQueue();
+        expect(oldResult, isFalse, reason: 'old repair must release the route');
+        expect(newResult, isTrue, reason: 'new open can finish first');
+        expect(transport.closed, [42]);
+        expect(engineChannels, [42, 44]);
         gate.complete(43);
-        expect(await repairing, isFalse);
+        await pumpEventQueue();
         expect(transport.closed, [42, 43]);
-        expect(engineChannels, [42]);
-        expect(controller.activeTransport, isNull);
-
-        transport.relayOpenGate = null;
-        expect(await controller.switchRoute(CallTransportKind.relay), isTrue);
         expect(engineChannels, [42, 44]);
         expect(controller.activeTransport, CallTransportKind.relay);
       } finally {
+        if (!gate.isCompleted) gate.complete(43);
+        await repairing;
+        await replacement;
         await controller.stop();
         await transport.networkDispatches.close();
       }
@@ -2679,6 +2714,7 @@ void main() {
           final wire = _CameraCallWire();
           final oldEngine = _HandoverEngine();
           final engineChannels = <int>[];
+          final oldOpen = Completer<int>();
           var now = DateTime.now();
           final controller = VeilCallMediaController(
             transport,
@@ -2720,7 +2756,7 @@ void main() {
             await pumpEventQueue();
 
             oldEngine.stalled = true;
-            final oldOpen = transport.relayOpenGate = Completer<int>();
+            transport.relayOpenGate = oldOpen;
             final poll = statsPolls.last;
             poll();
             now = now.add(kCallMediaRepairAfter);
@@ -2748,11 +2784,11 @@ void main() {
 
             transport.dispatchNetworkChange();
             network.add(NetworkAttachment.cellular);
-            oldOpen.complete(43);
             transport.relayOpenGate = null;
             await pumpEventQueue();
             expect(controller.activeTransport, isNull);
-            expect(transport.closed, [42, 43]);
+            expect(controller.isRepairingReceiveSession, isFalse);
+            expect(transport.closed, [42]);
             expect(engineChannels, [42]);
             expect(service.current?.status, CallStatus.active);
             expect(transport.opened, [42, 43]);
@@ -2760,9 +2796,11 @@ void main() {
             if (outcome == 'hangup') {
               await service.hangup();
               admissions.add(null);
+              oldOpen.complete(43);
               await pumpEventQueue();
               expect(service.current, isNull);
               expect(transport.opened, [42, 43]);
+              expect(transport.closed, [42, 43]);
               final ends = wire.sent.where(
                 (signal) => signal.type == CallSignalType.end,
               );
@@ -2776,11 +2814,16 @@ void main() {
             expect(service.current?.status, CallStatus.active);
             expect(controller.activeTransport, CallTransportKind.relay);
             expect(engineChannels, [42, 44]);
+            oldOpen.complete(43);
+            await pumpEventQueue();
+            expect(transport.closed, [42, 43]);
+            expect(service.current?.callId, callId);
             expect(
               wire.sent.where((signal) => signal.type == CallSignalType.end),
               isEmpty,
             );
           } finally {
+            if (!oldOpen.isCompleted) oldOpen.complete(43);
             service.dispose();
             unawaited(network.close());
             unawaited(admissions.close());

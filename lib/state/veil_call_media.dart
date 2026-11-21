@@ -212,6 +212,13 @@ NodeId callMediaRoutePeer(Call call, {required bool sessionAdmitted}) {
   return call.peerDevice ?? call.peer;
 }
 
+typedef _OpenedCallMediaRoute = ({
+  int channel,
+  NodeId peer,
+  CallTransportKind transport,
+  String? fallbackReason,
+});
+
 /// Open the media datagram channel for the route [call] negotiated, sealing it
 /// with the already-derived directional keys.
 ///
@@ -227,15 +234,7 @@ NodeId callMediaRoutePeer(Call call, {required bool sessionAdmitted}) {
 /// PRIVATE on purpose: [openSealedCallMediaChannel] is the only entry point, so
 /// no caller can acquire a shortcut that reaches an open without deriving the
 /// keys first.
-Future<
-  ({
-    int channel,
-    NodeId peer,
-    CallTransportKind transport,
-    String? fallbackReason,
-  })?
->
-_openCallMediaChannel({
+Future<_OpenedCallMediaRoute?> _openCallMediaChannel({
   required Call call,
   required CallMediaChannelOpener opener,
   required Uint8List txKey,
@@ -1290,6 +1289,31 @@ class VeilCallMediaController implements CallMediaController {
     );
   }
 
+  Future<_OpenedCallMediaRoute?> _waitForRouteOpening(
+    Future<_OpenedCallMediaRoute?> opening,
+    Completer<void> retired,
+  ) async {
+    final opened = await Future.any([
+      opening,
+      retired.future.then<_OpenedCallMediaRoute?>((_) => null),
+    ]);
+    if (opened == null && retired.isCompleted) {
+      // The native request cannot be recalled. Release the route slot now
+      // and close only the handle that this old request eventually opens.
+      unawaited(
+        opening.then<void>((lateOpen) {
+          if (lateOpen == null) return;
+          try {
+            _transport.closeMediaChannel(lateOpen.channel);
+          } catch (_) {
+            // The transport may have shut down while the open was pending.
+          }
+        }, onError: (Object _, StackTrace _) {}),
+      );
+    }
+    return opened;
+  }
+
   Future<bool> _switchRoutePreservingEngine(
     Call call,
     CallTransportKind target,
@@ -1356,13 +1380,7 @@ class VeilCallMediaController implements CallMediaController {
       } else {
         _closeRetainedRelayCandidate();
       }
-      final ({
-        int channel,
-        NodeId peer,
-        CallTransportKind transport,
-        String? fallbackReason,
-      })?
-      opened;
+      final _OpenedCallMediaRoute? opened;
       if (reused) {
         opened = (
           channel: retained.channel,
@@ -1385,21 +1403,7 @@ class VeilCallMediaController implements CallMediaController {
             return callMediaRoutePeer(next, sessionAdmitted: admitted);
           },
         );
-        opened = await untilNetworkChange(opening);
-        if (opened == null && retired.isCompleted) {
-          // The native request cannot be recalled. Release the route slot now
-          // and close only the handle that this old request eventually opens.
-          unawaited(
-            opening.then<void>((lateOpen) {
-              if (lateOpen == null) return;
-              try {
-                _transport.closeMediaChannel(lateOpen.channel);
-              } catch (_) {
-                // The transport may have shut down while the open was pending.
-              }
-            }, onError: (Object _, StackTrace _) {}),
-          );
-        }
+        opened = await _waitForRouteOpening(opening, retired);
       }
       if (opened == null) return false;
       final channel = candidate = opened.channel;
@@ -1897,6 +1901,7 @@ class VeilCallMediaController implements CallMediaController {
     // Open only the route finalized by call negotiation.
     final int chan;
     final CallTransportKind transport;
+    String? fallbackReason = _transportFallbackReason;
     if (_chan != null && _chanPeer == call.mediaPeer.hex) {
       chan = _chan!;
       transport = _chanTransport!;
@@ -1906,21 +1911,37 @@ class VeilCallMediaController implements CallMediaController {
       // a channel at all rather than getting an unsealed one. A route rebuild
       // re-derives the SAME pair from the same call, which is what lets the
       // native replay window outlive the channel.
-      final opened = await openSealedCallMediaChannel(
-        call: call,
-        opener: _transport,
-        localNodeId: localId,
-        retryInactiveDirect: retryInactiveDirect,
-        canAttemptOpen: rebuildNetworkGeneration == null ? null : currentStart,
-        resolveDirectPeerOnRetry: () async {
-          final admitted = (await _transport.peerPnetStatus(
-            (call.peerDevice ?? call.peer).bytes,
-          )).admitted;
-          return callMediaRoutePeer(call, sessionAdmitted: admitted);
-        },
-      );
+      final retired = rebuildNetworkGeneration == null
+          ? null
+          : Completer<void>();
+      final networkChanges = retired == null
+          ? null
+          : _transport.networkChangeStarts.listen((_) {
+              if (!retired.isCompleted) retired.complete();
+            });
+      final _OpenedCallMediaRoute? opened;
+      try {
+        final opening = openSealedCallMediaChannel(
+          call: call,
+          opener: _transport,
+          localNodeId: localId,
+          retryInactiveDirect: retryInactiveDirect,
+          canAttemptOpen: retired == null ? null : currentStart,
+          resolveDirectPeerOnRetry: () async {
+            final admitted = (await _transport.peerPnetStatus(
+              (call.peerDevice ?? call.peer).bytes,
+            )).admitted;
+            return callMediaRoutePeer(call, sessionAdmitted: admitted);
+          },
+        );
+        opened = retired == null
+            ? await opening
+            : await _waitForRouteOpening(opening, retired);
+      } finally {
+        unawaited(networkChanges?.cancel());
+      }
       if (opened == null) return false;
-      _transportFallbackReason = opened.fallbackReason;
+      fallbackReason = opened.fallbackReason;
       chan = opened.channel;
       transport = opened.transport;
       // A failed direct open can fall back to a physical relay peer. Keep
@@ -1961,6 +1982,7 @@ class VeilCallMediaController implements CallMediaController {
     _chan = chan;
     _chanPeer = call.mediaPeer.hex;
     _chanTransport = transport;
+    _transportFallbackReason = fallbackReason;
     // A negotiated P2P open may have taken the explicitly permitted non-onion
     // relay fallback. Keep subsequent repair/switch operations anchored to the
     // route that is actually carrying this call, not the stale proposal.
