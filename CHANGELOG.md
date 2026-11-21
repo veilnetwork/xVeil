@@ -8,6 +8,24 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.105] - 2026-11-21
+
+### Fixed
+
+- Recover calls through relays after stalled connections. Free expired
+  message fragments so previous calls do not delay new answers.
+- Stop outgoing call preparation at the dialing deadline and give each
+  reliable call signaling attempt a bounded wait.
+- Improve Windows camera startup and clear the previous preview when the
+  capture device changes. Include camera startup errors in diagnostics.
+- Tell users when a container is busy with another xVeil instance. Preserve
+  confirmed delivery status across shutdown and unlock.
+- Keep notification delivery responsive during settings reads and respect
+  the current chat settings before showing queued alerts.
+
+This release uses Veil 0.11.57. Relay video calls were tested in both
+directions between Windows 11 and an Android ARM64 emulator.
+
 ## [0.13.104] - 2026-11-19
 
 ### Fixed
