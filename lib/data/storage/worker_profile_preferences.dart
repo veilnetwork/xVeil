@@ -418,12 +418,13 @@ void _profilePreferencesEntry(
               if (Platform.isWindows &&
                   witness != null &&
                   !witness.directory &&
-                  witness.ownedByCurrentUser &&
-                  !witness.ownerOnly &&
-                  witness.otherUsersHaveReadOnlyAccess) {
-                witness = windows.restrictLegacyPreferenceReadAccess(
+                  (witness.ownedByWindowsAdministrators ||
+                      witness.ownedByCurrentUser && !witness.ownerOnly) &&
+                  (witness.ownerOnly || witness.otherUsersHaveReadOnlyAccess)) {
+                witness = windows.normalizePrivateFileAccess(
                   file.path,
                   witness,
+                  allowLegacyReadAccess: true,
                 );
                 requireHeld();
               }

@@ -159,7 +159,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
         Directory(path!).absolute.path) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
-    final before = owner._fs.requirePrivateFile(stagedPath);
+    final before = owner._fs.requirePrivateNativeOutput(stagedPath);
     final space = hv.HvSpace.open(path: stagedPath, password: password);
     final opened = HvKvLogStore(space);
     reclaimStaged = opened;

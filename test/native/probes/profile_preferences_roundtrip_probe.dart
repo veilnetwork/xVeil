@@ -15,7 +15,14 @@ const _second = '{"fixture":"synthetic preferences second"}';
 
 Future<void> main(List<String> args) async {
   final adminOwner = args.length == 3 && args.last == 'administrators';
-  const modes = ['exercise', 'verify', 'repair-legacy', 'reject-writable'];
+  const modes = [
+    'exercise',
+    'verify',
+    'repair-legacy',
+    'repair-legacy-admin',
+    'reject-writable',
+    'reject-admin-writable',
+  ];
   if ((!adminOwner && args.length != 2) || !modes.contains(args.first)) {
     throw ArgumentError('expected probe mode and a disposable profile');
   }
@@ -40,15 +47,29 @@ Future<void> main(List<String> args) async {
     );
     final path = '${profile.path}/xveil.prefs.json';
     owner = await ManagedProfilePreferencesFile.open(path);
-    if (args.first == 'repair-legacy' || args.first == 'reject-writable') {
+    final repair = args.first.startsWith('repair-legacy');
+    final reject = args.first.startsWith('reject-');
+    final legacyAdmin =
+        args.first.endsWith('-admin') || args.first == 'reject-admin-writable';
+    if (repair || reject) {
       final before = fs.inspect(path);
-      check('legacy_file_user_owned', before.ownedByCurrentUser);
-      check('legacy_file_shared', !before.ownerOnly);
-      if (args.first == 'repair-legacy') {
+      check(
+        'legacy_file_owner_expected',
+        legacyAdmin
+            ? before.ownedByWindowsAdministrators
+            : before.ownedByCurrentUser,
+      );
+      if (!repair || !legacyAdmin) {
+        check('legacy_file_shared', !before.ownerOnly);
+      }
+      if (repair) {
         check('legacy_file_read_only', before.otherUsersHaveReadOnlyAccess);
         check('legacy_content_preserved', await owner.read() == _second);
         final repaired = fs.inspect(path);
-        check('legacy_file_same_object', before.sameObject(repaired));
+        if (!legacyAdmin) {
+          check('legacy_file_same_object', before.sameObject(repaired));
+        }
+        check('legacy_file_now_user_owned', repaired.ownedByCurrentUser);
         check('legacy_file_private', repaired.ownerOnly);
       } else {
         check('foreign_writer_detected', !before.otherUsersHaveReadOnlyAccess);
@@ -59,13 +80,18 @@ Future<void> main(List<String> args) async {
           check(
             'foreign_writer_rejected',
             error.preferencesReadReason ==
-                ManagedPreferencesFailureReason.filePermissions,
+                (legacyAdmin
+                    ? ManagedPreferencesFailureReason.fileOwner
+                    : ManagedPreferencesFailureReason.filePermissions),
           );
         }
         check(
           'foreign_writable_file_untouched',
           File(path).readAsStringSync() == _second,
         );
+        final rejected = fs.inspect(path);
+        check('foreign_writable_owner_unchanged', before.sameObject(rejected));
+        check('foreign_writable_access_unchanged', !rejected.ownerOnly);
       }
     } else if (args.first == 'verify') {
       check('cold_read_equal', await owner.read() == _second);

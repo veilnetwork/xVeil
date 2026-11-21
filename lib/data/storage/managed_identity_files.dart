@@ -456,7 +456,7 @@ final class _ManagedIdentityResources {
     validatePaths();
     final target = file(name);
     if (create) {
-      File(target).createSync(exclusive: true);
+      owner._fs.reserveNewFile(target);
       owner._fs.restrictNewFile(target);
     }
     final before = owner._fs.requirePrivateFile(target);
@@ -509,8 +509,10 @@ final class _ManagedIdentityResources {
     try {
       space.setPaddingPolicy(hv.PaddingPreset.none);
       validatePaths();
-      owner._fs.requirePrivateFile(target);
-      if (before != null) {
+      if (before == null) {
+        owner._fs.requirePrivateNativeOutput(target);
+      } else {
+        owner._fs.requirePrivateFile(target);
         ManagedDirectoryCatalog._assertSame(target, before, owner._fs);
       }
       return HvKvLogStore(space);

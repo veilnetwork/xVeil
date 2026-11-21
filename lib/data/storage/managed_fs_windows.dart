@@ -344,30 +344,37 @@ T _withPrivateFileDescriptor<T>(String sid, T Function(Pointer<Void>) action) {
   }
 }
 
-/// Tighten the ACL of an existing user-owned preferences file that legacy
-/// xVeil could create with inherited read grants. The caller holds the profile
-/// lease. This is a metadata change on the witnessed file handle; it writes
-/// no preference bytes, so a concurrent open or an old reader cannot expose
-/// new content or overwrite newer settings.
-ManagedPathWitness restrictLegacyPreferenceReadAccess(
+/// Normalize a single witnessed file within an admitted profile. An elevated
+/// Windows token can create an Administrators-owned file even in a private
+/// directory owned by the user. Claim only that group owner, and only when
+/// accounts outside the existing trust boundary have no write access.
+/// All changes are metadata on the open handle; the file bytes stay intact.
+ManagedPathWitness normalizePrivateFileAccess(
   String path,
-  ManagedPathWitness expected,
-) {
-  if (expected.directory ||
-      !expected.ownedByCurrentUser ||
-      !expected.otherUsersHaveReadOnlyAccess) {
+  ManagedPathWitness expected, {
+  bool allowLegacyReadAccess = false,
+}) {
+  bool canRepair(ManagedPathWitness witness) =>
+      !witness.directory &&
+      (witness.ownedByCurrentUser || witness.ownedByWindowsAdministrators) &&
+      (witness.ownerOnly ||
+          allowLegacyReadAccess && witness.otherUsersHaveReadOnlyAccess);
+
+  if (!canRepair(expected)) {
     throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
   }
+  if (expected.ownedByCurrentUser && expected.ownerOnly) return expected;
   final sid = _currentSid();
   final name = path.toNativeUtf16();
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
   var handle = win.INVALID_HANDLE_VALUE;
   try {
-    const readControl = 0x00020000;
-    const writeDac = 0x00040000;
     handle = win.CreateFile(
       name,
-      win.FILE_READ_ATTRIBUTES | readControl | writeDac,
+      win.FILE_READ_ATTRIBUTES |
+          win.READ_CONTROL |
+          win.WRITE_DAC |
+          (expected.ownedByWindowsAdministrators ? win.WRITE_OWNER : 0),
       win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
       nullptr,
       win.OPEN_EXISTING,
@@ -384,21 +391,35 @@ ManagedPathWitness restrictLegacyPreferenceReadAccess(
                     win.FILE_ATTRIBUTE_REPARSE_POINT) !=
             0 ||
         file.nNumberOfLinks != 1 ||
-        expected.identity != _fileIdentity(file, sid)) {
+        expected.identity !=
+            _fileIdentity(
+              file,
+              expected.ownedByWindowsAdministrators ? _administratorsSid : sid,
+            )) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
     final current = inspect(path);
-    if (!expected.sameObject(current) ||
-        !current.otherUsersHaveReadOnlyAccess) {
+    final privateIdentity = _fileIdentity(file, sid);
+    if (current.identity == privateIdentity &&
+        current.ownedByCurrentUser &&
+        current.ownerOnly) {
+      return current;
+    }
+    if (!expected.sameObject(current) || !canRepair(current)) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
-    if (current.ownerOnly) return current;
     _withPrivateFileDescriptor(
       sid,
-      (descriptor) => _setPrivateFileDacl(handle, descriptor),
+      (descriptor) => _setPrivateFileSecurity(
+        handle,
+        descriptor,
+        setOwner: current.ownedByWindowsAdministrators,
+      ),
     );
     final repaired = inspect(path);
-    if (!expected.sameObject(repaired) || !repaired.ownerOnly) {
+    if (repaired.identity != privateIdentity ||
+        !repaired.ownedByCurrentUser ||
+        !repaired.ownerOnly) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
     return repaired;
@@ -409,8 +430,13 @@ ManagedPathWitness restrictLegacyPreferenceReadAccess(
   }
 }
 
-void _setPrivateFileDacl(int handle, Pointer<Void> descriptor) {
+void _setPrivateFileSecurity(
+  int handle,
+  Pointer<Void> descriptor, {
+  required bool setOwner,
+}) {
   final acl = calloc<Pointer<Void>>();
+  final owner = calloc<Pointer<Void>>();
   final present = calloc<Int32>();
   final defaulted = calloc<Int32>();
   try {
@@ -434,6 +460,21 @@ void _setPrivateFileDacl(int handle, Pointer<Void> descriptor) {
         present.value == 0 ||
         acl.value == nullptr) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    if (setOwner) {
+      final getOwner = advapi
+          .lookupFunction<
+            Int32 Function(
+              Pointer<Void>,
+              Pointer<Pointer<Void>>,
+              Pointer<Int32>,
+            ),
+            int Function(Pointer<Void>, Pointer<Pointer<Void>>, Pointer<Int32>)
+          >('GetSecurityDescriptorOwner');
+      if (getOwner(descriptor, owner, defaulted) == 0 ||
+          owner.value == nullptr) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+      }
     }
     final setSecurity = advapi
         .lookupFunction<
@@ -461,8 +502,10 @@ void _setPrivateFileDacl(int handle, Pointer<Void> descriptor) {
     if (setSecurity(
           handle,
           fileObject,
-          win.DACL_SECURITY_INFORMATION | protectedDacl,
-          nullptr,
+          win.DACL_SECURITY_INFORMATION |
+              protectedDacl |
+              (setOwner ? win.OWNER_SECURITY_INFORMATION : 0),
+          owner.value,
           nullptr,
           acl.value,
           nullptr,
@@ -473,6 +516,7 @@ void _setPrivateFileDacl(int handle, Pointer<Void> descriptor) {
   } finally {
     calloc.free(defaulted);
     calloc.free(present);
+    calloc.free(owner);
     calloc.free(acl);
   }
 }

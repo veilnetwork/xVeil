@@ -223,7 +223,7 @@ final class ManagedDirectoryCatalog {
       var published = false;
       try {
         final file = File(_child(staged, _catalogName));
-        file.createSync(exclusive: true);
+        fs.reserveNewFile(file.path);
         final fileWitness = fs.inspect(file.path);
         ownedFiles[_catalogName] = fileWitness;
         fs.restrictNewFile(file.path);
@@ -236,7 +236,7 @@ final class ManagedDirectoryCatalog {
         catalog.close();
         catalog = null;
         final role = File(_child(staged, ManagedProfileLease.fileName));
-        role.createSync(exclusive: true);
+        fs.reserveNewFile(role.path);
         final roleWitness = fs.inspect(role.path);
         ownedFiles[ManagedProfileLease.fileName] = roleWitness;
         fs.restrictNewFile(role.path);

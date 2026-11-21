@@ -151,6 +151,19 @@ class ManagedFsPlatform {
     return facts;
   }
 
+  /// Native container writers create their own files. On Windows an elevated
+  /// writer can inherit a private DACL but still get the group owner. Call
+  /// this only on a fresh output under an already-admitted private directory.
+  ManagedPathWitness requirePrivateNativeOutput(String path) {
+    if (Platform.isWindows) {
+      final witness = inspect(path);
+      if (witness.ownedByWindowsAdministrators) {
+        return windows.normalizePrivateFileAccess(path, witness);
+      }
+    }
+    return requirePrivateFile(path);
+  }
+
   /// Whole-directory bootstrap: the final root becomes visible only after its
   /// catalog is complete. No check-then-rename fallback on unsupported hosts.
   bool publishDirectoryNoReplace(String source, String destination) {
