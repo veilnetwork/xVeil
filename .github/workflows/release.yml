@@ -1083,6 +1083,21 @@ jobs:
 
       # `python3` is not the name on a Windows runner.
       #
+      - name: Install the pinned NASM assembler for BoringSSL
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'nasm-2.16.03-win64.zip'
+          Invoke-WebRequest -Uri 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6') {
+            throw 'NASM archive checksum mismatch'
+          }
+          Expand-Archive -Path $archive -DestinationPath $env:RUNNER_TEMP
+          $bin = Join-Path $env:RUNNER_TEMP 'nasm-2.16.03'
+          & (Join-Path $bin 'nasm.exe') -v
+          if ($LASTEXITCODE -ne 0) { throw 'NASM did not run' }
+          $bin >> $env:GITHUB_PATH
+
       # The PATH dance is not optional. `shell: bash` here is Git Bash, and its
       # launcher puts /usr/bin ahead of everything msvc-dev-cmd just set. Git
       # ships a coreutils `link.exe` there — the hard-link utility — and rustc
