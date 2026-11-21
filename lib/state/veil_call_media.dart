@@ -1304,18 +1304,40 @@ class VeilCallMediaController implements CallMediaController {
     if (previous == null || previousPeer == null || previousTransport == null) {
       return false;
     }
+    final retired = Completer<void>();
+    final networkChanges = _transport.networkChangeStarts.listen((_) {
+      if (!retired.isCompleted) retired.complete();
+    });
+    Future<T?> untilNetworkChange<T>(Future<T?> pending) =>
+        Future.any<T?>([pending, retired.future.then<T?>((_) => null)]);
+
     int? candidate;
     var committed = false;
     try {
       var next = _activeCall!.copyWith(transport: target);
+      bool stillOwned() =>
+          !retired.isCompleted &&
+          _engine == engine &&
+          epoch == _mediaEpoch &&
+          networkGeneration == _transport.networkChangeGeneration &&
+          _chan == previous &&
+          _chanTransport == previousTransport &&
+          _activeCall?.callId == call.callId &&
+          _activeCall?.mediaIdentity == next.mediaIdentity &&
+          _activeCall?.peerDevice == next.peerDevice;
+
       final device = next.peerDevice;
       if (device != null && device != next.mediaIdentity) {
-        final admitted =
-            target == CallTransportKind.p2p &&
-            (await _transport
-                    .peerPnetStatus(device.bytes)
-                    .timeout(const Duration(seconds: 2)))
-                .admitted;
+        var admitted = false;
+        if (target == CallTransportKind.p2p) {
+          final status = await untilNetworkChange(
+            _transport
+                .peerPnetStatus(device.bytes)
+                .timeout(const Duration(seconds: 2)),
+          );
+          if (status == null || !stillOwned()) return false;
+          admitted = status.admitted;
+        }
         next = next.copyWith(
           mediaRoutePeer: callMediaRoutePeer(next, sessionAdmitted: admitted),
         );
@@ -1334,71 +1356,83 @@ class VeilCallMediaController implements CallMediaController {
       } else {
         _closeRetainedRelayCandidate();
       }
-      final opened = reused
-          ? (
-              channel: retained.channel,
-              peer: retained.peer,
-              transport: CallTransportKind.relay,
-              fallbackReason: null,
-            )
-          : await openSealedCallMediaChannel(
-              call: next,
-              opener: _transport,
-              localNodeId: (await _transport.peerFacingNodeId()).bytes,
-              resolveDirectPeerOnRetry: () async {
-                final admitted = (await _transport.peerPnetStatus(
-                  (next.peerDevice ?? next.peer).bytes,
-                )).admitted;
-                return callMediaRoutePeer(next, sessionAdmitted: admitted);
-              },
-            );
+      final ({
+        int channel,
+        NodeId peer,
+        CallTransportKind transport,
+        String? fallbackReason,
+      })?
+      opened;
+      if (reused) {
+        opened = (
+          channel: retained.channel,
+          peer: retained.peer,
+          transport: CallTransportKind.relay,
+          fallbackReason: null,
+        );
+      } else {
+        final local = await untilNetworkChange(_transport.peerFacingNodeId());
+        if (local == null || !stillOwned()) return false;
+        final opening = openSealedCallMediaChannel(
+          call: next,
+          opener: _transport,
+          localNodeId: local.bytes,
+          canAttemptOpen: stillOwned,
+          resolveDirectPeerOnRetry: () async {
+            final admitted = (await _transport.peerPnetStatus(
+              (next.peerDevice ?? next.peer).bytes,
+            )).admitted;
+            return callMediaRoutePeer(next, sessionAdmitted: admitted);
+          },
+        );
+        opened = await untilNetworkChange(opening);
+        if (opened == null && retired.isCompleted) {
+          // The native request cannot be recalled. Release the route slot now
+          // and close only the handle that this old request eventually opens.
+          unawaited(
+            opening.then<void>((lateOpen) {
+              if (lateOpen == null) return;
+              try {
+                _transport.closeMediaChannel(lateOpen.channel);
+              } catch (_) {
+                // The transport may have shut down while the open was pending.
+              }
+            }, onError: (Object _, StackTrace _) {}),
+          );
+        }
+      }
       if (opened == null) return false;
-      candidate = opened.channel;
-      bool stillOwned() =>
-          _engine == engine &&
-          epoch == _mediaEpoch &&
-          networkGeneration == _transport.networkChangeGeneration &&
-          _chan == previous &&
-          _chanTransport == previousTransport &&
-          _activeCall?.callId == call.callId &&
-          _activeCall?.mediaIdentity == next.mediaIdentity &&
-          _activeCall?.peerDevice == next.peerDevice;
+      final channel = candidate = opened.channel;
       if (opened.transport != target || !stillOwned()) return false;
       if (!reused &&
-          !await _configureRouteProbes(candidate, next, opened.transport)) {
+          await untilNetworkChange(
+                _configureRouteProbes(candidate, next, opened.transport),
+              ) !=
+              true) {
         return false;
       }
+      if (!stillOwned()) return false;
       var observations = 0;
       // Keep the old sender/receiver alive until the candidate has carried a
       // sealed peer echo in both directions. Local open/admission is not a
       // delivery observation. The echo's route stays inside the call AEAD.
-      final retired = Completer<bool>();
-      final networkChanges = _transport.networkChangeStarts.listen((_) {
-        if (!retired.isCompleted) retired.complete(false);
-      });
-      final bool qualified;
-      try {
-        qualified = await Future.any([
-          qualifyCallMediaHandover(
-            from: previousTransport,
-            to: target,
-            stillOwned: stillOwned,
-            qualify: (budget) {
-              observations++;
-              devLog(
-                () =>
-                    'xVeil[call-media]: ${target.name} candidate '
-                    'delivery observation=$observations',
-              );
-              return _transport.qualifyMediaRoute(opened.channel, budget: budget);
-            },
-          ),
-          retired.future,
-        ]);
-      } finally {
-        unawaited(networkChanges.cancel());
-      }
-      if (!qualified) {
+      final qualified = await untilNetworkChange(
+        qualifyCallMediaHandover(
+          from: previousTransport,
+          to: target,
+          stillOwned: stillOwned,
+          qualify: (budget) {
+            observations++;
+            devLog(
+              () =>
+                  'xVeil[call-media]: ${target.name} candidate '
+                  'delivery observation=$observations',
+            );
+            return _transport.qualifyMediaRoute(channel, budget: budget);
+          },
+        ),
+      );
+      if (qualified != true) {
         devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
         if (!reused &&
             previousTransport == CallTransportKind.p2p &&
@@ -1409,7 +1443,10 @@ class VeilCallMediaController implements CallMediaController {
         }
         return false;
       }
-      if (canCommit != null && !await canCommit()) return false;
+      if (canCommit != null &&
+          (!stillOwned() || await untilNetworkChange(canCommit()) != true)) {
+        return false;
+      }
       final current = _activeCall;
       if (!stillOwned()) return false;
       final relay = target == CallTransportKind.relay;
@@ -1477,6 +1514,7 @@ class VeilCallMediaController implements CallMediaController {
       devLog(() => 'xVeil[call-media]: route handover failed: $error');
       return false;
     } finally {
+      unawaited(networkChanges.cancel());
       if (!committed && candidate != null) {
         _transport.closeMediaChannel(candidate);
       }

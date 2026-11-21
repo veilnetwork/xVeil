@@ -236,6 +236,8 @@ class _HandoverTransport extends _RepairingTransport {
   final directOpening = Completer<void>();
   Completer<int>? relayOpenGate;
   final relayOpening = Completer<void>();
+  Completer<bool>? probesGate;
+  final configuringProbes = Completer<void>();
   bool? proofAvailable;
 
   @override
@@ -288,7 +290,12 @@ class _HandoverTransport extends _RepairingTransport {
     int channel, {
     required NodeId directPeer,
     required NodeId relayPeer,
-  }) async => true;
+  }) async {
+    final gate = probesGate;
+    if (gate == null) return true;
+    configuringProbes.complete();
+    return gate.future;
+  }
 
   @override
   int setRelayMediaBatching(int channel, bool on, {bool compact = false}) => 0;
@@ -2424,6 +2431,92 @@ void main() {
       } finally {
         if (!transport.echo.isCompleted) transport.echo.complete(false);
         await switching;
+        await controller.stop();
+        await transport.networkDispatches.close();
+      }
+    });
+  }
+
+  for (final (target, holdOpen) in [
+    (CallTransportKind.relay, true),
+    (CallTransportKind.p2p, true),
+    (CallTransportKind.relay, false),
+  ]) {
+    final stage = holdOpen ? 'open' : 'probe setup';
+    test('network change releases a pending ${target.name} $stage', () async {
+      final transport = _HandoverTransport()..proofAvailable = true;
+      final engine = _HandoverEngine();
+      final from = target == CallTransportKind.relay
+          ? CallTransportKind.p2p
+          : CallTransportKind.relay;
+      final controller = VeilCallMediaController(
+        transport,
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+      );
+      final openGate = Completer<int>();
+      final probesGate = Completer<bool>();
+      Future<bool>? firstOpen;
+      Future<bool>? secondOpen;
+      try {
+        expect(
+          await controller.start(_call(direct: true).copyWith(transport: from)),
+          isTrue,
+        );
+        final Future<void> entered;
+        if (!holdOpen) {
+          transport.probesGate = probesGate;
+          entered = transport.configuringProbes.future;
+        } else if (target == CallTransportKind.relay) {
+          transport.relayOpenGate = openGate;
+          entered = transport.relayOpening.future;
+        } else {
+          transport.directOpenGate = openGate;
+          entered = transport.directOpening.future;
+        }
+        bool? firstResult;
+        firstOpen = controller.switchRoute(target).then((result) {
+          firstResult = result;
+          return result;
+        });
+        await Future.any([
+          entered,
+          firstOpen.then((_) => fail('The candidate must reach $stage')),
+        ]);
+        transport.dispatchNetworkChange();
+        transport.relayOpenGate = transport.directOpenGate = null;
+        transport.probesGate = null;
+        bool? secondResult;
+        secondOpen = controller.switchRoute(target).then((result) {
+          secondResult = result;
+          return result;
+        });
+        await pumpEventQueue();
+        expect(
+          firstResult,
+          isFalse,
+          reason: 'old attempt must release the route',
+        );
+        expect(secondResult, isTrue, reason: 'new open can finish first');
+        expect(transport.opened, [42, 43, 44]);
+        expect(transport.probeRequests, [44]);
+        expect(engine.rebound, [44]);
+
+        expect(transport.closed.contains(43), !holdOpen);
+        openGate.complete(43);
+        probesGate.complete(true);
+        await pumpEventQueue();
+        expect(transport.closed.where((channel) => channel == 43), [43]);
+        expect(transport.closed, isNot(contains(44)));
+        expect(transport.probeRequests, [44]);
+        expect(engine.rebound, [44]);
+        expect(controller.activeTransport, target);
+        expect(transport.networkDispatches.hasListener, isFalse);
+      } finally {
+        if (!openGate.isCompleted) openGate.complete(43);
+        if (!probesGate.isCompleted) probesGate.complete(false);
+        await firstOpen;
+        await secondOpen;
         await controller.stop();
         await transport.networkDispatches.close();
       }
