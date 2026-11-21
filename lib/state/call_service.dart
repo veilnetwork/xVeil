@@ -78,8 +78,8 @@ const Duration kCallRingTimeout = Duration(seconds: 75);
 const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 
 /// A failed delivery probe must not replace the working relay or permanently
-/// strand a call there. Retry after two heartbeats, checking consent/admission
-/// again. Every relay fallback requires a fresh mutual readiness exchange.
+/// strand a call there. Retry after two heartbeat intervals, checking consent
+/// and admission again. Every relay fallback requires fresh mutual readiness.
 const Duration kCallP2PCandidateRetry = Duration(seconds: 10);
 
 /// Retry a relay candidate whose end-to-end delivery could not be confirmed.
@@ -635,6 +635,7 @@ class CallService {
   bool _lateP2PAttempted = false;
   bool _lateP2PBusy = false;
   DateTime? _lateP2PRetryAt;
+  Timer? _lateP2PRetryTimer;
   DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
   Object? _pendingDirectReadiness;
@@ -656,6 +657,8 @@ class CallService {
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
     _lateP2PRetryAt = null;
+    _lateP2PRetryTimer?.cancel();
+    _lateP2PRetryTimer = null;
     _lateP2PActivatedAt = null;
   }
 
@@ -668,7 +671,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
-    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+    _scheduleLateP2PRetry();
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
     // be able to request a later fallback. _set clears the time on relay commit.
@@ -679,7 +682,7 @@ class CallService {
     _lateP2PLocalReady = false;
     _lateP2PPeerReady = false;
     _pendingDirectReadiness = null;
-    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+    _scheduleLateP2PRetry();
     // A concurrent peer fallback agrees with our surviving relay. There is
     // no committed direct route to undo and no reason to revoke mutual consent.
     if (_pendingRelayCallId == call.callId && _pendingRelayPeer == call.peer) {
@@ -687,6 +690,19 @@ class CallService {
       _pendingRelayPeer = null;
       _pendingRelayAtMs = null;
     }
+  }
+
+  void _scheduleLateP2PRetry() {
+    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+    _lateP2PRetryTimer?.cancel();
+    // Readiness received during the cooldown can already satisfy the peer
+    // side. Check at expiration even when the next heartbeat is still far off.
+    _lateP2PRetryTimer = Timer(kCallP2PCandidateRetry, () {
+      _lateP2PRetryTimer = null;
+      if (_current?.transport == CallTransportKind.relay) {
+        unawaited(_checkLateP2P());
+      }
+    });
   }
 
   bool _canUpgradeP2P(Call c) =>
@@ -726,6 +742,9 @@ class CallService {
     final networkVersion = _networkObservationVersion;
     var epoch = _mediaOperationEpoch;
     _lateP2PBusy = true;
+    // An ordinary wake at the same deadline can take the retry first.
+    _lateP2PRetryTimer?.cancel();
+    _lateP2PRetryTimer = null;
     bool stillCurrent() =>
         generation == _lateP2PGeneration &&
         epoch == _mediaOperationEpoch &&

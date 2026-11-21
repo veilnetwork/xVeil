@@ -8636,6 +8636,85 @@ void main() {
       });
     });
 
+    for (final trigger in ['relay fallback', 'failed direct probe', 'hangup']) {
+      test('direct retry observes its own deadline after $trigger', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final fromFallback = trigger == 'relay fallback';
+          final media = _FailOnceDirectSwitchMedia(throws: false)
+            ..openedTransport = fromFallback
+                ? CallTransportKind.p2p
+                : CallTransportKind.relay
+            ..failed = fromFallback;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const callId = 'direct-retry-deadline';
+          void peerReady() {
+            fake.onCallSignal!(
+              peer,
+              ready(callId).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+          }
+
+          try {
+            offer(fake, callId);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            async.elapse(const Duration(seconds: 2));
+            if (fromFallback) {
+              unawaited(svc.requestRelayRecoveryForDiagnostics());
+              async.flushMicrotasks();
+            } else {
+              peerReady(); // The first candidate fails and preserves relay.
+            }
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(media.switches, [
+              fromFallback ? CallTransportKind.relay : CallTransportKind.p2p,
+            ]);
+            async.elapse(const Duration(seconds: 1));
+            peerReady();
+            const beforeDeadline = Duration(milliseconds: 1);
+            media.rxAt = clock.now();
+            async.elapse(
+              kCallP2PCandidateRetry - const Duration(seconds: 1) - beforeDeadline,
+            );
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(media.switches, hasLength(1), reason: 'no early retry');
+            if (trigger == 'hangup') {
+              unawaited(svc.hangup());
+              async.flushMicrotasks();
+              expect(svc.current, isNull);
+              const nextCall = 'successor-before-retry';
+              offer(fake, nextCall);
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              expect(svc.current?.callId, nextCall);
+              final admissions = media.admissionChecks.length;
+              async.elapse(beforeDeadline);
+              expect(svc.current?.callId, nextCall);
+              expect(media.admissionChecks, hasLength(admissions));
+              expect(media.switches, hasLength(1));
+              return;
+            }
+            async.elapse(beforeDeadline);
+            expect(media.switches.last, CallTransportKind.p2p);
+            expect(media.switches, hasLength(2));
+            expect(svc.current?.callId, callId);
+            expect(svc.current?.transport, CallTransportKind.p2p);
+          } finally {
+            svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('failed return trial preserves relay and can retry', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
