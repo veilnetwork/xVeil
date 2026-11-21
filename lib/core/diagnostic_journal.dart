@@ -145,6 +145,8 @@ enum DiagnosticMetric {
   audioReceiveAgeMs,
   micMuted,
   audioDelayMs,
+  audioRtpLagMs,
+  audioPressureDelayMs,
   audioRecoveryCount,
   audioDiscardedMs,
   audioRecoveryFallbackFrames,
@@ -450,6 +452,13 @@ class DiagnosticJournal {
     ..._cameraCaptureFields,
     // Receiver reserve, not network RTT or a user-selected send interval.
     'audio_jb_target_ms': (DiagnosticMetric.audioTargetDelayMs, -1, 60000),
+    // Distinguish current playout from the relative RTP age used for pressure.
+    'audio_rtp_lag_ms': (DiagnosticMetric.audioRtpLagMs, -1, 60000),
+    'audio_pressure_delay_ms': (
+      DiagnosticMetric.audioPressureDelayMs,
+      -1,
+      60000,
+    ),
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),

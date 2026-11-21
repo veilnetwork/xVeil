@@ -753,6 +753,8 @@ void main() {
       'audio_packetization_video_hold': 1,
       'audio_packetization_long_requested': 1,
       'audio_rx_native_age_ms': 520,
+      'audio_rtp_lag_ms': 1108,
+      'audio_pressure_delay_ms': 1148,
       'audio_latency_recovery_count': 13,
       'audio_latency_discarded_ms': 280,
       'audio_latency_fallback_frames': 2,
@@ -797,6 +799,8 @@ void main() {
       'audioPacketizationHold': 1,
       'audioLongPacketsRequested': 1,
       'audioReceiveAgeMs': 520,
+      'audioRtpLagMs': 1108,
+      'audioPressureDelayMs': 1148,
       'audioRecoveryCount': 13,
       'audioDiscardedMs': 280,
       'audioRecoveryFallbackFrames': 2,
@@ -822,6 +826,29 @@ void main() {
       ((journal.toJson()['events'] as List).single as Map)['values'],
       containsPair('audioTxPackets', 41),
     );
+  });
+
+  test('relay audio timing exports only bounded integer estimates', () {
+    for (final invalid in [-2, 60001, 1.5, double.infinity, 'private value']) {
+      final journal = DiagnosticJournal(enabled: true);
+      journal.recordMediaStats({
+        'audio_rtp_lag_ms': invalid,
+        'audio_pressure_delay_ms': invalid,
+        'audio_jb_target_ms': 300,
+      });
+      final sample = (journal.toJson()['events'] as List).single as Map;
+      expect(sample['values'], {'audioTargetDelayMs': 300});
+    }
+    final journal = DiagnosticJournal(enabled: true);
+    journal.recordMediaStats({
+      'audio_rtp_lag_ms': -1,
+      'audio_pressure_delay_ms': 60000,
+    });
+    final sample = (journal.toJson()['events'] as List).single as Map;
+    expect(sample['values'], {
+      'audioRtpLagMs': -1,
+      'audioPressureDelayMs': 60000,
+    });
   });
 
   test('disabled instrumentation retains no events or counters', () {
