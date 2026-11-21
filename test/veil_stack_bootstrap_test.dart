@@ -35,4 +35,26 @@ void main() {
       ]);
     },
   );
+
+  test('runtime bootstrap preserves the full QUIC transport query', () async {
+    const peer = BootstrapPeerCfg(
+      transport:
+          'quic://198.51.100.20:39998?sni=seed.example&alpn=veil-quic&alpn=h%2B3',
+      publicKey: '+/8=',
+      nonce: '//8=',
+    );
+    final joined = <String>[];
+    final count = await registerRuntimeBootstrapPeers([
+      peer,
+    ], (uri) async => joined.add(uri));
+
+    expect(count, 1);
+    // Shared with the veil-bootstrap native codec regression.
+    expect(
+      joined.single,
+      'veil:bootstrap?pk=+/8=&t64='
+      'cXVpYzovLzE5OC41MS4xMDAuMjA6Mzk5OTg_c25pPXNlZWQuZXhhbXBsZSZhbHBuPXZlaWwtcXVpYyZhbHBuPWglMkIz'
+      '&a=ed25519&nc=//8=',
+    );
+  });
 }

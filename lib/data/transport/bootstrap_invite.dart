@@ -57,6 +57,21 @@ class BootstrapInvite {
   /// two have to be added up rather than one silently governing the other.
   static const maxUriChars = 4 * 1024;
 
+  static final _reservedTransportCharacters = RegExp(r'[&=?#]');
+  static final _encodedTransportPattern = RegExp(r'^[A-Za-z0-9_-]+$');
+
+  /// A complete transport URI occupies one outer query field. Veil's legacy
+  /// `t` field is literal, so endpoints with their own delimiters use `t64`.
+  static String transportQueryField(String transport) {
+    if (!_reservedTransportCharacters.hasMatch(transport)) {
+      return 't=$transport';
+    }
+    final encoded = base64Url
+        .encode(utf8.encode(transport))
+        .replaceAll('=', '');
+    return 't64=$encoded';
+  }
+
   /// Parse a scanned/pasted invite. veil emits the base64 fields RAW (not
   /// percent-encoded), so split manually to preserve `+ / =` and the `://`
   /// inside the transport URI.
@@ -72,25 +87,40 @@ class BootstrapInvite {
     for (final part in trimmed.substring(scheme.length).split('&')) {
       final i = part.indexOf('=');
       if (i <= 0) continue;
-      params[part.substring(0, i)] = part.substring(i + 1);
+      final field = part.substring(0, i);
+      if (field == 't64' && params.containsKey(field)) {
+        throw const FormatException('duplicate bootstrap transport field');
+      }
+      params[field] = part.substring(i + 1);
     }
     final pk = params['pk'];
-    final t = params['t']; // optional — absent ⇒ identity-only invite
+    var transport = params['t']; // optional — absent ⇒ identity-only invite
+    final encodedTransport = params['t64'];
+    if (encodedTransport != null) {
+      if (transport != null ||
+          !_encodedTransportPattern.hasMatch(encodedTransport)) {
+        throw const FormatException('invalid bootstrap transport field');
+      }
+      transport = utf8.decode(
+        base64Url.decode(base64Url.normalize(encodedTransport)),
+      );
+    }
     final nc = params['nc'];
     if (pk == null || nc == null) {
       throw const FormatException('invite missing pk/nc');
     }
     return BootstrapInvite(
       publicKey: base64.decode(pk),
-      transport: (t != null && t.isNotEmpty) ? t : null,
+      transport: (transport != null && transport.isNotEmpty) ? transport : null,
       nonce: base64.decode(nc),
       algo: params['a'] ?? 'ed25519',
     );
   }
 
-  String toUri() => '$scheme'
+  String toUri() =>
+      '$scheme'
       'pk=${base64.encode(publicKey)}'
-      '${(transport != null && transport!.isNotEmpty) ? '&t=$transport' : ''}'
+      '${(transport != null && transport!.isNotEmpty) ? '&${transportQueryField(transport!)}' : ''}'
       '&a=$algo'
       '&nc=${base64.encode(nonce)}';
 }

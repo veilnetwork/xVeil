@@ -30,6 +30,30 @@ void main() {
     expect(BootstrapInvite.parse(_inviteB).toUri(), _inviteB);
   });
 
+  test('encoded transport round-trips and preserves the original identity', () {
+    const transport = 'quic://[2001:db8::1]:9100?alpn=h%2B3&alpn=veil-quic';
+    final original = BootstrapInvite.parse(_inviteA);
+    final uri = BootstrapInvite(
+      publicKey: original.publicKey,
+      nonce: original.nonce,
+      transport: transport,
+    ).toUri();
+    final decoded = BootstrapInvite.parse(uri);
+    expect(decoded.transport, transport);
+    expect(decoded.nodeId, original.nodeId);
+    expect(decoded.nonce, original.nonce);
+    expect(decoded.toUri(), uri);
+    expect(
+      () => BootstrapInvite.parse('$uri&t=tcp://127.0.0.1:9100'),
+      throwsFormatException,
+    );
+    expect(() => BootstrapInvite.parse('$uri&t64=YQ'), throwsFormatException);
+    expect(
+      () => BootstrapInvite.parse('veil:bootstrap?pk=AA==&nc=AA==&t64=YQ=='),
+      throwsFormatException,
+    );
+  });
+
   test('rejects non-invite input', () {
     expect(() => BootstrapInvite.parse('https://example.com'),
         throwsFormatException);

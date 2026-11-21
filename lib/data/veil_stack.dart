@@ -997,8 +997,8 @@ Future<int> registerRuntimeBootstrapPeers(
   var registered = 0;
   for (final peer in peers) {
     final uri =
-        'veil:bootstrap?pk=${peer.publicKey}'
-        '&t=${peer.transport}'
+        '${BootstrapInvite.scheme}pk=${peer.publicKey}'
+        '&${BootstrapInvite.transportQueryField(peer.transport)}'
         '&a=${peer.algo}'
         '&nc=${peer.nonce}';
     try {

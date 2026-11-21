@@ -331,12 +331,12 @@ bool? exitAdmitsSelf(String inventoryOutput, String? selfNodeId) {
   return report.exitAllowedNodeIds.contains(self);
 }
 
-/// Rewrite the `t=` transport of an invite when it names an address that only
+/// Rewrite the transport of an invite when it names an address that only
 /// means something on the server itself.
 String _withReachableHost(String invite, String? reachableHost) {
   final host = reachableHost?.trim();
   if (host == null || host.isEmpty) return invite;
-  final marker = RegExp(r'(^|&)t=([^&]*)');
+  final marker = RegExp(r'(^|&)(t|t64)=([^&]*)');
   final m = marker.firstMatch(invite);
   if (m == null) return invite;
   // A transport this cannot decode is a transport it cannot repair.
@@ -346,9 +346,11 @@ String _withReachableHost(String invite, String? reachableHost) {
   // their own try/catch. So one malformed inventory line became an unhandled
   // error in whatever was waiting, instead of the "nothing to share" answer
   // the caller already knows how to render (report15 X15-L9).
-  final String transport;
+  final String? transport;
   try {
-    transport = Uri.decodeComponent(m.group(2)!);
+    transport = m.group(2) == 't64'
+        ? BootstrapInvite.parse(invite).transport
+        : Uri.decodeComponent(m.group(3)!);
   } on ArgumentError {
     // ArgumentError, not FormatException. `decodeComponent` answers a bad
     // escape with `ArgumentError('Invalid URL encoding')` — the first version
@@ -358,6 +360,7 @@ String _withReachableHost(String invite, String? reachableHost) {
     // Kept for the other malformed shapes the same call reports that way.
     return invite;
   }
+  if (transport == null) return invite;
   final parsed = Uri.tryParse(transport);
   if (parsed == null ||
       !parsed.hasAuthority ||
@@ -365,7 +368,8 @@ String _withReachableHost(String invite, String? reachableHost) {
     return invite;
   }
   final fixed = parsed.replace(host: host).toString();
-  return invite.replaceRange(m.start, m.end, '${m.group(1)}t=$fixed');
+  final field = BootstrapInvite.transportQueryField(fixed);
+  return invite.replaceRange(m.start, m.end, '${m.group(1)}$field');
 }
 
 /// A link that hands somebody a way INTO the network through this node, or

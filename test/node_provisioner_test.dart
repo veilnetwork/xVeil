@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 import 'package:xveil/data/node/veil_github_release.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'support/expect_before.dart';
 
 void main() {
@@ -421,6 +422,25 @@ COMPONENTS: veil-cli,ogate,oproxy-server
       final r = parseProvisionReport(advertised, reachableHost: '203.0.113.7');
       expect(r.invite, contains('t=obfs4-tcp://node.example.org:5556'));
       expect(r.invite, isNot(contains('203.0.113.7')));
+    });
+
+    test('repairing an encoded bind address preserves QUIC options', () {
+      const query = '?sni=seed.example&alpn=veil-quic&alpn=h%2B3';
+      final field = BootstrapInvite.transportQueryField(
+        'quic://0.0.0.0:5556$query',
+      );
+      final inventory =
+          'BOOTSTRAP_URI: veil:bootstrap?pk=AA==&$field'
+          '&a=ed25519&nc=AA==&tls_ca_cert=YQ\n';
+      final report = parseProvisionReport(
+        inventory,
+        reachableHost: '203.0.113.7',
+      );
+      expect(
+        BootstrapInvite.parse(report.invite!).transport,
+        'quic://203.0.113.7:5556$query',
+      );
+      expect(report.invite, contains('&tls_ca_cert=YQ'));
     });
 
     test('loopback counts as undialable too', () {
