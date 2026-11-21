@@ -639,6 +639,7 @@ class CallService {
   DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
   Object? _pendingDirectReadiness;
+  void Function()? _wakeLateP2PDiscovery;
 
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
@@ -656,6 +657,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
+    _wakeLateP2PDiscovery = null;
     _lateP2PRetryAt = null;
     _lateP2PRetryTimer?.cancel();
     _lateP2PRetryTimer = null;
@@ -671,6 +673,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
+    _wakeLateP2PDiscovery = null;
     _scheduleLateP2PRetry();
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
@@ -713,6 +716,56 @@ class CallService {
       c.peerPosture == CallPosture.direct &&
       _signalProtocolVersion >= kCallLateP2PUpgradeMinVersion &&
       (c.peerProtocolVersion ?? 1) >= kCallLateP2PUpgradeMinVersion;
+
+  Future<bool> _discoverLateDirectSession(
+    NodeId identity,
+    int lastAdmission, {
+    required Future<bool> Function() readDirectAdmission,
+    required bool Function() isCurrent,
+  }) async {
+    final confirmed = Completer<bool>();
+    var checking = false;
+    var finished = false;
+
+    Future<void> checkRegistration() async {
+      if (checking) return;
+      checking = true;
+      try {
+        while (!finished &&
+            !confirmed.isCompleted &&
+            isCurrent() &&
+            _hasCurrentRelayAdmissionSince(lastAdmission)) {
+          lastAdmission = _relayConnectionGeneration;
+          // An overlay event can name an unrelated connection. Use it only
+          // to read the actual answering device, coalescing a new burst
+          // until the current read finishes.
+          final admitted = await readDirectAdmission();
+          if (admitted && !finished && isCurrent()) {
+            devLog(
+              () =>
+                  'xVeil[call-media]: direct session admitted during endpoint discovery',
+            );
+            confirmed.complete(true);
+          }
+        }
+      } finally {
+        checking = false;
+      }
+    }
+
+    void wake() => unawaited(checkRegistration());
+    _wakeLateP2PDiscovery = wake;
+    try {
+      final discovery = _peerReachableWithoutBlockingSignal(identity);
+      wake(); // Admission may have arrived during the initial status read.
+      return await Future.any([discovery, confirmed.future]);
+    } finally {
+      finished = true;
+      if (identical(_wakeLateP2PDiscovery, wake)) {
+        _wakeLateP2PDiscovery = null;
+      }
+    }
+  }
 
   /// A readiness signal is encrypted endpoint control. The original relay
   /// keeps carrying media until BOTH endpoints have admitted a direct session.
@@ -768,31 +821,38 @@ class CallService {
       }
       if (!_lateP2PLocalReady) {
         if (_lateP2PAttempted) return;
-        bool? alreadyAdmitted;
-        if (_lateP2PNeedsDatedReadiness) {
+        Future<bool> readDirectAdmission() async {
           try {
-            alreadyAdmitted = await media.currentDirectPeerAdmission(c);
+            return await media.currentDirectPeerAdmission(c) == true;
           } catch (_) {
-            // An unavailable local snapshot keeps the endpoint-exchange path.
+            return false;
           }
-          if (!sameNetwork() || !_lateP2PConsent) return;
         }
+        final recovering = _lateP2PNeedsDatedReadiness;
+        final lastAdmission = _relayConnectionGeneration;
+        final alreadyAdmitted = recovering && await readDirectAdmission();
+        if (!sameNetwork() || !_lateP2PConsent) return;
         // After a network handover the answering device can already have a
         // new admitted session while endpoint discovery still waits on stale
         // ads or a previous refresh. It needs no new discovery. This local
         // snapshot does not authorize the handover: keep the fresh exact-device
         // admission, both consent checks and sealed route qualification below.
-        if (alreadyAdmitted != true &&
-            (!await _peerReachableWithoutBlockingSignal(c.mediaIdentity) ||
-                !sameNetwork())) {
-          return;
-        }
-        if (alreadyAdmitted == true) {
+        if (alreadyAdmitted) {
           devLog(
             () =>
                 'xVeil[call-media]: recovered direct session already admitted; '
                 'endpoint refresh not needed',
           );
+        } else {
+          final reachable = recovering
+              ? await _discoverLateDirectSession(
+                  c.mediaIdentity,
+                  lastAdmission,
+                  readDirectAdmission: readDirectAdmission,
+                  isCurrent: () => sameNetwork() && _lateP2PConsent,
+                )
+              : await _peerReachableWithoutBlockingSignal(c.mediaIdentity);
+          if (!reachable || !sameNetwork() || !_lateP2PConsent) return;
         }
       }
       // Admission can disappear between heartbeats while we await the peer.
@@ -2378,6 +2438,7 @@ class CallService {
       devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
       _announceHandoverHealth();
+      _wakeLateP2PDiscovery?.call();
     }
   }
 

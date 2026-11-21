@@ -8072,6 +8072,132 @@ void main() {
       });
     }
 
+    for (final scenario in [
+      'exact device',
+      'registration during first read',
+      'unrelated registrations',
+      'retired network',
+    ]) {
+      test(
+        'direct session admission can finish pending discovery: $scenario',
+        () {
+          fakeAsync((async) {
+            final fake = _FakeMessaging();
+            final media = _FakeMedia()
+              ..openedTransport = CallTransportKind.p2p
+              ..liveDirectAdmission = false;
+            final admissions = StreamController<void>(sync: true);
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final discovery = Completer<bool>();
+            final device = NodeId.fromHex('b' * 64);
+            var holdDiscovery = false;
+            var pendingDiscoveries = 0;
+            final svc = CallService(
+              fake,
+              media: media,
+              now: () => clock.now(),
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (identity) {
+                expect(identity, peer);
+                if (!holdDiscovery) return Future.value(true);
+                pendingDiscoveries++;
+                return discovery.future;
+              },
+              overlaySessionAdmissions: admissions.stream,
+              networkAttachments: network.stream,
+            )..start();
+            const id = 'direct-admission-during-discovery';
+            try {
+              offer(fake, id, device: device);
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              unawaited(svc.requestRelayRecoveryForDiagnostics());
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.relay);
+
+              holdDiscovery = true;
+              final initial = scenario == 'registration during first read'
+                  ? Completer<bool?>()
+                  : null;
+              media.liveAdmissionGate = initial;
+              for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+                media.rxAt = clock.now();
+                async.elapse(const Duration(seconds: 1));
+              }
+              expect(media.liveAdmissionChecks, [device]);
+              expect(pendingDiscoveries, initial == null ? 1 : 0);
+              fake.onCallSignal!(
+                peer,
+                ready(
+                  id,
+                ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+              );
+              async.flushMicrotasks();
+              expect(media.switches, [CallTransportKind.relay]);
+
+              final snapshot =
+                  scenario == 'unrelated registrations' ||
+                      scenario == 'retired network'
+                  ? Completer<bool?>()
+                  : null;
+              media.liveAdmissionGate = snapshot;
+              media.liveDirectAdmission = true;
+              admissions.add(null);
+              async.flushMicrotasks();
+              initial?.complete(false);
+              async.flushMicrotasks();
+              if (snapshot != null) {
+                expect(media.liveAdmissionChecks, [device, device]);
+                expect(media.switches, [CallTransportKind.relay]);
+                if (scenario == 'retired network') {
+                  network.add(NetworkAttachment.offline);
+                } else {
+                  // A burst can arrive while the first read still describes an
+                  // unrelated session. Recheck the newest registration once.
+                  admissions.add(null);
+                  admissions.add(null);
+                  async.flushMicrotasks();
+                  expect(media.liveAdmissionChecks, hasLength(2));
+                }
+                media.liveAdmissionGate = null;
+                snapshot.complete(scenario == 'retired network');
+                async.flushMicrotasks();
+              }
+              expect(discovery.isCompleted, isFalse);
+              final switched = scenario != 'retired network';
+              expect(
+                media.liveAdmissionChecks,
+                List.filled(
+                  scenario == 'unrelated registrations' ? 3 : 2,
+                  device,
+                ),
+              );
+              expect(media.switches, [
+                CallTransportKind.relay,
+                if (switched) CallTransportKind.p2p,
+              ]);
+              expect(
+                svc.current?.transport,
+                switched ? CallTransportKind.p2p : CallTransportKind.relay,
+              );
+
+              discovery.complete(false);
+              async.flushMicrotasks();
+              expect(pendingDiscoveries, 1);
+              expect(svc.current?.callId, id);
+              expect(media.switches.length, switched ? 2 : 1);
+            } finally {
+              if (!discovery.isCompleted) discovery.complete(false);
+              svc.dispose();
+              unawaited(admissions.close());
+              unawaited(network.close());
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     test('retired call cannot use a delayed admitted recovery snapshot', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
