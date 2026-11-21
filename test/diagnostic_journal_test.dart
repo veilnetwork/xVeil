@@ -537,6 +537,8 @@ void main() {
         'circuit_trace': _PrivateValue(),
         'raw_log': 'anonymity.circuit.trace.egress private-log-line',
         'opaque_sha256': 'private-forward-digest',
+        'opaque_source_trace':
+            'ipc.opaque_source operation=787201 private-source-log',
         'sealed_sha256': 'private-sealed-digest',
         'record_sha256': 'private-ordered-record-digest',
         'child_local': 314159265,
@@ -603,6 +605,8 @@ void main() {
         '987654321',
         'trace.egress',
         'opaque_sha256',
+        'opaque_source_trace',
+        'operation=787201',
         'sealed_sha256',
         'record_sha256',
         'child_local',
