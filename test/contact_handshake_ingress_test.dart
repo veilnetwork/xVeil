@@ -268,16 +268,21 @@ void main() {
         }
 
         test(
-          'a refused greeting status write retains the original request',
+          'a refused greeting status write retains the request and ACKs acceptance',
           () async {
             await service.submitContactRequest(peer, 'queued greeting');
             final request = (await storage.pendingOutboxFrames()).single;
             final greeting = (await storage.loadMessages(peer.hex)).single;
+            final published = <ContactStatus>[];
+            service.onContactStatusChanged = (who, status) {
+              if (who == peer) published.add(status);
+            };
+            const acceptanceId = 'accept-write-fails';
             storage.failGreetingStatus = true;
             await service.deliverInbound(
               _from(
                 peer,
-                const WireEnvelope.accept().withFrameId('accept-write-fails'),
+                const WireEnvelope.accept().withFrameId(acceptanceId),
               ),
             );
 
@@ -293,12 +298,59 @@ void main() {
               (await storage.loadMessageById(peer.hex, greeting.id))?.status,
               MessageStatus.sending,
             );
+            expect(
+              transport.sent.where(
+                (e) => e.kind == WireKind.ack && e.id == acceptanceId,
+              ),
+              hasLength(1),
+            );
+            expect(published, [ContactStatus.accepted]);
 
             await service.debugFlushOutboxFrames();
             expect(await storage.pendingOutboxFrames(), isEmpty);
             expect(
               (await storage.loadMessageById(peer.hex, greeting.id))?.status,
               MessageStatus.sent,
+            );
+          },
+        );
+
+        test(
+          'greeting cleanup failure does not fail a committed local accept',
+          () async {
+            await service.submitContactRequest(peer, 'your greeting');
+            final request = (await storage.pendingOutboxFrames()).single;
+            await service.deliverInbound(
+              _from(
+                peer,
+                const WireEnvelope.request('their greeting', id: 'intro'),
+              ),
+            );
+            expect(
+              (await storage.getContact(peer))?.status,
+              ContactStatus.pendingIncoming,
+            );
+            final published = <ContactStatus>[];
+            service.onContactStatusChanged = (who, status) {
+              if (who == peer) published.add(status);
+            };
+            storage.failGreetingStatus = true;
+            transport.release.complete();
+            await expectLater(service.acceptContact(peer), completes);
+
+            expect(
+              (await storage.getContact(peer))?.status,
+              ContactStatus.accepted,
+            );
+            expect(published, [ContactStatus.accepted]);
+            final retained = await storage.pendingOutboxFrames();
+            expect(retained.map((f) => f.frameId), contains(request.frameId));
+            final accept = retained.singleWhere(
+              (f) => f.frameId.startsWith('accept:'),
+            );
+            expect(
+              transport.sent.map((e) => e.frameId),
+              contains(accept.frameId),
             );
           },
         );

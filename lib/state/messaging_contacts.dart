@@ -124,11 +124,19 @@ class _MessagingContacts {
     bool isCurrent() => consent._consentCurrent(peer, current?.epoch);
     if (current?.contact?.status != status || !isCurrent()) return;
     if (status == ContactStatus.accepted) {
-      await _owner._outbox.retireRequests(
-        peer,
-        isCurrent: isCurrent,
-        retryGreetings: true,
-      );
+      try {
+        await _owner._outbox.retireRequests(
+          peer,
+          isCurrent: isCurrent,
+          retryGreetings: true,
+        );
+      } catch (error) {
+        // A greeting still has its durable request until the outbox can
+        // finish the handoff. The committed contact decision can proceed.
+        devLog(
+          () => 'xVeil[contact]: greeting handoff deferred (${error.runtimeType})',
+        );
+      }
       if (!isCurrent()) return;
     }
     _owner._contactStatusChanges.add((peer: peer, status: status));
