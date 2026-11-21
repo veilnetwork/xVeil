@@ -9,6 +9,7 @@ enum CallVideoDeliveryPhase { startup, drain, cruise, probe }
 /// Rate samples are bounded by production, so ACK compression cannot invent
 /// capacity. Low application-limited samples never erase the recent maximum.
 class CallVideoDeliveryModel {
+  static const _maximumVideoDelayMs = 500;
   final _peers = <String, _DeliverySample>{};
   final _barriers = <String, (int, int, int)>{};
   final _rates = <(DateTime, double)>[];
@@ -148,13 +149,24 @@ class CallVideoDeliveryModel {
         all = false;
         continue;
       }
-      if (sourcePaused) {
-        // No new source media time is expected during an acknowledged pause.
-        // Fresh report clocks around the same old decoded frame (including its
-        // retained playout delay) cannot prove a growing network queue. That
-        // false witness otherwise prevents the audio controller from ever
-        // releasing its pause. Resume only the sparse floor; growth still
-        // requires a causal decoder ACK of media sent after this barrier.
+      final sourceDrained =
+          same &&
+          next.frames > 0 &&
+          next.frames == old.frames &&
+          next.sentTimestampValid &&
+          old.sentTimestampValid &&
+          next.sentBytes > 0 &&
+          next.sentBytes == old.sentBytes &&
+          next.sentTimestamp == old.sentTimestamp &&
+          next.timestamp == next.sentTimestamp;
+      if (sourcePaused || sourceDrained) {
+        // During a pause or absent production, the receiver clock can still
+        // advance around the last decoded frame. Start a new observation
+        // window and require a decoded frame sent beyond this barrier to grow.
+        // An active source still observes the independent hard delay ceiling.
+        if (!sourcePaused && next.delay >= _maximumVideoDelayMs) {
+          queuePressure = true;
+        }
         if (next.sentTimestampValid) {
           _barriers[name] = (next.origin, next.sample, next.sentTimestamp);
         }
@@ -229,7 +241,13 @@ class CallVideoDeliveryModel {
           next.growingSince = null;
           next.growthStartLagUs = null;
         }
-        queuePressure |= next.delay >= 500 || (confirmed && continuing);
+        if (next.delay >= _maximumVideoDelayMs || (confirmed && continuing)) {
+          queuePressure = true;
+          // A cached copy must not restore growth credit after a bad report.
+          // Only a fresh, causal decoder advance can earn credit again.
+          _qualified.remove(name);
+          all = false;
+        }
       }
       _peers[name] = next;
     }

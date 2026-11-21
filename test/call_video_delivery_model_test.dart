@@ -721,6 +721,72 @@ void main() {
     observe(m, 2, {'p': report(2, delay: 500, targetDelay: 400)});
     expect(m.queuePressure, isTrue);
   });
+
+  test('an unchanged report cannot restore credit after high video delay', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2, delay: 500)});
+    expect(m.queuePressure, isTrue);
+    observe(m, 3, {'p': report(2)});
+    expect(m.queuePressure, isFalse, reason: 'the report was already consumed');
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNull);
+    observe(m, 4, {'p': report(4)});
+    expect(m.propose(floor, ceiling, at(4), healthy: true), isNotNull);
+  });
+
+  test(
+    'a stopped encoder with every sent frame decoded cannot grow a queue',
+    () {
+      final m = CallVideoDeliveryModel();
+      observe(m, 1, {'p': report(1)});
+      observe(m, 2, {'p': report(2)});
+      expect(m.propose(floor, ceiling, at(2), healthy: true), isNotNull);
+      for (var n = 3; n <= 8; n++) {
+        observe(m, n, {
+          'p': report(2)
+            ..['sample_us'] = n * 1000000
+            ..['arrival_us'] = n * 1000000 + 120000,
+        });
+      }
+      expect(m.queuePressure, isFalse);
+      expect(m.propose(floor, ceiling, at(8), healthy: true), isNull);
+      observe(m, 9, {'p': report(9)});
+      expect(m.propose(floor, ceiling, at(9), healthy: true), isNotNull);
+    },
+  );
+
+  test('a drained encoder needs a fresh decoded frame before probing', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2)});
+    final repeatedFrame = report(2)
+      ..['sample_us'] = 3000000
+      ..['arrival_us'] = 3120000;
+    observe(m, 3, {'p': repeatedFrame});
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNull);
+  });
+
+  test('a new decoder ACK can qualify without another sender packet', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2, sent: 270000)..['sent_bytes'] = 30000});
+    observe(m, 3, {'p': report(3)});
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNotNull);
+  });
+
+  test('a drained encoder preserves the hard video delay ceiling', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2)});
+    observe(m, 3, {
+      'p': report(2, delay: 500)
+        ..['sample_us'] = 3000000
+        ..['arrival_us'] = 3120000,
+    });
+    expect(m.queuePressure, isTrue);
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNull);
+  });
+
   for (final invalid in <Object>[-1, 60001, 260.5, '260', true]) {
     test('malformed target $invalid cannot qualify a probe', () {
       final m = CallVideoDeliveryModel();
