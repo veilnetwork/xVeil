@@ -75,6 +75,13 @@ class _OutboxFlushSnapshot {
   }
 }
 
+class _LiveOutboxAttempt {
+  _LiveOutboxAttempt(this.frameId);
+
+  final String frameId;
+  bool invalidated = false;
+}
+
 /// Durable control-frame persistence, deduplication, acknowledgement and
 /// bounded live re-drive.
 ///
@@ -94,7 +101,15 @@ class _MessagingOutbox {
   // A wait deadline does not cancel the underlying transport future. Keep
   // the recipient occupied until that future actually settles, across flush
   // passes, so late operations cannot pile up behind repeated deadlines.
-  final Map<String, Object> _activeLivePeers = {};
+  final _activeLivePeers = <String, _LiveOutboxAttempt>{};
+
+  void _invalidateCandidate(String peerHex, String frameId) {
+    _flushSnapshot?.invalidate(_key(peerHex, frameId));
+    final attempt = _activeLivePeers[peerHex];
+    if (attempt != null && attempt.frameId == frameId) {
+      attempt.invalidated = true;
+    }
+  }
 
   // Large replication slices share the endpoint's background source lane
   // with file bodies. Small group/control updates keep their normal path.
@@ -340,7 +355,7 @@ class _MessagingOutbox {
   static const _callSignalTtl = Duration(minutes: 2);
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
-    _flushSnapshot?.invalidate(_key(peerHex, frameId));
+    _invalidateCandidate(peerHex, frameId);
     final now = _owner._now();
     _liveBackoff[_key(peerHex, frameId)] = (
       count: 1,
@@ -1211,14 +1226,12 @@ class _MessagingOutbox {
     _OutboxRedrive entry,
     _OutboxFlushSnapshot snapshot,
   ) async {
-    if (_owner._disposed ||
-        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId) ||
-        !_owner._realtimeControl._consentCurrent(
-          entry.peer,
-          entry.consentEpoch,
-        )) {
-      return true;
-    }
+    bool consentCurrent() =>
+        _owner._realtimeControl._consentCurrent(entry.peer, entry.consentEpoch);
+    bool inSnapshot() =>
+        snapshot.contains(entry.frame.peerHex, entry.frame.frameId) &&
+        consentCurrent();
+    if (!inSnapshot()) return true;
     try {
       if (!await _editExpiry.allow(
         entry.peer.hex,
@@ -1234,14 +1247,7 @@ class _MessagingOutbox {
       // be checked. Other recipients retain their own attempts this pass.
       return true;
     }
-    if (_owner._disposed ||
-        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId) ||
-        !_owner._realtimeControl._consentCurrent(
-          entry.peer,
-          entry.consentEpoch,
-        )) {
-      return true;
-    }
+    if (!inSnapshot()) return true;
     final peerHex = entry.frame.peerHex;
     if (_activeLivePeers.containsKey(peerHex)) return false;
     final now = _owner._now();
@@ -1275,8 +1281,10 @@ class _MessagingOutbox {
           'dst=${entry.peer.short} attempt=$count '
           't=${DateTime.now().millisecondsSinceEpoch}',
     );
-    final token = Object();
-    _activeLivePeers[peerHex] = token;
+    // A timed-out flush releases its snapshot while the transport can still
+    // be preparing. Keep just this attempt's invalidation state until it ends.
+    final attempt = _LiveOutboxAttempt(entry.frame.frameId);
+    _activeLivePeers[peerHex] = attempt;
     var completed = false;
     Future<void> send() async {
       try {
@@ -1284,10 +1292,11 @@ class _MessagingOutbox {
           entry.peer,
           entry.frame,
           contactIdentity: entry.contactIdentity,
+          admitTransport: () => !attempt.invalidated && consentCurrent(),
         );
       } finally {
         completed = true;
-        if (identical(_activeLivePeers[peerHex], token)) {
+        if (identical(_activeLivePeers[peerHex], attempt)) {
           _activeLivePeers.remove(peerHex);
         }
       }
@@ -1305,6 +1314,7 @@ class _MessagingOutbox {
     NodeId peer,
     OutboxFrame frame, {
     required bool contactIdentity,
+    required bool Function() admitTransport,
   }) {
     final wire = frame.wire;
     WireKind? kind;
@@ -1330,7 +1340,12 @@ class _MessagingOutbox {
       case WireKind.p2pEndpoints:
         return _owner._realtimeControl._sendP2PBootstrap(peer, wire);
       default:
-        return _owner._send(peer, wire, background: _backgroundWire(wire));
+        return _owner._send(
+          peer,
+          wire,
+          background: _backgroundWire(wire),
+          admitTransport: admitTransport,
+        );
     }
   }
 
@@ -1777,7 +1792,7 @@ class _MessagingOutbox {
     }
     void invalidate() {
       for (final id in ids) {
-        _flushSnapshot?.invalidate(_key(destination.hex, id));
+        _invalidateCandidate(destination.hex, id);
       }
     }
 
@@ -1897,7 +1912,7 @@ class _MessagingOutbox {
     final key = _key(peerHex, frameId);
     // Preserve synchronous flush invalidation even when chunk ACK handling
     // must await its first authoritative metadata read.
-    _flushSnapshot?.invalidate(key);
+    _invalidateCandidate(peerHex, frameId);
     // Another live/retry copy may have earned this ACK while its first attempt
     // was still waiting behind a different frame. Do not send that stale copy.
     // Storage failure still leaves the durable row for the ordinary retry.
@@ -1915,7 +1930,7 @@ class _MessagingOutbox {
     try {
       await _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
     } finally {
-      _flushSnapshot?.invalidate(key);
+      _invalidateCandidate(peerHex, frameId);
     }
   }
 
@@ -1925,7 +1940,7 @@ class _MessagingOutbox {
     final key = _key(peerHex, frameId);
     _owner._contacts.retireAcceptance(peerHex, frameId);
     _callReceiptKeys.remove(key);
-    _flushSnapshot?.invalidate(key);
+    _invalidateCandidate(peerHex, frameId);
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
       // it the moment it exists — otherwise this call deletes nothing and the

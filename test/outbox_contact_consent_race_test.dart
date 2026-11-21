@@ -17,6 +17,7 @@ import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
 
 NodeId _id(int value) => NodeId(Uint8List(32)..fillRange(0, 32, value));
 
@@ -77,6 +78,29 @@ class _Sink implements MailboxSink {
   void noteActivity() {}
 }
 
+class _HeldReservation extends Fake implements RatchetPersistence {
+  final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  bool get degraded => false;
+
+  @override
+  Future<void> reserveBeforePublish(NodeId peer) async {
+    if (entered.isCompleted) return;
+    entered.complete();
+    await release.future;
+  }
+
+  @override
+  Future<int> flush({String why = 'unknown', bool now = false}) async => 0;
+
+  @override
+  Future<int> close() async => 0;
+
+  @override
+  Future<int> forgetPeer(NodeId peer) async => 0;
+}
+
 Future<_HeldStore> _openStore(bool native) async {
   late AsyncSpaceOpener open;
   if (native) {
@@ -131,6 +155,91 @@ Future<void> _ackAcceptance(
 
 void main() {
   for (final native in [false, true]) {
+    for (final (change, timedOut) in [
+      ('ack', false),
+      ('ack', true),
+      ('block and unblock', false),
+      ('cancel request', false),
+      ('other peer ack', false),
+    ]) {
+      test('live handshake verifies outbox admission after ratchet reservation '
+          'native=$native change=$change timeout=$timedOut', () async {
+        final storage = await _openStore(native);
+        final wire = _Wire(), peer = _id(2), other = _id(3);
+        final ratchet = _HeldReservation();
+        final service = MessagingService(wire, storage)
+          ..ratchet = ratchet
+          ..liveLegDeadline = timedOut
+              ? Duration.zero
+              : const Duration(days: 1);
+        final request = change == 'cancel request';
+        final fid = '${request ? 'request' : 'accept'}:${peer.hex}:persisted';
+        addTearDown(wire.dispose);
+        addTearDown(service.dispose);
+        addTearDown(() {
+          if (!ratchet.release.isCompleted) ratchet.release.complete();
+        });
+        for (final contact in [peer, other]) {
+          await storage.upsertContact(
+            Contact(
+              nodeId: contact,
+              status: request && contact == peer
+                  ? ContactStatus.pendingOutgoing
+                  : ContactStatus.accepted,
+            ),
+          );
+        }
+        final frame = request
+            ? const WireEnvelope.request('')
+            : const WireEnvelope.accept();
+        await storage.enqueueOutboxFrame(
+          fid,
+          peer.hex,
+          frame.withFrameId(fid).encode(),
+        );
+        final flush = service.debugFlushOutboxFrames();
+        await ratchet.entered.future;
+        if (timedOut) await flush;
+        expect(wire.sent, isEmpty);
+        if (change == 'block and unblock') {
+          await service.blockContact(peer);
+          await service.unblockContact(peer);
+        } else if (change == 'ack') {
+          await _ackAcceptance(service, storage, peer, fid);
+        } else if (request) {
+          expect(await service.cancelRequest(peer), isTrue);
+          expect(await storage.getContact(peer), isNull);
+          expect(
+            (await service.submitContactRequest(peer, '')).admitted,
+            isTrue,
+          );
+        } else {
+          await service.deliverInbound(
+            InboundMessage(
+              src: other,
+              payload: WireEnvelope.ack(fid).encode(),
+              provenance: SenderProvenance.sessionPeer,
+            ),
+          );
+        }
+
+        ratchet.release.complete();
+        await flush;
+        await pumpEventQueue();
+        expect(
+          wire.sent.where((frame) => frame.frameId == fid),
+          hasLength(change == 'other peer ack' ? 1 : 0),
+        );
+        final pending = await storage.pendingOutboxFrames();
+        if (request) {
+          expect(pending.single.frameId, isNot(fid));
+          expect(wire.sent.single.frameId, pending.single.frameId);
+        } else {
+          expect(pending.isEmpty, change == 'ack');
+        }
+      }, skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null);
+    }
+
     for (final legacy in [false, true]) {
       test('duplicate receipt leaves a new handshake response pending '
           'native=$native legacy=$legacy', () async {
