@@ -20,6 +20,8 @@ bumps may change behaviour a user notices.
   capture device changes. Include camera startup errors in diagnostics.
 - Tell users when a container is busy with another xVeil instance. Preserve
   confirmed delivery status across shutdown and unlock.
+- Keep profile settings available if two app instances start writing them
+  while the profile directory's permissions are being tightened.
 - Keep notification delivery responsive during settings reads and respect
   the current chat settings before showing queued alerts.
 

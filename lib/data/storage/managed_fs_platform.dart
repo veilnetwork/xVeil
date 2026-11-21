@@ -68,10 +68,10 @@ class ManagedFsPlatform {
       if (Platform.isWindows) return windows.inspect(path);
       final current = posixEuid();
       final darwin = Platform.isMacOS || Platform.isIOS;
-      var facts = posixLstat(path);
-      // Darwin's stat witness checks the mode with two calls. A concurrent
-      // chmod can invalidate that observation even for a stable object.
-      if (darwin) facts ??= posixLstat(path);
+      // The witness compares libc and Dart observations. The first writer
+      // can tighten an admitted profile directory between those calls.
+      // Retry the complete check once before refusing the path.
+      var facts = posixLstat(path) ?? posixLstat(path);
       if (current == null || facts == null) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
       }
