@@ -2678,11 +2678,23 @@ class CallService {
         media.activeTransport == null;
 
     Future<bool> rebuildRelay() async {
+      var retriedOnSameNetwork = false;
       while (needsRelayRebuild()) {
         final connections = _relayConnectionGeneration;
         final network = _overlayAdmissionNetwork;
-        final opened = await openRelay();
-        if (opened || network == _overlayAdmissionNetwork) return opened;
+        if (await openRelay()) return true;
+        if (network == _overlayAdmissionNetwork) {
+          // A new session can register while this attempt is opening a
+          // route on the same attachment. Let it help once per rebuild.
+          // A changed peer count alone does not witness a registration.
+          if (retriedOnSameNetwork ||
+              _overlaySessionAdmissions == null ||
+              !_hasCurrentRelayAdmissionSince(connections)) {
+            return false;
+          }
+          retriedOnSameNetwork = true;
+          continue;
+        }
         // An open overtaken by a network change can be replaced after a
         // current registration. Every attempt shares the original deadline.
         while (needsRelayRebuild() &&

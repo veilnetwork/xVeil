@@ -3807,6 +3807,105 @@ void main() {
       });
     }
 
+    for (final (newAdmission, retryResult) in [
+      (false, false),
+      (true, false),
+      (true, true),
+      (true, null),
+    ]) {
+      test('relay rebuild with unchanged attachment '
+          '(new admission: $newAdmission, retry result: $retryResult)', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final firstOpen = Completer<bool>();
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..repairSucceeds = false
+            ..relayGate = firstOpen;
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const id = 'relay-rebuild-same-attachment';
+          try {
+            wire.onCallSignal!(peer, offer(id));
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                mediaRepairRequested: true,
+              ),
+            );
+            async.flushMicrotasks();
+            expect(media.repairs, 1);
+            network.add(NetworkAttachment.cellular);
+            media.cameraStopped.complete();
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+            expect(media.activeTransport, isNull);
+
+            const firstOpenDelay = Duration(seconds: 2);
+            if (retryResult == null) async.elapse(firstOpenDelay);
+            if (newAdmission) admissions.add(null);
+            final secondOpen = Completer<bool>();
+            media.relayGate = secondOpen;
+            firstOpen.complete(false);
+            async.flushMicrotasks();
+            expect(media.switches, [
+              CallTransportKind.relay,
+              if (newAdmission) CallTransportKind.relay,
+            ]);
+            if (newAdmission) {
+              expect(svc.current?.status, CallStatus.active);
+              admissions.add(null);
+              if (retryResult == null) {
+                const lastTick = Duration(milliseconds: 1);
+                async.elapse(
+                  kCallMediaStartTimeout - firstOpenDelay - lastTick,
+                );
+                expect(svc.current?.status, CallStatus.active);
+                async.elapse(lastTick);
+                expect(svc.current, isNull);
+                secondOpen.complete(true);
+              } else {
+                secondOpen.complete(retryResult);
+              }
+              async.flushMicrotasks();
+              expect(media.switches, hasLength(2));
+            }
+            final ended = wire.sent.where((s) => s.type == CallSignalType.end);
+            if (retryResult == true) {
+              expect(svc.current?.callId, id);
+              expect(svc.current?.status, CallStatus.active);
+              expect(svc.current?.transport, CallTransportKind.relay);
+              expect(media.activeTransport, CallTransportKind.relay);
+              expect(ended, isEmpty);
+            } else {
+              expect(svc.current, isNull);
+              expect(ended.single.reason, CallEndReason.error);
+            }
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final route in [CallTransportKind.p2p, CallTransportKind.relay]) {
       test('keeps $route media in place while the local network is offline', () {
         fakeAsync((async) {
