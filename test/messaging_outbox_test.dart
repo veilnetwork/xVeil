@@ -157,8 +157,11 @@ void main() {
   late _FakeTransport tA, tB;
   late HiddenVolumeStorage sA, sB;
   late MessagingService mA, mB;
+  late void Function(Duration) advanceSenderClock;
 
   setUp(() async {
+    var senderClockOffset = Duration.zero;
+    advanceSenderClock = (step) => senderClockOffset += step;
     a = _id(1);
     b = _id(2);
     tA = _FakeTransport(a);
@@ -169,7 +172,11 @@ void main() {
     sB = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
     await sB.open(password: 'b', createIfMissing: true);
-    mA = MessagingService(tA, sA)..start();
+    mA = MessagingService(
+      tA,
+      sA,
+      now: () => DateTime.now().add(senderClockOffset),
+    )..start();
     mB = MessagingService(tB, sB)..start();
     // Establish a mutually-accepted contact so free messaging is allowed.
     await mA.sendRequest(b, 'hi');
@@ -503,7 +510,7 @@ void main() {
   );
 
   test(
-    'a peer with no mailbox is left alone until the backoff expires',
+    'a peer with no mailbox skips deposits until the backoff expires',
     () async {
       // Two things had to be true for this to work, and neither was. The
       // condition has two spellings — the native path answers `PeerUnresolved`,
@@ -530,6 +537,60 @@ void main() {
       );
     },
   );
+
+  for (final acceptance in [false, true]) {
+    test('mailbox backoff leaves live handshake retries eligible '
+        'acceptance=$acceptance', () async {
+      await mA.deleteConversation(b);
+      await mB.deleteConversation(a);
+      if (acceptance) {
+        await sA.upsertContact(
+          Contact(nodeId: b, status: ContactStatus.pendingIncoming),
+        );
+        await sB.upsertContact(
+          Contact(nodeId: a, status: ContactStatus.pendingOutgoing),
+        );
+      }
+      final before = acceptance ? ContactStatus.pendingOutgoing : null;
+      final after = acceptance
+          ? ContactStatus.accepted
+          : ContactStatus.pendingIncoming;
+      final mailbox = _UnresolvedMailboxSink();
+      mA.attachMailbox(mailbox);
+      tA.online = false;
+      if (acceptance) {
+        await mA.acceptContact(b);
+      } else {
+        expect((await mA.submitContactRequest(b, 'hello')).admitted, isTrue);
+      }
+      await _pump();
+      expect(mailbox.calls, 1);
+      expect(mA.debugDepositSuppressed(b.hex), isTrue);
+      // Preserve an active mailbox backoff while advancing the live clock.
+      mA.debugArmPeerBackoff(b.hex, const Duration(hours: 1));
+
+      tA.online = true;
+      await mA.debugFlushOutboxFrames();
+      await _pump();
+      expect((await sB.getContact(a))?.status, before);
+      expect(mailbox.calls, 1);
+
+      advanceSenderClock(const Duration(seconds: 21));
+      await mA.debugFlushOutboxFrames();
+      await _pump();
+      expect((await sB.getContact(a))?.status, after);
+      expect(mailbox.calls, 1);
+      if (acceptance) {
+        expect(
+          (await sA.pendingOutboxFrames()).where(
+            (frame) => frame.frameId.startsWith('accept:'),
+          ),
+          isEmpty,
+          reason: 'the peer acknowledges the retried acceptance',
+        );
+      }
+    });
+  }
 
   test('queued seals recheck peer backoff after own-device lookup', () async {
     final mailbox = _UnresolvedMailboxSink();

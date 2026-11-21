@@ -1117,15 +1117,9 @@ class _MessagingOutbox {
       if (isAcceptance && contact?.status != ContactStatus.accepted) continue;
       final mailboxEligible =
           isAcceptance || frame.frameId.startsWith('request:');
-      if (mailboxEligible &&
-          _owner._mailboxDelivery.suppressedByBackoff(
-            frame.peerHex,
-            _owner._now(),
-            'outbox flush',
-          )) {
-        continue;
-      }
       // Re-offer a contact handshake only if it has not reached mailbox.
+      // Stash admission owns mailbox backoff. The live route can recover while
+      // mailbox resolution still backs off, so keep its retry cadence separate.
       if (mailboxEligible &&
           !_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
         _owner._stashInBackground(
