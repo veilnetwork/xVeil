@@ -89,6 +89,7 @@ class _MessagingOutbox {
   final _retirements = AsyncTasks();
 
   _OutboxFlushSnapshot? _flushSnapshot;
+  bool _overlayCallFlushPending = false;
 
   // A wait deadline does not cancel the underlying transport future. Keep
   // the recipient occupied until that future actually settles, across flush
@@ -804,22 +805,63 @@ class _MessagingOutbox {
     schedule(_callSignalLiveResend, _fastCallRetryAttempts);
   }
 
-  Future<void> flush() async {
+  /// A real overlay session became available after a period with none.
+  /// Give backed-off calls one early pass, using the same stored frames and
+  /// consent checks. The fast call timers already own their initial retries.
+  void onOverlayRestored() {
+    final now = _owner._now();
+    var hasWaitingCall = false;
+    for (final key in _callReceiptKeys) {
+      final backoff = _liveBackoff[key];
+      if (backoff == null || !_pendingKeys.contains(key)) continue;
+      final frameId = key.substring(backoff.peer.length + 1);
+      if (_fastCallRetryTimers.containsKey(frameId)) continue;
+      if (backoff.nextAt.isAfter(now)) {
+        _liveBackoff[key] = (
+          count: backoff.count,
+          nextAt: now,
+          peer: backoff.peer,
+          lastSentAt: backoff.lastSentAt,
+        );
+      }
+      hasWaitingCall = true;
+    }
+    if (hasWaitingCall) unawaited(_flushOverlayCalls());
+  }
+
+  Future<void> _flushOverlayCalls() async {
+    try {
+      await flush(callsOnly: true);
+    } catch (_) {
+      // The periodic flush will retry.
+    }
+  }
+
+  Future<void> flush({bool callsOnly = false}) async {
     // The periodic timer outlives lock/unlock; a deliberately closed volume is
     // not an error and must not wake its worker every three seconds.
-    if (!_owner._storage.isOpen || _owner._disposed || _flushSnapshot != null) {
+    if (!_owner._storage.isOpen || _owner._disposed) return;
+    if (_flushSnapshot != null) {
+      if (callsOnly) _overlayCallFlushPending = true;
       return;
     }
     final snapshot = _OutboxFlushSnapshot();
     _flushSnapshot = snapshot;
     try {
-      await _flush(snapshot);
+      await _flush(snapshot, callsOnly: callsOnly);
     } finally {
       _flushSnapshot = null;
+      if (_overlayCallFlushPending) {
+        _overlayCallFlushPending = false;
+        unawaited(_flushOverlayCalls());
+      }
     }
   }
 
-  Future<void> _flush(_OutboxFlushSnapshot snapshot) async {
+  Future<void> _flush(
+    _OutboxFlushSnapshot snapshot, {
+    required bool callsOnly,
+  }) async {
     final List<OutboxFrame> pending;
     try {
       pending = await _owner._storage.pendingOutboxFrames();
@@ -842,14 +884,16 @@ class _MessagingOutbox {
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     _pendingSeeded = true;
-    final oldest = <String, int>{};
-    for (final frame in pending) {
-      final at = frame.enqueuedAtMs;
-      if (at == null) continue;
-      final seen = oldest[frame.peerHex];
-      if (seen == null || at < seen) oldest[frame.peerHex] = at;
+    if (!callsOnly) {
+      final oldest = <String, int>{};
+      for (final frame in pending) {
+        final at = frame.enqueuedAtMs;
+        if (at == null) continue;
+        final seen = oldest[frame.peerHex];
+        if (seen == null || at < seen) oldest[frame.peerHex] = at;
+      }
+      await _loadSilences(_pendingByPeer.keys, oldestQueued: oldest);
     }
-    await _loadSilences(_pendingByPeer.keys, oldestQueued: oldest);
     await _retireSupersededCallRoutes(this, pending, snapshot);
     // THE DEPOSITS ARE A PASS OF THEIR OWN, ahead of every dial.
     //
@@ -883,6 +927,11 @@ class _MessagingOutbox {
       // An unavailable identity cannot justify retiring its queued state.
     }
     for (final frame in pending) {
+      if (callsOnly &&
+          (!_callReceiptKeys.contains(_key(frame.peerHex, frame.frameId)) ||
+              _fastCallRetryTimers.containsKey(frame.frameId))) {
+        continue;
+      }
       if (!current(frame)) continue;
       if (_owner._expiryLifecycle.defers(frame)) continue;
       try {
@@ -1894,6 +1943,7 @@ class _MessagingOutbox {
 
   void dispose() {
     _callReceiptKeys.clear();
+    _overlayCallFlushPending = false;
     _flushSnapshot?.cancel();
     _activeLivePeers.clear();
     for (final timer in _fastCallRetryTimers.values) {

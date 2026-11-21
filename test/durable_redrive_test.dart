@@ -26,8 +26,10 @@ class _Link implements VeilTransport {
   _Link(this._me);
   final NodeId _me;
   final _inbound = StreamController<InboundMessage>.broadcast();
+  final sessions = StreamController<int>.broadcast();
   _Link? peer;
   bool online = true;
+  Future<void> Function(String)? beforeSend;
 
   /// Frames that actually left this egress, for tests that assert on the RATE
   /// of sending rather than on what arrived.
@@ -54,10 +56,15 @@ class _Link implements VeilTransport {
   }) async {
     if (!online) return; // our egress is down — drop
     sent++;
+    String? frameId;
     try {
-      final fid = WireEnvelope.decode(payload).frameId;
-      if (fid != null) sentFrameIds.add(fid);
+      frameId = WireEnvelope.decode(payload).frameId;
     } catch (_) {}
+    if (frameId != null) {
+      sentFrameIds.add(frameId);
+      final gate = beforeSend;
+      if (gate != null) await gate(frameId);
+    }
     final p = peer;
     if (p == null || p._me != dst) return; // routed by dst, like the real net
     p._inbound.add(
@@ -90,11 +97,16 @@ class _Link implements VeilTransport {
   );
 
   @override
-  Stream<int> sessionCount() => Stream.value(0);
+  Stream<int> sessionCount() async* {
+    yield 0;
+    yield* sessions.stream;
+  }
   @override
   Future<List<PeerInfo>> peers() async => const [];
   @override
-  Future<void> dispose() async => _inbound.close();
+  Future<void> dispose() async {
+    await Future.wait([_inbound.close(), sessions.close()]);
+  }
 }
 
 SpaceOpener _memOpener() {
@@ -365,6 +377,85 @@ void main() {
       expect(tA.sentFrameIds.where((id) => id == frameId).length, afterAck,
           reason: 'the real receipt must retire further attempts');
     });
+
+    for (final holdFlush in [false, true]) {
+      test(
+        holdFlush
+            ? 'an in-flight flush retains the overlay wake for a queued call'
+            : 'a first overlay session wakes a backed-off call before the next tick',
+        () async {
+          const callId = 'cold-bootstrap';
+          final frameId = 'call:$callId:offer:${b.hex}';
+          final offer = WireEnvelope.callSignal(
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.offer,
+              sentAtMs: clock.millisecondsSinceEpoch,
+            ).encode(),
+          ).withFrameId(frameId).encode();
+          final received = <CallSignal>[];
+          mB.onCallSignal = (peer, signal) {
+            if (peer == a) received.add(signal);
+          };
+          await sA.enqueueOutboxFrame(frameId, b.hex, offer);
+          tA.peer = null;
+          for (var attempt = 0; attempt < 7; attempt++) {
+            if (attempt > 0) clock = clock.add(const Duration(seconds: 3));
+            await mA.debugFlushOutboxFrames();
+          }
+          expect(tA.sentFrameIds.where((id) => id == frameId).length, 7);
+          expect(received, isEmpty);
+
+          const unrelatedId = 'reaction:other';
+          final unrelated = const WireEnvelope.reaction(
+            'other',
+            '👍',
+          ).withFrameId(unrelatedId).encode();
+          await sA.enqueueOutboxFrame(unrelatedId, b.hex, unrelated);
+          clock = clock.add(const Duration(milliseconds: 750));
+          tA.peer = tB;
+          final entered = Completer<void>();
+          final release = Completer<void>();
+          Future<void>? runningFlush;
+          try {
+            if (holdFlush) {
+              tA.beforeSend = (id) async {
+                if (id != unrelatedId) return;
+                entered.complete();
+                await release.future;
+              };
+              runningFlush = mA.debugFlushOutboxFrames();
+              await entered.future.timeout(const Duration(seconds: 2));
+            }
+            tA.sessions.add(1);
+            if (holdFlush) {
+              await _settle();
+              expect(received, isEmpty);
+            }
+          } finally {
+            release.complete();
+            await runningFlush;
+            tA.beforeSend = null;
+          }
+          await _settle();
+          expect(received.map((signal) => signal.callId), [callId]);
+          expect(tA.sentFrameIds.where((id) => id == frameId).length, 8);
+          expect(
+            tA.sentFrameIds.where((id) => id == unrelatedId).length,
+            holdFlush ? 1 : 0,
+          );
+          final pending = (await sA.pendingOutboxFrames()).map(
+            (frame) => frame.frameId,
+          );
+          expect(pending, isNot(contains(frameId)));
+          if (!holdFlush) expect(pending, [unrelatedId]);
+
+          tA.sessions.add(2);
+          await _settle();
+          expect(tA.sentFrameIds.where((id) => id == frameId).length, 8);
+        },
+      );
+    }
 
     test('EDIT lost on first attempt is re-driven, applied once, and the ack '
         'retires it', () async {

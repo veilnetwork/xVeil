@@ -1421,6 +1421,7 @@ class MessagingService {
   final _incoming = StreamController<IncomingNotice>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
   StreamSubscription<InboundMessage>? _realtimeSub;
+  StreamSubscription<int>? _outboxOverlaySub;
   Timer? _retryTimer;
 
   /// The one-shot post-unlock settings-GC delay — cancellable so dispose()
@@ -1798,6 +1799,16 @@ class MessagingService {
     _retryTimer ??= Timer.periodic(
       _messageDelivery.retryInterval,
       (_) => _retryFlush(),
+    );
+    int? previousSessionCount;
+    _outboxOverlaySub = transport.sessionCount().listen(
+      (count) {
+        if (_disposed || count < 0) return;
+        final recovered = previousSessionCount == 0 && count > 0;
+        previousSessionCount = count;
+        if (recovered) _outbox.onOverlayRestored();
+      },
+      onError: (Object _) {},
     );
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2). The transport-scoped broker keeps
@@ -4868,12 +4879,15 @@ class MessagingService {
     // before Riverpod can construct a replacement service, while native
     // serve/pull streams are aborted and joined in the returned future.
     final contentStreamsDisposed = _contentStreams.dispose();
+    final overlayClosed = _outboxOverlaySub?.cancel();
+    _outboxOverlaySub = null;
     _retryTimer?.cancel();
     _retryTimer = null;
     _settingsGcTimer?.cancel();
     _settingsGcTimer = null;
     _disappearingSweepTimer?.cancel();
     _disappearingSweepTimer = null;
+    await overlayClosed;
     await _expiryLifecycle.close();
     await _disappearingSweep;
     await snapshotValidationClosed;
