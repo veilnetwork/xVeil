@@ -13,7 +13,7 @@ bumps may change behaviour a user notices.
 ### Fixed
 
 - Recover calls through relays after stalled connections. Free expired
-  message fragments so previous calls do not delay new answers.
+  message fragments and combine parts of the same call signal across relays.
 - Stop outgoing call preparation at the dialing deadline and give each
   reliable call signaling attempt a bounded wait.
 - Improve Windows camera startup and clear the previous preview when the
