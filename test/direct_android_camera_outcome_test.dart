@@ -30,6 +30,9 @@ class _Transport implements VeilFlutterTransport {
   final opened = <int>[];
   final closed = <int>[];
   @override
+  int get networkChangeGeneration => 0;
+
+  @override
   Future<NodeId> peerFacingNodeId({
     Duration timeout = const Duration(seconds: 2),
   }) async => _id(1);
@@ -184,7 +187,7 @@ class _RepairTransport extends _Transport {
       rxKey: rxKey,
       direct: direct,
       relay: relay,
-    primaryOnlyPreparation: primaryOnlyPreparation,
+      primaryOnlyPreparation: primaryOnlyPreparation,
     );
   }
 

@@ -896,7 +896,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       return await read();
     } catch (error) {
       // A failed summary or policy read says nothing about the other chats.
-      devLog(() => 'xVeil[notify]: unread $source failed (${error.runtimeType})');
+      devLog(
+        () => 'xVeil[notify]: unread $source failed (${error.runtimeType})',
+      );
       return null;
     }
   }
@@ -964,7 +966,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       if (mode == NotificationMuteMode.mentionsOnly) {
         if (self == null) continue;
         mention = await _readUnread<Message?>(
-          'chat mentions',
+          'chatMentions',
           () => _newestUnreadDirectMention(c, self),
         );
         if (mention == null) continue;
@@ -1026,7 +1028,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         for (final g in groups) {
           if (g.unread <= 0 || 'group:${g.groupId.hex}' == active) continue;
           final policy = await readGroup(
-            'group policy',
+            'groupPolicy',
             () => gsvc.groupNotificationPolicy(g.groupId),
           );
           final mode = policy?.effectiveAt(DateTime.now());
@@ -1035,7 +1037,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           }
           final mention = mode == NotificationMuteMode.mentionsOnly
               ? await readGroup<GroupMessage?>(
-                  'group mentions',
+                  'groupMentions',
                   () => _newestUnreadGroupMention(gsvc, g.groupId),
                 )
               : null;
@@ -1064,18 +1066,18 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             continue;
           }
           final policy = await readGroup(
-            'space policy',
+            'spacePolicy',
             () => gsvc.groupNotificationPolicy(space.groupId),
           );
           final mode = policy?.effectiveAt(DateTime.now());
           if (mode == null || mode == NotificationMuteMode.none) continue;
           final subscription = await readGroup(
-            'space subscription',
+            'spaceSubscription',
             () => gsvc.spaceSubscription(space.groupId),
           );
           if (subscription == null) continue;
           final unreadPosts = await readGroup(
-            'space posts',
+            'spacePosts',
             () => gsvc.unreadSpacePostViews(space.groupId),
           );
           if (unreadPosts == null) continue;
@@ -1124,13 +1126,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           ));
         }
         final publicSpaces =
-            await readGroup('public spaces', gsvc.publicSpaceSubscriptions) ??
+            await readGroup('publicSpaces', gsvc.publicSpaceSubscriptions) ??
             [];
         for (final public in publicSpaces) {
           final spaceId = public.descriptor.spaceId;
           if ('space:${spaceId.hex}' == active) continue;
           final policy = await readGroup(
-            'public space policy',
+            'publicSpacePolicy',
             () => gsvc.groupNotificationPolicy(spaceId),
           );
           final mode = policy?.effectiveAt(DateTime.now());
@@ -1138,7 +1140,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             continue;
           }
           final unreadPosts = await readGroup(
-            'public space posts',
+            'publicSpacePosts',
             () => gsvc.unreadSpacePostViews(spaceId),
           );
           if (unreadPosts == null) continue;
