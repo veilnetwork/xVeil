@@ -1031,7 +1031,6 @@ class CallBitrateAdapter {
         supportsLowRateVideo &&
         sendAudioExpected &&
         videoSendExpected &&
-        measuredRttMs == 0 &&
         routeRttUsable &&
         stats['worker_stalled'] == 0 &&
         stats['video_worker_stalled'] == 0 &&
@@ -1062,13 +1061,33 @@ class CallBitrateAdapter {
                 receive.ageMs! >= 0 &&
                 receive.ageMs! < audioReceiveRecoverMs &&
                 measuredDelay(receiveDelay)));
+    final missingAudioTiming = videoTimingAvailable && measuredRttMs == 0;
+    final audioReportAge = stats['audio_feedback_age_ms'];
+    final videoReportAge = stats['video_feedback_age_ms'];
+    // Keep the audio RTT for cuts, normal growth and pacing. After a jitter
+    // burst it may still describe an earlier queue while the decoder has
+    // confirmed delivery on the recovered route. Only a newer receiver
+    // report can qualify a separate, decoder-ACKed video probe.
+    final newerVideoTiming =
+        videoTimingAvailable &&
+        requiredReports == 1 &&
+        receiveRequested &&
+        measuredRttMs >= absoluteRttDegradeMs &&
+        measuredRttMs < severeRttMs &&
+        videoLossPct == 0 &&
+        audioReportAge is int &&
+        audioReportAge >= 2000 &&
+        audioReportAge <= 15000 &&
+        videoReportAge is int &&
+        videoReportAge >= 0 &&
+        videoReportAge <= 1000;
     if (supportsLowRateVideo) {
       final generation = _delivery.generation;
       _delivery.observe(
         stats,
         sampledAt ?? DateTime.now(),
         expectedVideoFeedbackReports ?? 1,
-        rttMs: videoTimingAvailable ? videoRtt : measuredRttMs,
+        rttMs: missingAudioTiming ? videoRtt : measuredRttMs,
         sourcePaused:
             !videoSendExpected ||
             _appliedPause == true ||
@@ -1079,7 +1098,7 @@ class CallBitrateAdapter {
         _setDeliveryLevel();
       }
     }
-    final useVideoTiming = videoTimingAvailable && _delivery.supported;
+    final useVideoTiming = missingAudioTiming && _delivery.supported;
     final growthFeedbackAvailable = feedbackAvailable || useVideoTiming;
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
@@ -1095,6 +1114,7 @@ class CallBitrateAdapter {
       sendAudioExpected: sendAudioExpected,
       receiveAudioExpected: receiveRequested,
       rttMs: useVideoTiming ? videoRtt : measuredRttMs,
+      newerVideoProbeRttMs: newerVideoTiming ? videoRtt : null,
       txJitterMs: anyFeedbackAvailable
           ? (stats[sendAudioExpected
                             ? 'tx_jitter_ms'
@@ -1264,6 +1284,7 @@ class CallBitrateAdapter {
     bool audioRecoveryObserved = false,
     bool audioReceiveRecoveryObserved = false,
     required int rttMs,
+    int? newerVideoProbeRttMs,
     required int txJitterMs,
     required int txLossPct,
     required int txDrops,
@@ -1722,11 +1743,6 @@ class CallBitrateAdapter {
     // Only the delivery model may spend this limited probe: it still needs
     // fresh causal decoder progress after the last native budget ACK. Keep
     // repair holds and every measured audio/loss/buffer guard in force.
-    _deliveryRttProbeEligible =
-        _delivery.supported &&
-        (rttGrowthHold || relativeRttWarning) &&
-        !transientGrowthHeld &&
-        txLossPct == 0;
     // Transmit jitter and a confirmed filled playout reserve may coexist
     // with stable audio. Allow only the existing bounded probe backed by
     // fresh decoder ACKs. Loss, queue growth and source pressure still win.
@@ -1737,6 +1753,20 @@ class CallBitrateAdapter {
         receiveReserveCredit > 0 &&
         peerAudioSampleSequence != null &&
         peerAudioSampleSequence == _lastPeerSampleSequence;
+    final newerVideoProbe =
+        measuredPlayoutPathReady &&
+        (measuredAudioPathHealthy || filledReserveProbe) &&
+        newerVideoProbeRttMs != null &&
+        newerVideoProbeRttMs > 0 &&
+        newerVideoProbeRttMs < 250 &&
+        baseline != null &&
+        baseline < absoluteRttDegradeMs &&
+        newerVideoProbeRttMs <= baseline + bloatRecoverMs;
+    _deliveryRttProbeEligible =
+        _delivery.supported &&
+        (rttGrowthHold || relativeRttWarning || newerVideoProbe) &&
+        !transientGrowthHeld &&
+        txLossPct == 0;
     _deliveryJitterProbeEligible =
         _delivery.supported &&
         measuredPlayoutPathReady &&
@@ -1757,6 +1787,7 @@ class CallBitrateAdapter {
     _bufferInputs?.addAll({
       'buffer_growth_pending': bufferGrowing && !bufferPressure,
       'rtt_growth_hold': rttGrowthHold,
+      'newer_video_rtt_for_probe': newerVideoProbe && _deliveryRttProbeEligible,
       'jitter_probe_eligible': _deliveryJitterProbeEligible,
       'relative_rtt_warning': relativeRttWarning,
       'high_baseline_rtt_warning':

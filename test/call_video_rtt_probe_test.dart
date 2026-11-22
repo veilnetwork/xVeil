@@ -118,6 +118,105 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
+  for (final condition in [
+    'newer video RTT',
+    'unknown report ages',
+    'recent audio warning',
+    'old video RTT',
+    'severe audio RTT',
+    'video still has high RTT',
+    'unconfirmed filled reserve',
+    'recent audio repair',
+    'source pressure',
+    'growing playout buffer',
+    'no new decoder ACK',
+    'different route epoch',
+  ]) {
+    test('post-jitter decoder probe with $condition', () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      for (var n = 1; n <= 5; n++) {
+        _sample(
+          a,
+          n,
+          rtt: n == 1 ? 13 : 679,
+          receiveDelay: 590,
+          receiveTarget: 450,
+          peerDelay: 576,
+          peerTarget: 450,
+          filledJitterReserveConfirmed: true,
+          decoder: condition == 'no new decoder ACK' ? _decoder(1) : null,
+          extra: {'audio_rtt_route_epoch': 0, 'video_rtt_route_epoch': 0},
+        );
+      }
+      final before = a.acknowledgedTarget!;
+      expect(before.maxFps, 1);
+      _sample(
+        a,
+        6,
+        rtt: condition == 'severe audio RTT' ? 2000 : 679,
+        receiveDelay: 590,
+        receiveTarget: 450,
+        peerDelay: 576,
+        peerTarget: 450,
+        filledJitterReserveConfirmed: condition != 'unconfirmed filled reserve',
+        sourcePressure: condition == 'source pressure',
+        peerGrowing: condition == 'growing playout buffer',
+        decoder: condition == 'no new decoder ACK' ? _decoder(1) : null,
+        extra: {
+          'audio_rtt_route_epoch': 0,
+          'video_rtt_route_epoch': condition == 'different route epoch' ? 1 : 0,
+          'video_feedback_rtt_ms': condition == 'video still has high RTT'
+              ? 520
+              : 14,
+          'video_feedback_loss_pct': 0,
+          if (condition != 'unknown report ages') ...{
+            'audio_feedback_age_ms': condition == 'recent audio warning'
+                ? 500
+                : 2322,
+            'video_feedback_age_ms': condition == 'old video RTT' ? 1500 : 572,
+          },
+          if (condition == 'recent audio repair')
+            'audio_local_concealment_report_us': 100,
+        },
+      );
+      expect(
+        a.acknowledgedTarget!.maxFps,
+        condition == 'newer video RTT' ? 1.25 : 1,
+      );
+      expect(a.audioReserve, isFalse);
+      final diagnostics = a.bufferDiagnostics['latest'] as Map;
+      expect(
+        diagnostics['rtt_ms'],
+        condition == 'severe audio RTT' ? 2000 : 679,
+      );
+      if (condition == 'newer video RTT') {
+        expect(diagnostics['newer_video_rtt_for_probe'], isTrue);
+        _sample(
+          a,
+          7,
+          rtt: 679,
+          receiveDelay: 590,
+          receiveTarget: 450,
+          peerDelay: 576,
+          peerTarget: 450,
+          filledJitterReserveConfirmed: true,
+          decoder: _decoder(6),
+          extra: {
+            'audio_rtt_route_epoch': 0,
+            'video_rtt_route_epoch': 0,
+            'video_feedback_rtt_ms': 14,
+            'video_feedback_loss_pct': 0,
+            'audio_feedback_age_ms': 3322,
+            'video_feedback_age_ms': 572,
+          },
+        );
+        expect(a.acknowledgedTarget!.maxFps, 1.25);
+      }
+    });
+  }
+
   test(
     'a handover needs a new audio playout report before borrowing video RTT',
     () {
