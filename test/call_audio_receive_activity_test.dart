@@ -40,6 +40,39 @@ void main() {
     expect(activity.outgoingPlayoutFeedback(start).interruptionCount, 4);
   });
 
+  test('a fresh engine keeps damage from the first available poll', () {
+    final activity = CallAudioReceiveActivity()..reset(freshEngine: true);
+    const measured = {
+      'audio_rx_pkts': 30,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': 60,
+    };
+    const damaged = {
+      ...measured,
+      'audio_interruption_count': 2,
+      'audio_latency_recovery_count': 3,
+    };
+    activity.observe({...damaged, 'worker_stalled': 1}, start);
+    expect(activity.interrupted, isFalse);
+    expect(activity.recovered, isFalse);
+    activity.observe(measured, start);
+    expect(activity.playoutFeedback(start).interruptionCount, isNull);
+
+    activity.observe(damaged, start);
+    expect(activity.interrupted, isTrue);
+    expect(activity.recovered, isTrue);
+    final report = activity.outgoingPlayoutFeedback(start);
+    expect(report.interruptionCount, 5);
+    expect(report.recoveryCount, 3);
+    expect(report.callScopedCounters, isTrue);
+
+    activity.observe(damaged, start);
+    expect(activity.interrupted, isFalse);
+    expect(activity.recovered, isFalse);
+    expect(activity.playoutFeedback(start).interruptionCount, 5);
+  });
+
   test('fresh native arrival read preserves pending interruption feedback', () {
     final activity = CallAudioReceiveActivity();
     final stats = <String, Object?>{

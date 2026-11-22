@@ -32,7 +32,10 @@ Future<void> main() async {
       supportsLowRateVideo: true,
     ),
   );
-  final activity = List.generate(2, (_) => CallAudioReceiveActivity());
+  final activity = List.generate(
+    2,
+    (_) => CallAudioReceiveActivity()..reset(freshEngine: true),
+  );
   final peer = List.generate(2, (_) => CallPeerAudioPlayout());
   final sourcePressure = List.generate(
     2,

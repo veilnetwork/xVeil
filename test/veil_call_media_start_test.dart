@@ -2336,10 +2336,13 @@ void main() {
           expect(await controller.start(first), isTrue);
           expect(engines, hasLength(2));
           expect(engines.first.disposed, isTrue);
+          engines.last
+            ..interruptions = 1
+            ..recoveries = 2;
           final replaced = sample();
           expect(replaced.sequence, greaterThan(damaged.sequence));
-          expect(replaced.interruptionCount, 3);
-          expect(replaced.recoveryCount, 1);
+          expect(replaced.interruptionCount, 6);
+          expect(replaced.recoveryCount, 3);
 
           await controller.stop();
           expect(await controller.start(_call(callId: 'next-call')), isTrue);

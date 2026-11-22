@@ -79,6 +79,7 @@ class CallAudioReceiveActivity {
   int? _playoutDelayMs;
   int? _targetDelayMs;
   DateTime? _sampledAt;
+  bool _freshEngine = false;
   int? _lastInterruptionCount;
   int? _lastRecoveryCount;
   CallAudioRecoveryIdentity? _nativeRecoveryIdentity;
@@ -201,8 +202,9 @@ class CallAudioReceiveActivity {
     if (stats['worker_stalled'] == 0 &&
         interruptions is int &&
         interruptions >= 0) {
-      final previous = _lastInterruptionCount;
-      if (previous != null && interruptions > previous) {
+      final previous =
+          _lastInterruptionCount ?? (_freshEngine ? 0 : interruptions);
+      if (interruptions > previous) {
         _interruptionCount += interruptions - previous;
         interrupted = true;
       }
@@ -210,8 +212,8 @@ class CallAudioReceiveActivity {
     }
     final recoveries = stats['audio_latency_recovery_count'];
     if (stats['worker_stalled'] == 0 && recoveries is int && recoveries >= 0) {
-      final previous = _lastRecoveryCount;
-      if (previous != null && recoveries > previous) {
+      final previous = _lastRecoveryCount ?? (_freshEngine ? 0 : recoveries);
+      if (recoveries > previous) {
         _interruptionCount += recoveries - previous;
         _recoveryCount += recoveries - previous;
         recovered = true;
@@ -247,7 +249,9 @@ class CallAudioReceiveActivity {
     _playoutWindow.observe(playoutFeedback(now).delayMs, sampledAt: now);
   }
 
-  void reset() {
+  /// A newly created engine starts its counters at zero before the first poll.
+  /// Attaching to a running stream requires a measured baseline instead.
+  void reset({bool freshEngine = false}) {
     // Keep sequence monotonic across session repairs and unknown snapshots.
     _sequence++;
     _playoutDelayMs = null;
@@ -257,6 +261,7 @@ class CallAudioReceiveActivity {
     _playoutWindow.reset();
     _lastObservedAt = null;
     _lastPackets = 0;
+    _freshEngine = freshEngine;
     _lastInterruptionCount = null;
     _lastRecoveryCount = null;
     _nativeRecoveryIdentity = null;

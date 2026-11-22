@@ -2113,7 +2113,7 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer?.cancel();
     _mediaReceiveActivity.reset(preserveLastRxAt: preserveReceiveHistory);
     _lastRxPkts = 0;
-    _audioReceiveActivity.reset();
+    _audioReceiveActivity.reset(freshEngine: true);
     _receiveSessionStartedAt = _statsNow();
     _sourcePressure.reset();
     _sourceRecoveryProbeReceipt = null;
