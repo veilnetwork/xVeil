@@ -3352,6 +3352,83 @@ void main() {
     },
   );
 
+  for (final peerDirection in [false, true]) {
+    for (final level in [0, 4]) {
+      test('buffer growth must be measured on the current route '
+          'peer=$peerDirection level=$level', () {
+        final a = direct(level: level);
+        var sequence = 0;
+
+        void sample(int epoch, int delay, {bool freshPeer = true}) {
+          if (freshPeer) sequence++;
+          native(
+            a,
+            stats: {
+              ...healthy(),
+              'audio_rtt_route_epoch': epoch,
+              'audio_delay_ms': peerDirection ? 60 : delay,
+              if (!peerDirection) 'audio_jb_target_ms': 500,
+            },
+            peerDelay: peerDirection ? delay : 60,
+            currentPeerDelay: peerDirection ? delay : 60,
+            peerTargetDelay: peerDirection ? 500 : null,
+            peerSequence: sequence,
+          );
+        }
+
+        for (var delay = 420; delay <= 560; delay += 20) {
+          sample(0, delay);
+        }
+        expect(a.audioBufferPressure, isFalse);
+        expect(a.level, level);
+        expect(a.audioReserve, isFalse);
+
+        // The old trend was a sample short of confirming. A cached peer
+        // report and this brief rise belong to different routes.
+        sample(1, 560, freshPeer: false);
+        for (final delay in [580, 600, 500]) {
+          sample(1, delay);
+          expect(a.audioBufferPressure, isFalse);
+          expect(a.level, level);
+          expect(a.audioReserve, isFalse);
+        }
+
+        // Prove that sustained growth above the reserve still protects
+        // audio when enough fresh observations arrive on this route.
+        for (var delay = 420; delay <= 600; delay += 20) {
+          sample(1, delay);
+        }
+        expect(a.audioBufferPressure, isTrue);
+        expect(a.level, level == 0 ? 2 : level);
+        expect(a.audioReserve, level == 4);
+      });
+    }
+  }
+
+  test('route change does not give a cached peer report a second life', () {
+    final a = direct(level: 4);
+    void sample(int epoch, int sequence) => native(
+      a,
+      stats: {...healthy(), 'audio_rtt_route_epoch': epoch},
+      peerDelay: 720,
+      currentPeerDelay: 720,
+      peerTargetDelay: 500,
+      peerSequence: sequence,
+    );
+
+    sample(0, 8);
+    expect(a.audioBufferPressure, isTrue);
+    sample(1, 8);
+    expect(a.audioBufferPressure, isFalse);
+    sample(1, 7);
+    expect(a.audioBufferPressure, isFalse);
+    sample(1, 9);
+    expect(a.audioBufferPressure, isTrue);
+    expect(a.audioReserve, isFalse);
+    sample(1, 10);
+    expect(a.audioReserve, isTrue);
+  });
+
   for (final replacement in [false, true]) {
     final boundary = replacement ? 'engine replacement' : 'route change';
     for (final level in [0, 4]) {

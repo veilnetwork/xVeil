@@ -631,6 +631,14 @@ class CallBitrateAdapter {
       _prevWindowMin = null;
       _windowFill = 0;
       _resetRouteDecisionStreaks();
+      // The old slope cannot establish continuing growth on the new route.
+      // Peer reports keep their sequence across a handover, so an already
+      // consumed report cannot reseed the empty windows.
+      _receiveBuffer.reset();
+      _peerBuffer.reset(keepSequence: true);
+      _floorReceiveBuffer.reset();
+      _floorPeerBuffer.reset(keepSequence: true);
+      _floorPeerSampleSequence = _lastPeerSampleSequence;
       _networkAudioLoss.reset();
       if (previous != null || epoch > 0) _startupRecovery = false;
     }

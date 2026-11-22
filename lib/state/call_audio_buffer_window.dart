@@ -109,9 +109,11 @@ class CallAudioBufferWindow {
     return _pressure;
   }
 
-  void reset() {
+  /// Keep the replay watermark when restarting a trend in the same report
+  /// stream, such as after a route handover.
+  void reset({bool keepSequence = false}) {
     _delays.clear();
-    _sequence = null;
+    if (!keepSequence) _sequence = null;
     _growing = false;
     _usingMeasuredTrend = false;
     _lastSampleAt = _growthSince = null;

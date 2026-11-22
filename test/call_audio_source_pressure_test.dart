@@ -235,6 +235,52 @@ void main() {
     },
   );
 
+  for (final peerDirection in [false, true]) {
+    test('source pressure starts a new buffer trend after handover '
+        'peer=$peerDirection', () {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      var sequence = 0;
+
+      bool? observe(
+        int epoch,
+        int delay, {
+        bool freshPeer = true,
+        DateTime? at,
+      }) {
+        if (freshPeer) sequence++;
+        return sample(
+          policy,
+          peer: peerDirection ? delay : 60,
+          currentPeer: peerDirection ? delay : 60,
+          peerSequence: sequence,
+          targetPeer: peerDirection ? 500 : null,
+          local: peerDirection ? 60 : delay,
+          targetLocal: peerDirection ? null : 500,
+          nativeStats: {...measured, 'audio_rtt_route_epoch': epoch},
+          at: at,
+        );
+      }
+
+      expect(observe(0, 420), isTrue);
+      expect(observe(0, 420), isTrue);
+      expect(observe(0, 420), isFalse);
+      final afterGap = times[policy]!.add(const Duration(seconds: 8));
+      expect(observe(0, 420, at: afterGap), isFalse);
+      for (var delay = 440; delay <= 560; delay += 20) {
+        expect(observe(0, delay), isNot(true));
+      }
+      expect(observe(1, 560, freshPeer: false), isNot(true));
+      for (final delay in [580, 600, 500]) {
+        expect(observe(1, delay), isNot(true));
+        expect(policy.measuredAudioPressure, isNot(true));
+      }
+      for (var delay = 420; delay <= 600; delay += 20) {
+        observe(1, delay);
+      }
+      expect(policy.measuredAudioPressure, isTrue);
+    });
+  }
+
   test('known small damage holds growth with the original event time', () {
     final policy = CallAudioSourcePressure();
     final stats = <String, Object>{

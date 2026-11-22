@@ -167,6 +167,15 @@ class CallAudioSourcePressure {
       receiveDelayMs,
       receiveCredit,
     );
+    final routeEpoch = nativeStats?['audio_rtt_route_epoch'];
+    final hasRouteEpoch = routeEpoch is int && routeEpoch >= 0;
+    final routeChanged = hasRouteEpoch && routeEpoch != _audioRouteEpoch;
+    if (routeChanged) {
+      _networkAudioLoss.reset();
+      _peerBuffer.reset(keepSequence: true);
+      _receiveBuffer.reset();
+      _audioRouteEpoch = routeEpoch;
+    }
     final peerPressure = _peerBuffer.observe(
       peerNeeded ? peerDelay : null,
       sequence: peerSampleSequence,
@@ -205,13 +214,6 @@ class CallAudioSourcePressure {
       localConcealed || (receiveExpected && recovered),
       sampledAt: sampledAt,
     );
-    final routeEpoch = nativeStats?['audio_rtt_route_epoch'];
-    final hasRouteEpoch = routeEpoch is int && routeEpoch >= 0;
-    final routeChanged = hasRouteEpoch && routeEpoch != _audioRouteEpoch;
-    if (routeChanged) {
-      _networkAudioLoss.reset();
-      _audioRouteEpoch = routeEpoch;
-    }
     final repeatFromPolls = _networkAudioLoss.observe(
       singlePeerPlayout && networkLoss,
       sampledAt: sampledAt,
