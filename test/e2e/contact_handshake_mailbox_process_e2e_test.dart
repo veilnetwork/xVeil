@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilClient, VeilPeerState;
 import 'package:xveil/core/ids.dart';
@@ -15,16 +16,23 @@ import 'device_process_fixture.dart';
 import 'e2e_env.dart';
 import 'multi_device_process_e2e_test.dart' as base;
 
-void main() {
-  final gate = E2eGate.read();
+void _testRelayKeyRotation(E2eGate gate, {required bool advertised}) {
   test(
-    'remembered offline mailbox accepts a deposit after relay key rotation',
+    '${advertised ? 'advertised' : 'remembered'} offline mailbox accepts a '
+    'deposit after relay key rotation',
     () async {
-      final fleet = await ProcessFleet.start(gate, labels: ['C']);
+      final fleet = await ProcessFleet.start(
+        gate,
+        labels: [if (advertised) 'A', 'C'],
+      );
       addTearDown(fleet.dispose);
       final relay = fleet.cluster.mailbox;
       final relayId = NodeId.fromHex(relay.nodeIdHex!);
-      final recipient = NodeId(Uint8List.fromList(List.filled(32, 0x71)));
+      final recipient = advertised
+          ? NodeId.fromHex(
+              (await base.deviceInfo(fleet.a))['identity'] as String,
+            )
+          : NodeId(Uint8List.fromList(List.filled(32, 0x71)));
       final content = NodeId(Uint8List.fromList(List.filled(32, 0xb6)));
       final ipc = await Directory('${fleet.c.dir.path}/runtime')
           .list(recursive: true, followLinks: false)
@@ -55,14 +63,37 @@ void main() {
       final old = await currentRelayKey();
       final signed = await client.lookupRelayX25519(relayId.bytes);
       expect(signed?.key, old);
-      // Synthetic receiver with no currently published ad. Seed exactly what
-      // the sender would have retained from the last successful ad lookup.
-      await cache.setPeerRelays(recipient, [relayId]);
-      await cache.put(relayId, old);
-      expect(
-        await client.mailbox.lookupRendezvousReplicas(recipient.bytes),
-        isEmpty,
-      );
+      if (advertised) {
+        await waitUntil(() async {
+          final ads = await client.mailbox.lookupRendezvousReplicas(
+            recipient.bytes,
+          );
+          return ads.any(
+            (ad) =>
+                NodeId(ad.relayNodeId) == relayId &&
+                listEquals(ad.rendezvousKemPk, old),
+          );
+        }, what: 'the sender resolves the old key in a signed mailbox ad');
+        await fleet.a.stop();
+        expect(fleet.a.lastExitCode, 0);
+        expect(await cache.getPeerRelays(recipient), isEmpty);
+        // Signed publication times have one-second resolution. Ensure even
+        // the receiver's last possible ad predates the replacement record.
+        final stoppedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        await waitUntil(
+          () async => DateTime.now().millisecondsSinceEpoch ~/ 1000 > stoppedAt,
+          what: 'the next signed publication second',
+        );
+      } else {
+        // Synthetic receiver with no ad. Seed the information the sender
+        // would have retained from the last successful ad lookup.
+        await cache.setPeerRelays(recipient, [relayId]);
+        await cache.put(relayId, old);
+        expect(
+          await client.mailbox.lookupRendezvousReplicas(recipient.bytes),
+          isEmpty,
+        );
+      }
 
       await fleet.cluster.restartWithRotatedMailboxKey();
       expect(relay.nodeIdHex, relayId.hex);
@@ -106,14 +137,24 @@ void main() {
         what: 'the rotated mailbox opens and stores the deposit',
         timeout: const Duration(seconds: 20),
       );
-      expect(await cache.get(relayId), rotated);
-      expect(await cache.getPeerRelays(recipient), [relayId]);
+      if (advertised) {
+        expect(await cache.getPeerRelays(recipient), contains(relayId));
+      } else {
+        expect(await cache.get(relayId), rotated);
+        expect(await cache.getPeerRelays(recipient), [relayId]);
+      }
       E2eLog.line('ROTATED_MAILBOX_KEY_DEPOSIT_STORED');
     },
     skip: gate.enabled && Platform.environment['XVEIL_E2E_ANONYMOUS'] != '1'
         ? 'requires XVEIL_E2E_ANONYMOUS=1'
         : gate.skip,
   );
+}
+
+void main() {
+  final gate = E2eGate.read();
+  _testRelayKeyRotation(gate, advertised: false);
+  _testRelayKeyRotation(gate, advertised: true);
 
   test(
     'offline acceptance recovers after relay storage loss',
