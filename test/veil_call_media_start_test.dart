@@ -193,6 +193,35 @@ class _LivenessEngine extends _Engine {
   };
 }
 
+class _PlayoutEvidenceEngine extends _LivenessEngine {
+  _PlayoutEvidenceEngine() : super(5);
+
+  int interruptions = 0;
+  int recoveries = 0;
+
+  @override
+  Map<String, dynamic> getStats() => {
+    ...super.getStats(),
+    'audio_rx_pkts': packets,
+    'audio_rx_native_age_ms': 10,
+    'audio_delay_ms': 60,
+    'audio_jb_target_ms': 60,
+    'audio_interruption_count': interruptions,
+    'audio_latency_recovery_count': recoveries,
+  };
+}
+
+class _PlayoutFeedbackController extends VeilCallMediaController {
+  _PlayoutFeedbackController(
+    super.transport, {
+    required super.statsNow,
+    required super.engineFactory,
+  });
+
+  @override
+  int get signalProtocolVersion => kCallSignalProtocolVersion;
+}
+
 class _UpgradeEngine extends _Engine {
   _UpgradeEngine() : super(nativeStarted: true, capture: 1);
   final videoStarted = Completer<void>();
@@ -2267,6 +2296,71 @@ void main() {
       );
     }
   }
+
+  test('playout counters follow the call across engine replacements', () async {
+    final statsPolls = <void Function()>[];
+    await runZoned(
+      () async {
+        final engines = <_PlayoutEvidenceEngine>[];
+        var now = DateTime.utc(2026, 11, 1);
+        final controller = _PlayoutFeedbackController(
+          _Transport(),
+          statsNow: () => now,
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) {
+                final engine = _PlayoutEvidenceEngine();
+                engines.add(engine);
+                return engine;
+              },
+        );
+        CallAudioPlayoutFeedback sample() {
+          now = now.add(const Duration(milliseconds: 100));
+          statsPolls.last();
+          final report = controller.audioPlayoutFeedback!;
+          expect(report.delayMs, 60);
+          return report;
+        }
+
+        try {
+          final first = _call();
+          expect(await controller.start(first), isTrue);
+          expect(sample().interruptionCount, 0);
+          engines.single
+            ..interruptions = 2
+            ..recoveries = 1;
+          final damaged = sample();
+          expect(damaged.interruptionCount, 3);
+          expect(damaged.recoveryCount, 1);
+
+          expect(await controller.start(first), isTrue);
+          expect(engines, hasLength(2));
+          expect(engines.first.disposed, isTrue);
+          final replaced = sample();
+          expect(replaced.sequence, greaterThan(damaged.sequence));
+          expect(replaced.interruptionCount, 3);
+          expect(replaced.recoveryCount, 1);
+
+          await controller.stop();
+          expect(await controller.start(_call(callId: 'next-call')), isTrue);
+          expect(engines, hasLength(3));
+          final next = sample();
+          expect(next.interruptionCount, 0);
+          expect(next.recoveryCount, 0);
+        } finally {
+          await controller.stop();
+        }
+      },
+      zoneSpecification: ZoneSpecification(
+        createPeriodicTimer: (self, parent, zone, interval, callback) {
+          final timer = parent.createPeriodicTimer(zone, interval, (_) {});
+          if (interval == const Duration(seconds: 1)) {
+            statsPolls.add(() => zone.runUnary(callback, timer));
+          }
+          return timer;
+        },
+      ),
+    );
+  });
 
   for (final mode in ['confirmed', 'no echo', 'no longer needed', 'hangup']) {
     test('refresh live relay with peer proof: $mode', () async {

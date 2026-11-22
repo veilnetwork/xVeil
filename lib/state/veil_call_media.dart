@@ -664,7 +664,7 @@ class VeilCallMediaController implements CallMediaController {
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   final _mediaReceiveActivity = CallMediaReceiveActivity();
   int _lastRxPkts = 0;
-  final _audioReceiveActivity = CallAudioReceiveActivity();
+  CallAudioReceiveActivity _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
   CallPeerAudioRecovery _peerAudioRecovery = CallPeerAudioRecovery();
   final _sourcePressure = CallAudioSourcePressure(singlePeerPlayout: true);
@@ -900,7 +900,7 @@ class VeilCallMediaController implements CallMediaController {
           _routeRepairing ||
           signalProtocolVersion < kCallAudioPlayoutFeedbackMinVersion
       ? null
-      : _audioReceiveActivity.outgoingPlayoutFeedback(DateTime.now());
+      : _audioReceiveActivity.outgoingPlayoutFeedback(_statsNow());
 
   @override
   void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {
@@ -1827,6 +1827,11 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     final epoch = ++_mediaEpoch;
+    if (previousCall?.callId != call.callId) {
+      // The receive tracker preserves cumulative counters across engine
+      // replacements. A new call starts a separate feedback stream.
+      _audioReceiveActivity = CallAudioReceiveActivity();
+    }
     _activeCall = call;
     bool currentStart() =>
         requested() &&
