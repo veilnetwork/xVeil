@@ -3352,6 +3352,89 @@ void main() {
     },
   );
 
+  for (final replacement in [false, true]) {
+    final boundary = replacement ? 'engine replacement' : 'route change';
+    for (final level in [0, 4]) {
+      test(
+        'old buffer pressure cannot complete a video cut after $boundary at level $level',
+        () {
+          final a = direct(level: level);
+          void sample(int epoch) => native(
+            a,
+            stats: {
+              ...healthy(),
+              'audio_rtt_route_epoch': epoch,
+              'audio_delay_ms': 720,
+              'audio_jb_target_ms': 500,
+            },
+          );
+
+          sample(0);
+          expect(a.level, level);
+          expect(a.audioReserve, isFalse);
+          if (replacement) a.invalidateAppliedState();
+          final epoch = replacement ? 0 : 1;
+          sample(epoch);
+          expect(a.level, level);
+          expect(a.audioReserve, isFalse);
+
+          sample(epoch);
+          expect(a.level, level == 0 ? 2 : level);
+          expect(a.audioReserve, level == 4);
+        },
+      );
+    }
+
+    for (final muted in [false, true]) {
+      test('video recovery earns new samples after $boundary muted=$muted', () {
+        final a = direct(level: 4);
+        native(
+          a,
+          stats: {...healthy(), 'audio_rtt_route_epoch': 0},
+          peerDelay: 300,
+        );
+        native(
+          a,
+          stats: {...healthy(), 'audio_rtt_route_epoch': 0},
+          peerDelay: 300,
+        );
+        expect(a.audioReserve, isTrue);
+        final needed = muted
+            ? CallBitrateAdapter.recoverAfter
+            : CallBitrateAdapter.probeResumeAfter;
+        void goodOn(int epoch) => native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_rtt_route_epoch': epoch,
+            'video_rtt_route_epoch': epoch,
+            // A paused video sender may have no current video RTCP. In the
+            // muted case the incoming-audio fallback can still resume it.
+            if (muted) 'video_feedback_reports': 0,
+          },
+          send: !muted,
+        );
+
+        for (var n = 1; n < needed; n++) {
+          goodOn(0);
+        }
+        expect(a.audioReserve, isTrue);
+        if (replacement) a.invalidateAppliedState();
+        final epoch = replacement ? 0 : 1;
+        for (var n = 1; n < needed; n++) {
+          goodOn(epoch);
+          expect(
+            a.audioReserve,
+            isTrue,
+            reason: 'only $n samples on the new media path',
+          );
+        }
+        goodOn(epoch);
+        expect(a.audioReserve, isFalse);
+      });
+    }
+  }
+
   test('older native retains integer budgets and never pretends to pause', () {
     final a = direct(lowRate: false);
     poor(a, 30);

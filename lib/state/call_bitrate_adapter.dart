@@ -565,8 +565,7 @@ class CallBitrateAdapter {
     // the old engine's partially earned producer growth.
     _lastPeerSampleSequence = null;
     _recoveryPeerBaseline = null;
-    _goodStreak = 0;
-    _startupGoodStreak = 0;
+    _resetRouteDecisionStreaks();
     _receiveBuffer.reset();
     _peerBuffer.reset();
     _floorReceiveBuffer.reset();
@@ -574,6 +573,18 @@ class CallBitrateAdapter {
     _bufferPressure = false;
     _bufferInputs = null;
     _bufferHistory.clear();
+  }
+
+  // Keep the selected budget and pause across media boundaries. Re-establish
+  // the consecutive observations needed to change either on the new path.
+  void _resetRouteDecisionStreaks() {
+    _badStreak = 0;
+    _floorBadStreak = 0;
+    _goodStreak = 0;
+    _startupGoodStreak = 0;
+    _severeStreak = 0;
+    _mutedRecoveryStreak = 0;
+    _resetAudioRecovery();
   }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
@@ -619,9 +630,7 @@ class CallBitrateAdapter {
       _curWindowMin = null;
       _prevWindowMin = null;
       _windowFill = 0;
-      _goodStreak = 0;
-      _startupGoodStreak = 0;
-      _resetAudioRecovery();
+      _resetRouteDecisionStreaks();
       _networkAudioLoss.reset();
       if (previous != null || epoch > 0) _startupRecovery = false;
     }
