@@ -2,7 +2,7 @@
 /// extra congestion. This never changes raw telemetry or buffer growth trends.
 class CallAudioPlayoutReserve {
   // Matches the native NetEq policy; unknown/larger targets stay conservative.
-  static const maximumTargetMs = 400;
+  static const maximumTargetMs = 500;
   static const nominalTargetMs = 80;
   // A 60-ms packet and two render blocks can straddle a current snapshot.
   static const arrivalToleranceMs = 80;

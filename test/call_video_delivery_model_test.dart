@@ -79,7 +79,7 @@ _compensatedJitter({
         ? 160 + n * 20
         : 320;
     final int? reserve = failure == 'unknown_target'
-        ? 500
+        ? 501
         : failure == 'no_reserve'
         ? null
         : failure == 'buffer_growth'

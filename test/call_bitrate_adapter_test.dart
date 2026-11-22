@@ -3330,16 +3330,16 @@ void main() {
             ...healthy(),
             'audio_rx_pkts': n * 50,
             'video_tx_frames': n * 30,
-            if (incoming) 'audio_delay_ms': 320,
-            if (incoming) 'audio_jb_target_ms': 260,
+            if (incoming) 'audio_delay_ms': 520,
+            if (incoming) 'audio_jb_target_ms': 500,
           };
           for (final adapter in [a, recovering]) {
             native(
               adapter,
               stats: stats,
-              peerDelay: incoming ? 60 : 320,
-              currentPeerDelay: incoming ? null : 320,
-              peerTargetDelay: incoming ? null : 260,
+              peerDelay: incoming ? 60 : 520,
+              currentPeerDelay: incoming ? null : 520,
+              peerTargetDelay: incoming ? null : 500,
               peerSequence: n,
             );
           }

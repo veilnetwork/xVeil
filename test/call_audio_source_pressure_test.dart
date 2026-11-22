@@ -741,11 +741,11 @@ void main() {
       for (var n = 0; n < 30; n++) {
         verdict = sample(
           policy,
-          targetLocal: incoming ? 260 : null,
-          local: incoming ? 320 : 100,
-          targetPeer: incoming ? null : 260,
-          peer: incoming ? 100 : 320,
-          currentPeer: incoming ? null : 320,
+          targetLocal: incoming ? 500 : null,
+          local: incoming ? 520 : 100,
+          targetPeer: incoming ? null : 500,
+          peer: incoming ? 100 : 520,
+          currentPeer: incoming ? null : 520,
         );
       }
       expect(verdict, isFalse);
@@ -753,11 +753,11 @@ void main() {
       expect(
         sample(
           policy,
-          targetLocal: incoming ? 260 : null,
-          local: incoming ? 520 : 100,
-          targetPeer: incoming ? null : 260,
-          peer: incoming ? 100 : 520,
-          currentPeer: incoming ? null : 520,
+          targetLocal: incoming ? 500 : null,
+          local: incoming ? 720 : 100,
+          targetPeer: incoming ? null : 500,
+          peer: incoming ? 100 : 720,
+          currentPeer: incoming ? null : 720,
         ),
         isTrue,
         reason: 'real excess above the reserve still yields producers',
@@ -770,7 +770,7 @@ void main() {
     () {
       for (final fixture in [
         (100, 320, true),
-        (520, 500, true),
+        (520, 501, true),
         (320, 260, false),
       ]) {
         final policy = CallAudioSourcePressure();
