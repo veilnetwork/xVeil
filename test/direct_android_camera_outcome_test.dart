@@ -31,6 +31,8 @@ class _Transport implements VeilFlutterTransport {
   final closed = <int>[];
   @override
   int get networkChangeGeneration => 0;
+  @override
+  Stream<void> get networkChangeStarts => const Stream.empty();
 
   @override
   Future<NodeId> peerFacingNodeId({
