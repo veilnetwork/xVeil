@@ -569,6 +569,7 @@ class CallService {
     bool probeRetrySpent,
   })?
   _relayHandover;
+  int? _relayHandoverProbeEpoch;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
@@ -811,6 +812,7 @@ class CallService {
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
         _mediaRepair?.epoch == _mediaOperationEpoch ||
+        _relayHandoverProbeEpoch == _mediaOperationEpoch ||
         _relayFallbackFlight != null ||
         _relayRebuildAdmission != null ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
@@ -3090,7 +3092,9 @@ class CallService {
         !_disposed &&
         networkVersion == _networkObservationVersion &&
         _relayHandover == handover &&
-        !_lateP2PBusy &&
+        !(_lateP2PBusy && _lateP2PAttempted) &&
+        _mediaRepair?.epoch != _mediaOperationEpoch &&
+        !_relayRebuildInProgress &&
         media.activeTransport == CallTransportKind.relay;
 
     // A recent packet from before a local network change can justify a safe
@@ -3115,7 +3119,7 @@ class CallService {
       return;
     }
 
-    final epoch = _mediaOperationEpoch;
+    var epoch = _mediaOperationEpoch;
     Call? ownedCall() {
       final current = _current;
       if (!stillOnHandover() ||
@@ -3167,6 +3171,11 @@ class CallService {
       }
       final probeGeneration = _relayConnectionGeneration;
       var refreshed = false;
+      // Qualify the replacement relay before an outstanding direct
+      // admission read can switch routes. The existing relay keeps carrying
+      // media while we wait for the peer's echo on the candidate.
+      epoch = ++_mediaOperationEpoch;
+      _relayHandoverProbeEpoch = epoch;
       _mediaWatchdogCheckBusy = true;
       try {
         refreshed = await media.refreshRelayRoute(
@@ -3180,6 +3189,7 @@ class CallService {
       } catch (_) {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
+        if (_relayHandoverProbeEpoch == epoch) _relayHandoverProbeEpoch = null;
         if (_relayHandover == handover) {
           // Admission during the probe also counts. Allow one probe retry,
           // but keep observing actual audio even after that retry fails.
@@ -4191,6 +4201,7 @@ class CallService {
     _relayRebuildAdmission = null;
     if (waiting != null && !waiting.isCompleted) waiting.complete(false);
     _relayHandover = null;
+    _relayHandoverProbeEpoch = null;
     _mediaWatchdogTimer?.cancel();
     _mediaWatchdogTimer = null;
     _heartbeatTimer?.cancel();

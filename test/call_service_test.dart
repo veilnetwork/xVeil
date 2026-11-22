@@ -8012,6 +8012,121 @@ void main() {
       ),
     );
 
+    for (final (audioOnNewNetwork, directStartsDuringSample) in [
+      (true, false),
+      (false, false),
+      (true, true),
+    ]) {
+      test('early relay recovery while direct admission is pending '
+          '(audio on new network: $audioOnNewNetwork, '
+          'direct starts during sample: $directStartsDuringSample)', () {
+        fakeAsync((async) {
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final fake = _FakeMessaging();
+          final media = _GatedSwitchMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..audioTelemetry = true;
+          var directReachable = false;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            networkAttachments: network.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => directReachable,
+          )..start();
+          const id = 'relay-handover-during-direct-admission';
+          try {
+            offer(fake, id);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            media.audioRxAt = clock.now();
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                capture: const CallMedia(audio: true),
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+            async.elapse(const Duration(milliseconds: 100));
+            network.add(NetworkAttachment.cellular);
+            async.elapse(const Duration(milliseconds: 100));
+            if (audioOnNewNetwork) media.audioRxAt = clock.now();
+            media.rxAt = clock.now();
+
+            final admission = media.requiredAdmissionGate = Completer<bool>();
+            directReachable = true;
+            fake.onCallSignal!(peer, ready(id));
+            async.flushMicrotasks();
+            final reads = media.admissionChecks.length;
+            expect(reads, 1);
+
+            final echo = Completer<bool>();
+            bool? qualified;
+            media.relayRefresh = (canCommit) async {
+              return qualified = await echo.future && await canCommit();
+            };
+            final sample = Completer<DateTime?>();
+            if (directStartsDuringSample) {
+              media.latestAudioRead = () => sample.future;
+            }
+            async.elapse(const Duration(seconds: 4));
+            if (directStartsDuringSample) {
+              expect(media.latestAudioReads, 1);
+              admission.complete(true);
+              async.flushMicrotasks();
+              expect(media.switches, [CallTransportKind.p2p]);
+              sample.complete(media.audioRxAt);
+              async.flushMicrotasks();
+              expect(media.repairs, 0);
+              expect(media.relayRefreshes, 0);
+              media.switchGate.complete(true);
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              return;
+            }
+            expect(media.repairs, audioOnNewNetwork ? 1 : 0);
+            expect(media.relayRefreshes, audioOnNewNetwork ? 0 : 1);
+            expect(svc.current?.transport, CallTransportKind.relay);
+
+            media.requiredAdmissionGate = null;
+            admission.complete(true);
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+            if (!audioOnNewNetwork) {
+              // Another heartbeat cannot enter P2P while the relay waits for
+              // the authenticated echo on its candidate channel.
+              async.elapse(const Duration(seconds: 1));
+              expect(media.admissionChecks, hasLength(reads));
+              expect(media.switches, isEmpty);
+              echo.complete(true);
+              async.flushMicrotasks();
+              expect(qualified, isTrue);
+            }
+            media.switchGate.complete(true);
+            for (
+              var second = 0;
+              second < kCallHeartbeatInterval.inSeconds;
+              second++
+            ) {
+              media.audioRxAt = media.rxAt = clock.now();
+              async.elapse(const Duration(seconds: 1));
+            }
+            expect(media.admissionChecks.length, greaterThan(reads));
+            expect(media.switches, [CallTransportKind.p2p]);
+            expect(svc.current?.status, CallStatus.active);
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final (handover, admitted) in [
       (false, true),
       (true, true),
