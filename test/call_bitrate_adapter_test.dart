@@ -3236,11 +3236,16 @@ void main() {
     native(a, peerDelay: 300);
     expect(a.acknowledgedPause, isTrue);
     var sequence = 0;
-    void observe({bool permit = true, bool interrupted = false}) => native(
+    void observe({
+      bool permit = true,
+      bool interrupted = false,
+      bool requested = false,
+      int delay = 710,
+    }) => native(
       a,
       stats: {
         ...healthy(),
-        'audio_delay_ms': 710,
+        'audio_delay_ms': delay,
         'audio_jb_target_ms': 500,
         'rtt_ms': 850,
         'video_tx_frames': 0,
@@ -3251,13 +3256,14 @@ void main() {
         'audio_local_soft_loss_window_ms': 40,
         'audio_peer_soft_loss_window_ms': 80,
       },
-      peerDelay: 710,
-      currentPeerDelay: 710,
+      peerDelay: delay,
+      currentPeerDelay: delay,
       peerTargetDelay: 500,
       peerSequence: ++sequence,
       peerBufferGrowing: false,
       interrupted: interrupted,
       sourceRecoveryProbeReady: permit,
+      sourceRecoveryProbeRequested: requested,
       sourceBudgetPressured: true,
     );
 
@@ -3280,6 +3286,37 @@ void main() {
     expect(a.acknowledgedPause, isFalse);
     observe(permit: false);
     expect(a.acknowledgedPause, isTrue);
+
+    // An outstanding request can overlap the first healthy measurement but
+    // cannot pile up credit or unpause without a fresh transport receipt.
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
+      observe(permit: false, requested: true, delay: 690);
+      expect(a.acknowledgedPause, isTrue);
+    }
+    observe(delay: 690);
+    expect(a.acknowledgedPause, isTrue);
+    observe(delay: 690);
+    expect(a.acknowledgedPause, isFalse);
+
+    observe(interrupted: true);
+    expect(a.acknowledgedPause, isTrue);
+    observe(permit: false, requested: true, delay: 690);
+    observe(permit: false, requested: true, interrupted: true, delay: 690);
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter - 1; i++) {
+      observe(delay: 690);
+      expect(a.acknowledgedPause, isTrue);
+    }
+    observe();
+    expect(a.acknowledgedPause, isFalse);
+
+    observe(interrupted: true);
+    expect(a.acknowledgedPause, isTrue);
+    observe(permit: false, requested: true, delay: 690);
+    observe(delay: 690);
+    observe(delay: 705);
+    expect(a.acknowledgedPause, isTrue);
+    observe(delay: 690);
+    expect(a.acknowledgedPause, isFalse);
   });
 
   test('an active floor probe tolerates one marginal local buffer sample', () {

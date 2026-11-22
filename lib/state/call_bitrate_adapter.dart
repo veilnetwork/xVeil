@@ -128,6 +128,9 @@ class CallBitrateAdapter {
   static const int playoutDegradeMs = CallAudioBufferWindow.ceilingMs;
   static const int playoutRecoverMs = 160;
   static const int _probeRecoveryBoundaryMs = 5;
+  // Keep one short audio packet of headroom when part of the recovery window
+  // was measured before the transport accepted a probe.
+  static const int _pendingProbeHeadroomMs = 20;
 
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
   /// leg is TCP-like: congestion NEVER shows as loss (the transport hides
@@ -196,11 +199,13 @@ class CallBitrateAdapter {
   bool _startupRecovery;
   int _startupGoodStreak = 0;
   int _audioRecoveryStreak = 0;
+  bool _audioRecoveryStartedPending = false;
   bool _audioRecoveryBoundaryHeld = false;
   bool _reserveRecoveryRenewalWaited = false;
 
   void _resetAudioRecovery() {
     _audioRecoveryStreak = 0;
+    _audioRecoveryStartedPending = false;
     _audioRecoveryBoundaryHeld = false;
     _reserveRecoveryRenewalWaited = false;
   }
@@ -1965,8 +1970,19 @@ class CallBitrateAdapter {
             (!videoLossObserved && !videoNetworkLossObserved)) &&
         (audioTxDrops != null || !newDrops);
     final useEarlyReserve = _appliedPause == true && earlyReserveRecovery;
+    final pendingProbeHeadroom = playoutBelow(
+      playoutDegradeMs - _pendingProbeHeadroomMs,
+    );
     if (mayRecover &&
         (measuredPlayoutHealthy || audioGood || useEarlyReserve)) {
+      if (useEarlyReserve &&
+          _audioRecoveryStartedPending &&
+          !pendingProbeHeadroom) {
+        // Keep the samples collected after transport admission. The earlier
+        // sample could have preceded another packet-sized rise in the reserve.
+        _audioRecoveryStreak--;
+        _audioRecoveryStartedPending = false;
+      }
       _audioRecoveryStreak++;
       final resumeAfter = measuredPlayoutHealthy || useEarlyReserve
           ? probeResumeAfter
@@ -1977,6 +1993,18 @@ class CallBitrateAdapter {
             useEarlyReserve && !measuredPlayoutHealthy && !audioGood;
         return target;
       }
+    } else if (mayRecover &&
+        _appliedPause == true &&
+        measuredTrialReserve &&
+        !bufferPressure &&
+        pendingProbeHeadroom &&
+        sourceRecoveryProbeRequested) {
+      // Start measuring audio recovery while the first source permit is in
+      // flight. A pending request can seed one sample; it cannot extend the
+      // streak or release the native pause without a fresh receipt.
+      _resetAudioRecovery();
+      _audioRecoveryStreak = 1;
+      _audioRecoveryStartedPending = true;
     } else if (mayRecover &&
         measuredPlayoutReady &&
         !bufferPressure &&
