@@ -43,6 +43,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:xveil/data/node/embedded_node.dart' show BootstrapPeerCfg;
 import 'package:xveil/data/transport/bootstrap_invite.dart';
@@ -216,15 +217,30 @@ class RelayCluster {
   }
 
   /// Simulate a loss of the local test mailbox without rotating the relay.
-  Future<void> restartWithEmptyMailbox() async {
+  Future<void> restartWithEmptyMailbox() => _restartMailbox((node) async {
+    final db = File('${node.dir.path}/mailbox/blobs.db');
+    await db.rename('${db.path}.before-loss');
+  });
+
+  /// Replace the ephemeral test relay's onion key without changing its address.
+  Future<void> restartWithRotatedMailboxKey() => _restartMailbox((node) async {
+    final random = Random.secure();
+    final key = File('${node.dir.path}/device_anonymity_x25519_sk.bin');
+    await key.writeAsBytes(List.generate(32, (_) => random.nextInt(256)));
+    if (!Platform.isWindows) {
+      final mode = await Process.run('chmod', ['600', key.path]);
+      if (mode.exitCode != 0) throw StateError('could not restrict test key permissions');
+    }
+  });
+
+  Future<void> _restartMailbox(Future<void> Function(RelayNode) edit) async {
     final node = mailbox;
     final process = node._process;
     if (process == null) throw StateError('mailbox relay is not running');
     final identity = node.nodeIdHex;
     await _kill(node);
     await process.exitCode.timeout(const Duration(seconds: 5));
-    final db = File('${node.dir.path}/mailbox/blobs.db');
-    await db.rename('${db.path}.before-loss');
+    await edit(node);
     await _spawn(node);
     await _awaitReady(const Duration(seconds: 30));
     if (node.nodeIdHex != identity) {

@@ -53,6 +53,25 @@ void main() {
       expect(await reopened.get(relay), equals(_key(42)));
     });
 
+    test(
+      'signed expiry clips a previously stored key with the same bytes',
+      () async {
+        final cache = StorageRelayKeyCache(storage);
+        final relay = _relay(8);
+        final key = _key(9);
+        final deadline = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 90;
+        await cache.put(relay, key);
+        await StorageRelayKeyCache(
+          storage,
+        ).put(relay, key, validUntilUnix: deadline);
+        final stored = await storage.getSetting(
+          'mailbox.relaykey.v1.${relay.hex}',
+        );
+        expect(stored!.split('.').last, '${deadline * 1000}');
+        expect(await StorageRelayKeyCache(storage).get(relay), key);
+      },
+    );
+
     test('expired entries read back as a miss', () async {
       final cache = StorageRelayKeyCache(
         storage,

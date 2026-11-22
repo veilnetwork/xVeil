@@ -528,7 +528,11 @@ class MailboxService implements MailboxSink {
       }
       if (fromFresh) {
         // Persist the freshly-verified key for a future cold start.
-        final write = _relayKeyCache?.put(relay, kem);
+        final write = _relayKeyCache?.put(
+          relay,
+          kem,
+          validUntilUnix: kemValidUntil,
+        );
         if (previous == null) {
           unawaited(write);
         } else {
@@ -604,7 +608,7 @@ class MailboxService implements MailboxSink {
       final resolved = await _client.lookupRelayX25519(relay.bytes);
       final kem = resolved?.key;
       if (kem != null && kem.length == 32) {
-        await cache.put(relay, kem);
+        await cache.put(relay, kem, validUntilUnix: resolved!.validUntilUnix);
         if (_warmedRelays.add(relay.hex)) {
           // A NEWLY-warmed relay just entered the drain union — drain promptly to
           // check it instead of waiting out the escalated empty-drain back-off

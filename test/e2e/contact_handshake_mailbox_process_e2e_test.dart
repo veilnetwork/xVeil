@@ -2,11 +2,14 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilClient;
+import 'package:veil_flutter/veil_flutter.dart' show VeilClient, VeilPeerState;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_native.dart';
+import 'package:xveil/data/transport/relay_key_cache.dart';
+import 'package:xveil/data/transport/veil_mailbox_network.dart';
 
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
@@ -14,6 +17,104 @@ import 'multi_device_process_e2e_test.dart' as base;
 
 void main() {
   final gate = E2eGate.read();
+  test(
+    'remembered offline mailbox accepts a deposit after relay key rotation',
+    () async {
+      final fleet = await ProcessFleet.start(gate, labels: ['C']);
+      addTearDown(fleet.dispose);
+      final relay = fleet.cluster.mailbox;
+      final relayId = NodeId.fromHex(relay.nodeIdHex!);
+      final recipient = NodeId(Uint8List.fromList(List.filled(32, 0x71)));
+      final content = NodeId(Uint8List.fromList(List.filled(32, 0xb6)));
+      final ipc = await Directory('${fleet.c.dir.path}/runtime')
+          .list(recursive: true, followLinks: false)
+          .where((entry) => entry.path.endsWith('/app.sock'))
+          .single;
+      expect(ensureVeilClientLoaded(dylibPath: gate.veilDylib), isTrue);
+      final client = await VeilClient.connect(ipc.path);
+      addTearDown(client.close);
+      final sender = NodeId(await client.nodeId());
+      final cache = InMemoryRelayKeyCache();
+
+      Future<Uint8List> currentRelayKey() async {
+        final holder = await VeilClient.connect(relay.socketPath);
+        try {
+          return (await holder.getRelayX25519Pubkey())!;
+        } finally {
+          await holder.close();
+        }
+      }
+
+      await waitUntil(() async {
+        return (await client.peers()).any(
+          (peer) =>
+              peer.state == VeilPeerState.active &&
+              NodeId(peer.nodeId) == relayId,
+        );
+      }, what: 'the sender connects to the original mailbox relay');
+      final old = await currentRelayKey();
+      final signed = await client.lookupRelayX25519(relayId.bytes);
+      expect(signed?.key, old);
+      // Synthetic receiver with no currently published ad. Seed exactly what
+      // the sender would have retained from the last successful ad lookup.
+      await cache.setPeerRelays(recipient, [relayId]);
+      await cache.put(relayId, old);
+      expect(
+        await client.mailbox.lookupRendezvousReplicas(recipient.bytes),
+        isEmpty,
+      );
+
+      await fleet.cluster.restartWithRotatedMailboxKey();
+      expect(relay.nodeIdHex, relayId.hex);
+      final rotated = await currentRelayKey();
+      expect(rotated, isNot(equals(old)));
+      await waitUntil(() async {
+        final table = await fleet.cluster.admin(relay, [
+          'sessions',
+          'list',
+          '-v',
+        ]);
+        return table.contains(sender.hex);
+      }, what: 'the replacement relay session admits the sender');
+
+      final app = await client.bind(
+        namespace: 'xveil',
+        name: 'mailbox-rotation',
+        endpointId: 0,
+      );
+      addTearDown(app.close);
+      final mailbox = VeilNetworkMailboxRelay(
+        client: client,
+        fetchApp: app,
+        srcApp: app,
+        replyEndpointId: 0,
+        relayKeyCache: cache,
+      );
+      await mailbox.put(
+        receiver: recipient,
+        contentId: content.bytes,
+        sender: sender,
+        blob: Uint8List.fromList([1, 2, 3]),
+      );
+      final receipt =
+          'PUT stored (recv=${recipient.hex.substring(0, 16)} '
+          'cid=${content.hex.substring(0, 16)} ';
+      await waitUntil(
+        () async {
+          return (await File(relay.logPath).readAsString()).contains(receipt);
+        },
+        what: 'the rotated mailbox opens and stores the deposit',
+        timeout: const Duration(seconds: 20),
+      );
+      expect(await cache.get(relayId), rotated);
+      expect(await cache.getPeerRelays(recipient), [relayId]);
+      E2eLog.line('ROTATED_MAILBOX_KEY_DEPOSIT_STORED');
+    },
+    skip: gate.enabled && Platform.environment['XVEIL_E2E_ANONYMOUS'] != '1'
+        ? 'requires XVEIL_E2E_ANONYMOUS=1'
+        : gate.skip,
+  );
+
   test(
     'offline acceptance recovers after relay storage loss',
     () async {

@@ -675,22 +675,18 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     await recordMailboxDeposit(
       receiver: receiver,
       accepted: accepted,
-      source: plan.source,
+      plan: plan,
       cache: _relayKeyCache,
     ).timeout(_putStepTimeout, onTimeout: () {});
   }
 
-  /// Recover a remembered mailbox target's key from the relay directory when
-  /// the cached key is gone. Other relays are selected by the receiver's ad.
-  Future<Uint8List?> _resolveRelayKem(NodeId relay) async {
+  /// Ask for the current key of a remembered mailbox relay. The key's signed
+  /// expiry travels with it so the persisted fallback cannot outlive it.
+  Future<ResolvedMailboxRelayKey?> _resolveRelayKem(NodeId relay) async {
     try {
-      // The key alone: this path SEALS to it now, so how long the relay will
-      // keep publishing it does not change the decision. The stamp matters
-      // where an ad is built, which is `MailboxService`.
-      final resolved = await _client
+      return await _client
           .lookupRelayX25519(relay.bytes)
           .timeout(_putStepTimeout);
-      return resolved?.key;
     } catch (_) {
       return null;
     }
@@ -1057,7 +1053,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       var hopeless = 0;
       var overBudget = 0;
       final collect = announcedToCollect(
-        [for (final b in aggregated) if (b.blob.isEmpty) b.contentId],
+        [
+          for (final b in aggregated)
+            if (b.blob.isEmpty) b.contentId,
+        ],
         neverCollect: neverCollect,
         budget: _maxAnnouncedPerFetch,
       );

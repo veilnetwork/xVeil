@@ -12,16 +12,22 @@ typedef MailboxDepositTarget = ({Uint8List relayNodeId, Uint8List kemPk});
 /// [kemPk] is null for an ad with no explicit mailbox key.
 typedef MailboxAdReplica = ({NodeId relay, Uint8List? kemPk});
 
-/// Where a deposit's targets came from. The distinction is not cosmetic: only
-/// [freshAd] may be written back to the cache (see [recordMailboxDeposit]).
+typedef ResolvedMailboxRelayKey = ({Uint8List key, int validUntilUnix});
+
+/// Only [freshAd] provides new evidence of which relay serves the recipient.
 enum MailboxTargetSource { freshAd, cache, none }
 
 /// The relays a deposit will be fanned out to, and the provenance of that list.
 class MailboxDepositPlan {
-  const MailboxDepositPlan(this.targets, this.source);
+  const MailboxDepositPlan._(
+    this.targets,
+    this.source, [
+    this._resolvedKeyExpiries = const {},
+  ]);
 
   final List<MailboxDepositTarget> targets;
   final MailboxTargetSource source;
+  final Map<NodeId, int> _resolvedKeyExpiries;
 
   bool get isEmpty => targets.isEmpty;
 }
@@ -50,99 +56,99 @@ class MailboxDepositPlan {
 /// which overwrites the record wholesale — and it is strictly better than the
 /// measured alternative, which delivered nothing to anyone.
 ///
-/// [resolveRelayKem] recovers the key of a remembered mailbox relay when
-/// its cached key is gone. A live rendezvous ad without a mailbox key only
-/// identifies a transit route. A directory lookup cannot prove it stores mail.
+/// For remembered relays, query their current signed keys before falling back
+/// to the stored ones. The directory alone cannot establish a mailbox target;
+/// it only refreshes the key of a target established by the recipient's ad.
 Future<MailboxDepositPlan> planMailboxDeposit({
   required NodeId receiver,
   required List<MailboxAdReplica> adReplicas,
-  required Future<Uint8List?> Function(NodeId relay) resolveRelayKem,
+  required Future<ResolvedMailboxRelayKey?> Function(NodeId relay)
+  resolveRelayKem,
   required int fanout,
   RelayKeyCache? cache,
 }) async {
-  // A signed receiver ad carrying a key is an explicit mailbox publication.
-  // Native rendezvous ads can name transit nodes without a mailbox endpoint.
-  // Only explicit publishers can populate the remembered mailbox list.
-  final fromAd = await _targetsFor(
-    adReplicas.where((replica) => replica.kemPk?.length == 32),
-    resolveRelayKem: resolveRelayKem,
-    fanout: fanout,
-    cache: cache,
-  );
-  if (fromAd.isNotEmpty) {
-    return MailboxDepositPlan(fromAd, MailboxTargetSource.freshAd);
+  const empty = MailboxDepositPlan._([], MailboxTargetSource.none);
+  if (fanout <= 0) return empty;
+
+  final targets = <MailboxDepositTarget>[];
+  final seen = <NodeId>{};
+  for (final replica in adReplicas) {
+    if (targets.length >= fanout) break;
+    final kem = replica.kemPk;
+    if (kem == null || kem.length != 32 || !seen.add(replica.relay)) continue;
+    targets.add((
+      relayNodeId: replica.relay.bytes,
+      kemPk: Uint8List.fromList(kem),
+    ));
   }
-  if (cache == null) {
-    return const MailboxDepositPlan([], MailboxTargetSource.none);
+  if (targets.isNotEmpty) {
+    return MailboxDepositPlan._(targets, MailboxTargetSource.freshAd);
   }
+  if (cache == null) return empty;
+
+  // A silent relay must not make the others pay another serial directory
+  // timeout. Bound the batch to the same size as the persisted peer record.
   final remembered = await cache.getPeerRelays(receiver);
-  if (remembered.isEmpty) {
-    return const MailboxDepositPlan([], MailboxTargetSource.none);
-  }
-  final fromCache = await _targetsFor(
-    [for (final relay in remembered) (relay: relay, kemPk: null)],
-    resolveRelayKem: resolveRelayKem,
-    fanout: fanout,
-    cache: cache,
+  final candidates = await Future.wait(
+    remembered.toSet().take(kPeerRelayCacheMaxRelays).map((relay) async {
+      final resolved = await resolveRelayKem(relay);
+      final nowUnix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (resolved != null &&
+          resolved.key.length == 32 &&
+          (resolved.validUntilUnix == 0 || resolved.validUntilUnix > nowUnix)) {
+        return (
+          relay: relay,
+          kem: resolved.key,
+          expiry: resolved.validUntilUnix,
+        );
+      }
+      return (relay: relay, kem: await cache.get(relay), expiry: null);
+    }),
   );
-  return fromCache.isEmpty
-      ? const MailboxDepositPlan([], MailboxTargetSource.none)
-      : MailboxDepositPlan(fromCache, MailboxTargetSource.cache);
-}
-
-/// Key sources in order of freshness: the ad's own KEM field, then the
-/// persisted relay-key cache, then a live relay-directory lookup. A relay with
-/// no key from any of the three is not a target — the PUT has nothing to seal
-/// to — but it does not disqualify its siblings.
-Future<List<MailboxDepositTarget>> _targetsFor(
-  Iterable<MailboxAdReplica> replicas, {
-  required Future<Uint8List?> Function(NodeId relay) resolveRelayKem,
-  required int fanout,
-  required RelayKeyCache? cache,
-}) async {
-  final out = <MailboxDepositTarget>[];
-  final seen = <String>{};
-  for (final r in replicas) {
-    if (out.length >= fanout) break;
-    if (!seen.add(r.relay.hex)) continue;
-    var kem = r.kemPk;
-    if (kem == null || kem.length != 32) kem = await cache?.get(r.relay);
-    if (kem == null || kem.length != 32) kem = await resolveRelayKem(r.relay);
-    if (kem != null && kem.length == 32) {
-      out.add((relayNodeId: r.relay.bytes, kemPk: Uint8List.fromList(kem)));
-    }
+  final resolvedKeyExpiries = <NodeId, int>{};
+  for (final candidate in candidates) {
+    if (targets.length >= fanout) break;
+    final kem = candidate.kem;
+    if (kem == null || kem.length != 32) continue;
+    targets.add((
+      relayNodeId: candidate.relay.bytes,
+      kemPk: Uint8List.fromList(kem),
+    ));
+    final expiry = candidate.expiry;
+    if (expiry != null) resolvedKeyExpiries[candidate.relay] = expiry;
   }
-  return out;
+  return targets.isEmpty
+      ? empty
+      : MailboxDepositPlan._(
+          targets,
+          MailboxTargetSource.cache,
+          resolvedKeyExpiries,
+        );
 }
 
-/// Remember what worked, so the NEXT deposit to a peer whose ad has lapsed has
-/// somewhere to go.
-///
-/// Only a [MailboxTargetSource.freshAd] plan writes the peer→relay record. A
-/// deposit made THROUGH the cache must not renew it: our own retries would
-/// otherwise keep a relay the peer abandoned alive forever, and the record's
-/// TTL is the only thing that ever retires one. Relay KEM keys are written
-/// either way — a relay's public key is a fact about the relay, not about the
-/// peer's choice of it.
-///
-/// Best-effort by construction: the deposit has already happened, so a storage
-/// failure here must not turn a delivered message into a failed one.
+/// Keep verified key evidence from an advertisement or the relay directory.
+/// A transport handoff using a cached key says nothing about its validity.
+/// Only an advertisement can extend the lifetime of a peer's relay list.
 Future<void> recordMailboxDeposit({
   required NodeId receiver,
   required List<MailboxDepositTarget> accepted,
-  required MailboxTargetSource source,
+  required MailboxDepositPlan plan,
   RelayKeyCache? cache,
 }) async {
   if (cache == null || accepted.isEmpty) return;
+  final fromAd = plan.source == MailboxTargetSource.freshAd;
   try {
-    for (final t in accepted) {
-      await cache.put(NodeId(t.relayNodeId), t.kemPk);
+    for (final target in accepted) {
+      final relay = NodeId(target.relayNodeId);
+      final expiry = plan._resolvedKeyExpiries[relay];
+      if (fromAd || expiry != null) {
+        await cache.put(relay, target.kemPk, validUntilUnix: expiry ?? 0);
+      }
     }
-    if (source == MailboxTargetSource.freshAd) {
-      await cache.setPeerRelays(
-        receiver,
-        [for (final t in accepted) NodeId(t.relayNodeId)],
-      );
+    if (fromAd) {
+      await cache.setPeerRelays(receiver, [
+        for (final target in accepted) NodeId(target.relayNodeId),
+      ]);
     }
   } catch (_) {
     // best-effort — a lost record only costs the next lapsed-ad deposit

@@ -455,7 +455,9 @@ void main() {
         final startUnix = origin.millisecondsSinceEpoch ~/ 1000;
         final client = _FakeClient()
           ..resolved = (key: Uint8List(32), validUntilUnix: startUnix + 90);
-        final cache = InMemoryRelayKeyCache();
+        final cache = InMemoryRelayKeyCache(
+          now: () => origin.add(time.elapsed),
+        );
         final service = MailboxService(
           client: client,
           me: _id(1),

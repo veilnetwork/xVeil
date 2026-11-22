@@ -19,8 +19,9 @@ abstract interface class RelayKeyCache {
   /// The cached key for [relay] if present and unexpired, else null.
   Future<Uint8List?> get(NodeId relay);
 
-  /// Store a freshly-resolved, verified 32-byte [key] for [relay].
-  Future<void> put(NodeId relay, Uint8List key);
+  /// Store a verified 32-byte [key] for [relay], limited by [validUntilUnix]
+  /// when the directory supplied a signed deadline.
+  Future<void> put(NodeId relay, Uint8List key, {int validUntilUnix = 0});
 
   /// Drop any cached key for [relay] (e.g. it failed when we tried to register
   /// with it, so it may be stale).
@@ -71,6 +72,13 @@ abstract interface class RelayKeyCache {
 /// one has (report27, X31/X36 family).
 const int kPeerRelayCacheMaxPeers = 30;
 const int kPeerRelayCacheMaxRelays = 4;
+
+int _keyExpiry(int now, int ttl, int validUntilUnix) {
+  final cacheExpiry = now + ttl;
+  return validUntilUnix > 0 && validUntilUnix <= cacheExpiry ~/ 1000
+      ? validUntilUnix * 1000
+      : cacheExpiry;
+}
 
 /// [RelayKeyCache] over the active deniable space's settings KV. Stored as a
 /// setting `mailbox.relaykey.v1.<relayHex> = <keyBase64>.<expiryUnixMs>`, so it
@@ -153,17 +161,27 @@ class StorageRelayKeyCache implements RelayKeyCache {
   }
 
   @override
-  Future<void> put(NodeId relay, Uint8List key) async {
+  Future<void> put(
+    NodeId relay,
+    Uint8List key, {
+    int validUntilUnix = 0,
+  }) async {
     if (key.length != 32) return;
     final key64 = base64.encode(key);
     final now = DateTime.now().millisecondsSinceEpoch;
+    final expiry = _keyExpiry(now, _ttlMs, validUntilUnix);
+    if (expiry <= now) return;
     // Skip the persist when the SAME key is already stored with more than half
     // its TTL left — this is what collapses a re-resolve storm to ~one write
     // per relay per half-TTL instead of one commit per resolve.
     await _seedShadow(relay);
     final s = _shadow[relay.hex];
-    if (s != null && s.key64 == key64 && (s.expiry - now) > _ttlMs ~/ 2) return;
-    final expiry = now + _ttlMs;
+    if (s != null &&
+        s.key64 == key64 &&
+        (s.expiry == expiry ||
+            (s.expiry <= expiry && (s.expiry - now) > _ttlMs ~/ 2))) {
+      return;
+    }
     try {
       await _storage.putSetting(_settingKey(relay), '$key64.$expiry');
     } catch (_) {
@@ -348,10 +366,14 @@ class StorageRelayKeyCache implements RelayKeyCache {
 /// Process-lifetime [RelayKeyCache] for tests and the loopback/dev path (where
 /// there is no deniable space to persist into). Holds keys + expiries in a map.
 class InMemoryRelayKeyCache implements RelayKeyCache {
-  InMemoryRelayKeyCache({Duration ttl = const Duration(days: 7)})
-    : _ttlMs = ttl.inMilliseconds;
+  InMemoryRelayKeyCache({
+    Duration ttl = const Duration(days: 7),
+    DateTime Function()? now,
+  }) : _ttlMs = ttl.inMilliseconds,
+       _now = now ?? DateTime.now;
 
   final int _ttlMs;
+  final DateTime Function() _now;
   final Map<String, ({Uint8List key, int expiry})> _entries = {};
   final Map<String, ({List<NodeId> relays, int expiry})> _peerRelays = {};
   NodeId? _preferred;
@@ -360,7 +382,7 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
   Future<Uint8List?> get(NodeId relay) async {
     final e = _entries[relay.hex];
     if (e == null) return null;
-    if (DateTime.now().millisecondsSinceEpoch >= e.expiry) {
+    if (_now().millisecondsSinceEpoch >= e.expiry) {
       _entries.remove(relay.hex);
       return null;
     }
@@ -368,12 +390,16 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
   }
 
   @override
-  Future<void> put(NodeId relay, Uint8List key) async {
+  Future<void> put(
+    NodeId relay,
+    Uint8List key, {
+    int validUntilUnix = 0,
+  }) async {
     if (key.length != 32) return;
-    _entries[relay.hex] = (
-      key: Uint8List.fromList(key),
-      expiry: DateTime.now().millisecondsSinceEpoch + _ttlMs,
-    );
+    final now = _now().millisecondsSinceEpoch;
+    final expiry = _keyExpiry(now, _ttlMs, validUntilUnix);
+    if (expiry <= now) return;
+    _entries[relay.hex] = (key: Uint8List.fromList(key), expiry: expiry);
   }
 
   @override
@@ -389,7 +415,7 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
   Future<List<NodeId>> getPeerRelays(NodeId peer) async {
     final e = _peerRelays[peer.hex];
     if (e == null) return const [];
-    if (DateTime.now().millisecondsSinceEpoch >= e.expiry) {
+    if (_now().millisecondsSinceEpoch >= e.expiry) {
       _peerRelays.remove(peer.hex);
       return const [];
     }
@@ -401,7 +427,7 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
     if (relays.isEmpty) return;
     _peerRelays[peer.hex] = (
       relays: List.unmodifiable(relays.take(kPeerRelayCacheMaxRelays)),
-      expiry: DateTime.now().millisecondsSinceEpoch + _ttlMs,
+      expiry: _now().millisecondsSinceEpoch + _ttlMs,
     );
     // A Dart map iterates in insertion order, so the oldest entry is first —
     // the same bound the persisted implementation applies.

@@ -12,7 +12,20 @@ Uint8List _kem(int seed) => Uint8List.fromList(List.filled(32, seed));
 
 /// No relay-directory lookup is reachable — the shape of the fallback when the
 /// only key material available is what we already stored.
-Future<Uint8List?> _noDirectory(NodeId relay) async => null;
+Future<ResolvedMailboxRelayKey?> _noDirectory(NodeId relay) async => null;
+
+ResolvedMailboxRelayKey _resolved(int seed) =>
+    (key: _kem(seed), validUntilUnix: 0);
+
+class _ObservedRelayKeyCache extends InMemoryRelayKeyCache {
+  var writes = 0;
+
+  @override
+  Future<void> put(NodeId relay, Uint8List key, {int validUntilUnix = 0}) {
+    writes++;
+    return super.put(relay, key, validUntilUnix: validUntilUnix);
+  }
+}
 
 void main() {
   group('deposit targets for a peer whose rendezvous ad has lapsed', () {
@@ -35,13 +48,17 @@ void main() {
       await recordMailboxDeposit(
         receiver: peer,
         accepted: plan.targets,
-        source: plan.source,
+        plan: plan,
         cache: cache,
       );
       expect((await cache.getPeerRelays(peer)).single.hex, _id(10).hex);
-      expect(await cache.get(_id(10)), _kem(20),
-          reason: 'the relay key travels with the relay id, or the fallback '
-              'has an address it cannot seal to');
+      expect(
+        await cache.get(_id(10)),
+        _kem(20),
+        reason:
+            'the relay key travels with the relay id, or the fallback '
+            'has an address it cannot seal to',
+      );
     });
 
     test('an unresolvable ad falls back to the remembered relays', () async {
@@ -88,6 +105,56 @@ void main() {
       expect(plan.isEmpty, isTrue);
     });
 
+    test('a rotated directory key wins over a remembered key', () async {
+      final receiver = _id(5);
+      final relay = _id(13);
+      await cache.setPeerRelays(receiver, [relay]);
+      await cache.put(relay, _kem(20));
+
+      final plan = await planMailboxDeposit(
+        receiver: receiver,
+        adReplicas: const [],
+        resolveRelayKem: (candidate) async {
+          expect(candidate, relay);
+          return _resolved(23);
+        },
+        fanout: 3,
+        cache: cache,
+      );
+      expect(plan.source, MailboxTargetSource.cache);
+      expect(plan.targets.single.kemPk, _kem(23));
+      await recordMailboxDeposit(
+        receiver: receiver,
+        accepted: plan.targets,
+        plan: plan,
+        cache: cache,
+      );
+      expect(await cache.get(relay), _kem(23));
+    });
+
+    test('a handoff using a cached key does not prolong it', () async {
+      final receiver = _id(6);
+      final relay = _id(14);
+      final observed = _ObservedRelayKeyCache();
+      await observed.setPeerRelays(receiver, [relay]);
+      await observed.put(relay, _kem(24));
+      final plan = await planMailboxDeposit(
+        receiver: receiver,
+        adReplicas: const [],
+        resolveRelayKem: _noDirectory,
+        fanout: 3,
+        cache: observed,
+      );
+      expect(plan.targets.single.kemPk, _kem(24));
+      await recordMailboxDeposit(
+        receiver: receiver,
+        accepted: plan.targets,
+        plan: plan,
+        cache: observed,
+      );
+      expect(observed.writes, 1, reason: 'transport handoff proves no new key');
+    });
+
     test('a remembered relay key can come from the relay directory', () async {
       final peer = _id(5);
       await cache.setPeerRelays(peer, [_id(13)]);
@@ -95,7 +162,7 @@ void main() {
         receiver: peer,
         adReplicas: const [],
         resolveRelayKem: (relay) async =>
-            relay.hex == _id(13).hex ? _kem(23) : null,
+            relay.hex == _id(13).hex ? _resolved(23) : null,
         fanout: 3,
         cache: cache,
       );
@@ -110,7 +177,7 @@ void main() {
         adReplicas: [(relay: _id(14), kemPk: null)],
         resolveRelayKem: (relay) async {
           lookups++;
-          return _kem(24);
+          return _resolved(24);
         },
         fanout: 3,
         cache: cache,
@@ -128,7 +195,7 @@ void main() {
         adReplicas: [(relay: _id(14), kemPk: null)],
         resolveRelayKem: (relay) async {
           expect(relay, mailboxRelay);
-          return _kem(26);
+          return _resolved(26);
         },
         fanout: 3,
         cache: cache,
@@ -149,7 +216,7 @@ void main() {
           ],
           resolveRelayKem: (relay) async {
             lookups++;
-            return _kem(24);
+            return _resolved(24);
           },
           fanout: 3,
           cache: cache,
@@ -192,49 +259,70 @@ void main() {
 
     setUp(() => cache = InMemoryRelayKeyCache());
 
-    test('a cache-sourced deposit does NOT renew the peer record', () async {
+    test('a directory key does not renew the remembered relay list', () async {
       final peer = _id(1);
-      await cache.setPeerRelays(peer, [_id(10)]);
-      await recordMailboxDeposit(
+      final retained = _id(10);
+      final unused = _id(11);
+      await cache.setPeerRelays(peer, [retained, unused]);
+      final plan = await planMailboxDeposit(
         receiver: peer,
-        accepted: [(relayNodeId: _id(99).bytes, kemPk: _kem(99))],
-        source: MailboxTargetSource.cache,
+        adReplicas: const [],
+        resolveRelayKem: (relay) async =>
+            relay == retained ? _resolved(30) : null,
+        fanout: 3,
         cache: cache,
       );
-      expect((await cache.getPeerRelays(peer)).single.hex, _id(10).hex,
-          reason: 'our own retries must not keep a relay the peer abandoned '
-              'alive forever — only the peer\'s own ad may write this record');
-      expect(await cache.get(_id(99)), _kem(99),
-          reason: 'a relay key is a fact about the relay, not about the '
-              'peer\'s choice of it, so it is cached either way');
+      expect(plan.targets, hasLength(1));
+      await recordMailboxDeposit(
+        receiver: peer,
+        accepted: plan.targets,
+        plan: plan,
+        cache: cache,
+      );
+      expect(await cache.getPeerRelays(peer), [retained, unused]);
+      expect(await cache.get(retained), _kem(30));
     });
 
-    test('a fresh ad overwrites the record wholesale, so a peer that moved '
-        'relays stops being deposited at the old one', () async {
+    test('a fresh ad replaces the remembered relay list', () async {
       final peer = _id(2);
       await cache.setPeerRelays(peer, [_id(10), _id(11)]);
-      await recordMailboxDeposit(
+      final plan = await planMailboxDeposit(
         receiver: peer,
-        accepted: [(relayNodeId: _id(12).bytes, kemPk: _kem(12))],
-        source: MailboxTargetSource.freshAd,
+        adReplicas: [(relay: _id(12), kemPk: _kem(12))],
+        resolveRelayKem: _noDirectory,
+        fanout: 3,
         cache: cache,
       );
-      expect(
-        (await cache.getPeerRelays(peer)).map((r) => r.hex),
-        [_id(12).hex],
+      await recordMailboxDeposit(
+        receiver: peer,
+        accepted: plan.targets,
+        plan: plan,
+        cache: cache,
       );
+      expect(await cache.getPeerRelays(peer), [_id(12)]);
     });
 
-    test('a deposit that reached nobody writes nothing', () async {
-      final peer = _id(3);
-      await recordMailboxDeposit(
-        receiver: peer,
-        accepted: const [],
-        source: MailboxTargetSource.freshAd,
-        cache: cache,
-      );
-      expect(await cache.getPeerRelays(peer), isEmpty);
-    });
+    test(
+      'a deposit with no accepted transport handoff writes nothing',
+      () async {
+        final peer = _id(3);
+        final plan = await planMailboxDeposit(
+          receiver: peer,
+          adReplicas: [(relay: _id(12), kemPk: _kem(12))],
+          resolveRelayKem: _noDirectory,
+          fanout: 3,
+          cache: cache,
+        );
+        await recordMailboxDeposit(
+          receiver: peer,
+          accepted: const [],
+          plan: plan,
+          cache: cache,
+        );
+        expect(await cache.getPeerRelays(peer), isEmpty);
+        expect(await cache.get(_id(12)), isNull);
+      },
+    );
   });
 
   group('the per-peer record is bounded and survives a restart', () {
@@ -253,20 +341,24 @@ void main() {
     test('a remembered relay set is readable by a fresh cache over the same '
         'space', () async {
       final peer = _id(1);
-      await StorageRelayKeyCache(storage).setPeerRelays(peer, [_id(10), _id(11)]);
+      await StorageRelayKeyCache(
+        storage,
+      ).setPeerRelays(peer, [_id(10), _id(11)]);
 
       // A fresh instance over the SAME space — a stack rebuild or cold launch,
       // which is exactly when the peer's ad is most likely already lapsed.
       final reopened = StorageRelayKeyCache(storage);
-      expect(
-        (await reopened.getPeerRelays(peer)).map((r) => r.hex),
-        [_id(10).hex, _id(11).hex],
-      );
+      expect((await reopened.getPeerRelays(peer)).map((r) => r.hex), [
+        _id(10).hex,
+        _id(11).hex,
+      ]);
     });
 
     test('an entry past its TTL reads back as never-resolved', () async {
-      final cache =
-          StorageRelayKeyCache(storage, ttl: const Duration(milliseconds: 1));
+      final cache = StorageRelayKeyCache(
+        storage,
+        ttl: const Duration(milliseconds: 1),
+      );
       await cache.setPeerRelays(_id(2), [_id(10)]);
       await Future<void>.delayed(const Duration(milliseconds: 5));
       expect(await cache.getPeerRelays(_id(2)), isEmpty);
@@ -274,10 +366,9 @@ void main() {
 
     test('only kPeerRelayCacheMaxRelays relays are kept per peer', () async {
       final cache = StorageRelayKeyCache(storage);
-      await cache.setPeerRelays(
-        _id(3),
-        [for (var i = 0; i < kPeerRelayCacheMaxRelays + 3; i++) _id(40 + i)],
-      );
+      await cache.setPeerRelays(_id(3), [
+        for (var i = 0; i < kPeerRelayCacheMaxRelays + 3; i++) _id(40 + i),
+      ]);
       expect(
         await cache.getPeerRelays(_id(3)),
         hasLength(kPeerRelayCacheMaxRelays),
@@ -291,8 +382,11 @@ void main() {
       for (var i = 0; i <= kPeerRelayCacheMaxPeers; i++) {
         await cache.setPeerRelays(_id(i), [_id(200)]);
       }
-      expect(await cache.getPeerRelays(_id(0)), isEmpty,
-          reason: 'the bound has to actually erase, not just stop growing');
+      expect(
+        await cache.getPeerRelays(_id(0)),
+        isEmpty,
+        reason: 'the bound has to actually erase, not just stop growing',
+      );
       expect(
         await cache.getPeerRelays(_id(kPeerRelayCacheMaxPeers)),
         hasLength(1),
