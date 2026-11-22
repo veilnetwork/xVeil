@@ -76,6 +76,32 @@ audio.rtp.send seq=2 timestamp=2 attempted_us=18000000 admitted_us=18001000 acce
                 with self.assertRaisesRegex(ValueError, 'window'):
                     analyze(summary, [], lower, upper)
 
+    def test_counts_admission_and_missing_ingress_only_with_complete_trace(self):
+        summary = dict(loopback_only=True, stand_start_monotonic_us=0,
+                       duration_seconds=60)
+        rows = '''audio.rtp.send.begin count=3 limit=16 ssrc=5
+audio.rtp.send seq=1 timestamp=1 attempted_us=21000000 admitted_us=21001000 accepted=1
+audio.rtp.send seq=2 timestamp=2 attempted_us=22000000 admitted_us=22001000 accepted=1
+audio.rtp.send seq=3 timestamp=3 attempted_us=23000000 admitted_us=0 accepted=0
+audio.rtp.ingress.begin count=2 limit=16 ssrc=5
+audio.rtp.ingress seq=1 timestamp=1 arrived_us=24000000 drained_us=24001000 payload_bytes=20
+audio.rtp.ingress seq=1 timestamp=1 arrived_us=24002000 drained_us=24003000 payload_bytes=20'''.splitlines()
+        result = analyze(summary, rows, 20, 23.5)
+        self.assertEqual(result['source_delivery'], [{
+            'source_trace_block': 0, 'phase': 'competing',
+            'accepted': 2, 'refused': 1,
+            'observed_at_ingress': 1, 'absent_from_ingress': 1,
+        }])
+        self.assertIsNone(analyze(summary, rows[:-1], 20, 23.5)['source_delivery'])
+        other_stream = [line.replace('ssrc=5', 'ssrc=6') if 'ingress.begin' in line
+                        else line for line in rows]
+        self.assertIsNone(analyze(summary, other_stream, 20, 23.5)['source_delivery'])
+
+        entirely_missing = rows[:4] + ['audio.rtp.ingress.begin count=0 limit=16 ssrc=5']
+        result = analyze(summary, entirely_missing, 20, 23.5)
+        self.assertEqual(result['phases'], [])
+        self.assertEqual(result['source_delivery'][0]['absent_from_ingress'], 2)
+
     def test_refuses_cross_device_clock_assumptions(self):
         with self.assertRaisesRegex(ValueError, 'same-process'):
             analyze(dict(loopback_only=False), [])

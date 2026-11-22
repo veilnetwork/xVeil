@@ -5,6 +5,8 @@ Only for relay-codec-control.py evidence: source and receiver timestamps use
 the same monotonic clock. Block order identifies a trace source, not a device.
 Flight starts after SDK admission; it includes the remaining transport path.
 It excludes encoding/pacing before admission and decoded playout afterward.
+A complete sender and ingress trace also accounts for accepted RTP packets
+without a matching native ingress observation.
 """
 import argparse
 import collections
@@ -31,6 +33,8 @@ def analyze(summary, lines, lower=5, upper=None):
         raise ValueError('Invalid recorded-time window')
     blocks = {'send': [], 'ingress': []}
     limits = {'send': [], 'ingress': []}
+    counts = {'send': [], 'ingress': []}
+    streams = {'send': [], 'ingress': []}
     for line in lines:
         for kind in blocks:
             if f'audio.rtp.{kind}.begin ' in line:
@@ -40,17 +44,36 @@ def analyze(summary, lines, lower=5, upper=None):
                     raise ValueError('Invalid native trace capacity')
                 blocks[kind].append([])
                 limits[kind].append(limit)
+                count = re.search(r'\bcount=(\d+)\b', line)
+                counts[kind].append(int(count[1]) if count else None)
+                ssrc = re.search(r'\bssrc=(\d+)\b', line)
+                streams[kind].append(int(ssrc[1]) if ssrc else None)
             elif f'audio.rtp.{kind} seq=' in line:
                 if not blocks[kind]:
                     raise ValueError('RTP row without a trace block')
                 row = {k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', line)}
                 blocks[kind][-1].append(row)
     sends = {}
+    delivery = collections.defaultdict(collections.Counter)
+    ingress_keys = {(ssrc, row['seq'], row['timestamp'])
+                    for ssrc, block in zip(streams['ingress'], blocks['ingress'])
+                    for row in block}
     for source, block in enumerate(blocks['send']):
         for row in block:
+            at = (row['attempted_us'] - start) / 1_000_000
+            key = (row['seq'], row['timestamp'])
+            if lower <= at < upper:
+                phase = 'audio-only' if at < 20 else 'competing'
+                tally = delivery[source, phase]
+                if row['accepted']:
+                    tally['accepted'] += 1
+                    ingress_key = (streams['send'][source], *key)
+                    tally['observed_at_ingress' if ingress_key in ingress_keys
+                          else 'absent_from_ingress'] += 1
+                else:
+                    tally['refused'] += 1
             if not row['accepted']:
                 continue
-            key = (row['seq'], row['timestamp'])
             if key in sends:
                 raise ValueError('Ambiguous RTP identity across source traces')
             sends[key] = source, row
@@ -77,7 +100,18 @@ def analyze(summary, lines, lower=5, upper=None):
             group['flight'].append(flight)
             group['drain'].append(drain)
             group['peak_times'].append((flight, at))
-    if not groups:
+    trace_limit = any(len(block) >= limit for kind in blocks
+                      for block, limit in zip(blocks[kind], limits[kind]))
+    sender_streams = set(streams['send'])
+    delivery_complete = (
+        bool(sender_streams) and None not in sender_streams and 0 not in sender_streams
+        and sender_streams == set(streams['ingress'])
+        and len(sender_streams) == len(blocks['send']) == len(blocks['ingress'])
+        and not trace_limit
+        and all(len(block) == count for kind in blocks
+                for block, count in zip(blocks[kind], counts[kind]))
+    )
+    if not groups and not (delivery_complete and delivery):
         raise ValueError('No matched payload timing samples')
     return {
         'same_process_fixture_only': True,
@@ -86,13 +120,17 @@ def analyze(summary, lines, lower=5, upper=None):
         'window_seconds': [lower, upper],
         'window_selected_by': 'attempted_us',
         'unmatched_payload_rows': unmatched,
-        'trace_limit_may_have_been_reached': any(
-            len(b) >= limit for kind in blocks
-            for b, limit in zip(blocks[kind], limits[kind])),
+        'trace_limit_may_have_been_reached': trace_limit,
         'send_trace_limits': limits['send'],
         'receive_trace_limits': limits['ingress'],
         'send_trace_rows': [len(b) for b in blocks['send']],
         'receive_trace_rows': [len(b) for b in blocks['ingress']],
+        'source_delivery': [
+            dict(source_trace_block=source, phase=phase, accepted=tally['accepted'],
+                 refused=tally['refused'], observed_at_ingress=tally['observed_at_ingress'],
+                 absent_from_ingress=tally['absent_from_ingress'])
+            for (source, phase), tally in sorted(delivery.items())
+        ] if delivery_complete else None,
         'phases': [dict(source_trace_block=source, phase=phase,
                         admitted_to_ingress=distribution(group['flight']),
                         ingress_to_webrtc=distribution(group['drain']),
