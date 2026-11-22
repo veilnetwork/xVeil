@@ -276,6 +276,90 @@ void main() {
   }
 
   test(
+    'a confirmed high plateau recovers more slowly and still yields at the pressure rail',
+    () {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      const stats = {...measured, 'rtt_ms': 620, 'audio_rtt_route_epoch': 0};
+      bool? observe(
+        int sequence, {
+        int delay = 705,
+        bool interrupted = false,
+      }) => sample(
+        policy,
+        peer: delay,
+        currentPeer: delay,
+        peerSequence: sequence,
+        peerGrowing: false,
+        targetPeer: 500,
+        local: delay,
+        targetLocal: 500,
+        interrupted: interrupted,
+        nativeStats: stats,
+      );
+
+      expect(observe(10, interrupted: true), isTrue);
+      for (var n = 0; n < 20; n++) {
+        // Polling the same peer report cannot confirm the plateau.
+        expect(observe(11), isNot(isFalse));
+        expect(policy.filledJitterReserveConfirmed, isFalse);
+      }
+      expect(policy.waitingForReserveConfirmation, isTrue);
+      expect(observe(12), isFalse);
+      expect(policy.filledJitterReserveConfirmed, isTrue);
+      expect(policy.measuredAudioPressure, isNull);
+
+      expect(observe(13, delay: 720), isTrue);
+      expect(policy.filledJitterReserveConfirmed, isFalse);
+      expect(policy.measuredAudioPressure, isTrue);
+      for (var sequence = 14; sequence < 21; sequence++) {
+        expect(observe(sequence), isNot(isFalse));
+      }
+      // Samples above the fast rail cannot be banked for the fast path.
+      expect(observe(21, delay: 520), isNot(isFalse));
+      expect(observe(22, delay: 520), isNot(isFalse));
+      expect(observe(23, delay: 520), isFalse);
+    },
+  );
+
+  test('an isolated measured impairment pauses evidence at a high plateau', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    const stats = {...measured, 'rtt_ms': 620, 'audio_rtt_route_epoch': 0};
+    var sequence = 0;
+    bool? observe({
+      bool interrupted = false,
+      bool recovered = false,
+      int delay = 705,
+    }) => sample(
+      policy,
+      peer: delay,
+      currentPeer: delay,
+      peerSequence: ++sequence,
+      peerGrowing: false,
+      targetPeer: 500,
+      local: delay,
+      targetLocal: 500,
+      interrupted: interrupted,
+      recovered: recovered,
+      nativeStats: stats,
+    );
+
+    expect(observe(interrupted: true), isTrue);
+    // Five samples establish the local trend. Ten subsequent usable
+    // observations straddle the fast rail without earning its shortcut.
+    for (var n = 1; n <= 14; n++) {
+      expect(observe(delay: n.isEven ? 705 : 650), isTrue);
+    }
+    expect(observe(recovered: true), isTrue);
+    expect(observe(), isTrue);
+    expect(observe(), isTrue);
+    expect(policy.filledJitterReserveConfirmed, isFalse);
+
+    expect(observe(), isTrue);
+    expect(observe(), isFalse);
+    expect(policy.filledJitterReserveConfirmed, isTrue);
+  });
+
+  test(
     'transport reserve margin requires corroborated playout on both ends',
     () {
       const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};
@@ -301,10 +385,10 @@ void main() {
               currentPeer: failure == 'missing current' ? null : 568,
               peerSequence: failure == 'stale sequence' ? 1 : sequence,
               peerGrowing: failure == 'growing',
-              targetPeer: failure == 'excess above target' ? 400 : 450,
+              targetPeer: failure == 'excess above target' ? 350 : 450,
               local: switch (failure) {
-                'excess local above target' => 610,
-                'excess above maximum target' => 660,
+                'excess local above target' => 670,
+                'excess above maximum target' => 720,
                 _ => 570,
               },
               targetLocal: failure == 'excess above maximum target' ? 500 : 450,
