@@ -292,15 +292,10 @@ class CallAudioSourcePressure {
         nativeStats?['worker_stalled'] == 0 &&
         (!sendExpected || soft.send != null) &&
         (!receiveExpected || soft.receive != null);
-    // A filled adaptive reserve can retain an arrival burst above NetEq's
-    // target. For the transport trial, bound excess above that target while
-    // also bounding the raw delay by the ceiling, arrival tolerance and two
-    // 10-ms render blocks for paced batch arrival. This needs current
-    // measurements from both ends of the same direct call.
-    const maximumFilledDelayMs =
-        CallAudioPlayoutReserve.maximumTargetMs +
-        CallAudioPlayoutReserve.arrivalToleranceMs +
-        20;
+    // Pace a source trial against the delay above each receiver's filled
+    // target. Positive credit verifies that target and limits it to 500 ms.
+    // With the 160-ms recovery margin, even that target permits at most
+    // 659 ms of measured delay. Both ends need current, stable playout.
     const maximumPressureWithReserveMs =
         playoutRecoverMs + CallAudioPlayoutReserve.nominalTargetMs;
     final steadyReserve =
@@ -320,8 +315,6 @@ class CallAudioSourcePressure {
         peerBufferGrowing == false &&
         peerSampleSequence != null &&
         peerSampleSequence > 0 &&
-        peerDelay! <= maximumFilledDelayMs &&
-        receiveDelayMs! <= maximumFilledDelayMs &&
         peerPressureDelay! < maximumPressureWithReserveMs &&
         receivePressureDelay! < maximumPressureWithReserveMs;
     final measuredHealthy = playoutHealthy && !bad;

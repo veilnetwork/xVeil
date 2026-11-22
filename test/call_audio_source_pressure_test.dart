@@ -235,7 +235,12 @@ void main() {
     },
   );
 
-  for (final delay in [570, 591]) {
+  for (final (delay, target) in [
+    (570, 450),
+    (591, 450),
+    (645, 500),
+    (659, 500),
+  ]) {
     test(
       'steady $delay-ms reserve can recover source admission after interruption',
       () {
@@ -247,9 +252,9 @@ void main() {
           currentPeer: delay - 2,
           peerSequence: sequence,
           peerGrowing: false,
-          targetPeer: 450,
+          targetPeer: target,
           local: delay,
-          targetLocal: 450,
+          targetLocal: target,
           interrupted: interrupted,
           nativeStats: stats,
         );
@@ -279,7 +284,8 @@ void main() {
         'growing',
         'missing current',
         'stalled',
-        'over ceiling',
+        'excess local above target',
+        'excess above maximum target',
         'excess above target',
         'group call',
       ]) {
@@ -296,8 +302,12 @@ void main() {
               peerSequence: failure == 'stale sequence' ? 1 : sequence,
               peerGrowing: failure == 'growing',
               targetPeer: failure == 'excess above target' ? 400 : 450,
-              local: failure == 'over ceiling' ? 601 : 570,
-              targetLocal: 450,
+              local: switch (failure) {
+                'excess local above target' => 610,
+                'excess above maximum target' => 660,
+                _ => 570,
+              },
+              targetLocal: failure == 'excess above maximum target' ? 500 : 450,
               nativeStats: failure == 'stalled'
                   ? {...stats, 'worker_stalled': 1}
                   : stats,

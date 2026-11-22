@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 
 void main() {
@@ -3120,6 +3121,72 @@ void main() {
     expect(a.audioReserve, isFalse);
     expect(a.acknowledgedTarget?.maxFps, 1.0);
     expect(a.acknowledgedPause, isFalse);
+  });
+
+  test('paused video retries at one fps after confirmed 645-ms playout', () {
+    final a = direct(level: 4);
+    final source = CallAudioSourcePressure(singlePeerPlayout: true);
+    void observe(int sequence, int delay, {bool interrupted = false}) {
+      final stats = {
+        ...healthy(),
+        'audio_delay_ms': delay,
+        'audio_jb_target_ms': 500,
+        'audio_rtt_route_epoch': 0,
+        'audio_soft_loss_duration_supported': 1,
+        'audio_peer_soft_loss_duration_supported': 1,
+        'audio_local_soft_loss_report_us': 0,
+        'audio_peer_soft_loss_report_us': 0,
+      };
+      final now = (times[a] ?? DateTime(2026, 10, 19)).add(
+        const Duration(seconds: 1),
+      );
+      final pressured = source.observe(
+        nativeStats: stats,
+        sampledAt: now,
+        sendExpected: true,
+        receiveExpected: true,
+        requirePeerPlayout: true,
+        peerDelayMs: delay,
+        peerCurrentDelayMs: delay,
+        peerTargetDelayMs: 500,
+        peerSampleSequence: sequence,
+        peerBufferGrowing: false,
+        receiveDelayMs: delay,
+        receiveTargetDelayMs: 500,
+        receiveAgeMs: 10,
+        interrupted: interrupted,
+        audioTxDrops: 0,
+      );
+      native(
+        a,
+        stats: stats,
+        peerDelay: delay,
+        currentPeerDelay: delay,
+        peerTargetDelay: 500,
+        peerSequence: sequence,
+        peerBufferGrowing: false,
+        interrupted: interrupted,
+        filledJitterReserveConfirmed: source.filledJitterReserveConfirmed,
+        sourceBudgetPressured:
+            pressured == true || source.waitingForReserveConfirmation,
+      );
+    }
+
+    observe(1, 720, interrupted: true);
+    observe(2, 720, interrupted: true);
+    expect(a.acknowledgedPause, isTrue);
+    for (var n = 0; n < 4; n++) {
+      observe(3, 645);
+      expect(a.acknowledgedPause, isTrue);
+    }
+    expect(source.waitingForReserveConfirmation, isTrue);
+    observe(4, 645);
+    expect(a.acknowledgedPause, isTrue);
+    observe(5, 645);
+    expect(a.acknowledgedPause, isTrue);
+    observe(6, 645);
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
   });
 
   test('one near-threshold audio sample does not restart a video probe', () {
