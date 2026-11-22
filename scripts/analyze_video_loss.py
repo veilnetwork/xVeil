@@ -20,7 +20,7 @@ def read_trace(path):
             if kind == 'video.loss.begin':
                 if identity in sessions:
                     raise ValueError('Duplicate recorder header')
-                sessions[identity] = dict(header=row, rtp=[], rr=[], sr=[], end=None)
+                sessions[identity] = dict(header=row, rtp=[], rr=[], sr=[], pli=[], end=None)
                 continue
             if identity not in sessions:
                 raise ValueError('Record without header')
@@ -29,7 +29,7 @@ def read_trace(path):
                 if session['end'] is not None:
                     raise ValueError('Duplicate recorder footer')
                 session['end'] = row
-            elif kind in ('video.loss.rtp', 'video.loss.rr', 'video.loss.sr'):
+            elif kind in ('video.loss.rtp', 'video.loss.rr', 'video.loss.sr', 'video.loss.pli'):
                 if session['end'] is not None:
                     raise ValueError('Record after footer')
                 session[kind.rsplit('.', 1)[1]].append(row)
@@ -43,10 +43,12 @@ def read_trace(path):
                 h['packets'] != h['packet_seen'] or h['reports'] != h['report_seen'] or
                 h['packets'] != len(session['rtp']) or h['reports'] != len(session['rr']) or
                 h.get('sender_reports', 0) != h.get('sender_report_seen', 0) or
-                h.get('sender_reports', 0) != len(session['sr'])):
+                h.get('sender_reports', 0) != len(session['sr']) or
+                h.get('plis', 0) != h.get('pli_seen', 0) or
+                h.get('plis', 0) != len(session['pli'])):
             raise ValueError('Incomplete, malformed or truncated metadata capture')
     return {kind: [r for s in sessions.values() for r in s[kind]]
-            for kind in ('rtp', 'rr', 'sr')}
+            for kind in ('rtp', 'rr', 'sr', 'pli')}
 
 
 def unwrap(rows, reference=None):

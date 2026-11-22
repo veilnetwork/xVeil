@@ -36,6 +36,19 @@ class VideoLossTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'footer'):
                 read_trace(p)
 
+    def test_picture_loss_records_require_complete_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            p = Path(root) / 'trace'
+            header = ('video.loss.begin id=1 packets=0 packet_seen=0 reports=0 '
+                      'report_seen=0 malformed=0 plis=1 pli_seen=1\n')
+            pli = 'video.loss.pli id=1 stage=d at_us=12 reporter=7 ssrc=8 result=0\n'
+            footer = 'video.loss.end id=1 write_ok=1\n'
+            p.write_text(header + pli + footer)
+            self.assertEqual(read_trace(p)['pli'][0]['stage'], 'd')
+            p.write_text(header.replace('pli_seen=1', 'pli_seen=2') + pli + footer)
+            with self.assertRaisesRegex(ValueError, 'truncated'):
+                read_trace(p)
+
     def test_late_packet_and_local_rejection_are_distinct(self):
         sends = [packet(i, i-99, result=int(i == 104)) for i in range(100, 106)]
         deliveries = [packet(i, t, 'd') for i, t in [(100, 6), (102, 12), (101, 55), (103, 62), (105, 76)]]
