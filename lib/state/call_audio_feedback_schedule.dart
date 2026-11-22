@@ -3,13 +3,15 @@ import 'call_audio_buffer_window.dart';
 import 'call_audio_playout_reserve.dart';
 
 /// Expedite measured receive-buffer pressure over the existing encrypted
-/// health carrier, including a single report when measured pressure clears.
+/// health carrier. A filled reserve gets one confirmation after recovery.
 /// Steady healthy audio keeps the ordinary heartbeat cadence.
 class CallAudioFeedbackSchedule {
   static const minimumInterval = Duration(seconds: 1);
+  static const _reserveConfirmationDelay = Duration(seconds: 2);
   DateTime? _lastAttemptAt;
   int? _lastSequence;
   bool? _lastPressure;
+  bool _reserveConfirmationPending = false;
 
   bool attemptedRecently(DateTime now) {
     final last = _lastAttemptAt;
@@ -17,6 +19,12 @@ class CallAudioFeedbackSchedule {
     final age = now.difference(last);
     return age >= Duration.zero && age < minimumInterval;
   }
+
+  int _reserve(CallAudioPlayoutFeedback feedback) =>
+      CallAudioPlayoutReserve.creditMs(
+        feedback.currentDelayMs,
+        feedback.targetDelayMs,
+      );
 
   bool? _pressure(CallAudioPlayoutFeedback? feedback) {
     if (feedback == null) return null;
@@ -34,10 +42,7 @@ class CallAudioFeedbackSchedule {
     }
     // Only a measured current delay can confirm a filled jitter reserve. A
     // retained peak or a large target alone still needs the ordinary guard.
-    final reserve = CallAudioPlayoutReserve.creditMs(
-      feedback.currentDelayMs,
-      target,
-    );
+    final reserve = _reserve(feedback);
     final ceiling = CallAudioBufferWindow.ceilingMs;
     if ((reserve == 0 && target != null && target >= ceiling) ||
         current >= ceiling + reserve ||
@@ -55,7 +60,16 @@ class CallAudioFeedbackSchedule {
       return false;
     }
     final pressure = _pressure(feedback);
-    if (pressure != true && !(pressure == false && _lastPressure == true)) {
+    final lastAttempt = _lastAttemptAt;
+    final confirmReserve =
+        _reserveConfirmationPending &&
+        lastAttempt != null &&
+        pressure == false &&
+        _reserve(feedback) > 0 &&
+        now.difference(lastAttempt) >= _reserveConfirmationDelay;
+    if (pressure != true &&
+        !(pressure == false && _lastPressure == true) &&
+        !confirmReserve) {
       return false;
     }
     // Let the ordinary heartbeat re-anchor a reversed wall clock, rather
@@ -73,7 +87,14 @@ class CallAudioFeedbackSchedule {
     if (_lastSequence == null || feedback.sequence > _lastSequence!) {
       _lastSequence = feedback.sequence;
       final pressure = _pressure(feedback);
-      if (pressure != null) _lastPressure = pressure;
+      if (pressure != null) {
+        // A fresh, measured heartbeat also settles a pending follow-up.
+        _reserveConfirmationPending =
+            _lastPressure == true &&
+            pressure == false &&
+            _reserve(feedback) > 0;
+        _lastPressure = pressure;
+      }
     }
   }
 
@@ -81,5 +102,6 @@ class CallAudioFeedbackSchedule {
     _lastAttemptAt = null;
     _lastSequence = null;
     _lastPressure = null;
+    _reserveConfirmationPending = false;
   }
 }

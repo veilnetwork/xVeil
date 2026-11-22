@@ -64,7 +64,7 @@ void main() {
     expect(schedule.shouldSendUrgent(sample(12), next), isFalse);
   });
 
-  test('a filled jitter reserve reports recovery once at the normal cadence', () {
+  test('confirms a filled jitter reserve once', () {
     final schedule = CallAudioFeedbackSchedule();
     final high = sample(1, peak: 720, current: 720, target: 500, growing: false);
     expect(schedule.shouldSendUrgent(high, start), isTrue);
@@ -84,6 +84,50 @@ void main() {
       isTrue,
       reason: 'growth remains urgent even with a filled reserve',
     );
+    final confirmAt = next.add(const Duration(seconds: 2));
+    expect(schedule.shouldSendUrgent(clear, confirmAt), isFalse);
+    expect(schedule.shouldSendUrgent(steady, confirmAt), isTrue);
+    schedule.recordAttempt(steady, confirmAt);
+    expect(
+      schedule.shouldSendUrgent(
+        sample(4, peak: 520, current: 520, target: 500, growing: false),
+        confirmAt.add(const Duration(seconds: 2)),
+      ),
+      isFalse,
+    );
+  });
+
+  test('a normal heartbeat can confirm the reserve before the follow-up', () {
+    final schedule = CallAudioFeedbackSchedule();
+    CallAudioPlayoutFeedback filled(int sequence) =>
+        sample(sequence, peak: 520, current: 520, target: 500, growing: false);
+    schedule.recordAttempt(sample(1), start);
+    schedule.recordAttempt(filled(2), start.add(const Duration(seconds: 1)));
+    final confirmation = start.add(const Duration(seconds: 2));
+    schedule.recordAttempt(filled(3), confirmation);
+    expect(
+      schedule.shouldSendUrgent(
+        filled(4),
+        confirmation.add(const Duration(seconds: 2)),
+      ),
+      isFalse,
+    );
+  });
+
+  test('an unknown heartbeat cannot confirm the reserve', () {
+    final schedule = CallAudioFeedbackSchedule();
+    CallAudioPlayoutFeedback filled(int sequence, bool? trend) =>
+        sample(sequence, peak: 520, current: 520, target: 500, growing: trend);
+    schedule.recordAttempt(sample(1), start);
+    schedule.recordAttempt(
+      filled(2, false),
+      start.add(const Duration(seconds: 1)),
+    );
+    final attempted = start.add(const Duration(seconds: 2));
+    schedule.recordAttempt(filled(3, null), attempted);
+    final due = attempted.add(const Duration(seconds: 2));
+    expect(schedule.shouldSendUrgent(filled(4, null), due), isFalse);
+    expect(schedule.shouldSendUrgent(filled(4, false), due), isTrue);
   });
 
   test('a legacy peak or an out-of-range target cannot fund reserve credit', () {
