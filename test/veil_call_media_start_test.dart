@@ -2331,6 +2331,7 @@ void main() {
           final damaged = sample();
           expect(damaged.interruptionCount, 3);
           expect(damaged.recoveryCount, 1);
+          expect(damaged.callScopedCounters, isTrue);
 
           expect(await controller.start(first), isTrue);
           expect(engines, hasLength(2));

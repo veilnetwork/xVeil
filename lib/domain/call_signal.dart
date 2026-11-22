@@ -250,6 +250,7 @@ class CallAudioPlayoutFeedback {
     this.bufferGrowing,
     this.interruptionCount,
     this.recoveryCount,
+    this.callScopedCounters = false,
     this.recoveryOrigin,
     this.recoveryDiscardedMs,
   });
@@ -276,6 +277,10 @@ class CallAudioPlayoutFeedback {
   /// Older peers conservatively treat these losses as interruptions.
   final int? recoveryCount;
 
+  /// Both counts started at zero in this call, including across media repairs.
+  /// The first measured report can therefore carry a new interruption.
+  final bool callScopedCounters;
+
   /// Native decoder identity/cumulative decoded loss, shared with RTCP.
   /// Optional for older peers; unrelated to the call-relative recoveryCount.
   final int? recoveryOrigin;
@@ -289,6 +294,7 @@ class CallAudioPlayoutFeedback {
     if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
     if (recoveryCount != null) 'lr': recoveryCount,
+    if (callScopedCounters) 'cs': true,
     if (recoveryOrigin != null) 'ro': recoveryOrigin,
     if (recoveryDiscardedMs != null) 'rd': recoveryDiscardedMs,
   };
@@ -302,6 +308,7 @@ class CallAudioPlayoutFeedback {
     final growing = raw['g'];
     final interruptions = raw['i'];
     final recoveries = raw['lr'];
+    final callScoped = raw['cs'];
     final recoveryOrigin = raw['ro'];
     final recoveryDiscardedMs = raw['rd'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
@@ -338,6 +345,11 @@ class CallAudioPlayoutFeedback {
             recoveries > interruptions)) {
       return null;
     }
+    if (callScoped != null &&
+        (callScoped is! bool ||
+            (callScoped && (delay == null || recoveries == null)))) {
+      return null;
+    }
     if ((recoveryOrigin == null) != (recoveryDiscardedMs == null) ||
         (recoveryOrigin != null &&
             (recoveryOrigin is! int ||
@@ -356,6 +368,7 @@ class CallAudioPlayoutFeedback {
       bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,
       recoveryCount: recoveries as int?,
+      callScopedCounters: callScoped == true,
       recoveryOrigin: recoveryOrigin as int?,
       recoveryDiscardedMs: recoveryDiscardedMs as int?,
     );

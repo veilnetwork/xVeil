@@ -60,7 +60,8 @@ class CallAudioFeedbackSchedule {
     final reserve = _reserve(feedback);
     final ceiling = CallAudioBufferWindow.ceilingMs;
     final interruptions = _playoutInterruptions(feedback);
-    final lastInterruptions = _lastInterruptionCount;
+    final lastInterruptions =
+        _lastInterruptionCount ?? (feedback.callScopedCounters ? 0 : null);
     final interrupted =
         interruptions != null &&
         lastInterruptions != null &&

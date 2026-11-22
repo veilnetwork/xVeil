@@ -109,6 +109,32 @@ void main() {
     );
   });
 
+  test('expedites the first call-scoped interruption without a baseline', () {
+    final schedule = CallAudioFeedbackSchedule();
+    CallAudioPlayoutFeedback report(int total) =>
+        CallAudioPlayoutFeedback.fromJson({
+          'n': 3,
+          'd': 440,
+          'cd': 440,
+          'td': 440,
+          'g': false,
+          'i': total,
+          'lr': 1,
+          'cs': true,
+        })!;
+
+    schedule.recordAttempt(const CallAudioPlayoutFeedback(sequence: 1), start);
+    final next = start.add(const Duration(seconds: 1));
+    expect(schedule.shouldSendUrgent(report(1), next), isFalse);
+    expect(schedule.shouldSendUrgent(report(2), start), isFalse);
+    expect(schedule.shouldSendUrgent(report(2), next), isTrue);
+    schedule.recordAttempt(report(2), next);
+    expect(
+      schedule.shouldSendUrgent(report(2), next.add(const Duration(seconds: 1))),
+      isFalse,
+    );
+  });
+
   test('confirms a filled jitter reserve once', () {
     final schedule = CallAudioFeedbackSchedule();
     final high = sample(1, peak: 720, current: 720, target: 500, growing: false);

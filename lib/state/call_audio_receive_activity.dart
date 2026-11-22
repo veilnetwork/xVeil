@@ -128,6 +128,8 @@ class CallAudioReceiveActivity {
       bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
       recoveryCount: current.recoveryCount,
+      callScopedCounters:
+          current.interruptionCount != null && current.recoveryCount != null,
       recoveryOrigin: current.recoveryOrigin,
       recoveryDiscardedMs: current.recoveryDiscardedMs,
     );

@@ -82,8 +82,15 @@ class CallPeerAudioPlayout {
         ? recoveries - _recoveryCount!
         : 0;
     if (count != null) {
-      if (_interruptionCount != null && count > _interruptionCount!) {
-        if (count - _interruptionCount! > recoveryDelta) _interrupted = true;
+      final previous = _interruptionCount;
+      if (previous == null) {
+        if (feedback.callScopedCounters &&
+            recoveries != null &&
+            count > recoveries) {
+          _interrupted = true;
+        }
+      } else if (count - previous > recoveryDelta) {
+        _interrupted = true;
       }
       _interruptionCount = count;
     }

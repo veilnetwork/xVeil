@@ -9,6 +9,50 @@ import 'package:xveil/state/call_peer_audio_playout.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('the first call-scoped report can carry a real interruption', () {
+    final peer = CallPeerAudioPlayout();
+    CallAudioPlayoutFeedback report(int sequence, int total) {
+      final feedback = CallAudioPlayoutFeedback.fromJson({
+        'n': sequence,
+        'd': 60,
+        'i': total,
+        'lr': 2,
+        'cs': true,
+      })!;
+      final wire = CallSignal(
+        callId: 'first-playout-report',
+        type: CallSignalType.health,
+        audioPlayout: feedback,
+      ).encode();
+      return CallSignal.tryDecode(wire)!.audioPlayout!;
+    }
+
+    peer.observe(const CallAudioPlayoutFeedback(sequence: 1), start);
+    // The first measured report was lost on the way.
+    peer.observe(report(3, 3), start);
+    expect(peer.takeInterruption(), isTrue);
+    expect(peer.takeRecovery(), isFalse);
+    peer.observe(report(2, 5), start); // A reordered report cannot replay it.
+    peer.observe(report(4, 3), start);
+    expect(peer.takeInterruption(), isFalse);
+
+    final catchesUp = CallPeerAudioPlayout()..observe(report(3, 2), start);
+    expect(catchesUp.takeInterruption(), isFalse);
+
+    // Legacy cumulative totals still need a baseline.
+    final legacy = CallPeerAudioPlayout();
+    legacy.observe(
+      const CallAudioPlayoutFeedback(
+        sequence: 3,
+        delayMs: 60,
+        interruptionCount: 3,
+        recoveryCount: 2,
+      ),
+      start,
+    );
+    expect(legacy.takeInterruption(), isFalse);
+  });
+
   test(
     'planned recovery survives wire delivery without hiding real interruptions',
     () {
@@ -45,6 +89,9 @@ void main() {
         {'n': 1, 'i': 1, 'lr': 2},
         {'n': 1, 'i': 1, 'lr': -1},
         {'n': 1, 'i': 1, 'lr': '1'},
+        {'n': 1, 'd': 60, 'i': 1, 'lr': 0, 'cs': 'true'},
+        {'n': 1, 'd': 60, 'i': 1, 'cs': true},
+        {'n': 1, 'i': 1, 'lr': 0, 'cs': true},
       ]) {
         expect(CallAudioPlayoutFeedback.fromJson(invalid), isNull);
       }
