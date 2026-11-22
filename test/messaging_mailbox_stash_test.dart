@@ -297,11 +297,14 @@ void main() {
     mA.attachMailbox(_FailingSink());
     await mA.sendRequest(b, 'arrived by the live route');
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.sending);
+    final request = (await sA.pendingOutboxFrames()).single;
 
     await mA.deliverInbound(
       InboundMessage(
         src: b,
-        payload: const WireEnvelope.accept().encode(),
+        payload: WireEnvelope.accept(
+          contactRequestId: WireEnvelope.decode(request.wire).contactRequestId,
+        ).encode(),
         provenance: SenderProvenance.sessionPeer,
       ),
     );

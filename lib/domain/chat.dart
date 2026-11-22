@@ -44,6 +44,8 @@ class Contact {
     this.name,
     this.status = ContactStatus.accepted,
     bool hasOutgoingRequest = false,
+    String? outgoingRequestId,
+    String? incomingRequestId,
     this.mutedUntil,
     this.notificationMuteMode = NotificationMuteMode.none,
     this.pinned = false,
@@ -58,7 +60,17 @@ class Contact {
     this.p2pOverride = kDefaultContactP2POverride,
   }) : hasOutgoingRequest =
            status == ContactStatus.pendingOutgoing ||
-           (status == ContactStatus.pendingIncoming && hasOutgoingRequest);
+           (status == ContactStatus.pendingIncoming && hasOutgoingRequest),
+       outgoingRequestId =
+           status == ContactStatus.pendingOutgoing ||
+               (status == ContactStatus.pendingIncoming && hasOutgoingRequest)
+           ? outgoingRequestId
+           : null,
+       incomingRequestId =
+           status == ContactStatus.pendingIncoming ||
+               status == ContactStatus.pendingOutgoing
+           ? incomingRequestId
+           : null;
 
   final NodeId nodeId;
   final String? name;
@@ -68,6 +80,11 @@ class Contact {
   /// pending intent nor an incoming request grants ordinary messaging access.
   /// Completed/blocked decisions discard it; unknown incoming-only peers lack it.
   final bool hasOutgoingRequest;
+
+  /// Handshake IDs stored only while the local relationship is pending.
+  /// Legacy requests have no ID. A crossed request can carry both directions.
+  final String? outgoingRequestId;
+  final String? incomingRequestId;
 
   /// Local notification-mute deadline for this conversation: null = not muted,
   /// [kMuteForever] = muted until manually unmuted, anything else = timed mute
@@ -170,6 +187,8 @@ class Contact {
     Object? name = _unset,
     ContactStatus? status,
     bool? hasOutgoingRequest,
+    String? outgoingRequestId,
+    String? incomingRequestId,
     // Nullable-field update: distinguish "leave as is" (omitted) from
     // "clear the mute" (explicit null) via a sentinel default.
     Object? mutedUntil = _unset,
@@ -191,6 +210,8 @@ class Contact {
     name: identical(name, _unset) ? this.name : name as String?,
     status: status ?? this.status,
     hasOutgoingRequest: hasOutgoingRequest ?? this.hasOutgoingRequest,
+    outgoingRequestId: outgoingRequestId ?? this.outgoingRequestId,
+    incomingRequestId: incomingRequestId ?? this.incomingRequestId,
     mutedUntil: identical(mutedUntil, _unset)
         ? this.mutedUntil
         : mutedUntil as DateTime?,

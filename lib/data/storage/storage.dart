@@ -167,9 +167,12 @@ abstract interface class Storage {
   /// Prepare an incoming/outgoing request against the latest relationship
   /// under the contact write lock. Existing acceptance/block decisions are
   /// preserved; return the effective status so stale work cannot undo consent.
+  /// An outgoing [requestId] initializes the pending handshake once. An
+  /// incoming ID records what the next local approval must echo.
   Future<ContactStatus> prepareContactRequest(
     NodeId peer, {
     bool incoming = false,
+    String? requestId,
   });
 
   /// Apply a synchronous preference transform to the latest contact while
@@ -191,11 +194,13 @@ abstract interface class Storage {
 
   /// Apply a peer's accept only to a still-pending local outgoing request,
   /// including a crossed incoming request. Check and write under the same
-  /// contact lock as local block/accept decisions. [isCurrent] fences the
-  /// request observed by the caller through the final commit admission.
+  /// contact lock as local block/accept decisions. [requestId] must match the
+  /// stored ID, including null for a legacy request. [isCurrent] fences the
+  /// observed request through the final commit admission.
   /// False leaves the current decision and its durable floor unchanged.
   Future<bool> acceptOutgoingContactRequest(
     NodeId peer, {
+    String? requestId,
     bool Function()? isCurrent,
   });
 

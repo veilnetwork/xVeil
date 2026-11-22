@@ -498,6 +498,7 @@ class WireEnvelope {
     this.replyTo,
     this.forwardedFrom,
     this.frameId,
+    this.contactRequestId,
     this.customEmoji = const [],
   });
 
@@ -521,6 +522,10 @@ class WireEnvelope {
   /// retire the frame from its persistent outbox, and dedups re-deliveries by
   /// it. Optional — older decoders ignore it.
   final String? frameId;
+
+  /// Shared by all sends of an outgoing contact request. An acceptance echoes
+  /// this ID so a delayed reply cannot approve a replacement request.
+  final String? contactRequestId;
   final List<InlineCustomEmoji> customEmoji;
 
   /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
@@ -543,8 +548,17 @@ class WireEnvelope {
     String? id,
     int? sentAtMs,
     int? seq,
-  }) : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs, seq: seq);
-  const WireEnvelope.accept() : this(WireKind.accept, '');
+    String? contactRequestId,
+  }) : this(
+         WireKind.request,
+         greeting,
+         id: id,
+         sentAtMs: sentAtMs,
+         seq: seq,
+         contactRequestId: contactRequestId,
+       );
+  const WireEnvelope.accept({String? contactRequestId})
+    : this(WireKind.accept, '', contactRequestId: contactRequestId);
   const WireEnvelope.message(
     String text, {
     String? id,
@@ -734,6 +748,7 @@ class WireEnvelope {
     replyTo: replyTo,
     forwardedFrom: forwardedFrom,
     frameId: fid,
+    contactRequestId: contactRequestId,
     customEmoji: customEmoji,
   );
 
@@ -748,11 +763,23 @@ class WireEnvelope {
         if (replyTo != null) 'r': replyTo,
         if (forwardedFrom != null) 'fw': forwardedFrom,
         if (frameId != null) 'fid': frameId,
+        if (contactRequestId != null) 'cr': contactRequestId,
         if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
         if (_isV2) 'v': 2,
       }),
     ),
   );
+
+  static final _contactRequestIdFormat = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+  );
+
+  static String? _parseContactRequestId(Object? value) =>
+      value is String &&
+          value.length == 36 &&
+          _contactRequestIdFormat.hasMatch(value)
+      ? value
+      : null;
 
   /// Decode a payload. A well-formed frame whose `t` this build KNOWS decodes to
   /// that kind. A structured `v:2` frame from a NEWER build (a `t` out of range,
@@ -781,6 +808,7 @@ class WireEnvelope {
                 ? decoded['fw'] as String
                 : null,
             frameId: decoded['fid'] is String ? decoded['fid'] as String : null,
+            contactRequestId: _parseContactRequestId(decoded['cr']),
             customEmoji: parseInlineCustomEmoji(body, decoded['ce']),
           );
         }

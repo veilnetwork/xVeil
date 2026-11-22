@@ -141,6 +141,74 @@ void main() {
           dir = null;
         });
 
+        for (final reopen in [false, true]) {
+          test('a delayed acceptance cannot approve a replacement request '
+              'reopen=$reopen', () async {
+            await mA.sendRequest(b, 'old greeting');
+            final original = tA.sent.lastWhere(
+              (e) => e.kind == WireKind.request,
+            );
+            expect(original.contactRequestId, isNotNull);
+            await _deliver(mB, a, original);
+            if (reopen) {
+              await mB.dispose();
+              await sB.close();
+              expect(await sB.open(password: 'fixture'), isTrue);
+              mB = MessagingService(tB, sB);
+            }
+            await mB.acceptContact(a);
+            final delayed = WireEnvelope.decode(
+              (await sB.pendingOutboxFrames()).single.wire,
+            );
+            expect(delayed.contactRequestId, original.contactRequestId);
+              await mB.acceptContact(a);
+              expect(
+                (await sB.pendingOutboxFrames()).single.frameId,
+                delayed.frameId,
+              );
+
+            expect(await mA.cancelRequest(b), isTrue);
+            await mA.sendRequest(b, 'new greeting');
+            final replacement = tA.sent.lastWhere(
+              (e) => e.kind == WireKind.request,
+            );
+            expect(
+              replacement.contactRequestId,
+              isNot(delayed.contactRequestId),
+            );
+            if (reopen) {
+              await mA.dispose();
+              await sA.close();
+              expect(await sA.open(password: 'fixture'), isTrue);
+              mA = MessagingService(tA, sA);
+            }
+            await _deliver(mA, b, delayed);
+            await _deliver(
+              mA,
+              b,
+              const WireEnvelope.accept().withFrameId('legacy-late-accept'),
+            );
+            expect(
+              (await sA.getContact(b))?.status,
+              ContactStatus.pendingOutgoing,
+            );
+            expect(
+              (await sA.pendingOutboxFrames()).single.frameId,
+              replacement.frameId,
+            );
+            expect((await sA.loadMessages(b.hex)).single.body, 'new greeting');
+
+            await _deliver(mB, a, replacement);
+            final current = WireEnvelope.decode(
+              (await sB.pendingOutboxFrames()).single.wire,
+            );
+            expect(current.frameId, isNot(delayed.frameId));
+            expect(current.contactRequestId, replacement.contactRequestId);
+            await _deliver(mA, b, current);
+            expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+          });
+        }
+
         test(
           'a stale request action cannot demote an accepted conversation',
           () async {

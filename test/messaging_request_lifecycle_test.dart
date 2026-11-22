@@ -77,6 +77,7 @@ void main() {
       () async {
         await mA.sendRequest(b, greeting);
         final original = tA.sent.last.$2;
+        expect(original.contactRequestId, isNotNull);
         final queued = await sA.pendingOutboxFrames();
         expect(queued, hasLength(1));
         expect(WireEnvelope.decode(queued.single.wire).kind, WireKind.request);
@@ -90,7 +91,13 @@ void main() {
           hasLength(1),
         );
         expect(tA.sent.single.$2.id, original.id);
-        tA.inject(b, const WireEnvelope.accept().encode());
+        expect(tA.sent.single.$2.contactRequestId, original.contactRequestId);
+        tA.inject(
+          b,
+          WireEnvelope.accept(
+            contactRequestId: original.contactRequestId,
+          ).encode(),
+        );
         await pumpEventQueue(times: 30);
         expect(await sA.pendingOutboxFrames(), isEmpty);
         await mA.dispose();
@@ -105,6 +112,10 @@ void main() {
     expect(mA.pendingFramesFor(b), 1);
     final after = (await sA.pendingOutboxFrames()).single;
     expect(after.frameId, before.frameId);
+    expect(
+      tA.sent.last.$2.contactRequestId,
+      WireEnvelope.decode(before.wire).contactRequestId,
+    );
     expect(
       WireEnvelope.decode(after.wire).id,
       WireEnvelope.decode(before.wire).id,

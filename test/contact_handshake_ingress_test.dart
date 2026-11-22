@@ -104,6 +104,12 @@ void main() {
         late _HeldAcceptance transport;
         late MessagingService service;
 
+        WireEnvelope acceptance(String frameId) => WireEnvelope.accept(
+          contactRequestId: transport.sent
+              .lastWhere((frame) => frame.kind == WireKind.request)
+              .contactRequestId,
+        ).withFrameId(frameId);
+
         setUp(() async {
           if (native) {
             expect(ensureHiddenVolumeLoaded(), isTrue);
@@ -143,10 +149,7 @@ void main() {
             await service.submitContactRequest(peer, '');
             storage.holdQueueRead = true;
             final accepting = service.deliverInbound(
-              _from(
-                peer,
-                const WireEnvelope.accept().withFrameId('accept-empty'),
-              ),
+              _from(peer, acceptance('accept-empty')),
             );
             try {
               await storage.entered.future;
@@ -192,10 +195,7 @@ void main() {
             ]);
 
             await service.deliverInbound(
-              _from(
-                peer,
-                const WireEnvelope.accept().withFrameId('accept-two'),
-              ),
+              _from(peer, acceptance('accept-two')),
             );
 
             expect(
@@ -239,7 +239,13 @@ void main() {
               final greeting = (await storage.loadMessages(peer.hex)).single;
               // Simulate stopping after the relationship committed but before the
               // service could transfer the greeting out of the handshake queue.
-              expect(await storage.acceptOutgoingContactRequest(peer), isTrue);
+              expect(
+                await storage.acceptOutgoingContactRequest(
+                  peer,
+                  requestId: WireEnvelope.decode(request.wire).contactRequestId,
+                ),
+                isTrue,
+              );
               await service.dispose();
               await storage.close();
               expect(await storage.open(password: 'fixture'), isTrue);
@@ -280,10 +286,7 @@ void main() {
             const acceptanceId = 'accept-write-fails';
             storage.failGreetingStatus = true;
             await service.deliverInbound(
-              _from(
-                peer,
-                const WireEnvelope.accept().withFrameId(acceptanceId),
-              ),
+              _from(peer, acceptance(acceptanceId)),
             );
 
             expect(

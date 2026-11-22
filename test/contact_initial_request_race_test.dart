@@ -58,8 +58,13 @@ class _HeldGreeting extends HiddenVolumeStorage {
   Future<ContactStatus> prepareContactRequest(
     NodeId peer, {
     bool incoming = false,
+    String? requestId,
   }) async {
-    final status = await super.prepareContactRequest(peer, incoming: incoming);
+    final status = await super.prepareContactRequest(
+      peer,
+      incoming: incoming,
+      requestId: requestId,
+    );
     if (holdPreparation) {
       holdPreparation = false;
       entered.complete();

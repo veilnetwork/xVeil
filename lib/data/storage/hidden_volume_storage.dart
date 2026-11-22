@@ -1123,6 +1123,7 @@ class HiddenVolumeStorage
   Future<ContactStatus> prepareContactRequest(
     NodeId peer, {
     bool incoming = false,
+    String? requestId,
   }) => _trackLogWrite(
     (store) => _contactSerialized(() async {
       final pending = incoming
@@ -1133,9 +1134,19 @@ class HiddenVolumeStorage
       if (status == ContactStatus.accepted || status == ContactStatus.blocked) {
         return status!;
       }
-      if (status == pending) return status!;
+      final outgoingId =
+          existing?.outgoingRequestId ?? (incoming ? null : requestId);
+      final incomingId =
+          (incoming ? requestId : null) ?? existing?.incomingRequestId;
+      if (status == pending &&
+          existing?.outgoingRequestId == outgoingId &&
+          existing?.incomingRequestId == incomingId) {
+        return pending;
+      }
       final contact = (existing ?? Contact(nodeId: peer)).copyWith(
         status: pending,
+        outgoingRequestId: outgoingId,
+        incomingRequestId: incomingId,
       );
       final (index, shards) = await _contactIndexShards();
       final indexed = index.contains(peer.hex);
@@ -1151,12 +1162,16 @@ class HiddenVolumeStorage
   @override
   Future<bool> acceptOutgoingContactRequest(
     NodeId peer, {
+    String? requestId,
     bool Function()? isCurrent,
   }) => _trackLogWrite(
     (store) => _contactSerialized(() async {
       if (isCurrent?.call() == false) return false;
       final existing = await getContact(peer);
-      if (existing?.hasOutgoingRequest != true) return false;
+      if (existing?.hasOutgoingRequest != true ||
+          existing?.outgoingRequestId != requestId) {
+        return false;
+      }
       final contact = existing!.copyWith(status: ContactStatus.accepted);
       final (index, shards) = await _contactIndexShards();
       final indexed = index.contains(peer.hex);
@@ -1484,6 +1499,8 @@ class HiddenVolumeStorage
       if (contact.status == ContactStatus.pendingIncoming &&
           contact.hasOutgoingRequest)
         'oq': true,
+      if (contact.outgoingRequestId != null) 'ori': contact.outgoingRequestId,
+      if (contact.incomingRequestId != null) 'iri': contact.incomingRequestId,
       // 'mu' (ms epoch deadline) supersedes the legacy boolean 'm'; a legacy
       // record's 'm':true reads back as muted-forever (see _contactFor).
       if (contact.mutedUntil != null)
@@ -1567,13 +1584,19 @@ class HiddenVolumeStorage
     List<KvLogOp> extraOps = const [],
   }) async {
     final existingContact = await store.get(Ns.contacts, contact.nodeId.bytes);
-    // A presentation/status upsert is not withdrawal of a local request. Keep
-    // its intent while pending; block/accept or actual removal ends that intent.
-    if (contact.status == ContactStatus.pendingIncoming &&
-        !contact.hasOutgoingRequest &&
-        existingContact != null &&
-        _decodeContact(contact.nodeId, existingContact).hasOutgoingRequest) {
-      contact = contact.copyWith(hasOutgoingRequest: true);
+    // A presentation upsert preserves the local handshake while pending.
+    if (existingContact != null &&
+        (contact.status == ContactStatus.pendingIncoming ||
+            contact.status == ContactStatus.pendingOutgoing)) {
+      final existing = _decodeContact(contact.nodeId, existingContact);
+      contact = contact.copyWith(
+        hasOutgoingRequest:
+            contact.hasOutgoingRequest || existing.hasOutgoingRequest,
+        outgoingRequestId:
+            existing.outgoingRequestId ?? contact.outgoingRequestId,
+        incomingRequestId:
+            existing.incomingRequestId ?? contact.incomingRequestId,
+      );
     }
     final contactBytes = _encodeContact(contact);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
@@ -1759,6 +1782,8 @@ class HiddenVolumeStorage
           ? ContactStatus.values[s]
           : ContactStatus.accepted,
       hasOutgoingRequest: m['oq'] == true,
+      outgoingRequestId: m['ori'] as String?,
+      incomingRequestId: m['iri'] as String?,
       mutedUntil: m['mu'] != null
           ? DateTime.fromMillisecondsSinceEpoch(m['mu'] as int)
           : (m['m'] == true ? kMuteForever : null),
@@ -6965,7 +6990,7 @@ class HiddenVolumeStorage
     Uint8List wire, {
     bool replyOnly = false,
   }) {
-    final record = _ownedOutboxRecord(frameId, peer.hex, wire);
+    final template = _ownedOutboxRecord(frameId, peer.hex, wire);
     return _trackLogWrite((store) {
       final floorKey = _sk('$_contactFloorPrefix${peer.hex}');
       // Observe the decision in contact order before waiting for the Outbox.
@@ -6992,6 +7017,19 @@ class HiddenVolumeStorage
           }
           final alreadyAccepted = existing?.status == ContactStatus.accepted;
           if (replyOnly && !alreadyAccepted) return null;
+          final offered = WireEnvelope.decode(template.frame.wire);
+          final requestId = replyOnly
+              ? offered.contactRequestId
+              : existing?.incomingRequestId ?? offered.contactRequestId;
+          final record = requestId == offered.contactRequestId
+              ? template
+              : _ownedOutboxRecord(
+                  frameId,
+                  peer.hex,
+                  WireEnvelope.accept(
+                    contactRequestId: requestId,
+                  ).withFrameId(frameId).encode(),
+                );
           if (!await _ensureOutboxLoadedCritical()) {
             throw StateError('durable outbox could not be loaded');
           }
@@ -7010,10 +7048,20 @@ class HiddenVolumeStorage
                   _isAcceptanceFrame(row.frame))
                 row,
           ];
-          // Retries preserve an outstanding answer. Once ACKed, a later
-          // request gets a new ID so a duplicate receipt cannot retire it.
-          final held =
-              sameId ?? (alreadyAccepted ? pending.lastOrNull?.frame : null);
+          // A repeated local approval or an unbound reconnect can reuse the
+          // pending response. A different bound request needs a new frame ID
+          // so the old receipt cannot retire the replacement response.
+          var held = sameId;
+          if (held == null && alreadyAccepted) {
+            for (final row in pending.reversed) {
+              if (requestId == null ||
+                  WireEnvelope.decode(row.frame.wire).contactRequestId ==
+                      requestId) {
+                held = row.frame;
+                break;
+              }
+            }
+          }
           final selected = held ?? record.frame;
           final obsolete = pending.where(
             (row) => row.frame.frameId != selected.frameId,

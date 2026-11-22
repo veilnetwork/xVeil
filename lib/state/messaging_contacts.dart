@@ -86,7 +86,11 @@ class _MessagingContacts {
     await _afterStatusSaved(peer, status);
   }
 
-  Future<bool> acceptOutgoingRequest(NodeId peer, Object requestEpoch) async {
+  Future<bool> acceptOutgoingRequest(
+    NodeId peer,
+    Object requestEpoch,
+    String? requestId,
+  ) async {
     final consent = _owner._realtimeControl;
     bool isCurrent() => consent._consentCurrent(peer, requestEpoch);
     if (!isCurrent()) return false;
@@ -94,6 +98,7 @@ class _MessagingContacts {
     try {
       accepted = await _owner._storage.acceptOutgoingContactRequest(
         peer,
+        requestId: requestId,
         isCurrent: isCurrent,
       );
     } finally {
@@ -255,6 +260,7 @@ class _MessagingContacts {
     final status = await _owner._storage.prepareContactRequest(
       m.src,
       incoming: true,
+      requestId: env.contactRequestId,
     );
     if (_owner._disposed) {
       _owner._declinedLocally(m, 'messaging service is closed');
@@ -269,7 +275,7 @@ class _MessagingContacts {
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
-      return _queueAcceptance(m);
+      return _queueAcceptance(m, env.contactRequestId);
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
     // while the intro sits undecided (the durable gate only dedups ACCEPTED
@@ -281,7 +287,7 @@ class _MessagingContacts {
       if (!isCurrent() ||
           (currentStatus != ContactStatus.pendingIncoming &&
               currentStatus != ContactStatus.pendingOutgoing)) {
-        return _finishSupersededIntroduction(m);
+        return _finishSupersededIntroduction(m, env.contactRequestId);
       }
       // A decision may have completed while prepare/read waited. Never emit
       // its old pending status into the UI or the own-device journal.
@@ -294,7 +300,7 @@ class _MessagingContacts {
       // request/reconnect would otherwise pile up unbounded greetings before we
       // ever accept. Evict the oldest down to the cap, keeping the most recent.
       if (!await capPreConsentIntros(m.src, env.id, isCurrent)) {
-        return _finishSupersededIntroduction(m);
+        return _finishSupersededIntroduction(m, env.contactRequestId);
       }
       // Store the greeting under its id so a later outbox re-send of the same
       // greeting (as a WireKind.message) dedups instead of creating a second copy.
@@ -320,14 +326,19 @@ class _MessagingContacts {
         pendingIntroduction: isCurrent,
       );
       if (stored == null) {
-        return _finishSupersededIntroduction(m, expiredPending: isCurrent);
+        return _finishSupersededIntroduction(
+          m,
+          env.contactRequestId,
+          expiredPending: isCurrent,
+        );
       }
     }
     return true;
   }
 
   Future<bool> _finishSupersededIntroduction(
-    InboundMessage message, {
+    InboundMessage message,
+    String? requestId, {
     bool Function()? expiredPending,
   }) async {
     final consent = await _owner._realtimeControl._readContactConsent(
@@ -336,7 +347,7 @@ class _MessagingContacts {
     if (consent?.contact?.status == ContactStatus.accepted) {
       // Acceptance may have won while discovery waited. Preserve the normal
       // accepted re-request response, without importing its unverified body.
-      return _queueAcceptance(message);
+      return _queueAcceptance(message, requestId);
     }
     // The shared store can also suppress a deleted/expired intro without a
     // consent change. Preserve that handled outcome while it is still owned.
@@ -352,10 +363,15 @@ class _MessagingContacts {
   /// Finish durable admission inside ingress; send on bounded recipient lanes.
   /// A retrying accepted contact must not hold the ordinary inbox behind a
   /// slow reverse route. Failed/dropped jobs keep their durable Outbox copy.
-  Future<bool> _queueAcceptance(InboundMessage message) async {
+  Future<bool> _queueAcceptance(
+    InboundMessage message,
+    String? requestId,
+  ) async {
     final peer = message.src;
     final frameId = 'accept:${peer.hex}:${_uuid.v4()}';
-    final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
+    final wire = WireEnvelope.accept(
+      contactRequestId: requestId,
+    ).withFrameId(frameId).encode();
     final frame = await _owner._outbox.enqueueAcceptance(
       peer,
       frameId,
@@ -455,7 +471,10 @@ class _MessagingContacts {
     // block, accept, cancel and owner shutdown still revoke it.
     final epoch = _owner._realtimeControl._consentEpoch(dst);
     bool isCurrent() => _owner._realtimeControl._consentCurrent(dst, epoch);
-    final status = await _owner._storage.prepareContactRequest(dst);
+    final status = await _owner._storage.prepareContactRequest(
+      dst,
+      requestId: _uuid.v4(),
+    );
     if (_owner._disposed || status == ContactStatus.blocked) {
       return ContactRequestSubmission.refused;
     }
@@ -468,7 +487,12 @@ class _MessagingContacts {
           ? ContactRequestSubmission.messageSubmitted
           : ContactRequestSubmission.refused;
     }
-    if (!isCurrent()) return ContactRequestSubmission.refused;
+    final requestId = (await _owner._storage.getContact(
+      dst,
+    ))?.outgoingRequestId;
+    if (!isCurrent() || requestId == null) {
+      return ContactRequestSubmission.refused;
+    }
     await _afterStatusSaved(dst, status);
     // Tag the greeting with a stable id shared between our stored copy and the
     // request on the wire. The greeting is stored `sent`, so the outbox re-sends
@@ -498,6 +522,7 @@ class _MessagingContacts {
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
       seq: seq,
+      contactRequestId: requestId,
     ).withFrameId(frameId).encode();
     // Survive a failed deposit, a lost live leg and an application restart.
     // The peer's acceptance or cancellation retires this handshake row.
@@ -612,6 +637,7 @@ class _MessagingContacts {
       id: id,
       sentAtMs: sentAtMs,
       seq: seq,
+      contactRequestId: consent?.contact?.outgoingRequestId,
     ).withFrameId(frameId).encode();
     if (!isCurrent() ||
         !await _owner._outbox.admitRequestRetry(

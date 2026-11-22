@@ -46,6 +46,7 @@ class _Held extends HiddenVolumeStorage {
   @override
   Future<bool> acceptOutgoingContactRequest(
     NodeId peer, {
+    String? requestId,
     bool Function()? isCurrent,
   }) async {
     if (holdRemoteAccept) {
@@ -56,7 +57,11 @@ class _Held extends HiddenVolumeStorage {
     if (holdInsideBlock && !remoteAcceptEntered.isCompleted) {
       remoteAcceptEntered.complete();
     }
-    return super.acceptOutgoingContactRequest(peer, isCurrent: isCurrent);
+    return super.acceptOutgoingContactRequest(
+      peer,
+      requestId: requestId,
+      isCurrent: isCurrent,
+    );
   }
 
   @override
@@ -639,15 +644,21 @@ void main() {
         );
         s.holdRemoteAccept = true;
         var declined = 0;
-        Future<void> deliverAccept(String frameId) => f.service.deliverInbound(
-          InboundMessage(
-            src: peer,
-            payload: const WireEnvelope.accept().withFrameId(frameId).encode(),
-            provenance: SenderProvenance.signed,
-            onDeclined: (_) => declined++,
-          ),
+        Future<void> deliverAccept(String frameId, String? requestId) =>
+            f.service.deliverInbound(
+              InboundMessage(
+                src: peer,
+                payload: WireEnvelope.accept(
+                  contactRequestId: requestId,
+                ).withFrameId(frameId).encode(),
+                provenance: SenderProvenance.signed,
+                onDeclined: (_) => declined++,
+              ),
+            );
+        final accepting = deliverAccept(
+          'original-accept',
+          (await s.getContact(peer))!.outgoingRequestId,
         );
-        final accepting = deliverAccept('original-accept');
         await s.entered.future;
         expect(await f.service.cancelRequest(peer), isTrue);
         expect(
@@ -667,7 +678,10 @@ void main() {
         expect(declined, 1);
         expect(f.wire.sent.where((e) => e.kind == WireKind.ack), isEmpty);
 
-        await deliverAccept('replacement-accept');
+        await deliverAccept(
+          'replacement-accept',
+          (await s.getContact(peer))!.outgoingRequestId,
+        );
         expect((await s.getContact(peer))?.status, ContactStatus.accepted);
         expect(declined, 1);
         expect(

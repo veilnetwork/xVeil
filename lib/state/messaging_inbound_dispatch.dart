@@ -597,6 +597,7 @@ extension _MessagingInboundDispatch on MessagingService {
           final changed = await _contacts.acceptOutgoingRequest(
             m.src,
             consent.epoch,
+            env.contactRequestId,
           );
           // A concurrent local/mirrored accept needs its receipt too. Ensure
           // the relationship is still accepted after durable queue cleanup.
