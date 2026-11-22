@@ -103,17 +103,61 @@ void main() {
       expect(plan.targets.single.kemPk, _kem(23));
     });
 
-    test('a KEM-less ad still names the relay', () async {
+    test('a KEM-less ad alone does not establish mailbox service', () async {
+      var lookups = 0;
       final plan = await planMailboxDeposit(
         receiver: _id(6),
         adReplicas: [(relay: _id(14), kemPk: null)],
-        resolveRelayKem: (relay) async => _kem(24),
+        resolveRelayKem: (relay) async {
+          lookups++;
+          return _kem(24);
+        },
         fanout: 3,
         cache: cache,
       );
-      expect(plan.source, MailboxTargetSource.freshAd);
-      expect(plan.targets.single.kemPk, _kem(24));
+      expect(plan.isEmpty, isTrue);
+      expect(lookups, 0);
     });
+
+    test('a keyless view can still use a remembered mailbox relay', () async {
+      final receiver = _id(6);
+      final mailboxRelay = _id(16);
+      await cache.setPeerRelays(receiver, [mailboxRelay]);
+      final plan = await planMailboxDeposit(
+        receiver: receiver,
+        adReplicas: [(relay: _id(14), kemPk: null)],
+        resolveRelayKem: (relay) async {
+          expect(relay, mailboxRelay);
+          return _kem(26);
+        },
+        fanout: 3,
+        cache: cache,
+      );
+      expect(plan.source, MailboxTargetSource.cache);
+      expect(plan.targets.single.relayNodeId, mailboxRelay.bytes);
+    });
+
+    test(
+      'an explicit mailbox key excludes transit-only rendezvous ads',
+      () async {
+        var lookups = 0;
+        final plan = await planMailboxDeposit(
+          receiver: _id(6),
+          adReplicas: [
+            (relay: _id(14), kemPk: null),
+            (relay: _id(16), kemPk: _kem(26)),
+          ],
+          resolveRelayKem: (relay) async {
+            lookups++;
+            return _kem(24);
+          },
+          fanout: 3,
+          cache: cache,
+        );
+        expect(plan.targets.single.relayNodeId, _id(16).bytes);
+        expect(lookups, 0);
+      },
+    );
 
     test('the fanout bounds how many relays one deposit pays for', () async {
       final plan = await planMailboxDeposit(

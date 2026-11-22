@@ -1267,6 +1267,7 @@ class VeilFlutterTransport
       orchestrator: MailboxOrchestrator(crypto, relay, poisoned: poisonedBlobs),
       deliver: deliver,
       relayKeyCache: relayKeyCache,
+      confirmRelay: relay.confirmMailboxRelay,
     );
   }
 

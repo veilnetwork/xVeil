@@ -111,6 +111,7 @@ class MailboxService implements MailboxSink {
     required MailboxOrchestrator orchestrator,
     required Future<void> Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
+    Future<bool> Function(NodeId, Uint8List)? confirmRelay,
     int ourCertVersion = 0,
     Duration drainInterval = kIdleDrainInterval,
   }) : _client = client,
@@ -118,6 +119,7 @@ class MailboxService implements MailboxSink {
        _orchestrator = orchestrator,
        _deliver = deliver,
        _relayKeyCache = relayKeyCache,
+       _confirmRelay = confirmRelay,
        _ourCertVersion = ourCertVersion,
        _drainInterval = drainInterval;
 
@@ -129,6 +131,7 @@ class MailboxService implements MailboxSink {
   // preferred; this only rescues registration through a transient resolve
   // failure so we don't go unreachable. Null on the loopback/dev path.
   final RelayKeyCache? _relayKeyCache;
+  final Future<bool> Function(NodeId, Uint8List)? _confirmRelay;
   final int _ourCertVersion;
   final Duration _drainInterval;
 
@@ -205,6 +208,9 @@ class MailboxService implements MailboxSink {
   // until one resolves (a relay's published key can appear minutes after we
   // first look — e.g. a just-restarted relay), not just during start()'s window.
   List<NodeId> _relays = const [];
+  final Stopwatch _relayProbeClock = Stopwatch()..start();
+  final Map<String, Duration> _relayProbeRetryAfter = {};
+  static const _relayProbeRetryDelay = Duration(seconds: 30);
 
   // The relay we actually REGISTERED a mailbox publisher with. The drain fetches
   // straight from here instead of re-resolving our own rendezvous ad over the
@@ -236,12 +242,9 @@ class MailboxService implements MailboxSink {
   @override
   bool get isRegistered => _registered;
 
-  /// Advertise an always-on mailbox host (the first of [relays] whose relay-key
-  /// record resolves) and begin draining. Safe to call again (e.g. after a
-  /// reconnect): registration is re-attempted until one candidate sticks, and
-  /// the drain timer is only armed once. Candidates that aren't relay-capable
-  /// (no resolvable relay-key record) are simply skipped — the resolve itself
-  /// validates the choice, so a wrong/derived node_id is non-fatal.
+  /// Advertise mailbox hosts from [relays] and begin draining. The network
+  /// transport checks for a signed FETCH response before registration. Safe
+  /// to call again after reconnect. The drain timer is only armed once.
   Future<void> start({required List<NodeId> relays}) {
     if (_handleDead || _disposed) return Future<void>.value();
     final running = _startInFlight;
@@ -262,6 +265,8 @@ class MailboxService implements MailboxSink {
     // instead of drifting "first that resolved" picks that strand stale ad slots
     // at relays we no longer drain — which a sender resolves into a black hole.
     _relays = relaysByXorDistance(_me, relays);
+    final candidateIds = _relays.map((relay) => relay.hex).toSet();
+    _relayProbeRetryAfter.removeWhere((id, _) => !candidateIds.contains(id));
     // Prefer the relay we registered at LAST session (persisted) so we re-pick
     // the SAME relay first instead of drifting to another resolvable candidate —
     // drift leaves a stale ad slot at the old relay that a sender can still
@@ -392,6 +397,8 @@ class MailboxService implements MailboxSink {
     if (_disposed || _handleDead || _publisherRegistered.contains(relay.hex)) {
       return;
     }
+    final retryAfter = _relayProbeRetryAfter[relay.hex];
+    if (retryAfter != null && _relayProbeClock.elapsed < retryAfter) return;
     // Prefer a FRESH, verified resolve — now a one-hop fast path straight to the
     // connected relay (see veil's connected-peer resolver), so it succeeds even
     // on a cold routing table right after a restart. Only if that genuinely
@@ -421,6 +428,17 @@ class MailboxService implements MailboxSink {
         }
         return;
       }
+      final confirm = _confirmRelay;
+      if (confirm != null && !await confirm(relay, kem)) {
+        _relayProbeRetryAfter[relay.hex] =
+            _relayProbeClock.elapsed + _relayProbeRetryDelay;
+        devLog(
+          () => 'xVeil[mailbox]: relay ${relay.short} did not answer FETCH',
+        );
+        return;
+      }
+      if (_disposed || _handleDead) return;
+      _relayProbeRetryAfter.remove(relay.hex);
       await _client.registerRendezvousPublisher(
         rendezvousNodeId: relay.bytes,
         authCookie: _cookie,

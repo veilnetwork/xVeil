@@ -479,6 +479,42 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// but only THIS one names the step that actually stalled.
   static const Duration _putStepTimeout = Duration(seconds: 20);
 
+  /// A rendezvous key also belongs to transit-only relays. Require a valid
+  /// signed FETCH response before announcing the node as a mailbox carrier.
+  /// Probe the local identity's inbox, using the same authorization as drain.
+  Future<bool> confirmMailboxRelay(NodeId relay, Uint8List kem) async {
+    final confirmed = Completer<void>();
+    final subscription = _fetchApp.messages().listen((message) {
+      if (confirmed.isCompleted ||
+          message.provenance != veil.SenderProvenance.signed ||
+          NodeId(message.srcNodeId) != relay) {
+        return;
+      }
+      try {
+        decodeMailboxFetchResp(message.data);
+        confirmed.complete();
+      } on FormatException {
+        // This relay has not returned a usable mailbox response.
+      }
+    });
+    try {
+      final sent = _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+        dstNodeId: relay.bytes,
+        dstX25519Pk: kem,
+        dstAppId: kMailboxAppId,
+        dstEndpointId: kMailboxFetchEndpointId,
+        replyEndpointId: _replyEndpointId,
+        data: Uint8List(0),
+      );
+      await sent.then((_) => confirmed.future).timeout(_fetchTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
   @override
   Future<void> put({
     required NodeId receiver,
@@ -546,16 +582,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
             '— falling back to the last relays that held this peer\'s mailbox: $e',
       );
     }
-    // A usable deposit target = the replica's relay + that relay's public
-    // X25519 (the PUT's seal target). Prefer the key carried by the ad itself
-    // (v5 KEM field); when the ad is KEM-LESS — e.g. the recipient's node
-    // republished its slots after a restart before the app layer re-attached
-    // the relay key — the ad still NAMES the relay, and the relay's key is a
-    // public value we usually already hold (the drain warms every candidate
-    // into the relay-key cache) or can fetch with a one-hop relay-dir lookup.
-    // Without this fallback a recipient restart black-holed deposits for as
-    // long as no KEM-bearing ad was resolvable (observed ~19 min on the
-    // stand): texts AND file offers from the peer silently stopped arriving.
+    // KEM-bearing ads explicitly advertise a mailbox carrier. A keyless
+    // rendezvous ad can represent a transit-only relay, whose directory key
+    // says nothing about its PUT handler. A receiver that has not refreshed
+    // its mailbox ads can still use the last remembered mailbox targets.
     //
     // NO CAPABILITY TOKEN IS INVOLVED, which is why the cached fallback is
     // sound at all. [encodeMailboxPut] writes the token trailer as ABSENT on
@@ -650,10 +680,8 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     ).timeout(_putStepTimeout, onTimeout: () {});
   }
 
-  /// A relay's public X25519 from the relay directory — one hop to a connected
-  /// relay, not a recursive DHT walk. The ad's own KEM field and the persisted
-  /// cache are tried first by [planMailboxDeposit]; this is the last resort.
-  /// Best-effort: a relay whose key cannot be found is simply not a target.
+  /// Recover a remembered mailbox target's key from the relay directory when
+  /// the cached key is gone. Other relays are selected by the receiver's ad.
   Future<Uint8List?> _resolveRelayKem(NodeId relay) async {
     try {
       // The key alone: this path SEALS to it now, so how long the relay will

@@ -9,8 +9,7 @@ import 'relay_key_cache.dart';
 typedef MailboxDepositTarget = ({Uint8List relayNodeId, Uint8List kemPk});
 
 /// One entry of a resolved rendezvous ad, reduced to what a deposit needs.
-/// [kemPk] is null when the ad NAMES the relay but carries no KEM field (a v5
-/// ad published before the app layer re-attached the relay key).
+/// [kemPk] is null for an ad with no explicit mailbox key.
 typedef MailboxAdReplica = ({NodeId relay, Uint8List? kemPk});
 
 /// Where a deposit's targets came from. The distinction is not cosmetic: only
@@ -51,8 +50,9 @@ class MailboxDepositPlan {
 /// which overwrites the record wholesale — and it is strictly better than the
 /// measured alternative, which delivered nothing to anyone.
 ///
-/// [resolveRelayKem] fills a relay's KEM key when neither the ad nor the cache
-/// carries one (a one-hop relay-directory lookup at the call site).
+/// [resolveRelayKem] recovers the key of a remembered mailbox relay when
+/// its cached key is gone. A live rendezvous ad without a mailbox key only
+/// identifies a transit route. A directory lookup cannot prove it stores mail.
 Future<MailboxDepositPlan> planMailboxDeposit({
   required NodeId receiver,
   required List<MailboxAdReplica> adReplicas,
@@ -60,8 +60,11 @@ Future<MailboxDepositPlan> planMailboxDeposit({
   required int fanout,
   RelayKeyCache? cache,
 }) async {
+  // A signed receiver ad carrying a key is an explicit mailbox publication.
+  // Native rendezvous ads can name transit nodes without a mailbox endpoint.
+  // Only explicit publishers can populate the remembered mailbox list.
   final fromAd = await _targetsFor(
-    adReplicas,
+    adReplicas.where((replica) => replica.kemPk?.length == 32),
     resolveRelayKem: resolveRelayKem,
     fanout: fanout,
     cache: cache,
@@ -92,7 +95,7 @@ Future<MailboxDepositPlan> planMailboxDeposit({
 /// no key from any of the three is not a target — the PUT has nothing to seal
 /// to — but it does not disqualify its siblings.
 Future<List<MailboxDepositTarget>> _targetsFor(
-  List<MailboxAdReplica> replicas, {
+  Iterable<MailboxAdReplica> replicas, {
   required Future<Uint8List?> Function(NodeId relay) resolveRelayKem,
   required int fanout,
   required RelayKeyCache? cache,

@@ -551,7 +551,7 @@ class _MessagingMailboxDelivery {
         devLog(
           () =>
               'xVeil[send]: stash OK dst=${peer.short} id=$id '
-              '(deposited at recipient relay)',
+              '(submitted to mailbox route)',
         );
       } catch (error, stackTrace) {
         if (!isCurrent()) return false;
