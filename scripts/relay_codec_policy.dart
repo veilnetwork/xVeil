@@ -154,6 +154,10 @@ Future<void> main() async {
         req['sourceFeedbackQueued'] == true &&
         (sourcePressured == true ||
             sourcePressure[i].waitingForReserveConfirmation);
+    final sourceRecoveryProbe =
+        req['videoSendExpected'] == true &&
+        sourcePressure[i].reserveSupportsRecoveryProbe;
+    final queuedProbeAt = req['sourceRecoveryProbeSampleMs'];
     a.onNativeStats(
       stats,
       sampledAt: now,
@@ -161,6 +165,13 @@ Future<void> main() async {
       filledJitterReserveConfirmed:
           req['sourceFeedbackQueued'] == true &&
           sourcePressure[i].filledJitterReserveConfirmed,
+      sourceRecoveryProbeReady:
+          sourceRecoveryProbe &&
+          queuedProbeAt is int &&
+          CallAudioSourcePressure.recoveryProbeIsFresh(
+            DateTime.fromMillisecondsSinceEpoch(queuedProbeAt),
+            now,
+          ),
       videoSendExpected: req['videoSendExpected'] == true,
       sendAudioExpected: true,
       requireAudioReceivePlayout: true,
@@ -207,9 +218,7 @@ Future<void> main() async {
         'growthHoldStartedAt':
             sourcePressure[i].growthHoldStartedAt?.millisecondsSinceEpoch,
         'sourcePressured': sourcePressured,
-        'sourceRecoveryProbe':
-            req['videoSendExpected'] == true &&
-            sourcePressure[i].reserveSupportsRecoveryProbe,
+        'sourceRecoveryProbe': sourceRecoveryProbe,
         'sourceBudgetPressured': sourceBudgetPressured,
         'audioAdaptation': a.bufferDiagnostics,
       }),

@@ -286,6 +286,7 @@ startat=None
 audio_stop=threading.Event()
 audio_failure=[]
 source_feedback_queued=[0,0]
+source_recovery_receipts = [None, None]
 source_feedback_skipped=[0,0]
 opaque_capture=None
 gc_observer=None
@@ -787,7 +788,17 @@ try:
                 feedback=[]
                 while inbox[i]:feedback.append(inbox[i].popleft())
                 sampled_at=int(time.time()*1000)
-                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video,'sourceFeedbackQueued':source_feedback_queued[i]>0})
+                route = stats.get('audio_rtt_route_epoch')
+                receipt = source_recovery_receipts[i]
+                r = command({
+                    'index': i, 'op': 'stats', 'now': sampled_at, 'stats': stats,
+                    'feedback': feedback, 'prepare': prepare,
+                    'videoSendExpected': videostarted and not args.no_video,
+                    'sourceFeedbackQueued': source_feedback_queued[i] > 0,
+                    'sourceRecoveryProbeSampleMs': (
+                        receipt[0] if receipt is not None and receipt[1] == route else None
+                    ),
+                })
                 r['nativeAudioPixelFeedbackSupported']=audio_pixels is not None
                 held_at=r.get('growthHoldStartedAt')
                 r['nativeAudioGrowthHoldRc']=None
@@ -804,6 +815,7 @@ try:
                     r['sourceRecoveryProbeRc'] = rc
                     if rc == 0:
                         source_feedback_queued[i] += 1
+                        source_recovery_receipts[i] = (sampled_at, route)
                     elif rc == 1:
                         source_feedback_skipped[i] += 1
                     else:

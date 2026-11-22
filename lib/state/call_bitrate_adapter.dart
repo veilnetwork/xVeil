@@ -205,6 +205,7 @@ class CallBitrateAdapter {
 
   int _severeStreak = 0;
   bool _audioReserve = false;
+  bool _reserveRecoveryTrial = false;
   bool _sourceFloor = false, _sourcePause = false;
 
   /// An owning source coordinator may require secondary work to yield before
@@ -277,6 +278,7 @@ class CallBitrateAdapter {
       'ramp_recovery_needed': _rampNeedsRecovery,
       'ramp_recovery_samples_after': _rampRecoverySamples,
       'audio_recovery_streak_after': _audioRecoveryStreak,
+      'reserve_recovery_trial': _reserveRecoveryTrial,
       'severe_streak_after': _severeStreak,
       'paused_after': _audioReserve,
     });
@@ -826,6 +828,7 @@ class CallBitrateAdapter {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
+    bool sourceRecoveryProbeReady = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
@@ -1108,6 +1111,7 @@ class CallBitrateAdapter {
       sourceBudgetPressured: sourceBudgetPressured,
       filledJitterReserveConfirmed:
           filledJitterReserveConfirmed && peerReportOnRoute,
+      sourceRecoveryProbeReady: sourceRecoveryProbeReady && peerReportOnRoute,
       audioSoftLossBelowThreshold:
           softLoss.send == false &&
           softLoss.receive == false &&
@@ -1267,6 +1271,7 @@ class CallBitrateAdapter {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
+    bool sourceRecoveryProbeReady = false,
     bool audioSoftLossBelowThreshold = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
@@ -1636,7 +1641,8 @@ class CallBitrateAdapter {
         (requirePeerAudioPlayout && peerAudioDelayMs == null);
     // Missing/stale reports cannot earn growth or declare buffer pressure.
     final playoutBad = bufferPressure;
-    if (!feedbackAvailable &&
+    if (!_reserveRecoveryTrial &&
+        !feedbackAvailable &&
         !freshMediaLoss &&
         !newDrops &&
         !newAudioDrops &&
@@ -1885,6 +1891,37 @@ class CallBitrateAdapter {
         txLossPct == 0;
     final measuredPlayoutHealthy =
         measuredPlayoutReady && (belowRecoveryDelay || filledReserveRecovery);
+    // The node can accept one small lossy trial while the app is still
+    // collecting evidence for ordinary growth. Keep the same audio checks
+    // and the existing sparse floor throughout the trial.
+    final earlyReserveRecovery =
+        atFloor &&
+        sourceBudgetPressured &&
+        sourceRecoveryProbeReady &&
+        requirePeerAudioPlayout &&
+        requireAudioReceivePlayout &&
+        measuredPlayoutReady &&
+        peerReserveCredit > 0 &&
+        receiveReserveCredit > 0 &&
+        !bufferPressure &&
+        !bufferGrowing &&
+        audioSoftLossBelowThreshold &&
+        !_networkAudioLoss.holdingGrowth &&
+        rttMs > 0 &&
+        txLossPct == 0;
+    if (_reserveRecoveryTrial) {
+      if (!sourceBudgetPressured && measuredPlayoutHealthy) {
+        _reserveRecoveryTrial = false;
+      } else if (!earlyReserveRecovery && !measuredPlayoutHealthy) {
+        // Return the allowance immediately if audio fails or the supporting
+        // observations expire, including before the first encoded frame.
+        _reserveRecoveryTrial = false;
+        _audioReserve = true;
+        _goodStreak = 0;
+        _resetAudioRecovery();
+        return target;
+      }
+    }
     // After the native pause ACK, delayed video loss reports describe
     // earlier traffic. Only the audio path can earn this sparse probe.
     final mayRecover =
@@ -1893,13 +1930,17 @@ class CallBitrateAdapter {
         (_appliedPause == true ||
             (!videoLossObserved && !videoNetworkLossObserved)) &&
         (audioTxDrops != null || !newDrops);
-    if (mayRecover && (measuredPlayoutHealthy || audioGood)) {
+    final useEarlyReserve = _appliedPause == true && earlyReserveRecovery;
+    if (mayRecover &&
+        (measuredPlayoutHealthy || audioGood || useEarlyReserve)) {
       _audioRecoveryStreak++;
-      final resumeAfter = measuredPlayoutHealthy
+      final resumeAfter = measuredPlayoutHealthy || useEarlyReserve
           ? probeResumeAfter
           : recoverAfter;
       if (_audioRecoveryStreak >= resumeAfter) {
         _releaseAudioHold();
+        _reserveRecoveryTrial =
+            useEarlyReserve && !measuredPlayoutHealthy && !audioGood;
         return target;
       }
     } else if (mayRecover &&
@@ -2046,6 +2087,7 @@ class CallBitrateAdapter {
   }
 
   void _releaseAudioHold() {
+    _reserveRecoveryTrial = false;
     if (_audioReserve) {
       _deliveryTarget = null;
       _deliveryProbe = false;

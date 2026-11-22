@@ -14,6 +14,11 @@ class CallAudioSourcePressure {
   // peak is not the current source pressure.
   static const int playoutDegradeMs = CallAudioBufferWindow.ceilingMs;
   static const int playoutRecoverMs = CallBitrateAdapter.playoutRecoverMs;
+  // Match the transport's recovery-probe lease.
+  static bool recoveryProbeIsFresh(DateTime sampledAt, DateTime now) =>
+      !sampledAt.isAfter(now) &&
+      now.difference(sampledAt) < const Duration(seconds: 2);
+
   final bool singlePeerPlayout;
   bool _pressured = true;
   int _healthy = 0;

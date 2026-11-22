@@ -671,6 +671,7 @@ class VeilCallMediaController implements CallMediaController {
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
   int _sourceFeedbackSkipped = 0;
+  ({DateTime sampledAt, int route})? _sourceRecoveryProbeReceipt;
   bool? _sourcePressured;
   bool _peerAudioCaptureEnabled = true;
   DateTime? _receiveSessionStartedAt;
@@ -1783,6 +1784,7 @@ class VeilCallMediaController implements CallMediaController {
       _peerAudioRecovery = CallPeerAudioRecovery();
       _sourceFeedbackQueued = 0;
       _sourceFeedbackSkipped = 0;
+      _sourceRecoveryProbeReceipt = null;
       _sourcePressured = null;
       _peerAudioCaptureEnabled = call.peerCapture?.audio ?? call.media.audio;
     }
@@ -2109,6 +2111,7 @@ class VeilCallMediaController implements CallMediaController {
     _audioReceiveActivity.reset();
     _receiveSessionStartedAt = _statsNow();
     _sourcePressure.reset();
+    _sourceRecoveryProbeReceipt = null;
     _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
     _lastRepairAt = null;
@@ -2216,6 +2219,7 @@ class VeilCallMediaController implements CallMediaController {
             (_screenSharing ||
                 ((call.media.video || call.media.screen) &&
                     _cameraState.enabledForCall(call.callId)));
+        final sourceProbeRoute = stats['audio_rtt_route_epoch'];
         if ((sourcePressured != null || sourceRecoveryProbe) &&
             !_sourceFeedbackPending) {
           // One small outstanding report, with the ORIGINAL sampling time.
@@ -2231,9 +2235,17 @@ class VeilCallMediaController implements CallMediaController {
                 )
                 .then<void>(
                   (queued) {
-                    if (_engine != engine) return;
+                    if (_engine != engine || _activeCall?.callId != call.callId) {
+                      return;
+                    }
                     if (queued) {
                       _sourceFeedbackQueued++;
+                      if (sourceRecoveryProbe && sourceProbeRoute is int) {
+                        _sourceRecoveryProbeReceipt = (
+                          sampledAt: now,
+                          route: sourceProbeRoute,
+                        );
+                      }
                     } else {
                       _sourceFeedbackSkipped++;
                     }
@@ -2327,6 +2339,7 @@ class VeilCallMediaController implements CallMediaController {
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
+          final receipt = _sourceRecoveryProbeReceipt;
           adapter.onNativeStats(
             stats,
             sampledAt: now,
@@ -2337,6 +2350,14 @@ class VeilCallMediaController implements CallMediaController {
             filledJitterReserveConfirmed:
                 _sourceFeedbackQueued > 0 &&
                 _sourcePressure.filledJitterReserveConfirmed,
+            sourceRecoveryProbeReady:
+                sourceRecoveryProbe &&
+                receipt != null &&
+                receipt.route == sourceProbeRoute &&
+                CallAudioSourcePressure.recoveryProbeIsFresh(
+                  receipt.sampledAt,
+                  now,
+                ),
             videoSendExpected:
                 _screenSharing ||
                 ((_activeCall?.media.video == true ||
