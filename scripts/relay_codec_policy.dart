@@ -150,11 +150,14 @@ Future<void> main() async {
         audioInterrupted: interrupted,
       );
     }
+    final sourceBudgetPressured =
+        req['sourceFeedbackQueued'] == true &&
+        (sourcePressured == true ||
+            sourcePressure[i].waitingForReserveConfirmation);
     a.onNativeStats(
       stats,
       sampledAt: now,
-      sourceBudgetPressured:
-          req['sourceFeedbackQueued'] == true && sourcePressured == true,
+      sourceBudgetPressured: sourceBudgetPressured,
       videoSendExpected: req['videoSendExpected'] == true,
       sendAudioExpected: true,
       requireAudioReceivePlayout: true,
@@ -201,8 +204,7 @@ Future<void> main() async {
         'growthHoldStartedAt':
             sourcePressure[i].growthHoldStartedAt?.millisecondsSinceEpoch,
         'sourcePressured': sourcePressured,
-        'sourceBudgetPressured':
-            req['sourceFeedbackQueued'] == true && sourcePressured == true,
+        'sourceBudgetPressured': sourceBudgetPressured,
         'audioAdaptation': a.bufferDiagnostics,
       }),
     );

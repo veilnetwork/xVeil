@@ -166,10 +166,12 @@ void main() {
       expect(observe(11), isTrue);
       expect(
         observe(11),
-        isTrue,
-        reason: 'one receiver report cannot confirm recovery',
+        isNull,
+        reason: 'healthy audio stops renewing pressure without granting credit',
       );
+      expect(policy.waitingForReserveConfirmation, isTrue);
       expect(observe(14), isFalse);
+      expect(policy.waitingForReserveConfirmation, isFalse);
 
       expect(observe(15, interrupted: true), isTrue);
       expect(observe(16), isTrue);
@@ -186,6 +188,14 @@ void main() {
       expect(observe(33, at: resume), isTrue);
       expect(observe(34), isTrue);
       expect(observe(35), isFalse);
+
+      expect(observe(36, interrupted: true), isTrue);
+      expect(observe(37), isTrue);
+      expect(observe(37), isTrue);
+      expect(observe(37), isNull);
+      expect(policy.waitingForReserveConfirmation, isTrue);
+      expect(observe(38, interrupted: true), isTrue);
+      expect(policy.waitingForReserveConfirmation, isFalse);
     },
   );
 

@@ -2324,7 +2324,9 @@ class VeilCallMediaController implements CallMediaController {
             stats,
             sampledAt: now,
             sourceBudgetPressured:
-                _sourceFeedbackQueued > 0 && _sourcePressured == true,
+                _sourceFeedbackQueued > 0 &&
+                (sourcePressured == true ||
+                    _sourcePressure.waitingForReserveConfirmation),
             videoSendExpected:
                 _screenSharing ||
                 ((_activeCall?.media.video == true ||

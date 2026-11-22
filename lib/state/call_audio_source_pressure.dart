@@ -34,6 +34,12 @@ class CallAudioSourcePressure {
   /// Current measured state for video pixels, without the transport budget's
   /// cold/recovery latch. Unknown feedback cannot authorize source growth.
   bool? get measuredAudioPressure => _measuredAudioPressure;
+
+  /// Keep the adapter's growth hold while a new peer sample is pending.
+  /// Current healthy audio permits the older transport lease to expire.
+  bool get waitingForReserveConfirmation =>
+      _pressured &&
+      _filledReserveSamples >= CallBitrateAdapter.probeResumeAfter;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
@@ -396,9 +402,10 @@ class CallAudioSourcePressure {
     // A true node report contracts shared transport flight and source budgets;
     // it is stronger than the video ladder's brief growth hold. Known small
     // damage must not repeatedly halve transport credit while audio is healthy.
-    // Real pressure/recovery remains latched; unknown peer counters keep the
-    // conservative legacy path. Video's independent transient tracker still
-    // pauses growth without reducing its target.
+    // A filled steady reserve can stop extending the old lease before the
+    // second peer measurement arrives. The local video growth hold continues
+    // and the node earns no fresh healthy credit until confirmation.
+    if (waitingForReserveConfirmation) return null;
     return _pressured ? true : (good || measuredSmallTransient ? false : null);
   }
 
