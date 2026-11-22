@@ -8070,8 +8070,11 @@ void main() {
               return qualified = await echo.future && await canCommit();
             };
             final sample = Completer<DateTime?>();
+            final replacementAdmission = Completer<bool>();
             if (directStartsDuringSample) {
               media.latestAudioRead = () => sample.future;
+            } else {
+              media.requiredAdmissionGate = replacementAdmission;
             }
             async.elapse(const Duration(seconds: 4));
             if (directStartsDuringSample) {
@@ -8092,7 +8095,6 @@ void main() {
             expect(media.relayRefreshes, audioOnNewNetwork ? 0 : 1);
             expect(svc.current?.transport, CallTransportKind.relay);
 
-            media.requiredAdmissionGate = null;
             admission.complete(true);
             async.flushMicrotasks();
             expect(media.switches, isEmpty);
@@ -8106,16 +8108,12 @@ void main() {
               async.flushMicrotasks();
               expect(qualified, isTrue);
             }
+            expect(media.admissionChecks, hasLength(reads + 1));
+            expect(media.switches, isEmpty);
+            media.requiredAdmissionGate = null;
+            replacementAdmission.complete(true);
             media.switchGate.complete(true);
-            for (
-              var second = 0;
-              second < kCallHeartbeatInterval.inSeconds;
-              second++
-            ) {
-              media.audioRxAt = media.rxAt = clock.now();
-              async.elapse(const Duration(seconds: 1));
-            }
-            expect(media.admissionChecks.length, greaterThan(reads));
+            async.flushMicrotasks();
             expect(media.switches, [CallTransportKind.p2p]);
             expect(svc.current?.status, CallStatus.active);
           } finally {
@@ -8772,6 +8770,7 @@ void main() {
           final media = _GatedRepairMedia()
             ..openedTransport = CallTransportKind.relay;
           final policy = Completer<bool>();
+          final replacementPolicy = Completer<bool>();
           var holdPolicy = false;
           var pendingReads = 0;
           final svc = CallService(
@@ -8780,8 +8779,9 @@ void main() {
             now: () => clock.now(),
             localAllowsP2P: (_) async {
               if (!holdPolicy) return true;
-              pendingReads++;
-              return policy.future;
+              return ++pendingReads == 1
+                  ? policy.future
+                  : replacementPolicy.future;
             },
             peerReachableForP2P: (_) async => true,
           )..start();
@@ -8812,8 +8812,8 @@ void main() {
             if (repairFinishesFirst) {
               media.gate.complete(true);
               async.flushMicrotasks();
+              expect(pendingReads, 2);
             }
-            holdPolicy = false;
             policy.complete(true);
             async.flushMicrotasks();
             expect(media.switches, isEmpty);
@@ -8827,8 +8827,11 @@ void main() {
               media.gate.complete(true);
               async.flushMicrotasks();
             }
-            media.rxAt = clock.now();
-            async.elapse(kCallHeartbeatInterval);
+            expect(pendingReads, 2);
+            expect(media.switches, isEmpty);
+            holdPolicy = false;
+            replacementPolicy.complete(true);
+            async.flushMicrotasks();
             expect(media.switches, [CallTransportKind.p2p]);
             expect(svc.current?.transport, CallTransportKind.p2p);
             expect(svc.current?.status, CallStatus.active);
@@ -9470,10 +9473,12 @@ void main() {
       });
     });
 
-    for (final (scenario, replaceRelay, settled) in [
-      ('rebuild', false, true),
-      ('qualified relay probe', true, true),
-      ('rejected relay probe', true, false),
+    for (final (scenario, replaceRelay, settled, holdAdmission) in [
+      ('rebuild', false, true, false),
+      ('qualified relay probe', true, true, false),
+      ('rejected relay probe', true, false, false),
+      ('rebuild with a pending admission', false, true, true),
+      ('relay probe with a pending admission', true, true, true),
     ]) {
       test('remember peer readiness during relay recovery ($scenario)', () {
         fakeAsync((async) {
@@ -9495,6 +9500,22 @@ void main() {
             peerReachableForP2P: (_) async => true,
           )..start();
           const id = 'ready-during-relay-repair';
+          final heldAdmission = holdAdmission ? Completer<bool>() : null;
+
+          void peerReady() {
+            async.elapse(const Duration(milliseconds: 1));
+            fake.onCallSignal!(
+              peer,
+              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+          }
+
+          void beginHeldAdmission() {
+            media.requiredAdmissionGate = heldAdmission;
+            peerReady();
+            expect(media.admissionChecks, [device]);
+          }
 
           try {
             offer(fake, id, device: device);
@@ -9506,6 +9527,7 @@ void main() {
             expect(svc.current?.transport, CallTransportKind.relay);
 
             media.audioRxAt = media.rxAt = clock.now();
+            if (holdAdmission && !replaceRelay) beginHeldAdmission();
             fake.onCallSignal!(
               peer,
               CallSignal(
@@ -9520,21 +9542,19 @@ void main() {
             if (replaceRelay) {
               async.elapse(const Duration(milliseconds: 100));
               network.add(NetworkAttachment.cellular);
+              if (holdAdmission) beginHeldAdmission();
               async.elapse(const Duration(seconds: 4));
             }
             expect(media.repairs, replaceRelay ? 0 : 1);
             expect(media.relayRefreshes, replaceRelay ? 1 : 0);
-            expect(media.admissionChecks, isEmpty);
+            final before = [if (holdAdmission) device];
+            expect(media.admissionChecks, before);
 
-            async.elapse(const Duration(milliseconds: 1));
-            fake.onCallSignal!(
-              peer,
-              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
-            );
-            async.flushMicrotasks();
-            expect(media.admissionChecks, isEmpty);
+            if (!holdAdmission) peerReady();
+            expect(media.admissionChecks, before);
             expect(media.switches, [CallTransportKind.relay]);
 
+            media.requiredAdmissionGate = null;
             if (replaceRelay) {
               echo.complete(settled);
             } else {
@@ -9543,7 +9563,8 @@ void main() {
             async.flushMicrotasks();
             expect(svc.current?.callId, id);
             expect(svc.current?.status, CallStatus.active);
-            expect(media.admissionChecks, settled ? [device] : isEmpty);
+            final expected = [...before, if (settled) device];
+            expect(media.admissionChecks, expected);
             expect(media.switches, [
               CallTransportKind.relay,
               if (settled) CallTransportKind.p2p,
@@ -9552,6 +9573,16 @@ void main() {
               svc.current?.transport,
               settled ? CallTransportKind.p2p : CallTransportKind.relay,
             );
+            if (heldAdmission != null) {
+              expect(heldAdmission.isCompleted, isFalse);
+              heldAdmission.complete(true);
+              async.flushMicrotasks();
+              expect(media.admissionChecks, expected);
+              expect(media.switches, [
+                CallTransportKind.relay,
+                CallTransportKind.p2p,
+              ]);
+            }
           } finally {
             svc.dispose();
             unawaited(network.close());

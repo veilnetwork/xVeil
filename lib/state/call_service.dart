@@ -640,7 +640,8 @@ class CallService {
   bool _lateP2PNeedsDatedReadiness = false;
   int _lastPeerRouteHealthAtMs = 0;
   bool _lateP2PAttempted = false;
-  bool _lateP2PBusy = false;
+  _LateP2PCheck? _lateP2PCheckInFlight;
+  bool get _lateP2PBusy => _lateP2PCheckInFlight != null;
   ({DateTime at, bool allowAdmissionWake})? _lateP2PRetry;
   Timer? _lateP2PRetryTimer;
   DateTime? _lastEarlyDirectTrialAt;
@@ -649,13 +650,25 @@ class CallService {
   Object? _pendingDirectReadiness;
   void Function()? _onLateP2PAdmission;
 
+  _LateP2PCheck? _retireLateP2PCheck() {
+    final retired = _lateP2PCheckInFlight;
+    _lateP2PGeneration++;
+    _lateP2PCheckInFlight = null;
+    final wake = _onLateP2PAdmission;
+    _onLateP2PAdmission = null;
+    // A pending discovery or IPC read can settle without waiting for the
+    // old operation. Its response cannot clear a newer check's ownership.
+    wake?.call();
+    return retired;
+  }
+
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
     _relayFallbackFlight = null;
     _peerRelayWake = _PeerRelayWake.available;
     _peerDirectLossWake = _PeerRelayWake.available;
     _closedDirectRetrySpent = false;
-    _lateP2PGeneration++;
+    _retireLateP2PCheck();
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
     _lateP2PPeerReadyNetwork = null;
@@ -663,9 +676,7 @@ class CallService {
     _lateP2PNeedsDatedReadiness = false;
     _lastPeerRouteHealthAtMs = 0;
     _lateP2PAttempted = false;
-    _lateP2PBusy = false;
     _pendingDirectReadiness = null;
-    _onLateP2PAdmission = null;
     _lateP2PRetry = null;
     _lateP2PRetryTimer?.cancel();
     _lateP2PRetryTimer = null;
@@ -677,7 +688,7 @@ class CallService {
     required bool allowAdmissionWake,
     bool keepCurrentPeerReadiness = false,
   }) {
-    _lateP2PGeneration++;
+    _retireLateP2PCheck();
     _lateP2PLocalReady = false;
     if (!keepCurrentPeerReadiness ||
         _networkOffline ||
@@ -687,9 +698,7 @@ class CallService {
     _lateP2PPeerActive = false;
     _lateP2PNeedsDatedReadiness = true;
     _lateP2PAttempted = false;
-    _lateP2PBusy = false;
     _pendingDirectReadiness = null;
-    _onLateP2PAdmission = null;
     _scheduleLateP2PRetry(allowAdmissionWake: allowAdmissionWake);
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
@@ -862,7 +871,7 @@ class CallService {
     final networkVersion = _networkObservationVersion;
     var epoch = _mediaOperationEpoch;
     int? admissionAtCheck;
-    _lateP2PBusy = true;
+    _lateP2PCheckInFlight = check;
     // Keep scheduled discovery if an early read finds no direct session.
     if (!early) {
       _lateP2PRetryTimer?.cancel();
@@ -1056,7 +1065,7 @@ class CallService {
       }
     } finally {
       if (generation == _lateP2PGeneration) {
-        _lateP2PBusy = false;
+        _lateP2PCheckInFlight = null;
         final admission = admissionAtCheck;
         if (early &&
             retry == _lateP2PRetry &&
@@ -2379,6 +2388,7 @@ class CallService {
     // admission read started on the old route cannot qualify its replacement.
     // A subsequent handover can likewise supersede this repair.
     final epoch = ++_mediaOperationEpoch;
+    _retireLateP2PCheck();
     final connections = _relayConnectionGeneration;
     final networkVersion = _networkObservationVersion;
     Call? repairOwner() {
@@ -3247,6 +3257,7 @@ class CallService {
       // admission read can switch routes. The existing relay keeps carrying
       // media while we wait for the peer's echo on the candidate.
       epoch = ++_mediaOperationEpoch;
+      final retiredCheck = _retireLateP2PCheck();
       _relayHandoverProbeEpoch = epoch;
       _mediaWatchdogCheckBusy = true;
       try {
@@ -3277,7 +3288,14 @@ class CallService {
               : null;
         }
         _finishMediaWatchdogCheck();
-        if (restored) _resumeLateP2PAfterRelay(probeGeneration);
+        if (restored) {
+          _resumeLateP2PAfterRelay(
+            probeGeneration,
+            allowDiscovery:
+                retiredCheck != null &&
+                retiredCheck != _LateP2PCheck.admissionOnly,
+          );
+        }
       }
       return;
     }
