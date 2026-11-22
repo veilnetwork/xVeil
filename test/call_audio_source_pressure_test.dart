@@ -948,6 +948,40 @@ void main() {
     }
   });
 
+  for (final incoming in [false, true]) {
+    test('an unfilled reserve alone does not require hard recovery '
+        'incoming=$incoming', () {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      bool? observe({bool unfilled = false, bool interrupted = false}) =>
+          sample(
+            policy,
+            peer: incoming ? 80 : 41,
+            currentPeer: incoming ? 80 : 41,
+            targetPeer: !incoming && unfilled ? 300 : 80,
+            local: incoming ? 41 : 80,
+            targetLocal: incoming && unfilled ? 300 : 80,
+            interrupted: interrupted,
+            nativeStats: measured,
+          );
+
+      // Startup stays restricted until actual playout confirms recovery.
+      expect(observe(unfilled: true), isTrue);
+      expect(observe(unfilled: true), isTrue);
+      expect(observe(), isTrue);
+      expect(observe(), isTrue);
+      expect(observe(), isFalse);
+
+      // A real interruption keeps the longer recovery even if the target
+      // later exceeds and then falls back below the safety threshold.
+      expect(observe(interrupted: true), isTrue);
+      expect(observe(unfilled: true), isTrue);
+      for (var i = 0; i < 11; i++) {
+        expect(observe(), isTrue);
+      }
+      expect(observe(), isFalse);
+    });
+  }
+
   test('a filled adaptive reserve is not persistent source congestion', () {
     for (final incoming in [false, true]) {
       final policy = CallAudioSourcePressure();

@@ -221,17 +221,18 @@ class CallAudioSourcePressure {
       sampledAt: sampledAt,
     );
     final repeatedNetworkLoss = rtcpLoss.repeatedAudio ?? repeatFromPolls;
-    final hardPlayoutFailure =
-        newDrop ||
-        interrupted ||
-        peerPressure ||
-        receivePressure ||
+    // Leave room for the requested reserve while it is filling. The request
+    // alone does not prove an underrun or a growing measured queue, so it
+    // cannot require hard-failure recovery once playout has settled.
+    final reserveUnfilled =
         (peerTarget != null &&
             peerTarget >= playoutDegradeMs &&
             peerCredit == 0) ||
         (receiveTarget != null &&
             receiveTarget >= playoutDegradeMs &&
             receiveCredit == 0);
+    final hardPlayoutFailure =
+        newDrop || interrupted || peerPressure || receivePressure;
     final playoutHealthy =
         !hardPlayoutFailure &&
         nativeStats?['worker_stalled'] != 1 &&
@@ -276,6 +277,7 @@ class CallAudioSourcePressure {
     final hardBad = hardPlayoutFailure || (networkLoss && !isolatedNetworkLoss);
     final bad =
         hardBad ||
+        reserveUnfilled ||
         (soft.send ?? repeatedTransient) ||
         (soft.receive ?? repeatedReceiveLoss);
     final fullyMeasured =
