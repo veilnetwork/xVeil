@@ -984,10 +984,14 @@ class CallBitrateAdapter {
                       ))));
       final drops = effectiveDrops;
       final newDrops = _lastTxDrops != null && drops > _lastTxDrops!;
-      if (!networkLoss.video &&
-          !videoLoss &&
+      // With the mic off, the scoped source-drop counter is video-only.
+      // Keep the aggregate drop guard if the native counters are older.
+      final videoPaused = _appliedPause == true;
+      if ((videoPaused || (!networkLoss.video && !videoLoss)) &&
           (!receiveRequested ||
-              (incomingHealthy && !audioInterrupted && !newDrops))) {
+              (incomingHealthy &&
+                  !audioInterrupted &&
+                  (!newDrops || (videoPaused && validSourceDrops))))) {
         _mutedRecoveryStreak++;
         if (_audioReserve &&
             (!receiveRequested || _mutedRecoveryStreak >= recoverAfter)) {
@@ -1822,11 +1826,13 @@ class CallBitrateAdapter {
         rttMs < severeRttMs;
     final measuredPlayoutHealthy =
         measuredPlayoutReady && playoutBelow(playoutRecoverMs);
+    // After the native pause ACK, delayed video loss reports describe
+    // earlier traffic. Only the audio path can earn this sparse probe.
     final mayRecover =
         _audioReserve &&
         !freshAudioLoss &&
-        !videoLossObserved &&
-        !videoNetworkLossObserved &&
+        (_appliedPause == true ||
+            (!videoLossObserved && !videoNetworkLossObserved)) &&
         (audioTxDrops != null || !newDrops);
     if (mayRecover && (measuredPlayoutHealthy || audioGood)) {
       _audioRecoveryStreak++;

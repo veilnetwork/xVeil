@@ -3003,6 +3003,65 @@ void main() {
     expect(a.atFloor, isTrue);
   });
 
+  for (final muted in [false, true]) {
+    for (final acknowledged in [false, true]) {
+      test('paused video recovery with late video losses '
+          'muted=$muted acknowledged=$acknowledged', () {
+        final a = direct(level: 4);
+        var sample = 0;
+        void tick({int? videoLoss, int? sourceDrops, bool audioLoss = false}) {
+          a.applyPendingTarget((_) => true);
+          a.applyPendingPause((pause) => !pause || acknowledged);
+          a.onNativeStats(
+            {
+              ...healthy(),
+              'video_tx_source_rtp_drops': sourceDrops ?? 0,
+              'video_persistent_loss_report_us': videoLoss ?? 0,
+              'audio_delay_ms': 520,
+              'audio_jb_target_ms': 500,
+              if (muted) 'video_feedback_reports': 0,
+            },
+            sampledAt: nextTime(a),
+            sendAudioExpected: !muted,
+            receiveAudioExpected: true,
+            requireAudioReceivePlayout: true,
+            requirePeerAudioPlayout: !muted,
+            peerAudioDelayMs: !muted && sample < 2 ? 720 : 520,
+            peerCurrentAudioDelayMs: !muted && sample < 2 ? 720 : 520,
+            peerTargetAudioDelayMs: 500,
+            audioInterrupted: (muted && sample < 2) || audioLoss,
+          );
+          sample++;
+        }
+
+        tick();
+        tick();
+        expect(a.audioReserve, isTrue);
+        // A real audio interruption during the pause restarts recovery.
+        tick();
+        expect(a.acknowledgedPause, acknowledged);
+        tick(audioLoss: true);
+        final needed = muted
+            ? CallBitrateAdapter.recoverAfter
+            : CallBitrateAdapter.probeResumeAfter;
+        for (var n = 1; n <= needed; n++) {
+          tick(videoLoss: n, sourceDrops: n);
+          expect(
+            a.audioReserve,
+            !acknowledged || n < needed,
+            reason: '$n healthy audio samples with late video feedback',
+          );
+        }
+        if (acknowledged) {
+          expect(a.target.maxFps, 1);
+          a.applyPendingTarget((_) => true);
+          expect(a.applyPendingPause((paused) => !paused), isTrue);
+          expect(a.acknowledgedPause, isFalse);
+        }
+      });
+    }
+  }
+
   test('missing measurement breaks a consecutive recovery streak', () {
     final a = direct(level: 4);
     native(a, peerDelay: 300);
