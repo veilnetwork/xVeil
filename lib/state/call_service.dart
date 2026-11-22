@@ -798,7 +798,7 @@ class CallService {
   /// Heartbeats repeat readiness until the peer confirms its active direct
   /// route, so one lost signal cannot strand one side. Older peers omit that
   /// confirmation and keep the existing retry behavior.
-  Future<void> _checkLateP2P() async {
+  Future<void> _checkLateP2P({bool reuseCurrentAdmission = false}) async {
     final c = _current;
     final media = _media;
     if (c == null ||
@@ -875,10 +875,10 @@ class CallService {
             return false;
           }
         }
-        final recovering = _lateP2PNeedsDatedReadiness;
         final lastAdmission = _relayConnectionGeneration;
         final alreadyAdmitted =
-            recovering && await readOnCurrentNetwork(readDirectAdmission);
+            (_lateP2PNeedsDatedReadiness || reuseCurrentAdmission) &&
+            await readOnCurrentNetwork(readDirectAdmission);
         if (!sameNetwork() || !_lateP2PConsent) return;
         // After a network handover the answering device can already have a
         // new admitted session while endpoint discovery still waits on stale
@@ -892,14 +892,13 @@ class CallService {
                 'endpoint refresh not needed',
           );
         } else {
-          final reachable = recovering
-              ? await _discoverLateDirectSession(
-                  c.mediaIdentity,
-                  lastAdmission,
-                  readDirectAdmission: readDirectAdmission,
-                  isCurrent: () => sameNetwork() && _lateP2PConsent,
-                )
-              : await _peerReachableWithoutBlockingSignal(c.mediaIdentity);
+          admissionAtCheck = lastAdmission;
+          final reachable = await _discoverLateDirectSession(
+            c.mediaIdentity,
+            lastAdmission,
+            readDirectAdmission: readDirectAdmission,
+            isCurrent: () => sameNetwork() && _lateP2PConsent,
+          );
           if (!reachable || !sameNetwork() || !_lateP2PConsent) return;
         }
       }
@@ -1005,7 +1004,7 @@ class CallService {
             networkVersion != _networkObservationVersion &&
             _hasCurrentRelayAdmissionSince(admission) &&
             _current?.transport == CallTransportKind.relay) {
-          unawaited(_checkLateP2P());
+          unawaited(_checkLateP2P(reuseCurrentAdmission: true));
         }
       }
     }

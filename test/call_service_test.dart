@@ -8012,6 +8012,71 @@ void main() {
       ),
     );
 
+    for (final (handover, admitted) in [
+      (false, true),
+      (true, true),
+      (true, false),
+    ]) {
+      test('initial relay evaluates fresh admission (handover=$handover, '
+          'admitted=$admitted)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final admissions = StreamController<void>(sync: true);
+          final discovery = Completer<bool>();
+          final device = NodeId.fromHex('b' * 64);
+          var probes = 0;
+          var networkGeneration = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) =>
+                ++probes == 1 ? Future.value(false) : discovery.future,
+            overlaySessionAdmissions: admissions.stream,
+            readNetworkChangeGeneration: () => networkGeneration,
+          )..start();
+          const id = 'initial-relay-device-admission';
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(probes, 2);
+            fake.onCallSignal!(peer, ready(id));
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty);
+
+            if (handover) networkGeneration++;
+            media.liveDirectAdmission = admitted;
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(media.liveAdmissionChecks, [device]);
+            expect(media.admissionChecks, [if (admitted) device]);
+            expect(media.switches, [if (admitted) CallTransportKind.p2p]);
+            expect(svc.current?.callId, id);
+            expect(
+              svc.current?.transport,
+              admitted ? CallTransportKind.p2p : CallTransportKind.relay,
+            );
+            expect(discovery.isCompleted, isFalse);
+            expect(probes, handover && !admitted ? 3 : 2);
+
+            discovery.complete(false);
+            async.flushMicrotasks();
+            expect(media.switches, [if (admitted) CallTransportKind.p2p]);
+          } finally {
+            if (!discovery.isCompleted) discovery.complete(false);
+            svc.dispose();
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final admission in <bool?>[true, false, null]) {
       test('relay recovery reuses current device admission=$admission', () {
         fakeAsync((async) {
