@@ -416,6 +416,57 @@ void main() {
     },
   );
 
+  test('a measured steady reserve stops extending the pressure lease', () {
+    for (final peerDamage in [8, 120, null]) {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      bool? observe({
+        int sequence = 2,
+        int delay = 705,
+        int route = 0,
+        bool interrupted = false,
+      }) => sample(
+        policy,
+        peer: delay,
+        currentPeer: delay,
+        peerSequence: sequence,
+        peerGrowing: false,
+        targetPeer: 500,
+        local: delay,
+        targetLocal: 500,
+        interrupted: interrupted,
+        nativeStats: {
+          ...measured,
+          'rtt_ms': 620,
+          'audio_rtt_route_epoch': route,
+          'audio_local_soft_loss_window_ms': 0,
+          'audio_peer_soft_loss_window_ms': peerDamage,
+        },
+      );
+
+      expect(observe(sequence: 1, interrupted: true), isTrue);
+      for (var n = 0; n < 4; n++) {
+        expect(observe(), isTrue, reason: 'local trend is still warming');
+      }
+      expect(observe(), peerDamage == 8 ? isNull : isTrue);
+      expect(policy.waitingForReserveConfirmation, peerDamage == 8);
+      expect(policy.filledJitterReserveConfirmed, isFalse);
+      if (peerDamage != 8) continue;
+
+      for (var n = 0; n < 11; n++) {
+        expect(
+          observe(),
+          isNull,
+          reason: 'cached peer sample cannot reopen growth',
+        );
+      }
+      expect(observe(sequence: 3), isFalse);
+      expect(policy.filledJitterReserveConfirmed, isTrue);
+      expect(observe(sequence: 4, delay: 720), isTrue);
+      expect(policy.waitingForReserveConfirmation, isFalse);
+      expect(observe(sequence: 5, route: 1), isTrue);
+    }
+  });
+
   test(
     'transport reserve margin requires corroborated playout on both ends',
     () {

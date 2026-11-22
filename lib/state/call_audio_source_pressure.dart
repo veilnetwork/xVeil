@@ -30,6 +30,7 @@ class CallAudioSourcePressure {
   bool? _measuredAudioPressure;
   DateTime? _growthHoldStartedAt;
   bool _filledJitterReserveConfirmed = false;
+  bool _waitingForReserveConfirmation = false;
 
   /// Both receivers have a current stable reserve and source recovery has
   /// finished. The video adapter still needs its own decoder acknowledgments.
@@ -45,8 +46,7 @@ class CallAudioSourcePressure {
 
   /// Keep the adapter's growth hold while a new peer sample is pending.
   /// Current healthy audio permits the older transport lease to expire.
-  bool get waitingForReserveConfirmation =>
-      _pressured && (_fastReserveWindow.ready || _sustainedReserveWindow.ready);
+  bool get waitingForReserveConfirmation => _waitingForReserveConfirmation;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
@@ -436,9 +436,15 @@ class CallAudioSourcePressure {
     // A true node report contracts shared transport flight and source budgets;
     // it is stronger than the video ladder's brief growth hold. Known small
     // damage must not repeatedly halve transport credit while audio is healthy.
-    // A filled steady reserve can stop extending the old lease before the
-    // second peer measurement arrives. The local video growth hold continues
-    // and the node earns no fresh healthy credit until confirmation.
+    // Once both filled reserves are stable and current damage is below the
+    // measured threshold, let the old lease expire while counting recovery
+    // samples. The video adapter still holds growth and the node earns no
+    // fresh healthy credit until the full window and peer confirmation.
+    _waitingForReserveConfirmation =
+        _pressured &&
+        (_fastReserveWindow.ready ||
+            _sustainedReserveWindow.ready ||
+            (assessReserve && sustainedReserve && belowDamageThreshold));
     _filledJitterReserveConfirmed =
         !_pressured &&
         ((fastReserve && good && !shortHold) || sustainedConfirmed);
@@ -453,6 +459,7 @@ class CallAudioSourcePressure {
   void _reset({bool preserveReportWitnesses = false}) {
     _measuredAudioPressure = null;
     _filledJitterReserveConfirmed = false;
+    _waitingForReserveConfirmation = false;
     _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;
