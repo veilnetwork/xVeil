@@ -241,7 +241,6 @@ class CallAudioSourcePressure {
             (receivePressureDelay != null &&
                 receivePressureDelay < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
-    final txLossPct = nativeStats?['tx_loss_pct'];
     final rttMs = nativeStats?['rtt_ms'];
     // An authenticated current report in a direct call can confirm that a
     // small loss already played through. Preserve the existing source credit.
@@ -249,9 +248,7 @@ class CallAudioSourcePressure {
         singlePeerPlayout &&
         networkLoss &&
         !repeatedNetworkLoss &&
-        txLossPct is num &&
-        txLossPct >= 0 &&
-        txLossPct <= CallAudioTransientLoss.isolatedNetworkLossMaxPct &&
+        CallRtcpLoss.isSmallAudioLoss(nativeStats?['audio_loss_report_fraction']) &&
         rttMs is num &&
         rttMs > 0 &&
         rttMs < CallBitrateAdapter.severeRttMs &&

@@ -972,12 +972,13 @@ void main() {
   });
   test('isolated low audio RTP loss holds video with healthy playout', () {
     final a = direct();
-    void report(int witness, {int lossPct = 1}) => native(
+    void report(int witness) => native(
       a,
       stats: {
         ...healthy(),
         'audio_loss_report_us': witness,
-        'tx_loss_pct': lossPct,
+        'tx_loss_pct': 0,
+        'audio_loss_report_fraction': 1,
       },
       currentPeerDelay: 60,
       peerSequence: witness,
@@ -997,10 +998,12 @@ void main() {
   });
 
   test('measured audio damage still cuts video on the first RTP report', () {
-    for (final (lossPct, delay, interrupted) in [
-      (5, 60, false),
-      (1, 350, false),
-      (1, 60, true),
+    for (final (fraction, delay, interrupted) in [
+      (51, 60, false),
+      (3, 60, false),
+      (null, 60, false),
+      (2, 350, false),
+      (2, 60, true),
     ]) {
       final a = direct();
       native(
@@ -1008,14 +1011,15 @@ void main() {
         stats: {
           ...healthy(),
           'audio_loss_report_us': 1,
-          'tx_loss_pct': lossPct,
+          'tx_loss_pct': 0,
+          'audio_loss_report_fraction': ?fraction,
         },
         peerDelay: delay,
         currentPeerDelay: delay,
         peerSequence: 1,
         interrupted: interrupted,
       );
-      expect(a.level, 2, reason: '$lossPct% / $delay ms / $interrupted');
+      expect(a.level, 2, reason: '$fraction/256 / $delay ms / $interrupted');
     }
   });
 

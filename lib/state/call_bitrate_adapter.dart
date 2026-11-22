@@ -1108,6 +1108,9 @@ class CallBitrateAdapter {
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
+      smallAudioNetworkLoss: CallRtcpLoss.isSmallAudioLoss(
+        stats['audio_loss_report_fraction'],
+      ),
       audioConcealmentObserved: concealed,
       audioReceiveConcealmentObserved: localConcealed,
       audioSendSoftLossSignificant: softLoss.send,
@@ -1217,6 +1220,7 @@ class CallBitrateAdapter {
     bool audioInterrupted = false,
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
+    bool smallAudioNetworkLoss = false,
     bool audioConcealmentObserved = false,
     bool audioReceiveConcealmentObserved = false,
     bool? audioSendSoftLossSignificant,
@@ -1471,8 +1475,7 @@ class CallBitrateAdapter {
         !newAudioDrops &&
         !audioInterrupted &&
         feedbackAvailable &&
-        txLossPct >= 0 &&
-        txLossPct <= CallAudioTransientLoss.isolatedNetworkLossMaxPct &&
+        smallAudioNetworkLoss &&
         rttMs > 0 &&
         rttMs < severeRttMs &&
         requirePeerAudioPlayout &&

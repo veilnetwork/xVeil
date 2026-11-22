@@ -14,6 +14,7 @@ void main() {
     int rtt, {
     int lossUs = 0,
     int lossPct = 0,
+    int? lossFraction,
     bool send = true,
   }) {
     a.applyPendingTarget((_) => true);
@@ -40,6 +41,7 @@ void main() {
         'audio_delay_ms': 60,
         'video_tx_frames': ++sequence,
         'audio_loss_report_us': lossUs,
+        'audio_loss_report_fraction': ?lossFraction,
       },
       sendAudioExpected: send,
       receiveAudioExpected: true,
@@ -126,12 +128,12 @@ void main() {
     'loss on the previous route does not confirm a small new-route loss',
     () {
       final a = adapter(level: 0);
-      sample(a, 0, 8, lossUs: 1000, lossPct: 1);
+      sample(a, 0, 8, lossUs: 1000, lossFraction: 1);
       expect(a.level, 0);
       sample(a, 1, 110);
-      sample(a, 1, 110, lossUs: 2000, lossPct: 1);
+      sample(a, 1, 110, lossUs: 2000, lossFraction: 1);
       expect(a.level, 0);
-      sample(a, 1, 110, lossUs: 3000, lossPct: 1);
+      sample(a, 1, 110, lossUs: 3000, lossFraction: 1);
       expect(a.level, 2);
     },
   );

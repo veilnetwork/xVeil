@@ -287,7 +287,8 @@ void main() {
         ...measured,
         'rtt_ms': 80,
         'audio_rtt_route_epoch': epoch,
-        'tx_loss_pct': 1,
+        'tx_loss_pct': 0,
+        'audio_loss_report_fraction': 2,
       },
     );
     expect(report(100), isFalse);
@@ -297,6 +298,28 @@ void main() {
     expect(policy.growthHoldStartedAt, start);
     expect(report(101, epoch: 1), isFalse);
     expect(report(102, epoch: 1), isTrue);
+    expect(policy.measuredAudioPressure, isTrue);
+    expect(policy.growthHoldStartedAt, isNull);
+  });
+
+  test('a healthy newer report does not conceal a large source loss', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    recover(policy);
+    expect(
+      sample(
+        policy,
+        currentPeer: 100,
+        peerSequence: 1,
+        lossReportUs: 100,
+        nativeStats: {
+          ...measured,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'audio_loss_report_fraction': 51,
+        },
+      ),
+      isTrue,
+    );
     expect(policy.measuredAudioPressure, isTrue);
     expect(policy.growthHoldStartedAt, isNull);
   });

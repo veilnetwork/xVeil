@@ -3,7 +3,6 @@
 class CallAudioTransientLoss {
   static const repeatWindow = Duration(seconds: 6);
   static const growthHold = Duration(seconds: 3);
-  static const isolatedNetworkLossMaxPct = 1;
   final List<DateTime> _events = [];
   DateTime? _lastAt;
   bool holdingGrowth = false;
