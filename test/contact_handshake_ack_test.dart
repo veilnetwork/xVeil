@@ -45,7 +45,7 @@ class _Admission extends HiddenVolumeStorage {
     }
     armed = false;
     entered.complete();
-    if (mode == 'hold') await release.future;
+    if (mode == 'hold' || mode == 'superseded') await release.future;
     if (mode == 'before') throw StateError('PRIVATE_REQUEST_SECRET');
     if (mode == 'filesystem') {
       throw const FileSystemException(
@@ -91,6 +91,27 @@ class _Wire extends LoopbackTransport {
     replyAttempts.add((replyId, WireEnvelope.decode(bytes)));
     if (rejectReply) throw StateError('reply circuit is gone');
   }
+}
+
+Future<(_Admission, Directory?)> _storage(bool native, String mode) async {
+  if (native) {
+    expect(ensureHiddenVolumeLoaded(), isTrue);
+    final dir = await Directory.systemTemp.createTemp('xveil-contact-ack-');
+    final path = '${dir.path}/store.hv';
+    HvKvLogStore(
+      hv.HvSpace.create(
+        path: path,
+        password: Uint8List.fromList(utf8.encode('fixture')),
+        argon: hv.ArgonPreset.min,
+      ),
+    ).close();
+    return (_Admission.async(workerSpaceOpener(path), mode), dir);
+  }
+  final kv = FakeKvLogStore();
+  return (
+    _Admission(({required password, required bool create}) => kv, mode),
+    null,
+  );
 }
 
 void main() {
@@ -158,9 +179,82 @@ void main() {
   }
 
   for (final native in [false, true]) {
+    for (final pendingIncoming in [false, true]) {
+      test(
+        'accept waits for local outgoing consent native=$native pendingIncoming=$pendingIncoming',
+        () async {
+          final (storage, dir) = await _storage(native, 'hold');
+          final wire = _Wire(), peer = _id(2);
+          final service = MessagingService(wire, storage);
+          addTearDown(() async {
+            await service.dispose();
+            await wire.dispose();
+            await storage.close();
+            await dir?.delete(recursive: true);
+          });
+          expect(
+            await storage.open(password: 'fixture', createIfMissing: true),
+            isTrue,
+          );
+          if (pendingIncoming) {
+            await storage.prepareContactRequest(peer, incoming: true);
+          }
+          var declined = 0;
+          const frameId = 'accept-with-outgoing-consent';
+          final inbound = InboundMessage(
+            src: peer,
+            payload: const WireEnvelope.accept().withFrameId(frameId).encode(),
+            provenance: SenderProvenance.signed,
+            onDeclined: (_) => declined++,
+          );
+          await service.deliverInbound(inbound);
+          expect(
+            declined,
+            1,
+            reason:
+                'the mailbox copy still belongs to a possible requesting device',
+          );
+          expect(wire.sent, isEmpty);
+          expect(
+            (await storage.getContact(peer))?.status,
+            pendingIncoming ? ContactStatus.pendingIncoming : null,
+          );
+
+          // Deliver the still-available copy when this device has the outgoing
+          // intent. The earlier local refusal must not consume its frame ID.
+          await storage.prepareContactRequest(peer, incoming: false);
+          await service.deliverInbound(inbound);
+          expect(declined, 1);
+          expect(
+            (await storage.getContact(peer))?.status,
+            ContactStatus.accepted,
+          );
+          expect(wire.directAcks, [(peer, frameId)]);
+          await service.deliverInbound(
+            InboundMessage(
+              src: peer,
+              payload: const WireEnvelope.message(
+                'first reply',
+                id: 'reply',
+              ).encode(),
+              provenance: SenderProvenance.signed,
+              onDeclined: (_) => declined++,
+            ),
+          );
+          expect(declined, 1);
+          expect(
+            (await storage.loadMessages(peer.hex)).single.body,
+            'first reply',
+          );
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+      );
+    }
+
     for (final reconnect in [false, true]) {
       for (final mode in [
         'hold',
+        'superseded',
         'before',
         'after',
         if (!native && !reconnect) ...['filesystem', 'format'],
@@ -168,27 +262,7 @@ void main() {
         test(
           'contact request ACK follows acceptance admission native=$native reconnect=$reconnect mode=$mode',
           () async {
-            Directory? dir;
-            late _Admission storage;
-            if (native) {
-              expect(ensureHiddenVolumeLoaded(), isTrue);
-              dir = await Directory.systemTemp.createTemp('xveil-contact-ack-');
-              final path = '${dir.path}/store.hv';
-              HvKvLogStore(
-                hv.HvSpace.create(
-                  path: path,
-                  password: Uint8List.fromList(utf8.encode('fixture')),
-                  argon: hv.ArgonPreset.min,
-                ),
-              ).close();
-              storage = _Admission.async(workerSpaceOpener(path), mode);
-            } else {
-              final kv = FakeKvLogStore();
-              storage = _Admission(
-                ({required password, required bool create}) => kv,
-                mode,
-              );
-            }
+            final (storage, dir) = await _storage(native, mode);
             final wire = _Wire(), peer = _id(2);
             final service = MessagingService(wire, storage);
             Future<void>? received;
@@ -220,7 +294,7 @@ void main() {
               service.start();
               received = service.deliverInbound(message());
               await storage.entered.future;
-              if (mode != 'hold') await received;
+              if (mode != 'hold' && mode != 'superseded') await received;
               expect(
                 acks(),
                 isEmpty,
@@ -232,6 +306,21 @@ void main() {
                 storage.release.complete();
                 await received;
                 expect(declined, 0);
+              } else if (mode == 'superseded') {
+                await service.blockContact(peer);
+                storage.release.complete();
+                await received;
+                expect(
+                  declined,
+                  1,
+                  reason:
+                      'no durable reply was committed before the decision changed',
+                );
+                expect(acks(), isEmpty);
+                expect(await storage.pendingOutboxFrames(), isEmpty);
+                await service.unblockContact(peer);
+                await service.deliverInbound(message());
+                expect(declined, 1);
               } else {
                 expect(
                   declined,

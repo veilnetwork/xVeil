@@ -612,6 +612,11 @@ extension _MessagingInboundDispatch on MessagingService {
             await settleHandshake(fid, epoch);
           }
         } else {
+          // Pending outgoing intent can live on the requesting device only.
+          // Its sibling must not delete the shared mailbox copy by ignoring it.
+          if (existing?.status != ContactStatus.accepted) {
+            _declinedLocally(m, 'no outgoing contact request on this device');
+          }
           return;
         }
       case WireKind.message:

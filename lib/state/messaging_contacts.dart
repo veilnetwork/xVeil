@@ -255,7 +255,7 @@ class _MessagingContacts {
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
-      return _queueAcceptance(m.src);
+      return _queueAcceptance(m);
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
     // while the intro sits undecided (the durable gate only dedups ACCEPTED
@@ -322,7 +322,7 @@ class _MessagingContacts {
     if (consent?.contact?.status == ContactStatus.accepted) {
       // Acceptance may have won while discovery waited. Preserve the normal
       // accepted re-request response, without importing its unverified body.
-      return _queueAcceptance(message.src);
+      return _queueAcceptance(message);
     }
     // The shared store can also suppress a deleted/expired intro without a
     // consent change. Preserve that handled outcome while it is still owned.
@@ -338,7 +338,8 @@ class _MessagingContacts {
   /// Finish durable admission inside ingress; send on bounded recipient lanes.
   /// A retrying accepted contact must not hold the ordinary inbox behind a
   /// slow reverse route. Failed/dropped jobs keep their durable Outbox copy.
-  Future<bool> _queueAcceptance(NodeId peer) async {
+  Future<bool> _queueAcceptance(InboundMessage message) async {
+    final peer = message.src;
     final frameId = 'accept:${peer.hex}:${_uuid.v4()}';
     final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
     final frame = await _owner._outbox.enqueueAcceptance(
@@ -347,7 +348,13 @@ class _MessagingContacts {
       wire,
       replyOnly: true,
     );
-    if (frame == null || _owner._disposed) return false;
+    if (frame == null) {
+      // The contact decision changed before the reply could be persisted.
+      // Another device may still owe a durable response to this copy.
+      _owner._declinedLocally(message, 'contact reply admission was superseded');
+      return false;
+    }
+    if (_owner._disposed) return false;
     _owner._mailboxDelivery.removeStashed(peer.hex, frame.frameId);
     unawaited(_sendStoredAcceptance(peer, frame));
     return true;
