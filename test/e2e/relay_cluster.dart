@@ -215,6 +215,23 @@ class RelayCluster {
     return _run(['-c', node.configPath, ...command]);
   }
 
+  /// Simulate a loss of the local test mailbox without rotating the relay.
+  Future<void> restartWithEmptyMailbox() async {
+    final node = mailbox;
+    final process = node._process;
+    if (process == null) throw StateError('mailbox relay is not running');
+    final identity = node.nodeIdHex;
+    await _kill(node);
+    await process.exitCode.timeout(const Duration(seconds: 5));
+    final db = File('${node.dir.path}/mailbox/blobs.db');
+    await db.rename('${db.path}.before-loss');
+    await _spawn(node);
+    await _awaitReady(const Duration(seconds: 30));
+    if (node.nodeIdHex != identity) {
+      throw StateError('mailbox relay changed identity during restart');
+    }
+  }
+
   /// Fail loudly if any node in this island could reach a real seed.
   ///
   /// The check is on the FILE, not on our intent to have written it: this is

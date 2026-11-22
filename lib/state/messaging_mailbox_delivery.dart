@@ -11,7 +11,9 @@ class _ActiveMailboxOffers {
 /// session deduplication and backoff needed to keep unreachable peers from
 /// waking worker isolates every retry tick.
 class _MessagingMailboxDelivery {
-  _MessagingMailboxDelivery({this.ownDevice});
+  _MessagingMailboxDelivery({required this.now, this.ownDevice});
+
+  final DateTime Function() now;
 
   /// Whether a destination is one of MY OWN other devices, by its device id.
   /// Those are never deposited for: see [maybeStash].
@@ -21,15 +23,14 @@ class _MessagingMailboxDelivery {
   final Set<String> _ownDeviceSkipNoted = {};
 
   MailboxSink? _mailbox;
-  final Set<String> _stashed = {};
+  final _submissions = <(String, String), ({DateTime retryAt, Duration delay})>{};
 
-  /// Whether this frame is already sitting in the recipient's mailbox.
-  ///
-  /// Exposed so the periodic flush can decline to re-offer it. The flush walks
-  /// every pending frame on every pass, and re-offering a deposited one spawns
-  /// a task and writes a log line to learn a fact it could have had for free —
-  /// per frame, per pass, forever, on a phone.
-  bool alreadyDeposited(String frameId) => _stashed.contains(frameId);
+  /// Local submission is not a receipt from the relay or the recipient.
+  /// Suppress offers during the backoff while the durable frame awaits ACK.
+  bool hasRecentSubmission(String peerHex, String frameId) {
+    final submission = _submissions[(peerHex, frameId)];
+    return submission != null && now().isBefore(submission.retryAt);
+  }
   final _offers = <(String, String), _ActiveMailboxOffers>{};
   final Set<String> _inFlight = {};
   final Map<String, DateTime> _failedAt = {};
@@ -164,21 +165,31 @@ class _MessagingMailboxDelivery {
   /// holding memory, one entry per frame id that ever failed.
   void removeStashed(String peerHex, String id) {
     _offers.remove((peerHex, id));
-    _stashed.remove(id);
+    _submissions.remove((peerHex, id));
     _failedAt.remove(id);
     _lastDeferredLog.remove(id);
   }
 
-  /// A fresh manual mailbox deposit can settle the same durable wire frame.
-  void rememberDeposited(String id) {
-    _stashed.add(id);
+  /// Keep the same relay content ID on automatic retries so an existing
+  /// relay copy deduplicates. Space repeated submissions as the wait grows.
+  void rememberSubmitted(String peerHex, String id) {
+    final key = (peerHex, id);
+    final previous = _submissions[key];
+    final seconds = previous == null
+        ? _retryBackoff.inSeconds
+        : (previous.delay.inSeconds * 2).clamp(
+            _retryBackoff.inSeconds,
+            _peerUnresolvedCap.inSeconds,
+          );
+    final delay = Duration(seconds: seconds);
+    _submissions[key] = (retryAt: now().add(delay), delay: delay);
     _failedAt.remove(id);
     _lastDeferredLog.remove(id);
   }
 
   /// Frames this subsystem still holds bookkeeping for. A test seam for the
   /// bound on that bookkeeping, in the shape of the other seams beside it.
-  int get trackedFrameCount => _stashed.length + _failedAt.length;
+  int get trackedFrameCount => _submissions.length + _failedAt.length;
 
   /// Entries past the retry window can never change a decision again.
   ///
@@ -476,21 +487,7 @@ class _MessagingMailboxDelivery {
       );
       return false;
     }
-    if (_stashed.contains(id)) {
-      // A deposit for this id already exists. Not this call's doing, and not a
-      // failure either: the blob is at the relay, which is all the caller asked
-      // about.
-      // Reached only by a caller that did not ask [alreadyDeposited] first —
-      // the periodic flush does, because it walks EVERY pending frame on every
-      // pass and a frame already in the mailbox is the ordinary case, not the
-      // exception. One phone spent hours writing this line every three seconds
-      // for a single frame and dropped 31 414 log lines doing it.
-      devLog(
-        () =>
-            'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
-      );
-      return true;
-    }
+    if (hasRecentSubmission(peer.hex, id)) return true;
     // A failed seal can block a worker for ~12s. Never respawn it on every 3s
     // flush; the durable entry remains pending and retries after this window.
     _pruneFailedAt();
@@ -545,8 +542,7 @@ class _MessagingMailboxDelivery {
         // Delivery already started before retirement. Its result must not
         // suppress a subsequent offer for a replacement row.
         if (!isCurrent()) return true;
-        _stashed.add(id);
-        _failedAt.remove(id);
+        rememberSubmitted(peer.hex, id);
         clearPeerBackoff(peer.hex);
         devLog(
           () =>

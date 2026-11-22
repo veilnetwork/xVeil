@@ -670,10 +670,10 @@ class _MessagingContacts {
     );
     final deposited = await deposit;
     // The outbox tracks the logical frame, not this manual attempt key.
-    // Drop the attempt bookkeeping and remember its successful deposit below.
+    // Drop the attempt bookkeeping and start the logical frame's backoff.
     _owner._mailboxDelivery.removeStashed(dst.hex, depositId);
     if (!isCurrent()) return deposited;
-    if (deposited) _owner._mailboxDelivery.rememberDeposited(frameId);
+    if (deposited) _owner._mailboxDelivery.rememberSubmitted(dst.hex, frameId);
     // A direct copy may still arrive after a failed deposit. Keep the greeting
     // pending unless it was deposited or moved to ordinary retries on accept.
     if (body != null && body.isNotEmpty && deposited) {

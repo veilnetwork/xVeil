@@ -4,6 +4,9 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veil_flutter/veil_flutter.dart' show VeilClient;
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_native.dart';
 
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
@@ -12,7 +15,7 @@ import 'multi_device_process_e2e_test.dart' as base;
 void main() {
   final gate = E2eGate.read();
   test(
-    'mailbox settles offline acceptance and the outbox resumes over live relays',
+    'offline acceptance recovers after relay storage loss',
     () async {
       final fleet = await ProcessFleet.start(gate, labels: ['A', 'C']);
       addTearDown(fleet.dispose);
@@ -67,6 +70,32 @@ void main() {
         'pendingOutgoing',
       );
       E2eLog.line('MAILBOX_CONTACT_REQUEST_RECEIVED');
+
+      // A local publisher registration is asynchronous with respect to remote
+      // DHT visibility. Establish that this sender can resolve the intended
+      // mailbox before stopping the publisher.
+      final ipc = await Directory('${answerer.dir.path}/runtime')
+          .list(recursive: true, followLinks: false)
+          .where((entry) => entry.path.endsWith('/app.sock'))
+          .single;
+      expect(ensureVeilClientLoaded(dylibPath: gate.veilDylib), isTrue);
+      final client = await VeilClient.connect(ipc.path);
+      try {
+        final requesterBytes = NodeId.fromHex(requesterId).bytes;
+        final mailboxId = fleet.cluster.mailbox.nodeIdHex!;
+        await waitUntil(() async {
+          final ads = await client.mailbox.lookupRendezvousReplicas(
+            requesterBytes,
+          );
+          return ads.any(
+            (ad) =>
+                NodeId(ad.relayNodeId).hex == mailboxId &&
+                ad.rendezvousKemPk.length == 32,
+          );
+        }, what: 'the answerer resolves the requester’s mailbox advertisement');
+      } finally {
+        await client.close();
+      }
       await requester.stop();
       expect(requester.lastExitCode, 0);
       final accepted = await answerer.checked(
@@ -87,6 +116,10 @@ void main() {
       expect(outgoing['status'], isNot('delivered'));
       final mailboxLog = File(fleet.cluster.mailbox.logPath);
       final receiptPrefix = 'PUT stored (recv=${requesterId.substring(0, 16)} ';
+      final receipt = RegExp(
+        '${RegExp.escape(receiptPrefix)}cid=([0-9a-f]{16}) ',
+      );
+      String? acceptanceContentPrefix;
       await waitUntil(
         () async {
           final trace = await answerer.checked(
@@ -94,13 +127,27 @@ void main() {
             query: {'grep': 'stash OK', 'limit': '4000'},
           );
           final lines = (trace['lines'] as List).cast<String>();
-          return lines.any((line) => line.contains('id=accept:$requesterId:')) &&
-              (await mailboxLog.readAsString()).contains(receiptPrefix);
+          acceptanceContentPrefix = receipt
+              .firstMatch(await mailboxLog.readAsString())
+              ?.group(1);
+          return lines.any(
+                (line) => line.contains('id=accept:$requesterId:'),
+              ) &&
+              acceptanceContentPrefix != null;
         },
         what: 'mailbox stores the acceptance while the requester is stopped',
         timeout: const Duration(minutes: 3),
       );
       E2eLog.line('MAILBOX_CONTACT_ACCEPTANCE_DEPOSITED');
+
+      await fleet.cluster.restartWithEmptyMailbox();
+      final redriveReceipt = '${receiptPrefix}cid=$acceptanceContentPrefix ';
+      await waitUntil(
+        () async => (await mailboxLog.readAsString()).contains(redriveReceipt),
+        what: 'the same acceptance is stored again on the restarted relay',
+        timeout: const Duration(minutes: 3),
+      );
+      E2eLog.line('MAILBOX_CONTACT_ACCEPTANCE_RESTORED');
 
       // The answerer is stopped, so the acceptance can only come from the
       // mailbox. Ordinary text stays in the answerer's durable Outbox.

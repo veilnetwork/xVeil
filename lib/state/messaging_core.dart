@@ -320,6 +320,7 @@ class MessagingService {
       _MessagingRealtimeControl(this);
   late final _MessagingMailboxDelivery _mailboxDelivery =
       _MessagingMailboxDelivery(
+        now: _now,
         ownDevice: (peer) =>
             isOwnDevice == null ? null : _isSiblingDevice(peer),
       );

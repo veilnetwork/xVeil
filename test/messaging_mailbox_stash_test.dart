@@ -176,14 +176,17 @@ void main() {
   late MessagingService mA;
   late _BlackholeTransport tA;
   late _RecordingSink sink;
+  DateTime? testClock;
 
   setUp(() async {
+    testClock = null;
     a = _id(1);
     b = _id(2);
     sA = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
     tA = _BlackholeTransport(a);
-    mA = MessagingService(tA, sA)..start();
+    mA = MessagingService(tA, sA, now: () => testClock ?? DateTime.now())
+      ..start();
     sink = _RecordingSink();
     mA.attachMailbox(sink);
   });
@@ -405,6 +408,60 @@ void main() {
     await mA.cancelRequest(b);
     expect(await sA.pendingOutboxFrames(), isEmpty);
   });
+
+  for (final kind in [WireKind.request, WireKind.accept]) {
+    test('retries an unconfirmed mailbox ${kind.name} with backoff', () async {
+      testClock = DateTime.now();
+      addTearDown(mA.dispose);
+      if (kind == WireKind.request) {
+        await mA.sendRequest(b, 'the relay did not keep this request');
+      } else {
+        await mA.acceptContact(b);
+      }
+      expect(sink.stashed, hasLength(1));
+      final original = (await sA.pendingOutboxFrames()).single;
+      expect(WireEnvelope.decode(original.wire).kind, kind);
+
+      Future<void> advance(Duration delay) async {
+        testClock = testClock!.add(delay);
+        await mA.flushOutbox();
+        await pumpEventQueue();
+      }
+
+      await advance(const Duration(seconds: 29));
+      expect(sink.stashed, hasLength(1));
+      await advance(const Duration(seconds: 1));
+      expect(sink.stashed, hasLength(2));
+      expect(sink.stashed.last.$2, original.wire);
+      expect(sink.contentIds.last, sink.contentIds.first);
+
+      await advance(const Duration(seconds: 59));
+      expect(sink.stashed, hasLength(2));
+      await advance(const Duration(seconds: 1));
+      expect(sink.stashed, hasLength(3));
+      expect(sink.contentIds.last, sink.contentIds.first);
+
+      final reply = kind == WireKind.request
+          ? WireEnvelope.accept(
+              contactRequestId: WireEnvelope.decode(
+                original.wire,
+              ).contactRequestId,
+            )
+          : WireEnvelope.ack(original.frameId);
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: reply.encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await pumpEventQueue();
+      expect(await sA.pendingOutboxFrames(), isEmpty);
+      expect(mA.mailboxTrackedFrames, 0);
+      await advance(const Duration(hours: 7));
+      expect(sink.stashed, hasLength(3));
+    });
+  }
 
   test('a retired frame leaves no bookkeeping behind', () async {
     final failing = _FailingSink();
