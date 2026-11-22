@@ -46,7 +46,7 @@ def required_tail_content_changes(duration):
     return 14 if duration >= 360 else 1
 
 
-def summarize(rows, duration, video_start=20, tail_seconds=15):
+def summarize(rows, duration, video_start=20, tail_seconds=15, *, codec_samples=None):
     if not math.isfinite(duration) or duration <= video_start or tail_seconds <= 0:
         raise ValueError('Invalid synthetic video observation window')
     required_changes = required_tail_content_changes(duration)
@@ -75,16 +75,28 @@ def summarize(rows, duration, video_start=20, tail_seconds=15):
         changes = sum(a['sha256'] != b['sha256'] for a, b in zip(mixed, mixed[1:]))
         tail_changes = sum(a['sha256'] != b['sha256'] for a, b in zip(tail, tail[1:]))
         clocks = [video_start] + [r['t'] for r in mixed] + [duration]
-        directions.append(dict(side=side, decoded_frame_pulls=len(mixed),
-                               decoded_counter=decoded_counter_rate(mixed),
-                               last_minute_decoded_counter=decoded_counter_rate(minute),
-                               last_dimensions=[mixed[-1]['width'], mixed[-1]['height']] if mixed else None,
-                               content_changes=changes,
-                               last_decoded_pull_seconds=mixed[-1]['t'] if mixed else None,
-                               max_sampled_pull_gap_seconds=max(b-a for a, b in zip(clocks, clocks[1:])),
-                               tail_decoded_pulls=len(tail), tail_content_changes=tail_changes,
-                               tail_content_verified=tail_changes >= required_changes,
-                               moving_at_end=len(tail) >= 2 and tail_changes > 0))
+        start, end = max(zip(clocks, clocks[1:]), key=lambda gap: gap[1] - gap[0])
+        direction = dict(side=side, decoded_frame_pulls=len(mixed),
+                         decoded_counter=decoded_counter_rate(mixed),
+                         last_minute_decoded_counter=decoded_counter_rate(minute),
+                         last_dimensions=[mixed[-1]['width'], mixed[-1]['height']] if mixed else None,
+                         content_changes=changes,
+                         last_decoded_pull_seconds=mixed[-1]['t'] if mixed else None,
+                         max_sampled_pull_gap_seconds=end - start,
+                         tail_decoded_pulls=len(tail), tail_content_changes=tail_changes,
+                         tail_content_verified=tail_changes >= required_changes,
+                         moving_at_end=len(tail) >= 2 and tail_changes > 0)
+        if codec_samples is not None:
+            sender = 1 - side
+            states = [sample['stats'].get('video_send_paused') for sample in codec_samples
+                      if sample['side'] == sender and start < sample['t'] < end]
+            paused, active = states.count(1), states.count(0)
+            direction['longest_gap'] = dict(
+                start_seconds=start, end_seconds=end, sender_side=sender,
+                sender_paused_samples=paused, sender_active_samples=active,
+                sender_unknown_samples=len(states) - paused - active,
+            )
+        directions.append(direction)
     return dict(synthetic_fixture_only=True, screen_presentation_proof=False,
                 sampled_retrieval_not_native_decode_timing=True,
                 tail_seconds=tail_seconds, directions=directions,

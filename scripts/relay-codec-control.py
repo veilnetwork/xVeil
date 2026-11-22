@@ -907,7 +907,9 @@ try:
     result['pcm_capture_coverage']=capture_coverage(pcmrows,args.duration)
     if args.decoded_video_trace:
         (ROOT/'decoded-video-samples.json').write_text(json.dumps(decoded_video_rows))
-        result['decoded_video_progress']=summarize_decoded_video(decoded_video_rows,args.duration)
+        result['decoded_video_progress'] = summarize_decoded_video(
+            decoded_video_rows, args.duration, codec_samples=samples,
+        )
         result['decoded_video_failures']=decoded_video_failures
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))

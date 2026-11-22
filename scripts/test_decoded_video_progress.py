@@ -95,6 +95,26 @@ class DecodedVideoProgressTest(unittest.TestCase):
         rows = [row(46, 0, 1), row(59, 0, 2, 'b')]
         self.assertFalse(summarize(rows, 60)['moving_at_end'])
 
+    def test_gap_uses_actual_pause_samples_from_the_remote_sender(self):
+        rows = [row(25, side, 1) for side in (0, 1)]
+        rows += [row(55, side, 2) for side in (0, 1)]
+        samples = [
+            {'t': t, 'side': side, 'stats': {'video_send_paused': paused}}
+            for t, side, paused in [(24, 0, 1), (30, 0, 0), (40, 0, 0),
+                                   (30, 1, 1), (40, 1, -1), (56, 1, 1)]
+        ]
+        directions = summarize(rows, 60, codec_samples=samples)['directions']
+        self.assertEqual(directions[0]['longest_gap'], {
+            'start_seconds': 25, 'end_seconds': 55, 'sender_side': 1,
+            'sender_paused_samples': 1, 'sender_active_samples': 0,
+            'sender_unknown_samples': 1,
+        })
+        self.assertEqual(directions[1]['longest_gap'], {
+            'start_seconds': 25, 'end_seconds': 55, 'sender_side': 0,
+            'sender_paused_samples': 0, 'sender_active_samples': 2,
+            'sender_unknown_samples': 0,
+        })
+
     def test_corrupt_clocks_sequences_and_incomplete_hashes_fail_closed(self):
         for rows in [[row(59, 0, 1), row(58, 0, 2)],
                      [row(58, 0, 1), row(59, 0, 1)],
