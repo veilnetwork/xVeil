@@ -1354,15 +1354,12 @@ class CallBitrateAdapter {
     );
     final usePlayout = requirePeerAudioPlayout || requireAudioReceivePlayout;
     final bufferPressure = receiveBufferPressure || peerBufferPressure;
-    // A cached remote growth verdict holds pressure, but is not another bad
-    // measurement. Otherwise a five-second report cuts several rungs or pauses
-    // the floor on consecutive one-second polls without new peer evidence.
-    // Fresh local samples and the hard ceiling retain prompt protection.
+    // A cached peer verdict holds pressure, including at the hard ceiling.
+    // Only a new report or independent local pressure can advance a cut.
+    // Otherwise one over-ceiling peer sample can spend several video rungs
+    // or pause the floor on consecutive local polls.
     final pressureSampleCanAdvance =
-        !usePlayout ||
-        receiveBufferPressure ||
-        (peerPressureDelay != null && peerPressureDelay >= playoutDegradeMs) ||
-        freshPeerSample;
+        !usePlayout || receiveBufferPressure || freshPeerSample;
     _bufferPressure = bufferPressure;
     // The growth gate needs a distinct observation in every build mode.
     _bufferObservationSequence++;

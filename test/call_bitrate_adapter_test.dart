@@ -1395,6 +1395,40 @@ void main() {
   });
 
   for (final level in [0, 4]) {
+    test('a capped peer report is counted once at video level $level', () {
+      final a = direct(level: level);
+      var frames = 0;
+      void sample(int sequence, int delay) => native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': ++frames},
+        peerDelay: delay,
+        currentPeerDelay: delay,
+        peerTargetDelay: 500,
+        peerSequence: sequence,
+        peerBufferGrowing: false,
+      );
+
+      for (var i = 0; i < 3; i++) {
+        sample(1, 520);
+      }
+      sample(2, 720);
+      expect(a.audioBufferPressure, isTrue);
+      for (var i = 0; i < 4; i++) {
+        sample(2, 720);
+      }
+      expect(a.level, level);
+      expect(a.audioReserve, isFalse);
+
+      sample(3, 520);
+      expect(a.audioBufferPressure, isFalse);
+      sample(4, 720);
+      expect(a.level, level);
+      expect(a.audioReserve, isFalse);
+      sample(5, 720);
+      expect(a.level, level == 0 ? 2 : level);
+      expect(a.audioReserve, level == 4);
+    });
+
     test('cached peer growth cannot repeat a video cut at level $level', () {
       final a = direct(level: level);
       var frames = 0;
@@ -2668,30 +2702,29 @@ void main() {
 
   test('pretrial peer report cannot be reused to claim the floor failed', () {
     final a = direct();
-    for (var i = 0; i < 10; i++) {
-      native(
-        a,
-        stats: {...healthy(), 'video_tx_frames': i + 1},
-        peerDelay: 300,
-        currentPeerDelay: 300,
-        peerSequence: 10,
-      );
+    var frames = 0;
+    void sample(int sequence) => native(
+      a,
+      stats: {...healthy(), 'video_tx_frames': ++frames},
+      peerDelay: 300,
+      currentPeerDelay: 300,
+      peerSequence: sequence,
+    );
+    for (var sequence = 10; sequence <= 13; sequence++) {
+      sample(sequence);
     }
     expect(a.atFloor, isTrue);
-    expect(a.audioReserve, isFalse);
-    for (var i = 0; i < 2; i++) {
-      native(
-        a,
-        stats: {...healthy(), 'video_tx_frames': 11 + i},
-        peerDelay: 300,
-        currentPeerDelay: 300,
-        peerSequence: 11,
-      );
+    for (var i = 0; i < 10; i++) {
+      sample(13);
     }
+    expect(a.audioReserve, isFalse);
+    sample(14);
+    expect(a.audioReserve, isFalse);
+    sample(15);
     expect(
       a.audioReserve,
       isTrue,
-      reason: 'fresh failure after the actual trial still pauses',
+      reason: 'confirmed failure after the actual trial still pauses',
     );
   });
 
@@ -2713,21 +2746,22 @@ void main() {
       }
 
       for (var i = 1; i <= 5; i++) {
-        sample(i, i == 5 ? 11 : 10);
+        sample(i, i + 9);
         a.applyPendingTarget((_) => false);
       }
       expect(a.atFloor, isTrue);
       expect(a.audioReserve, isFalse);
       expect(a.applyPendingTarget((_) => true), isTrue);
-      sample(6, 11);
-      sample(7, 11);
+      sample(6, 14);
+      sample(7, 14);
       expect(
         a.audioReserve,
         isFalse,
         reason: 'the report arrived before successful application',
       );
-      sample(8, 12);
-      sample(9, 12);
+      sample(8, 15);
+      expect(a.audioReserve, isFalse);
+      sample(9, 16);
       expect(a.audioReserve, isTrue);
     },
   );
