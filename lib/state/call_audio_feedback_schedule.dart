@@ -1,5 +1,6 @@
 import '../domain/call_signal.dart';
 import 'call_audio_buffer_window.dart';
+import 'call_audio_playout_reserve.dart';
 
 /// Expedite measured receive-buffer pressure over the existing encrypted
 /// health carrier, including a single report when measured pressure clears.
@@ -31,8 +32,15 @@ class CallAudioFeedbackSchedule {
         (target != null && (target < 0 || target > 60000))) {
       return null;
     }
-    if ((target != null && target >= CallAudioBufferWindow.ceilingMs) ||
-        current >= CallAudioBufferWindow.ceilingMs ||
+    // Only a measured current delay can confirm a filled jitter reserve. A
+    // retained peak or a large target alone still needs the ordinary guard.
+    final reserve = CallAudioPlayoutReserve.creditMs(
+      feedback.currentDelayMs,
+      target,
+    );
+    final ceiling = CallAudioBufferWindow.ceilingMs;
+    if ((reserve == 0 && target != null && target >= ceiling) ||
+        current >= ceiling + reserve ||
         feedback.bufferGrowing == true) {
       return true;
     }

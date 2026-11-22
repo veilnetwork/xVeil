@@ -8,11 +8,13 @@ void main() {
     int sequence, {
     int? peak = 170,
     int? current = 170,
+    int? target,
     bool? growing = true,
   }) => CallAudioPlayoutFeedback(
     sequence: sequence,
     delayMs: peak,
     currentDelayMs: current,
+    targetDelayMs: target,
     bufferGrowing: growing,
   );
 
@@ -60,6 +62,46 @@ void main() {
     // A rejected queue still consumes an attempt; a tight retry cannot flood it.
     schedule.recordAttempt(sample(11), next);
     expect(schedule.shouldSendUrgent(sample(12), next), isFalse);
+  });
+
+  test('a filled jitter reserve reports recovery once at the normal cadence', () {
+    final schedule = CallAudioFeedbackSchedule();
+    final high = sample(1, peak: 720, current: 720, target: 500, growing: false);
+    expect(schedule.shouldSendUrgent(high, start), isTrue);
+    schedule.recordAttempt(high, start);
+    final next = start.add(const Duration(seconds: 1));
+    final clear = sample(2, peak: 720, current: 520, target: 500, growing: false);
+    expect(schedule.shouldSendUrgent(clear, next), isTrue);
+    schedule.recordAttempt(clear, next);
+    final steady = sample(3, peak: 720, current: 520, target: 500, growing: false);
+    final later = next.add(const Duration(seconds: 1));
+    expect(schedule.shouldSendUrgent(steady, later), isFalse);
+    expect(
+      schedule.shouldSendUrgent(
+        sample(3, peak: 720, current: 520, target: 500),
+        later,
+      ),
+      isTrue,
+      reason: 'growth remains urgent even with a filled reserve',
+    );
+  });
+
+  test('a legacy peak or an out-of-range target cannot fund reserve credit', () {
+    final schedule = CallAudioFeedbackSchedule();
+    expect(
+      schedule.shouldSendUrgent(
+        sample(1, peak: 520, current: null, target: 500, growing: false),
+        start,
+      ),
+      isTrue,
+    );
+    expect(
+      schedule.shouldSendUrgent(
+        sample(2, peak: 520, current: 520, target: 501, growing: false),
+        start,
+      ),
+      isTrue,
+    );
   });
 
   test('reports a measured end of pressure once, not every healthy sample', () {
