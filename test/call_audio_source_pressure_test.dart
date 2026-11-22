@@ -415,6 +415,34 @@ void main() {
     expect(sample(policy, lossReportUs: 101), isTrue);
   });
 
+  for (final incoming in [false, true]) {
+    test(
+      'source pressure counts short events on one route incoming=$incoming',
+      () {
+        final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+        void report(int epoch, int witness) => sample(
+          policy,
+          peer: 520,
+          currentPeer: 520,
+          targetPeer: 500,
+          local: 520,
+          targetLocal: 500,
+          concealmentReportUs: incoming ? 0 : witness,
+          localConcealmentReportUs: incoming ? witness : 0,
+          nativeStats: {'worker_stalled': 0, 'audio_rtt_route_epoch': epoch},
+        );
+
+        report(0, 100);
+        expect(policy.measuredAudioPressure, isNot(true));
+        report(1, 100);
+        report(1, 200);
+        expect(policy.measuredAudioPressure, isNot(true));
+        report(1, 300);
+        expect(policy.measuredAudioPressure, isTrue);
+      },
+    );
+  }
+
   test('a small isolated loss holds source growth without cutting credit', () {
     final policy = CallAudioSourcePressure(singlePeerPlayout: true);
     recover(policy);

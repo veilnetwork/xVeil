@@ -628,6 +628,42 @@ void main() {
     },
   );
 
+  for (final incoming in [false, true]) {
+    test(
+      'short audio events must repeat on the same route incoming=$incoming',
+      () {
+        final a = direct();
+        void report(int epoch, int witness) => native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_rtt_route_epoch': epoch,
+            'video_rtt_route_epoch': epoch,
+            'audio_delay_ms': 520,
+            'audio_jb_target_ms': 500,
+            if (incoming)
+              'audio_local_concealment_report_us': witness
+            else
+              'audio_peer_concealment_report_us': witness,
+          },
+          send: !incoming,
+          peerDelay: 520,
+          currentPeerDelay: 520,
+          peerTargetDelay: 500,
+        );
+
+        report(0, 100);
+        expect(a.level, 0);
+        report(1, 100); // The same report can still be visible after rebinding.
+        report(1, 200);
+        expect(a.level, 0);
+        expect(a.audioReserve, isFalse);
+        report(1, 300);
+        expect(a.level, 2);
+      },
+    );
+  }
+
   test('expired concealment does not combine with a new episode', () {
     final a = direct();
     final start = DateTime(2026, 10, 19);

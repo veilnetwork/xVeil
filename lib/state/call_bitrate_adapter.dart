@@ -639,6 +639,10 @@ class CallBitrateAdapter {
       _floorReceiveBuffer.reset();
       _floorPeerBuffer.reset(keepSequence: true);
       _floorPeerSampleSequence = _lastPeerSampleSequence;
+      // Start fresh repetition windows without replaying decoder reports
+      // still present in the first snapshots on this route.
+      _transientLoss.reset();
+      _receiveTransientLoss.reset();
       _networkAudioLoss.reset();
       if (previous != null || epoch > 0) _startupRecovery = false;
     }

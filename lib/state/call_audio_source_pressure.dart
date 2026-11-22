@@ -171,6 +171,8 @@ class CallAudioSourcePressure {
     final hasRouteEpoch = routeEpoch is int && routeEpoch >= 0;
     final routeChanged = hasRouteEpoch && routeEpoch != _audioRouteEpoch;
     if (routeChanged) {
+      _transientLoss.reset();
+      _receiveTransientLoss.reset();
       _networkAudioLoss.reset();
       _peerBuffer.reset(keepSequence: true);
       _receiveBuffer.reset();
