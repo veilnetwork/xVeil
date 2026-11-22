@@ -3280,6 +3280,66 @@ void main() {
     expect(a.acknowledgedPause, isTrue);
   });
 
+  test('a cached small RTP loss can coexist with the sparse recovery probe', () {
+    for (final (fraction, transportProbe) in [
+      (2, true),
+      (2, false),
+      (3, true),
+      (null, true),
+    ]) {
+      final a = direct(level: 4);
+      native(a, peerDelay: 300);
+      native(a, peerDelay: 300);
+      expect(a.acknowledgedPause, isTrue);
+      var sequence = 0;
+      void observe(int witness) => native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_delay_ms': 690,
+          'audio_jb_target_ms': 500,
+          'tx_loss_pct': 1,
+          'audio_loss_report_us': witness,
+          'audio_loss_report_fraction': fraction,
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_local_soft_loss_window_ms': 20,
+          'audio_peer_soft_loss_window_ms': 30,
+        },
+        peerDelay: 690,
+        currentPeerDelay: 690,
+        peerTargetDelay: 500,
+        peerSequence: ++sequence,
+        peerBufferGrowing: false,
+        filledJitterReserveConfirmed: !transportProbe,
+        sourceRecoveryProbeReady: transportProbe,
+        sourceBudgetPressured: transportProbe,
+      );
+
+      // A new loss witness and its three-second hold take priority.
+      for (var n = 0; n < 3; n++) {
+        observe(1);
+        expect(a.acknowledgedPause, isTrue);
+      }
+      for (var n = 1; n <= CallBitrateAdapter.probeResumeAfter; n++) {
+        observe(1);
+        expect(
+          a.acknowledgedPause,
+          fraction != 2 || n < CallBitrateAdapter.probeResumeAfter,
+        );
+      }
+      if (fraction == 2) {
+        expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+        if (transportProbe) {
+          observe(2);
+          expect(a.acknowledgedPause, isTrue);
+        }
+      }
+    }
+  });
+
   test('one near-threshold audio sample does not restart a video probe', () {
     CallBitrateAdapter paused() {
       final adapter = direct(level: 4);

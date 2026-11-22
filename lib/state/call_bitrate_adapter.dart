@@ -1876,6 +1876,11 @@ class CallBitrateAdapter {
         receiveRepairAllowsProbe &&
         receiveGood &&
         rttMs < severeRttMs;
+    // The latest RTCP percentage can still describe the loss that preceded
+    // the pause. A measured small loss may coexist with the sparse probe
+    // once its event hold has expired and both receivers have recovered.
+    final probeLossAcceptable =
+        txLossPct == 0 || (txLossPct == 1 && smallAudioNetworkLoss);
     // A verified high reserve can reopen the paused source at the floor.
     // Measured small trims may coexist with this trial. Ordinary growth
     // and a recent RTP loss still observe their full holds.
@@ -1888,7 +1893,7 @@ class CallBitrateAdapter {
             (audioSoftLossBelowThreshold &&
                 !_networkAudioLoss.holdingGrowth)) &&
         rttMs > 0 &&
-        txLossPct == 0;
+        probeLossAcceptable;
     final measuredPlayoutHealthy =
         measuredPlayoutReady && (belowRecoveryDelay || filledReserveRecovery);
     // The node can accept one small lossy trial while the app is still
@@ -1908,7 +1913,7 @@ class CallBitrateAdapter {
         audioSoftLossBelowThreshold &&
         !_networkAudioLoss.holdingGrowth &&
         rttMs > 0 &&
-        txLossPct == 0;
+        probeLossAcceptable;
     if (_reserveRecoveryTrial) {
       if (!sourceBudgetPressured && measuredPlayoutHealthy) {
         _reserveRecoveryTrial = false;
