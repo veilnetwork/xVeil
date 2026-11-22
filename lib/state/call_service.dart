@@ -642,7 +642,7 @@ class CallService {
   DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
   Object? _pendingDirectReadiness;
-  void Function()? _wakeLateP2PDiscovery;
+  void Function()? _onLateP2PAdmission;
 
   void _resetLateP2P() {
     _cancelRelayCandidateRetry();
@@ -660,7 +660,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
-    _wakeLateP2PDiscovery = null;
+    _onLateP2PAdmission = null;
     _lateP2PRetryAt = null;
     _lateP2PRetryTimer?.cancel();
     _lateP2PRetryTimer = null;
@@ -676,7 +676,7 @@ class CallService {
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
-    _wakeLateP2PDiscovery = null;
+    _onLateP2PAdmission = null;
     _scheduleLateP2PRetry();
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
@@ -769,7 +769,7 @@ class CallService {
         unawaited(checkRegistration());
       }
     }
-    _wakeLateP2PDiscovery = wake;
+    _onLateP2PAdmission = wake;
     final timeout = Timer(kCallP2PSetupTimeout, () => complete(false));
     try {
       unawaited(
@@ -787,8 +787,8 @@ class CallService {
       return await result.future;
     } finally {
       timeout.cancel();
-      if (identical(_wakeLateP2PDiscovery, wake)) {
-        _wakeLateP2PDiscovery = null;
+      if (identical(_onLateP2PAdmission, wake)) {
+        _onLateP2PAdmission = null;
       }
     }
   }
@@ -820,7 +820,7 @@ class CallService {
     final generation = _lateP2PGeneration;
     final networkVersion = _networkObservationVersion;
     var epoch = _mediaOperationEpoch;
-    int? admissionAtDiscovery;
+    int? admissionAtCheck;
     _lateP2PBusy = true;
     // An ordinary wake at the same deadline can take the retry first.
     _lateP2PRetryTimer?.cancel();
@@ -838,6 +838,26 @@ class CallService {
         stillCurrent() &&
         !_networkOffline &&
         networkVersion == _networkObservationVersion;
+
+    Future<bool> readOnCurrentNetwork(Future<bool> Function() read) async {
+      admissionAtCheck = _relayConnectionGeneration;
+      final retired = Completer<bool>();
+      void onAdmission() {
+        // The read cannot move media. The retry can check the new network
+        // without waiting for this old IPC response or its timeout.
+        if (!sameNetwork() && !retired.isCompleted) retired.complete(false);
+      }
+
+      _onLateP2PAdmission = onAdmission;
+      try {
+        return await Future.any([read(), retired.future]);
+      } finally {
+        if (identical(_onLateP2PAdmission, onAdmission)) {
+          _onLateP2PAdmission = null;
+        }
+      }
+    }
+
     try {
       // A forked answer binds media to its device, while contact policy and
       // endpoint discovery still belong to the authenticated identity.
@@ -857,7 +877,8 @@ class CallService {
         }
         final recovering = _lateP2PNeedsDatedReadiness;
         final lastAdmission = _relayConnectionGeneration;
-        final alreadyAdmitted = recovering && await readDirectAdmission();
+        final alreadyAdmitted =
+            recovering && await readOnCurrentNetwork(readDirectAdmission);
         if (!sameNetwork() || !_lateP2PConsent) return;
         // After a network handover the answering device can already have a
         // new admitted session while endpoint discovery still waits on stale
@@ -871,7 +892,6 @@ class CallService {
                 'endpoint refresh not needed',
           );
         } else {
-          if (recovering) admissionAtDiscovery = lastAdmission;
           final reachable = recovering
               ? await _discoverLateDirectSession(
                   c.mediaIdentity,
@@ -881,13 +901,15 @@ class CallService {
                 )
               : await _peerReachableWithoutBlockingSignal(c.mediaIdentity);
           if (!reachable || !sameNetwork() || !_lateP2PConsent) return;
-          admissionAtDiscovery = null;
         }
       }
       // Admission can disappear between heartbeats while we await the peer.
       // Withdraw local readiness before announcing or opening a stale route.
-      final admitted = await media.isDirectPeerAdmitted(c);
+      final admitted = await readOnCurrentNetwork(
+        () => media.isDirectPeerAdmitted(c),
+      );
       if (!sameNetwork()) return;
+      admissionAtCheck = null;
       if (!admitted || !_lateP2PConsent) {
         _lateP2PLocalReady = false;
         return;
@@ -977,7 +999,7 @@ class CallService {
     } finally {
       if (generation == _lateP2PGeneration) {
         _lateP2PBusy = false;
-        final admission = admissionAtDiscovery;
+        final admission = admissionAtCheck;
         if (admission != null &&
             stillCurrent() &&
             networkVersion != _networkObservationVersion &&
@@ -2477,7 +2499,7 @@ class CallService {
       devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
       _announceHandoverHealth();
-      _wakeLateP2PDiscovery?.call();
+      _onLateP2PAdmission?.call();
     }
   }
 

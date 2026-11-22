@@ -8198,9 +8198,15 @@ void main() {
       );
     }
 
-    for (final handover in ['attachment', 'offline', 'pending IPC']) {
+    for (final (handover, pendingStage) in [
+      ('attachment', 'discovery'),
+      ('offline', 'discovery'),
+      ('pending IPC', 'discovery'),
+      ('attachment', 'initial device read'),
+      ('pending IPC', 'required device read'),
+    ]) {
       test(
-        'fresh admission replaces discovery on the old network ($handover)',
+        'fresh admission replaces $pendingStage on the old network ($handover)',
         () {
           fakeAsync((async) {
             final fake = _FakeMessaging();
@@ -8211,6 +8217,7 @@ void main() {
             final network = StreamController<NetworkAttachment>(sync: true);
             final oldDiscovery = Completer<bool>();
             final oldSnapshot = Completer<bool?>();
+            final oldRequiredRead = Completer<bool>();
             final device = NodeId.fromHex('b' * 64);
             var holdDiscovery = false;
             var networkGeneration = 0;
@@ -8235,6 +8242,15 @@ void main() {
               expect(svc.current?.transport, CallTransportKind.relay);
 
               holdDiscovery = true;
+              final waitingForDiscovery = pendingStage == 'discovery';
+              final waitingForRequiredRead =
+                  pendingStage == 'required device read';
+              if (waitingForRequiredRead) {
+                media.liveDirectAdmission = true;
+                media.requiredAdmissionGate = oldRequiredRead;
+              } else if (!waitingForDiscovery) {
+                media.liveAdmissionGate = oldSnapshot;
+              }
               for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
                 media.rxAt = clock.now();
                 async.elapse(const Duration(seconds: 1));
@@ -8245,10 +8261,16 @@ void main() {
                   id,
                 ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
               );
-              media.liveAdmissionGate = oldSnapshot;
-              admissions.add(null);
+              if (waitingForDiscovery) {
+                media.liveAdmissionGate = oldSnapshot;
+                admissions.add(null);
+              }
               async.flushMicrotasks();
-              expect(media.liveAdmissionChecks, [device, device]);
+              final oldChecks = [device, if (waitingForDiscovery) device];
+              expect(media.liveAdmissionChecks, oldChecks);
+              expect(media.admissionChecks, [
+                if (waitingForRequiredRead) device,
+              ]);
 
               if (handover == 'offline') network.add(NetworkAttachment.offline);
               networkGeneration++;
@@ -8259,6 +8281,7 @@ void main() {
               expect(media.switches, [CallTransportKind.relay]);
 
               media.liveAdmissionGate = null;
+              media.requiredAdmissionGate = null;
               media.liveDirectAdmission = true;
               admissions.add(null);
               async.flushMicrotasks();
@@ -8267,7 +8290,11 @@ void main() {
                 network.add(NetworkAttachment.cellular);
                 async.flushMicrotasks();
               }
-              expect(media.liveAdmissionChecks, [device, device, device]);
+              expect(media.liveAdmissionChecks, [...oldChecks, device]);
+              expect(media.admissionChecks, [
+                if (waitingForRequiredRead) device,
+                device,
+              ]);
               expect(svc.current?.callId, id);
               expect(svc.current?.transport, CallTransportKind.p2p);
               expect(oldDiscovery.isCompleted, isFalse);
@@ -8275,6 +8302,7 @@ void main() {
 
               oldDiscovery.complete(false);
               oldSnapshot.complete(true);
+              oldRequiredRead.complete(true);
               async.flushMicrotasks();
               expect(media.switches, [
                 CallTransportKind.relay,
@@ -8283,6 +8311,7 @@ void main() {
             } finally {
               if (!oldDiscovery.isCompleted) oldDiscovery.complete(false);
               if (!oldSnapshot.isCompleted) oldSnapshot.complete(false);
+              if (!oldRequiredRead.isCompleted) oldRequiredRead.complete(false);
               svc.dispose();
               unawaited(admissions.close());
               unawaited(network.close());
@@ -12185,11 +12214,13 @@ class _FakeMedia extends CallMediaController {
   }
 
   final List<NodeId> admissionChecks = [];
+  Completer<bool>? requiredAdmissionGate;
 
   @override
   Future<bool> isDirectPeerAdmitted(Call call) async {
     admissionChecks.add(call.peerDevice ?? call.peer);
-    return directPeerAdmitted;
+    final gate = requiredAdmissionGate;
+    return gate == null ? directPeerAdmitted : await gate.future;
   }
 
   int signalVersion = kCallSignalProtocolVersion;
