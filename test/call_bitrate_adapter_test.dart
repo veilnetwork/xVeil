@@ -113,11 +113,15 @@ void main() {
     bool video = true,
     int? audioReceivers,
     int? videoReceivers,
+    bool filledJitterReserveConfirmed = false,
+    bool sourceBudgetPressured = false,
   }) {
     apply(a);
     a.onNativeStats(
       stats ?? healthy(),
       sampledAt: nextTime(a),
+      filledJitterReserveConfirmed: filledJitterReserveConfirmed,
+      sourceBudgetPressured: sourceBudgetPressured,
       videoSendExpected: video,
       sendAudioExpected: send,
       receiveAudioExpected: receive,
@@ -3076,6 +3080,46 @@ void main() {
     expect(a.audioReserve, isTrue);
     native(a);
     expect(a.audioReserve, isFalse);
+  });
+
+  test('a confirmed stable reserve can resume paused video at the floor', () {
+    final a = direct(level: 4);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
+    expect(a.audioReserve, isTrue);
+    void observe(int sequence, {bool confirmed = true, bool held = false}) =>
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_delay_ms': 591,
+            'audio_jb_target_ms': 450,
+          },
+          peerDelay: 591,
+          currentPeerDelay: 589,
+          peerTargetDelay: 450,
+          peerSequence: sequence,
+          peerBufferGrowing: false,
+          filledJitterReserveConfirmed: confirmed,
+          sourceBudgetPressured: held,
+        );
+
+    for (var n = 1; n <= 3; n++) {
+      observe(n, confirmed: false);
+      expect(a.audioReserve, isTrue);
+    }
+    for (var n = 4; n <= 6; n++) {
+      observe(n, held: true);
+      expect(a.audioReserve, isTrue);
+    }
+    observe(7);
+    observe(8);
+    expect(a.acknowledgedPause, isTrue);
+    expect(a.audioReserve, isTrue);
+    observe(9);
+    expect(a.audioReserve, isFalse);
+    expect(a.acknowledgedTarget?.maxFps, 1.0);
+    expect(a.acknowledgedPause, isFalse);
   });
 
   test('one near-threshold audio sample does not restart a video probe', () {

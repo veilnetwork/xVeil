@@ -1834,8 +1834,19 @@ class CallBitrateAdapter {
         receiveRepairAllowsProbe &&
         receiveGood &&
         rttMs < severeRttMs;
+    // A verified high reserve can reopen the paused source at the floor.
+    // This does not spend video delivery credit or rely on frame progress
+    // from the source that is still paused.
+    final filledReserveRecovery =
+        filledReserveProbe &&
+        !sourceBudgetPressured &&
+        !bufferPressure &&
+        !bufferGrowing &&
+        !transientGrowthHeld &&
+        rttMs > 0 &&
+        txLossPct == 0;
     final measuredPlayoutHealthy =
-        measuredPlayoutReady && playoutBelow(playoutRecoverMs);
+        measuredPlayoutReady && (belowRecoveryDelay || filledReserveRecovery);
     // After the native pause ACK, delayed video loss reports describe
     // earlier traffic. Only the audio path can earn this sparse probe.
     final mayRecover =

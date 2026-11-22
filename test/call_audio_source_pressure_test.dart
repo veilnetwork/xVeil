@@ -235,38 +235,40 @@ void main() {
     },
   );
 
-  test(
-    'steady paced reserve can recover source admission after interruption',
-    () {
-      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
-      const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};
-      bool? observe(int sequence, {bool interrupted = false}) => sample(
-        policy,
-        peer: 570,
-        currentPeer: 568,
-        peerSequence: sequence,
-        peerGrowing: false,
-        targetPeer: 450,
-        local: 570,
-        targetLocal: 450,
-        interrupted: interrupted,
-        nativeStats: stats,
-      );
+  for (final delay in [570, 591]) {
+    test(
+      'steady $delay-ms reserve can recover source admission after interruption',
+      () {
+        final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+        const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};
+        bool? observe(int sequence, {bool interrupted = false}) => sample(
+          policy,
+          peer: delay,
+          currentPeer: delay - 2,
+          peerSequence: sequence,
+          peerGrowing: false,
+          targetPeer: 450,
+          local: delay,
+          targetLocal: 450,
+          interrupted: interrupted,
+          nativeStats: stats,
+        );
 
-      expect(observe(10, interrupted: true), isTrue);
-      expect(observe(11), isTrue);
-      expect(observe(11), isTrue);
-      expect(observe(11), isNull);
-      expect(policy.waitingForReserveConfirmation, isTrue);
-      expect(policy.filledJitterReserveConfirmed, isFalse);
-      expect(observe(12), isFalse);
-      expect(policy.waitingForReserveConfirmation, isFalse);
-      expect(policy.filledJitterReserveConfirmed, isTrue);
-      expect(observe(12), isFalse);
-      expect(observe(13, interrupted: true), isTrue);
-      expect(policy.filledJitterReserveConfirmed, isFalse);
-    },
-  );
+        expect(observe(10, interrupted: true), isTrue);
+        expect(observe(11), isTrue);
+        expect(observe(11), isTrue);
+        expect(observe(11), isNull);
+        expect(policy.waitingForReserveConfirmation, isTrue);
+        expect(policy.filledJitterReserveConfirmed, isFalse);
+        expect(observe(12), isFalse);
+        expect(policy.waitingForReserveConfirmation, isFalse);
+        expect(policy.filledJitterReserveConfirmed, isTrue);
+        expect(observe(12), isFalse);
+        expect(observe(13, interrupted: true), isTrue);
+        expect(policy.filledJitterReserveConfirmed, isFalse);
+      },
+    );
+  }
 
   test(
     'transport reserve margin requires corroborated playout on both ends',
@@ -294,7 +296,7 @@ void main() {
               peerSequence: failure == 'stale sequence' ? 1 : sequence,
               peerGrowing: failure == 'growing',
               targetPeer: failure == 'excess above target' ? 400 : 450,
-              local: failure == 'over ceiling' ? 590 : 570,
+              local: failure == 'over ceiling' ? 601 : 570,
               targetLocal: 450,
               nativeStats: failure == 'stalled'
                   ? {...stats, 'worker_stalled': 1}

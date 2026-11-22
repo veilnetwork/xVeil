@@ -294,11 +294,13 @@ class CallAudioSourcePressure {
         (!receiveExpected || soft.receive != null);
     // A filled adaptive reserve can retain an arrival burst above NetEq's
     // target. For the transport trial, bound excess above that target while
-    // also bounding the raw delay by the ceiling and one arrival tolerance.
-    // This needs current measurements from both ends of the same direct call.
+    // also bounding the raw delay by the ceiling, arrival tolerance and two
+    // 10-ms render blocks for paced batch arrival. This needs current
+    // measurements from both ends of the same direct call.
     const maximumFilledDelayMs =
         CallAudioPlayoutReserve.maximumTargetMs +
-        CallAudioPlayoutReserve.arrivalToleranceMs;
+        CallAudioPlayoutReserve.arrivalToleranceMs +
+        20;
     const maximumPressureWithReserveMs =
         playoutRecoverMs + CallAudioPlayoutReserve.nominalTargetMs;
     final steadyReserve =
