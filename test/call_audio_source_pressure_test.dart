@@ -235,6 +235,75 @@ void main() {
     },
   );
 
+  test(
+    'steady paced reserve can recover source admission after interruption',
+    () {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};
+      bool? observe(int sequence, {bool interrupted = false}) => sample(
+        policy,
+        peer: 570,
+        currentPeer: 568,
+        peerSequence: sequence,
+        peerGrowing: false,
+        targetPeer: 450,
+        local: 570,
+        targetLocal: 450,
+        interrupted: interrupted,
+        nativeStats: stats,
+      );
+
+      expect(observe(10, interrupted: true), isTrue);
+      expect(observe(11), isTrue);
+      expect(observe(11), isTrue);
+      expect(observe(11), isNull);
+      expect(policy.waitingForReserveConfirmation, isTrue);
+      expect(observe(12), isFalse);
+      expect(policy.waitingForReserveConfirmation, isFalse);
+      expect(observe(12), isFalse);
+    },
+  );
+
+  test(
+    'transport reserve margin requires corroborated playout on both ends',
+    () {
+      const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};
+      for (final failure in [
+        'stale sequence',
+        'growing',
+        'missing current',
+        'stalled',
+        'over ceiling',
+        'excess above target',
+        'group call',
+      ]) {
+        final policy = CallAudioSourcePressure(
+          singlePeerPlayout: failure != 'group call',
+        );
+        expect(sample(policy, interrupted: true, nativeStats: stats), isTrue);
+        for (var sequence = 1; sequence <= 14; sequence++) {
+          expect(
+            sample(
+              policy,
+              peer: 570,
+              currentPeer: failure == 'missing current' ? null : 568,
+              peerSequence: failure == 'stale sequence' ? 1 : sequence,
+              peerGrowing: failure == 'growing',
+              targetPeer: failure == 'excess above target' ? 400 : 450,
+              local: failure == 'over ceiling' ? 590 : 570,
+              targetLocal: 450,
+              nativeStats: failure == 'stalled'
+                  ? {...stats, 'worker_stalled': 1}
+                  : stats,
+            ),
+            isNot(isFalse),
+            reason: failure,
+          );
+        }
+      }
+    },
+  );
+
   for (final peerDirection in [false, true]) {
     test('source pressure starts a new buffer trend after handover '
         'peer=$peerDirection', () {

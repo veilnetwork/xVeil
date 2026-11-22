@@ -233,7 +233,7 @@ class CallAudioSourcePressure {
             receiveCredit == 0);
     final hardPlayoutFailure =
         newDrop || interrupted || peerPressure || receivePressure;
-    final playoutHealthy =
+    final playoutStable =
         !hardPlayoutFailure &&
         nativeStats?['worker_stalled'] != 1 &&
         _peerBuffer.growing != true &&
@@ -249,13 +249,16 @@ class CallAudioSourcePressure {
           receiveCredit,
           recoverMs: playoutRecoverMs,
         ) &&
+        (!receiveExpected ||
+            receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs);
+    final playoutHealthy =
+        playoutStable &&
         (!peerNeeded ||
             (peerPressureDelay != null &&
                 peerPressureDelay < playoutRecoverMs)) &&
         (!receiveExpected ||
             (receivePressureDelay != null &&
-                receivePressureDelay < playoutRecoverMs &&
-                receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
+                receivePressureDelay < playoutRecoverMs));
     final rttMs = nativeStats?['rtt_ms'];
     // An authenticated current report in a direct call can confirm that a
     // small loss already played through. Preserve the existing source credit.
@@ -284,6 +287,36 @@ class CallAudioSourcePressure {
         nativeStats?['worker_stalled'] == 0 &&
         (!sendExpected || soft.send != null) &&
         (!receiveExpected || soft.receive != null);
+    // A filled adaptive reserve can retain an arrival burst above NetEq's
+    // target. For the transport trial, bound excess above that target while
+    // also bounding the raw delay by the ceiling and one arrival tolerance.
+    // This needs current measurements from both ends of the same direct call.
+    const maximumFilledDelayMs =
+        CallAudioPlayoutReserve.maximumTargetMs +
+        CallAudioPlayoutReserve.arrivalToleranceMs;
+    const maximumPressureWithReserveMs =
+        playoutRecoverMs + CallAudioPlayoutReserve.nominalTargetMs;
+    final steadyReserve =
+        playoutStable &&
+        singlePeerPlayout &&
+        peerNeeded &&
+        receiveExpected &&
+        fullyMeasured &&
+        sampledAt != null &&
+        hasRouteEpoch &&
+        !routeChanged &&
+        rttMs is num &&
+        rttMs > 0 &&
+        rttMs < CallBitrateAdapter.severeRttMs &&
+        peerCredit > 0 &&
+        receiveCredit > 0 &&
+        peerBufferGrowing == false &&
+        peerSampleSequence != null &&
+        peerSampleSequence > 0 &&
+        peerDelay! <= maximumFilledDelayMs &&
+        receiveDelayMs! <= maximumFilledDelayMs &&
+        peerPressureDelay! < maximumPressureWithReserveMs &&
+        receivePressureDelay! < maximumPressureWithReserveMs;
     final measuredHealthy = playoutHealthy && !bad;
     final transient = softTransient || isolatedNetworkLoss;
     final durationKnown =
@@ -292,7 +325,7 @@ class CallAudioSourcePressure {
             soft.send != null) &&
         (!(localConcealed || recovered || soft.receive == true) ||
             soft.receive != null);
-    final good = measuredHealthy && !transient;
+    final good = (measuredHealthy || (steadyReserve && !bad)) && !transient;
     _measuredAudioPressure = bad
         ? true
         : (measuredHealthy && (!transient || durationKnown) ? false : null);
@@ -324,24 +357,10 @@ class CallAudioSourcePressure {
     // snapshot on the same route. The transport still admits only its bounded
     // trial and ramps DATA gradually after the last pressure lease expires.
     final filledReserve =
-        _hardRecoveryRequired &&
-        singlePeerPlayout &&
-        peerNeeded &&
-        receiveExpected &&
+        (_hardRecoveryRequired || !playoutHealthy) &&
+        steadyReserve &&
         good &&
-        fullyMeasured &&
-        !shortHold &&
-        sampledAt != null &&
-        hasRouteEpoch &&
-        !routeChanged &&
-        rttMs is num &&
-        rttMs > 0 &&
-        rttMs < CallBitrateAdapter.severeRttMs &&
-        peerCredit > 0 &&
-        receiveCredit > 0 &&
-        peerBufferGrowing == false &&
-        peerSampleSequence != null &&
-        peerSampleSequence > 0;
+        !shortHold;
     if (filledReserve) {
       final previous = _lastFilledReserveSample;
       if (previous != null &&
@@ -377,7 +396,7 @@ class CallAudioSourcePressure {
       _pressured = true;
     } else if (good) {
       ++_healthy;
-      if (fullyMeasured) {
+      if (playoutHealthy && fullyMeasured) {
         if (_measuredHealthy < CallBitrateAdapter.probeResumeAfter) {
           ++_measuredHealthy;
         }
@@ -395,7 +414,9 @@ class CallAudioSourcePressure {
           (filledReserve &&
               _filledReserveSamples >= CallBitrateAdapter.probeResumeAfter &&
               peerSampleSequence > _filledReservePeerBaseline!);
-      if ((_healthy >= _recoverySamples || measuredRecovery) && !shortHold) {
+      if (((playoutHealthy && _healthy >= _recoverySamples) ||
+              measuredRecovery) &&
+          !shortHold) {
         _pressured = false;
         _hardRecoveryRequired = false;
       }
