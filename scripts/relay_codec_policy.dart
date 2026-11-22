@@ -34,7 +34,10 @@ Future<void> main() async {
   );
   final activity = List.generate(2, (_) => CallAudioReceiveActivity());
   final peer = List.generate(2, (_) => CallPeerAudioPlayout());
-  final sourcePressure = List.generate(2, (_) => CallAudioSourcePressure());
+  final sourcePressure = List.generate(
+    2,
+    (_) => CallAudioSourcePressure(singlePeerPlayout: true),
+  );
   final peerRecovery = List.generate(2, (_) => CallPeerAudioRecovery());
   final feedbackSchedule = List.generate(2, (_) => CallAudioFeedbackSchedule());
   await for (final line
