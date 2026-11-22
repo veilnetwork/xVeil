@@ -2211,16 +2211,23 @@ class VeilCallMediaController implements CallMediaController {
           sampledAt: now,
           growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
         );
-        if (sourcePressured != null && !_sourceFeedbackPending) {
+        final sourceRecoveryProbe =
+            _sourcePressure.reserveSupportsRecoveryProbe &&
+            (_screenSharing ||
+                ((call.media.video || call.media.screen) &&
+                    _cameraState.enabledForCall(call.callId)));
+        if ((sourcePressured != null || sourceRecoveryProbe) &&
+            !_sourceFeedbackPending) {
           // One small outstanding report, with the ORIGINAL sampling time.
           // Delayed workers/writes cannot renew pressure after this call ends.
           _sourceFeedbackPending = true;
           unawaited(
             _transport
                 .reportLocalSourcePressure(
-                  pressured: sourcePressured,
+                  pressured: sourcePressured == true,
                   sampledAt: now,
                   growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
+                  recoveryProbe: sourceRecoveryProbe,
                 )
                 .then<void>(
                   (queued) {

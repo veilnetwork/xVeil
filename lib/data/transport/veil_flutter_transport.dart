@@ -948,10 +948,12 @@ class VeilFlutterTransport
     required bool pressured,
     required DateTime sampledAt,
     DateTime? growthHoldStartedAt,
+    bool recoveryProbe = false,
   }) => _mediaApp.reportLocalSourcePressure(
     pressured: pressured,
     sampledAt: sampledAt,
     growthHoldStartedAt: growthHoldStartedAt,
+    recoveryProbe: recoveryProbe,
   );
 
   /// Refresh a black-holed anonymous media route after end-to-end silence.

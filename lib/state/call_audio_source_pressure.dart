@@ -30,7 +30,7 @@ class CallAudioSourcePressure {
   bool? _measuredAudioPressure;
   DateTime? _growthHoldStartedAt;
   bool _filledJitterReserveConfirmed = false;
-  bool _waitingForReserveConfirmation = false;
+  bool _reserveSupportsRecoveryProbe = false;
 
   /// Both receivers have a current stable reserve and source recovery has
   /// finished. The video adapter still needs its own decoder acknowledgments.
@@ -46,7 +46,14 @@ class CallAudioSourcePressure {
 
   /// Keep the adapter's growth hold while a new peer sample is pending.
   /// Current healthy audio permits the older transport lease to expire.
-  bool get waitingForReserveConfirmation => _waitingForReserveConfirmation;
+  bool get waitingForReserveConfirmation =>
+      _pressured &&
+      (_fastReserveWindow.ready ||
+          _sustainedReserveWindow.ready ||
+          _reserveSupportsRecoveryProbe);
+
+  /// A stable measured reserve can permit a small trial before full recovery.
+  bool get reserveSupportsRecoveryProbe => _reserveSupportsRecoveryProbe;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
@@ -440,11 +447,8 @@ class CallAudioSourcePressure {
     // measured threshold, let the old lease expire while counting recovery
     // samples. The video adapter still holds growth and the node earns no
     // fresh healthy credit until the full window and peer confirmation.
-    _waitingForReserveConfirmation =
-        _pressured &&
-        (_fastReserveWindow.ready ||
-            _sustainedReserveWindow.ready ||
-            (assessReserve && sustainedReserve && belowDamageThreshold));
+    _reserveSupportsRecoveryProbe =
+        _pressured && assessReserve && sustainedReserve && belowDamageThreshold;
     _filledJitterReserveConfirmed =
         !_pressured &&
         ((fastReserve && good && !shortHold) || sustainedConfirmed);
@@ -459,7 +463,7 @@ class CallAudioSourcePressure {
   void _reset({bool preserveReportWitnesses = false}) {
     _measuredAudioPressure = null;
     _filledJitterReserveConfirmed = false;
-    _waitingForReserveConfirmation = false;
+    _reserveSupportsRecoveryProbe = false;
     _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;

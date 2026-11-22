@@ -449,6 +449,7 @@ void main() {
       }
       expect(observe(), peerDamage == 8 ? isNull : isTrue);
       expect(policy.waitingForReserveConfirmation, peerDamage == 8);
+      expect(policy.reserveSupportsRecoveryProbe, peerDamage == 8);
       expect(policy.filledJitterReserveConfirmed, isFalse);
       if (peerDamage != 8) continue;
 
@@ -461,6 +462,7 @@ void main() {
       }
       expect(observe(sequence: 3), isFalse);
       expect(policy.filledJitterReserveConfirmed, isTrue);
+      expect(policy.reserveSupportsRecoveryProbe, isFalse);
       expect(observe(sequence: 4, delay: 720), isTrue);
       expect(policy.waitingForReserveConfirmation, isFalse);
       expect(observe(sequence: 5, route: 1), isTrue);

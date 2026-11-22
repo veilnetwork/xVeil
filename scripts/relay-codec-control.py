@@ -240,6 +240,11 @@ try:
     source_growth_hold=fn('veil_app_hold_local_source_growth',[P,C.c_uint64,C.c_uint64,E],C.c_int) if args.local_source_feedback else None
 except AttributeError:
     source_growth_hold=None
+try:
+    source_recovery_probe = fn('veil_app_report_local_source_recovery_probe',
+                               [P, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
+except AttributeError:
+    source_recovery_probe = None
 shaper = None
 startat = None
 
@@ -794,7 +799,16 @@ try:
                     r['nativeAudioPixelFeedbackRc']=audio_pixels(e,hint)
                     if r['nativeAudioPixelFeedbackRc']!=0:
                         raise RuntimeError('Native audio pixel feedback refused')
-                if source_report is not None and r['sourcePressured'] is not None:
+                if r['sourceRecoveryProbe'] and source_recovery_probe is not None:
+                    rc = checked(source_recovery_probe, apps[i], sampled_at)
+                    r['sourceRecoveryProbeRc'] = rc
+                    if rc == 0:
+                        source_feedback_queued[i] += 1
+                    elif rc == 1:
+                        source_feedback_skipped[i] += 1
+                    else:
+                        raise RuntimeError('Local source recovery probe refused')
+                elif source_report is not None and r['sourcePressured'] is not None:
                     r['sourceGrowthHoldRc']=None
                     if source_growth_hold is not None and r['sourcePressured'] is False and held_at is not None:
                         r['sourceGrowthHoldRc']=checked(source_growth_hold,apps[i],sampled_at,held_at)

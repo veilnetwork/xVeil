@@ -207,6 +207,9 @@ Future<void> main() async {
         'growthHoldStartedAt':
             sourcePressure[i].growthHoldStartedAt?.millisecondsSinceEpoch,
         'sourcePressured': sourcePressured,
+        'sourceRecoveryProbe':
+            req['videoSendExpected'] == true &&
+            sourcePressure[i].reserveSupportsRecoveryProbe,
         'sourceBudgetPressured': sourceBudgetPressured,
         'audioAdaptation': a.bufferDiagnostics,
       }),
