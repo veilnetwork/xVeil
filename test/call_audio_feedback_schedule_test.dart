@@ -10,12 +10,16 @@ void main() {
     int? current = 170,
     int? target,
     bool? growing = true,
+    int? interruptions,
+    int? recoveries,
   }) => CallAudioPlayoutFeedback(
     sequence: sequence,
     delayMs: peak,
     currentDelayMs: current,
     targetDelayMs: target,
     bufferGrowing: growing,
+    interruptionCount: interruptions,
+    recoveryCount: recoveries,
   );
 
   test('expedites measured growth and the ceiling, not a retained peak', () {
@@ -62,6 +66,47 @@ void main() {
     // A rejected queue still consumes an attempt; a tight retry cannot flood it.
     schedule.recordAttempt(sample(11), next);
     expect(schedule.shouldSendUrgent(sample(12), next), isFalse);
+  });
+
+  test('reports a playout interruption before the next heartbeat', () {
+    final schedule = CallAudioFeedbackSchedule();
+    CallAudioPlayoutFeedback filled(int sequence, int total, int recovered) =>
+        sample(
+          sequence,
+          peak: 440,
+          current: 440,
+          target: 440,
+          growing: false,
+          interruptions: total,
+          recoveries: recovered,
+        );
+    schedule.recordAttempt(filled(26, 0, 0), start);
+    final event = filled(27, 1, 0);
+    final next = start.add(const Duration(seconds: 1));
+    expect(schedule.shouldSendUrgent(event, start), isFalse);
+    expect(schedule.shouldSendUrgent(filled(26, 1, 0), next), isFalse);
+    expect(schedule.shouldSendUrgent(filled(27, 1, 1), next), isFalse);
+    expect(schedule.shouldSendUrgent(event, next), isTrue);
+    schedule.recordAttempt(event, next);
+
+    final clear = filled(28, 1, 0);
+    final afterEvent = next.add(const Duration(seconds: 1));
+    expect(schedule.shouldSendUrgent(clear, afterEvent), isTrue);
+    schedule.recordAttempt(clear, afterEvent);
+    expect(
+      schedule.shouldSendUrgent(
+        filled(29, 2, 1),
+        afterEvent.add(const Duration(seconds: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      schedule.shouldSendUrgent(
+        filled(30, 2, 1),
+        afterEvent.add(const Duration(seconds: 2)),
+      ),
+      isTrue,
+    );
   });
 
   test('confirms a filled jitter reserve once', () {

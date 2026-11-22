@@ -2,14 +2,16 @@ import '../domain/call_signal.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_audio_playout_reserve.dart';
 
-/// Expedite measured receive-buffer pressure over the existing encrypted
-/// health carrier. A filled reserve gets one confirmation after recovery.
+/// Expedite measured receive-buffer pressure and playout interruptions over
+/// the existing encrypted health carrier. A filled reserve gets one
+/// confirmation after recovery.
 /// Steady healthy audio keeps the ordinary heartbeat cadence.
 class CallAudioFeedbackSchedule {
   static const minimumInterval = Duration(seconds: 1);
   static const _reserveConfirmationDelay = Duration(seconds: 2);
   DateTime? _lastAttemptAt;
   int? _lastSequence;
+  int? _lastInterruptionCount;
   bool? _lastPressure;
   bool _reserveConfirmationPending = false;
 
@@ -25,6 +27,19 @@ class CallAudioFeedbackSchedule {
         feedback.currentDelayMs,
         feedback.targetDelayMs,
       );
+
+  int? _playoutInterruptions(CallAudioPlayoutFeedback feedback) {
+    final count = feedback.interruptionCount;
+    final recoveries = feedback.recoveryCount;
+    // The total includes intentional catch-up. Modern native reports supply
+    // both counters, so a trim alone cannot trigger urgent interruption.
+    return count != null &&
+            recoveries != null &&
+            recoveries >= 0 &&
+            count >= recoveries
+        ? count - recoveries
+        : null;
+  }
 
   bool? _pressure(CallAudioPlayoutFeedback? feedback) {
     if (feedback == null) return null;
@@ -44,7 +59,14 @@ class CallAudioFeedbackSchedule {
     // retained peak or a large target alone still needs the ordinary guard.
     final reserve = _reserve(feedback);
     final ceiling = CallAudioBufferWindow.ceilingMs;
-    if ((reserve == 0 && target != null && target >= ceiling) ||
+    final interruptions = _playoutInterruptions(feedback);
+    final lastInterruptions = _lastInterruptionCount;
+    final interrupted =
+        interruptions != null &&
+        lastInterruptions != null &&
+        interruptions > lastInterruptions;
+    if (interrupted ||
+        (reserve == 0 && target != null && target >= ceiling) ||
         current >= ceiling + reserve ||
         feedback.bufferGrowing == true) {
       return true;
@@ -87,6 +109,12 @@ class CallAudioFeedbackSchedule {
     if (_lastSequence == null || feedback.sequence > _lastSequence!) {
       _lastSequence = feedback.sequence;
       final pressure = _pressure(feedback);
+      final interruptions = _playoutInterruptions(feedback);
+      if (interruptions != null &&
+          (_lastInterruptionCount == null ||
+              interruptions > _lastInterruptionCount!)) {
+        _lastInterruptionCount = interruptions;
+      }
       if (pressure != null) {
         // A fresh, measured heartbeat also settles a pending follow-up.
         _reserveConfirmationPending =
@@ -101,6 +129,7 @@ class CallAudioFeedbackSchedule {
   void reset() {
     _lastAttemptAt = null;
     _lastSequence = null;
+    _lastInterruptionCount = null;
     _lastPressure = null;
     _reserveConfirmationPending = false;
   }
