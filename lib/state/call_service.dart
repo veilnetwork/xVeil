@@ -634,7 +634,8 @@ class CallService {
   // alone never authorizes a later P2P upgrade.
   bool _lateP2PConsent = false;
   bool _lateP2PLocalReady = false;
-  bool _lateP2PPeerReady = false;
+  (int, int?)? _lateP2PPeerReadyNetwork;
+  bool get _lateP2PPeerReady => _lateP2PPeerReadyNetwork != null;
   bool _lateP2PPeerActive = false;
   bool _lateP2PNeedsDatedReadiness = false;
   int _lastPeerRouteHealthAtMs = 0;
@@ -657,7 +658,7 @@ class CallService {
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
-    _lateP2PPeerReady = false;
+    _lateP2PPeerReadyNetwork = null;
     _lateP2PPeerActive = false;
     _lateP2PNeedsDatedReadiness = false;
     _lastPeerRouteHealthAtMs = 0;
@@ -672,10 +673,17 @@ class CallService {
     _lateP2PActivatedAt = null;
   }
 
-  void _rearmP2PAfterRelay({required bool allowAdmissionWake}) {
+  void _rearmP2PAfterRelay({
+    required bool allowAdmissionWake,
+    bool keepCurrentPeerReadiness = false,
+  }) {
     _lateP2PGeneration++;
     _lateP2PLocalReady = false;
-    _lateP2PPeerReady = false;
+    if (!keepCurrentPeerReadiness ||
+        _networkOffline ||
+        _lateP2PPeerReadyNetwork != _networkObservationVersion) {
+      _lateP2PPeerReadyNetwork = null;
+    }
     _lateP2PPeerActive = false;
     _lateP2PNeedsDatedReadiness = true;
     _lateP2PAttempted = false;
@@ -691,7 +699,7 @@ class CallService {
   void _deferLateP2PCandidate(Call call) {
     _lateP2PAttempted = false;
     _lateP2PLocalReady = false;
-    _lateP2PPeerReady = false;
+    _lateP2PPeerReadyNetwork = null;
     _pendingDirectReadiness = null;
     _scheduleLateP2PRetry();
     // A concurrent peer fallback agrees with our surviving relay. There is
@@ -976,7 +984,7 @@ class CallService {
           if (!allowed) {
             _lateP2PConsent = false;
             _lateP2PLocalReady = false;
-            _lateP2PPeerReady = false;
+            _lateP2PPeerReadyNetwork = null;
           }
           return allowed;
         },
@@ -2131,7 +2139,7 @@ class CallService {
             _pendingRelayAtMs = null;
           }
           final firstReadiness = !_lateP2PPeerReady;
-          _lateP2PPeerReady = true;
+          _lateP2PPeerReadyNetwork = _networkObservationVersion;
           // Each announcement used to provoke another announcement from its
           // peer, even after both routes were active. Heartbeats already repeat
           // readiness for lost signals; only the first transition needs a reply.
@@ -2216,7 +2224,7 @@ class CallService {
     // Explicit peer withdrawal is binding even when the original call allowed
     // P2P. A transient relay report with consent retained never enters here.
     _lateP2PConsent = false;
-    _lateP2PPeerReady = false;
+    _lateP2PPeerReadyNetwork = null;
     _lateP2PPeerActive = false;
     _lateP2PLocalReady = false;
     return true;
@@ -2828,7 +2836,8 @@ class CallService {
             _wakeDeferredRelay(peer, callId);
           }
           if (_current?.transport == CallTransportKind.relay &&
-              _hasCurrentRelayAdmissionSince(connections)) {
+              (_lateP2PPeerReady ||
+                  _hasCurrentRelayAdmissionSince(connections))) {
             unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
           }
         }
@@ -2943,7 +2952,12 @@ class CallService {
     if (cur == null) return;
     if (ok && media.activeTransport == CallTransportKind.relay) {
       _cancelRelayCandidateRetry();
-      _rearmP2PAfterRelay(allowAdmissionWake: true);
+      // Starting the fallback cleared old readiness. A dated peer update
+      // received while this relay was opening still counts on this attachment.
+      _rearmP2PAfterRelay(
+        allowAdmissionWake: true,
+        keepCurrentPeerReadiness: true,
+      );
       final settled = cur.copyWith(
         transport: CallTransportKind.relay,
         status: cur.status == CallStatus.connecting

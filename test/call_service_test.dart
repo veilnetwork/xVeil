@@ -9338,6 +9338,92 @@ void main() {
       });
     });
 
+    for (final (scenario, readyDuringOpen, expected) in [
+      ('unchanged network', true, CallTransportKind.p2p),
+      ('readiness on replacement network', true, CallTransportKind.p2p),
+      ('readiness on previous network', true, CallTransportKind.relay),
+      ('peer withdrawal', true, CallTransportKind.relay),
+      ('readiness before relay opening', false, CallTransportKind.relay),
+    ]) {
+      test('peer readiness during relay fallback ($scenario)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _GatedRelaySwitchMedia()
+            ..openedTransport = CallTransportKind.p2p;
+          final device = NodeId.fromHex('b' * 64);
+          var network = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+            readNetworkChangeGeneration: () => network,
+          )..start();
+          const id = 'ready-during-relay-open';
+
+          void peerReady() {
+            async.elapse(const Duration(milliseconds: 1));
+            fake.onCallSignal!(
+              peer,
+              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+          }
+
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            if (!readyDuringOpen) peerReady();
+            unawaited(svc.requestRelayRecoveryForDiagnostics());
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+            final readsBefore = media.admissionChecks.length;
+            if (scenario == 'readiness on replacement network') network++;
+            if (readyDuringOpen) peerReady();
+            if (scenario == 'readiness on previous network') network++;
+            if (scenario == 'peer withdrawal') {
+              async.elapse(const Duration(milliseconds: 1));
+              fake.onCallSignal!(
+                peer,
+                CallSignal(
+                  callId: id,
+                  type: CallSignalType.transportInfo,
+                  transport: const CallTransportProposal(
+                    CallTransportKind.relay,
+                  ),
+                  p2pUpgradeAllowed: false,
+                  sentAtMs: clock.now().millisecondsSinceEpoch,
+                  protocolVersion: 6,
+                ),
+              );
+              async.flushMicrotasks();
+            }
+            expect(media.admissionChecks, hasLength(readsBefore));
+            expect(media.switches, [CallTransportKind.relay]);
+
+            media.relayGate.complete(true);
+            async.flushMicrotasks();
+            expect(svc.current?.callId, id);
+            expect(svc.current?.status, CallStatus.active);
+            expect(svc.current?.transport, expected);
+            if (expected == CallTransportKind.p2p) {
+              expect(media.admissionChecks.skip(readsBefore), [device]);
+              expect(media.switches, [CallTransportKind.relay, expected]);
+            } else {
+              expect(media.admissionChecks, hasLength(readsBefore));
+              expect(media.switches, [CallTransportKind.relay]);
+            }
+          } finally {
+            svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('scheduled retry survives an early read that spans the deadline', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -12902,8 +12988,11 @@ class _GatedRelaySwitchMedia extends _FakeMedia {
     CallTransportKind transport, {
     Future<bool> Function()? canCommit,
   }) async {
+    if (transport != CallTransportKind.relay) {
+      return super.switchRoute(transport, canCommit: canCommit);
+    }
     switches.add(transport);
-    // Match native: attempting a second switch during rebuilding fails.
+    // Match native: attempting a second relay switch during rebuilding fails.
     if (switches.length > 1) return false;
     final ok = await relayGate.future;
     if (canCommit != null && !await canCommit()) return false;
