@@ -339,6 +339,49 @@ void main() {
     expect(activity.lastRxAt, start.subtract(const Duration(milliseconds: 25)));
   });
 
+  test(
+    'an unknown native arrival excludes current playout and peak evidence',
+    () {
+      const valid = <String, Object?>{
+        'audio_rx_pkts': 31,
+        'audio_rx_native_age_ms': 25,
+        'worker_stalled': 0,
+        'audio_delay_ms': 520,
+        'audio_jb_target_ms': 500,
+      };
+      final second = start.add(const Duration(seconds: 1));
+      final third = start.add(const Duration(seconds: 2));
+      for (final age in [null, -1, double.nan, 60001]) {
+        final activity = CallAudioReceiveActivity();
+        activity.observe(valid, start);
+        final measured = activity.outgoingPlayoutFeedback(start);
+        expect(measured.currentDelayMs, 520);
+        activity.observe({
+          ...valid,
+          'audio_rx_native_age_ms': age,
+          'audio_delay_ms': 720,
+        }, second);
+        final unknown = activity.outgoingPlayoutFeedback(second);
+        expect(unknown.sequence, greaterThan(measured.sequence));
+        expect(unknown.delayMs, isNull, reason: 'native age $age');
+        expect(
+          activity.lastRxAt,
+          start.subtract(const Duration(milliseconds: 25)),
+        );
+
+        activity.observe(valid, third);
+        final restored = activity.outgoingPlayoutFeedback(third);
+        expect(
+          restored.delayMs,
+          520,
+          reason: 'unknown age is not a recent peak',
+        );
+        expect(restored.currentDelayMs, 520);
+        expect(restored.targetDelayMs, 500);
+      }
+    },
+  );
+
   test('video and RTCP ingress cannot advance accepted audio activity', () {
     final activity = CallAudioReceiveActivity();
     activity.observe({

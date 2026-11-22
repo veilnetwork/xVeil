@@ -1312,29 +1312,21 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final receivers = stats['audio_receivers'];
     for (final key in _peers.keys.where(_expectedAudioPeers.contains)) {
       final receiver = receivers is Map ? receivers[key] : null;
-      final packets = receiver is Map ? receiver['audio_rx_pkts'] : null;
-      final delay = receiver is Map ? receiver['audio_delay_ms'] : null;
-      if (packets is! num ||
-          !packets.isFinite ||
-          packets <= 0 ||
-          delay is! num ||
-          !delay.isFinite ||
-          delay < 0 ||
-          delay > 60000) {
+      final delay = receiver is Map
+          ? CallAudioReceiveActivity.nativePlayoutDelay({
+              'worker_stalled': 0,
+              'audio_rx_pkts': receiver['audio_rx_pkts'],
+              'audio_delay_ms': receiver['audio_delay_ms'],
+              'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+              if (_supportsAudioReceiveAgeStats)
+                'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
+            })
+          : null;
+      if (delay == null) {
         complete = false;
         continue;
       }
-      if (delay > worstDelay) worstDelay = delay.toInt();
-      final pressure = receiver is Map
-          ? receiver['audio_pressure_delay_ms']
-          : null;
-      if (pressure is num &&
-          pressure.isFinite &&
-          pressure >= 0 &&
-          pressure <= 60000 &&
-          pressure > worstDelay) {
-        worstDelay = pressure.toInt();
-      }
+      if (delay > worstDelay) worstDelay = delay;
     }
     return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
         ? worstDelay

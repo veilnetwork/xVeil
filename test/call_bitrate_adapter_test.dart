@@ -1261,6 +1261,37 @@ void main() {
     native(a, peerDelay: 300);
     expect(a.level, 4);
   });
+  test(
+    'an explicit unknown incoming age cannot cut video using buffer stats',
+    () {
+      final a = direct();
+      void sample(int age, int delay) => native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_rx_native_age_ms': age,
+          'audio_delay_ms': delay,
+          'audio_jb_target_ms': 500,
+        },
+      );
+
+      sample(20, 520);
+      expect(a.audioBufferPressure, isFalse);
+      for (var i = 0; i < 4; i++) {
+        sample(-1, 720);
+      }
+      expect(a.audioBufferPressure, isFalse);
+      expect(a.level, 0);
+      expect(a.audioReserve, isFalse);
+
+      sample(20, 720);
+      expect(a.level, 0);
+      sample(20, 720);
+      expect(a.audioBufferPressure, isTrue);
+      expect(a.level, 2);
+    },
+  );
+
   test('healthy decoded audio retries one fps before another small trim', () {
     final a = direct(level: 4);
     var frames = 1;

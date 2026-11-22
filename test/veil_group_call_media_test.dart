@@ -1821,12 +1821,33 @@ void main() {
           'audio_receivers': {
             alice.hex: {
               'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 100,
+            },
+            bob.hex: {
+              'audio_rx_pkts': 15,
+              'audio_delay_ms': 720,
+              'audio_rx_native_age_ms': -1,
+            },
+          },
+        };
+        clock.elapse(const Duration(seconds: 4));
+        expect(
+          engine.pauses.last,
+          isFalse,
+          reason: 'padding counters cannot qualify an unknown receiver buffer',
+        );
+        engine.stats = {
+          ...engine.stats,
+          'audio_receivers': {
+            alice.hex: {
+              'audio_rx_pkts': 20,
               'audio_delay_ms': CallAudioBufferWindow.ceilingMs,
               'audio_rx_native_age_ms': 1085,
             },
             bob.hex: {
-              'audio_rx_pkts': 0,
-              'audio_delay_ms': 100,
+              'audio_rx_pkts': 15,
+              'audio_delay_ms': 720,
               'audio_rx_native_age_ms': -1,
             },
           },

@@ -5,6 +5,11 @@ import 'call_peer_audio_recovery.dart';
 /// Audio activity measured at the receive stream, separately from video and
 /// RTCP ingress. Default counters from a timed-out native worker are not data.
 class CallAudioReceiveActivity {
+  static num? _nativeReceiveAgeMs(Map<String, Object?> stats) {
+    final age = stats['audio_rx_native_age_ms'];
+    return age is num && age.isFinite && age >= 0 && age <= 60000 ? age : null;
+  }
+
   /// A current native snapshot, independent of the periodic activity cache.
   /// Reading it must not consume interruption feedback or rebase counters.
   static DateTime? nativeLastRxAt(
@@ -12,15 +17,12 @@ class CallAudioReceiveActivity {
     DateTime sampledAt,
   ) {
     final packets = stats['audio_rx_pkts'];
-    final age = stats['audio_rx_native_age_ms'];
+    final age = _nativeReceiveAgeMs(stats);
     if (stats['worker_stalled'] != 0 ||
         packets is! num ||
         !packets.isFinite ||
         packets <= 0 ||
-        age is! num ||
-        !age.isFinite ||
-        age < 0 ||
-        age > 60000) {
+        age == null) {
       return null;
     }
     return sampledAt.subtract(Duration(milliseconds: age.toInt()));
@@ -38,6 +40,12 @@ class CallAudioReceiveActivity {
         packets <= 0) {
       return null;
     }
+    // Modern engines can count RTP padding before receiving audio payload.
+    // An explicit unknown arrival cannot qualify that stream's buffer.
+    if (stats.containsKey('audio_rx_native_age_ms') &&
+        _nativeReceiveAgeMs(stats) == null) {
+      return null;
+    }
     int? valid(Object? value) =>
         value is num && value.isFinite && value >= 0 && value <= 60000
         ? value.toInt()
@@ -53,11 +61,8 @@ class CallAudioReceiveActivity {
 
   static int? nativeTargetDelay(Map<String, Object?> stats) {
     if (nativePlayoutDelay(stats) == null) return null;
-    final age = stats['audio_rx_native_age_ms'];
-    if (age is! num ||
-        !age.isFinite ||
-        age < 0 ||
-        age > sampleLifetime.inMilliseconds) {
+    final age = _nativeReceiveAgeMs(stats);
+    if (age == null || age > sampleLifetime.inMilliseconds) {
       return null;
     }
     final target = stats['audio_jb_target_ms'];
@@ -212,8 +217,8 @@ class CallAudioReceiveActivity {
       _lastRecoveryCount = recoveries;
     }
     final count = packets.toInt();
-    final nativeAge = stats['audio_rx_native_age_ms'];
-    if (count > 0 && nativeAge is num && nativeAge.isFinite && nativeAge >= 0) {
+    final nativeAge = _nativeReceiveAgeMs(stats);
+    if (count > 0 && nativeAge != null) {
       lastRxAt = now.subtract(Duration(milliseconds: nativeAge.toInt()));
     } else if (!stats.containsKey('audio_rx_native_age_ms') &&
         count > _lastPackets) {
