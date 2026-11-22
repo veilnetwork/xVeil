@@ -532,12 +532,15 @@ class CallService {
   /// Give endpoint exchange and direct dialing a bounded setup window. The
   /// reachability probe keeps running after the timeout and can still warm a
   /// direct session for the next call.
-  Future<bool> _peerReachableWithoutBlockingSignal(NodeId peer) async {
-    try {
-      return await Future.any<bool>([
-        _peerReachableForP2P(peer),
+  Future<bool> _peerReachableWithoutBlockingSignal(NodeId peer) =>
+      Future.any<bool>([
+        _probePeerReachability(peer),
         Future<bool>.delayed(kCallP2PSetupTimeout, () => false),
       ]);
+
+  Future<bool> _probePeerReachability(NodeId peer) async {
+    try {
+      return await _peerReachableForP2P(peer);
     } catch (error) {
       devLog(
         () =>
@@ -723,16 +726,19 @@ class CallService {
     required Future<bool> Function() readDirectAdmission,
     required bool Function() isCurrent,
   }) async {
-    final confirmed = Completer<bool>();
+    final result = Completer<bool>();
     var checking = false;
-    var finished = false;
+    var discoveryMissed = false;
+
+    void complete(bool admitted) {
+      if (!result.isCompleted) result.complete(admitted);
+    }
 
     Future<void> checkRegistration() async {
       if (checking) return;
       checking = true;
       try {
-        while (!finished &&
-            !confirmed.isCompleted &&
+        while (!result.isCompleted &&
             isCurrent() &&
             _hasCurrentRelayAdmissionSince(lastAdmission)) {
           lastAdmission = _relayConnectionGeneration;
@@ -740,27 +746,39 @@ class CallService {
           // to read the actual answering device, coalescing a new burst
           // until the current read finishes.
           final admitted = await readDirectAdmission();
-          if (admitted && !finished && isCurrent()) {
+          if (admitted && !result.isCompleted && isCurrent()) {
             devLog(
               () =>
                   'xVeil[call-media]: direct session admitted during endpoint discovery',
             );
-            confirmed.complete(true);
+            complete(true);
           }
         }
       } finally {
         checking = false;
+        if (discoveryMissed) complete(false);
       }
     }
 
     void wake() => unawaited(checkRegistration());
     _wakeLateP2PDiscovery = wake;
+    final timeout = Timer(kCallP2PSetupTimeout, () => complete(false));
     try {
-      final discovery = _peerReachableWithoutBlockingSignal(identity);
+      unawaited(
+        _probePeerReachability(identity).then((reachable) {
+          if (reachable || !checking) {
+            complete(reachable);
+          } else {
+            // Discovery can miss an already registered device. Let the exact
+            // device read settle within the same deadline.
+            discoveryMissed = true;
+          }
+        }),
+      );
       wake(); // Admission may have arrived during the initial status read.
-      return await Future.any([discovery, confirmed.future]);
+      return await result.future;
     } finally {
-      finished = true;
+      timeout.cancel();
       if (identical(_wakeLateP2PDiscovery, wake)) {
         _wakeLateP2PDiscovery = null;
       }

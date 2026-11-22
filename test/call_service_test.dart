@@ -8198,6 +8198,81 @@ void main() {
       );
     }
 
+    for (final beforeDeadline in [true, false]) {
+      test('discovery miss respects pending exact-device read '
+          'before deadline: $beforeDeadline', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..liveDirectAdmission = false;
+          final admissions = StreamController<void>(sync: true);
+          final discovery = Completer<bool>();
+          final snapshot = Completer<bool?>();
+          final device = NodeId.fromHex('b' * 64);
+          var holdDiscovery = false;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) =>
+                holdDiscovery ? discovery.future : Future.value(true),
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const id = 'discovery-miss-before-admission';
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            // Keep the retry deadline distinct from the heartbeat tick.
+            async.elapse(const Duration(milliseconds: 250));
+            unawaited(svc.requestRelayRecoveryForDiagnostics());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            holdDiscovery = true;
+            for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+              media.rxAt = clock.now();
+              async.elapse(const Duration(seconds: 1));
+            }
+            expect(media.liveAdmissionChecks, [device]);
+            fake.onCallSignal!(
+              peer,
+              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            media.liveAdmissionGate = snapshot;
+            admissions.add(null);
+            async.flushMicrotasks();
+            expect(media.liveAdmissionChecks, [device, device]);
+            // Let the intervening heartbeat see the discovery still busy.
+            const remaining = Duration(milliseconds: 200);
+            media.rxAt = clock.now();
+            async.elapse(kCallP2PSetupTimeout - remaining);
+            discovery.complete(false);
+            async.flushMicrotasks();
+            expect(media.switches, [CallTransportKind.relay]);
+
+            async.elapse(
+              remaining - Duration(milliseconds: beforeDeadline ? 1 : 0),
+            );
+            snapshot.complete(true);
+            async.flushMicrotasks();
+            expect(svc.current?.callId, id);
+            expect(media.switches, [
+              CallTransportKind.relay,
+              if (beforeDeadline) CallTransportKind.p2p,
+            ]);
+          } finally {
+            if (!snapshot.isCompleted) snapshot.complete(false);
+            if (!discovery.isCompleted) discovery.complete(false);
+            svc.dispose();
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('retired call cannot use a delayed admitted recovery snapshot', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
