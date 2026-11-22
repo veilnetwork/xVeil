@@ -47,7 +47,8 @@ def analyze(summary, lines, lower=5, upper=None):
                 count = re.search(r'\bcount=(\d+)\b', line)
                 counts[kind].append(int(count[1]) if count else None)
                 ssrc = re.search(r'\bssrc=(\d+)\b', line)
-                streams[kind].append(int(ssrc[1]) if ssrc else None)
+                stream_id = int(ssrc[1]) if ssrc else 0
+                streams[kind].append(stream_id or None)
             elif f'audio.rtp.{kind} seq=' in line:
                 if not blocks[kind]:
                     raise ValueError('RTP row without a trace block')
@@ -59,16 +60,16 @@ def analyze(summary, lines, lower=5, upper=None):
                     for ssrc, block in zip(streams['ingress'], blocks['ingress'])
                     for row in block}
     for source, block in enumerate(blocks['send']):
+        ssrc = streams['send'][source]
         for row in block:
             at = (row['attempted_us'] - start) / 1_000_000
-            key = (row['seq'], row['timestamp'])
+            key = (ssrc, row['seq'], row['timestamp'])
             if lower <= at < upper:
                 phase = 'audio-only' if at < 20 else 'competing'
                 tally = delivery[source, phase]
                 if row['accepted']:
                     tally['accepted'] += 1
-                    ingress_key = (streams['send'][source], *key)
-                    tally['observed_at_ingress' if ingress_key in ingress_keys
+                    tally['observed_at_ingress' if key in ingress_keys
                           else 'absent_from_ingress'] += 1
                 else:
                     tally['refused'] += 1
@@ -79,11 +80,13 @@ def analyze(summary, lines, lower=5, upper=None):
             sends[key] = source, row
     groups = collections.defaultdict(lambda: collections.defaultdict(list))
     unmatched = 0
-    for block in blocks['ingress']:
+    # Keep pair-only matching for captures with legacy headers on both legs.
+    # An identified stream can never borrow a witness from another SSRC.
+    for ssrc, block in zip(streams['ingress'], blocks['ingress']):
         for received in block:
             if not received['payload_bytes']:
                 continue
-            sent = sends.get((received['seq'], received['timestamp']))
+            sent = sends.get((ssrc, received['seq'], received['timestamp']))
             if sent is None:
                 unmatched += 1
                 continue
@@ -104,7 +107,7 @@ def analyze(summary, lines, lower=5, upper=None):
                       for block, limit in zip(blocks[kind], limits[kind]))
     sender_streams = set(streams['send'])
     delivery_complete = (
-        bool(sender_streams) and None not in sender_streams and 0 not in sender_streams
+        bool(sender_streams) and None not in sender_streams
         and sender_streams == set(streams['ingress'])
         and len(sender_streams) == len(blocks['send']) == len(blocks['ingress'])
         and not trace_limit

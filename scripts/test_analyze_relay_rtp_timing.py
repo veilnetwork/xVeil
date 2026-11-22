@@ -50,6 +50,22 @@ audio.rtp.ingress seq=8 timestamp=0 arrived_us=22000000 drained_us=22002000 payl
                     ['audio.rtp.send.begin count=1', row,
                      'audio.rtp.send.begin count=1', row])
 
+    def test_distinguishes_identical_sequence_and_timestamp_on_two_streams(self):
+        rows = '''audio.rtp.send.begin count=1 ssrc=5
+audio.rtp.send seq=7 timestamp=100 attempted_us=21000000 admitted_us=21001000 accepted=1
+audio.rtp.send.begin count=1 ssrc=6
+audio.rtp.send seq=7 timestamp=100 attempted_us=21002000 admitted_us=21003000 accepted=1
+audio.rtp.ingress.begin count=1 ssrc=6
+audio.rtp.ingress seq=7 timestamp=100 arrived_us=21053000 drained_us=21054000 payload_bytes=20
+audio.rtp.ingress.begin count=1 ssrc=5
+audio.rtp.ingress seq=7 timestamp=100 arrived_us=21201000 drained_us=21202000 payload_bytes=20'''
+        summary = dict(loopback_only=True, stand_start_monotonic_us=0,
+                       duration_seconds=60)
+        result = analyze(summary, rows.splitlines())
+        self.assertEqual(result['unmatched_payload_rows'], 0)
+        self.assertEqual([row['admitted_to_ingress']['max_ms']
+                          for row in result['phases']], [200., 50.])
+
     def test_window_uses_send_clock_and_joins_later_teardown_blocks(self):
         # A packet sent inside the window arrives after its upper boundary.
         # Receiver teardown may precede sender teardown in the diagnostic log.
@@ -95,7 +111,8 @@ audio.rtp.ingress seq=1 timestamp=1 arrived_us=24002000 drained_us=24003000 payl
         self.assertIsNone(analyze(summary, rows[:-1], 20, 23.5)['source_delivery'])
         other_stream = [line.replace('ssrc=5', 'ssrc=6') if 'ingress.begin' in line
                         else line for line in rows]
-        self.assertIsNone(analyze(summary, other_stream, 20, 23.5)['source_delivery'])
+        with self.assertRaisesRegex(ValueError, 'No matched payload'):
+            analyze(summary, other_stream, 20, 23.5)
 
         entirely_missing = rows[:4] + ['audio.rtp.ingress.begin count=0 limit=16 ssrc=5']
         result = analyze(summary, entirely_missing, 20, 23.5)
