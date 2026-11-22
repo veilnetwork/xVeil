@@ -2,8 +2,8 @@
 """Audit eventual video delivery in an owned same-host metadata capture.
 
 Keep every retransmission: the last retry must not replace the original send
-when deciding whether a packet belongs to shutdown. This is not a decoder
-quality, timely-delivery or network-loss measurement.
+when deciding whether a packet belongs to shutdown. Also record cases where
+the first ingress witness follows multiple accepted send attempts.
 """
 import argparse
 from collections import defaultdict
@@ -19,18 +19,20 @@ def audit(rows, start_us, duration_seconds, tail_seconds=3):
     end_us = start_us + duration_seconds * 1_000_000
     tail_us = end_us - tail_seconds * 1_000_000
     attempts = defaultdict(list)
-    received, delivered = set(), set()
+    received, delivered = {}, set()
     for row in rows:
         key = tuple(row[k] for k in ('ssrc', 'seq', 'timestamp', 'payload'))
         if row['stage'] == 's':
             attempts[key].append(row)
         elif row['stage'] == 'r':
-            received.add(key)
+            at = row['at_us']
+            received[key] = min(received.get(key, at), at)
         elif row['stage'] == 'd':
             delivered.add(key)
         else:
             raise ValueError('Unknown native RTP stage')
     missing = []
+    ingress_after_retry = []
     successful = set()
     for key, copies in attempts.items():
         accepted = sorted((r for r in copies if r['result'] == 0),
@@ -38,9 +40,19 @@ def audit(rows, start_us, duration_seconds, tail_seconds=3):
         if not accepted:
             continue
         successful.add(key)
-        if key in received:
-            continue
         first = accepted[0]['at_us']
+        if key in received:
+            first_ingress = received[key]
+            sends_before_ingress = sum(r['at_us'] < first_ingress for r in accepted)
+            if (start_us <= first < tail_us and first_ingress < end_us
+                    and sends_before_ingress > 1):
+                ingress_after_retry.append(dict(
+                    ssrc=key[0], sequence=key[1], timestamp=key[2], payload_bytes=key[3],
+                    first_accepted_seconds=(first-start_us)/1_000_000,
+                    first_ingress_seconds=(first_ingress-start_us)/1_000_000,
+                    first_to_ingress_ms=(first_ingress-first)/1000,
+                    accepted_attempts_before_ingress=sends_before_ingress))
+            continue
         scope = ('before_capture' if first < start_us else
                  'after_capture_end' if first >= end_us else
                  'tail_censored' if first >= tail_us else 'in_call')
@@ -54,14 +66,17 @@ def audit(rows, start_us, duration_seconds, tail_seconds=3):
                    for r in missing)
     return dict(successful_unique_packets=len(successful),
                 successful_not_observed_at_ingress=len(missing),
-                received_not_delivered=len(received-delivered),
+                received_not_delivered=len(received.keys()-delivered),
                 in_call_missing_payload=count('in_call', True),
                 in_call_missing_padding=count('in_call', False),
                 tail_seconds=tail_seconds,
                 missing=sorted(missing, key=lambda r: r['first_accepted_seconds']),
+                in_call_ingress_after_retry=sorted(
+                    ingress_after_retry, key=lambda r: r['first_accepted_seconds']),
                 limitations=[
                     'Requires explicitly asserted common monotonic host clock.',
                     'Ingress is eventual, not necessarily timely or decodable.',
+                    'Ingress after multiple attempts does not identify which copy arrived.',
                     'Tail and after-end packets are not evidence of in-call loss.',
                     'No missing native row by itself attributes a network or queue drop.',
                 ])

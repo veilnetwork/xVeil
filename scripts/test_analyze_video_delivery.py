@@ -39,6 +39,22 @@ class VideoDeliveryTest(unittest.TestCase):
         rows = [packet(), dict(packet('r'), timestamp=10), packet('r', payload=0)]
         self.assertEqual(audit(rows, 0, 10)['in_call_missing_payload'], 1)
 
+    def test_late_ingress_after_a_retry_is_visible_even_with_eventual_delivery(self):
+        rows = [packet(), packet(at_us=2_700_000),
+                packet('r', at_us=2_730_000), packet('r', at_us=2_750_000),
+                packet(seq=8), packet(seq=8, at_us=2_700_000),
+                packet('r', seq=8, at_us=1_100_000),
+                packet(seq=9, at_us=8_000_000), packet(seq=9, at_us=8_500_000),
+                packet('r', seq=9, at_us=8_600_000),
+                packet(seq=10), packet(seq=10, at_us=2_700_000, result=-1),
+                packet('r', seq=10, at_us=2_730_000)]
+        result = audit(rows, 0, 10)
+        self.assertEqual(result['in_call_missing_payload'], 0)
+        self.assertEqual(result['in_call_ingress_after_retry'], [dict(
+            ssrc=1, sequence=7, timestamp=9, payload_bytes=20,
+            first_accepted_seconds=1.0, first_ingress_seconds=2.73,
+            first_to_ingress_ms=1730.0, accepted_attempts_before_ingress=2)])
+
     def test_never_infer_cross_device_clock_alignment(self):
         with self.assertRaisesRegex(ValueError, 'clock'):
             analyze(None)
