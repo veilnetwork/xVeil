@@ -86,12 +86,26 @@ class _MessagingContacts {
     await _afterStatusSaved(peer, status);
   }
 
-  Future<bool> acceptOutgoingRequest(NodeId peer) async {
-    final accepted = await _withConsentWrite(
-      peer,
-      () => _owner._storage.acceptOutgoingContactRequest(peer),
-    );
-    if (!accepted) return false;
+  Future<bool> acceptOutgoingRequest(NodeId peer, Object requestEpoch) async {
+    final consent = _owner._realtimeControl;
+    bool isCurrent() => consent._consentCurrent(peer, requestEpoch);
+    if (!isCurrent()) return false;
+    bool? accepted;
+    try {
+      accepted = await _owner._storage.acceptOutgoingContactRequest(
+        peer,
+        isCurrent: isCurrent,
+      );
+    } finally {
+      // Preserve an in-progress local cancellation or a replacement request.
+      // Invalidate reads after a commit or an ambiguous write failure only
+      // while this acceptance still owns the observed relationship.
+      if (accepted != false &&
+          consent._consentRevisionCurrent(peer, requestEpoch)) {
+        consent.revoke(peer);
+      }
+    }
+    if (accepted != true) return false;
     _owner._signal();
     await _afterStatusSaved(peer, ContactStatus.accepted);
     return true;

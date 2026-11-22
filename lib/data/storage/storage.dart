@@ -191,9 +191,13 @@ abstract interface class Storage {
 
   /// Apply a peer's accept only to a still-pending local outgoing request,
   /// including a crossed incoming request. Check and write under the same
-  /// contact lock as local block/accept decisions.
+  /// contact lock as local block/accept decisions. [isCurrent] fences the
+  /// request observed by the caller through the final commit admission.
   /// False leaves the current decision and its durable floor unchanged.
-  Future<bool> acceptOutgoingContactRequest(NodeId peer);
+  Future<bool> acceptOutgoingContactRequest(
+    NodeId peer, {
+    bool Function()? isCurrent,
+  });
 
   /// Change a local relationship, preserving its current other fields.
   /// Accepted/blocked decisions queue device publication in the same commit.

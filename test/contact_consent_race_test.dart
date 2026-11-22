@@ -44,7 +44,10 @@ class _Held extends HiddenVolumeStorage {
   }
 
   @override
-  Future<bool> acceptOutgoingContactRequest(NodeId peer) async {
+  Future<bool> acceptOutgoingContactRequest(
+    NodeId peer, {
+    bool Function()? isCurrent,
+  }) async {
     if (holdRemoteAccept) {
       holdRemoteAccept = false;
       entered.complete();
@@ -53,7 +56,7 @@ class _Held extends HiddenVolumeStorage {
     if (holdInsideBlock && !remoteAcceptEntered.isCompleted) {
       remoteAcceptEntered.complete();
     }
-    return super.acceptOutgoingContactRequest(peer);
+    return super.acceptOutgoingContactRequest(peer, isCurrent: isCurrent);
   }
 
   @override
@@ -625,6 +628,85 @@ void main() {
         skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
       );
     }
+    test(
+      'an in-flight accept cannot complete a replacement request native=$native',
+      () async {
+        final f = await _fixture(native);
+        final s = f.storage, peer = id(2);
+        expect(
+          (await f.service.submitContactRequest(peer, 'original')).admitted,
+          isTrue,
+        );
+        s.holdRemoteAccept = true;
+        var declined = 0;
+        Future<void> deliverAccept(String frameId) => f.service.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: const WireEnvelope.accept().withFrameId(frameId).encode(),
+            provenance: SenderProvenance.signed,
+            onDeclined: (_) => declined++,
+          ),
+        );
+        final accepting = deliverAccept('original-accept');
+        await s.entered.future;
+        expect(await f.service.cancelRequest(peer), isTrue);
+        expect(
+          (await f.service.submitContactRequest(peer, 'replacement')).admitted,
+          isTrue,
+        );
+        final replacement = (await s.pendingOutboxFrames()).single.frameId;
+
+        s.release.complete();
+        await accepting;
+        expect(
+          (await s.getContact(peer))?.status,
+          ContactStatus.pendingOutgoing,
+        );
+        expect((await s.pendingOutboxFrames()).single.frameId, replacement);
+        expect((await s.loadMessages(peer.hex)).single.body, 'replacement');
+        expect(declined, 1);
+        expect(f.wire.sent.where((e) => e.kind == WireKind.ack), isEmpty);
+
+        await deliverAccept('replacement-accept');
+        expect((await s.getContact(peer))?.status, ContactStatus.accepted);
+        expect(declined, 1);
+        expect(
+          f.wire.sent.where((e) => e.kind == WireKind.ack).single.id,
+          'replacement-accept',
+        );
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
+    test(
+      'outgoing accept rechecks ownership after a read in the storage lane native=$native',
+      () async {
+        final f = await _fixture(native);
+        final s = f.storage, peer = id(2);
+        await s.prepareContactRequest(peer, incoming: false);
+        var current = true;
+        s.holdRead = true;
+        final write = s.acceptOutgoingContactRequest(
+          peer,
+          isCurrent: () => current,
+        );
+        await s.entered.future;
+        current = false;
+        s.release.complete();
+        expect(await write, isFalse);
+        expect(
+          (await s.getContact(peer))?.status,
+          ContactStatus.pendingOutgoing,
+        );
+        expect(await s.contactDecisionFloor(peer), isNull);
+
+        expect(await s.acceptOutgoingContactRequest(peer), isTrue);
+        expect(
+          (await s.contactDecisionFloor(peer))?.status,
+          ContactStatus.accepted,
+        );
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null,
+    );
     test(
       'incoming accept still ACKs a concurrently accepted request native=$native',
       () async {

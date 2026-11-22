@@ -594,7 +594,10 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
         if (existing?.hasOutgoingRequest == true) {
-          final changed = await _contacts.acceptOutgoingRequest(m.src);
+          final changed = await _contacts.acceptOutgoingRequest(
+            m.src,
+            consent.epoch,
+          );
           // A concurrent local/mirrored accept needs its receipt too. Ensure
           // the relationship is still accepted after durable queue cleanup.
           final epoch = await _realtimeControl._acceptedContactEpoch(m.src);
