@@ -15,6 +15,7 @@ void main() {
     int? peerSequence,
     int? targetPeer,
     int? targetLocal,
+    bool? peerGrowing,
     int? local = 100,
     int? age = 50,
     bool interrupted = false,
@@ -39,6 +40,7 @@ void main() {
     peerDelayMs: peer,
     peerCurrentDelayMs: currentPeer,
     peerSampleSequence: peerSequence,
+    peerBufferGrowing: peerGrowing,
     peerTargetDelayMs: targetPeer,
     receiveTargetDelayMs: targetLocal,
     receiveDelayMs: local,
@@ -136,6 +138,90 @@ void main() {
       expect(policy.measuredAudioPressure, isFalse);
       expect(sample(policy, send: false, receive: false), isNull);
       expect(policy.measuredAudioPressure, isFalse);
+    },
+  );
+
+  test(
+    'filled measured reserves reopen the source trial after an interruption',
+    () {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      const stats = {...measured, 'rtt_ms': 420, 'audio_rtt_route_epoch': 0};
+      bool? observe(int sequence, {bool interrupted = false, DateTime? at}) =>
+          sample(
+            policy,
+            peer: 520,
+            currentPeer: 520,
+            peerSequence: sequence,
+            peerGrowing: false,
+            targetPeer: 500,
+            local: 520,
+            targetLocal: 500,
+            interrupted: interrupted,
+            at: at,
+            nativeStats: stats,
+          );
+
+      expect(observe(10, interrupted: true), isTrue);
+      expect(observe(11), isTrue);
+      expect(observe(11), isTrue);
+      expect(
+        observe(11),
+        isTrue,
+        reason: 'one receiver report cannot confirm recovery',
+      );
+      expect(observe(14), isFalse);
+
+      expect(observe(15, interrupted: true), isTrue);
+      expect(observe(16), isTrue);
+      expect(observe(17, interrupted: true), isTrue);
+      expect(observe(18), isTrue);
+      expect(observe(19), isTrue);
+      expect(observe(20), isFalse);
+
+      expect(observe(21, interrupted: true), isTrue);
+      expect(observe(22), isTrue);
+      expect(observe(23), isTrue);
+      final resume = times[policy]!.add(const Duration(seconds: 9));
+      expect(observe(32, at: resume), isTrue);
+      expect(observe(33, at: resume), isTrue);
+      expect(observe(34), isTrue);
+      expect(observe(35), isFalse);
+    },
+  );
+
+  test(
+    'unfilled or unverified reserves cannot accelerate recovery after interruption',
+    () {
+      const stats = {...measured, 'rtt_ms': 420, 'audio_rtt_route_epoch': 0};
+      for (final missing in [
+        'direction',
+        'route',
+        'feedback',
+        'local reserve',
+      ]) {
+        final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+        expect(sample(policy, interrupted: true, nativeStats: stats), isTrue);
+        for (var sequence = 1; sequence <= 5; sequence++) {
+          expect(
+            sample(
+              policy,
+              send: missing != 'direction',
+              peer: 520,
+              currentPeer: 520,
+              peerSequence: sequence,
+              peerGrowing: missing == 'feedback' ? null : false,
+              targetPeer: 500,
+              local: missing == 'local reserve' ? 100 : 520,
+              targetLocal: 500,
+              nativeStats: missing == 'route'
+                  ? {...stats, 'audio_rtt_route_epoch': sequence}
+                  : stats,
+            ),
+            isTrue,
+            reason: missing,
+          );
+        }
+      }
     },
   );
 

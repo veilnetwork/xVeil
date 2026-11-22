@@ -18,6 +18,9 @@ class CallAudioSourcePressure {
   bool _pressured = true;
   int _healthy = 0;
   int _measuredHealthy = 0;
+  int _filledReserveSamples = 0;
+  int? _filledReservePeerBaseline;
+  DateTime? _lastFilledReserveSample;
   bool _hardRecoveryRequired = false;
   int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
@@ -197,9 +200,9 @@ class CallAudioSourcePressure {
       sampledAt: sampledAt,
     );
     final routeEpoch = nativeStats?['audio_rtt_route_epoch'];
-    if (routeEpoch is int &&
-        routeEpoch >= 0 &&
-        routeEpoch != _audioRouteEpoch) {
+    final hasRouteEpoch = routeEpoch is int && routeEpoch >= 0;
+    final routeChanged = hasRouteEpoch && routeEpoch != _audioRouteEpoch;
+    if (routeChanged) {
       _networkAudioLoss.reset();
       _audioRouteEpoch = routeEpoch;
     }
@@ -303,6 +306,47 @@ class CallAudioSourcePressure {
         }
       }
     }
+    // Once both receivers have filled their measured jitter reserves, an old
+    // underrun no longer warrants renewing source pressure for twelve ticks.
+    // Require continuous local measurements and a second authenticated peer
+    // snapshot on the same route. The transport still admits only its bounded
+    // trial and ramps DATA gradually after the last pressure lease expires.
+    final filledReserve =
+        _hardRecoveryRequired &&
+        singlePeerPlayout &&
+        peerNeeded &&
+        receiveExpected &&
+        good &&
+        fullyMeasured &&
+        !shortHold &&
+        sampledAt != null &&
+        hasRouteEpoch &&
+        !routeChanged &&
+        rttMs is num &&
+        rttMs > 0 &&
+        rttMs < CallBitrateAdapter.severeRttMs &&
+        peerCredit > 0 &&
+        receiveCredit > 0 &&
+        peerBufferGrowing == false &&
+        peerSampleSequence != null &&
+        peerSampleSequence > 0;
+    if (filledReserve) {
+      final previous = _lastFilledReserveSample;
+      if (previous != null &&
+          (!sampledAt.isAfter(previous) ||
+              sampledAt.difference(previous) >
+                  CallAudioBufferWindow.sampleLifetime)) {
+        _filledReserveSamples = 0;
+        _filledReservePeerBaseline = null;
+      }
+      _filledReserveSamples++;
+      _filledReservePeerBaseline ??= peerSampleSequence;
+      _lastFilledReserveSample = sampledAt;
+    } else {
+      _filledReserveSamples = 0;
+      _filledReservePeerBaseline = null;
+      _lastFilledReserveSample = null;
+    }
     if (bad) {
       _hardRecoveryRequired |= hardBad;
       _recoverySamples = CallBitrateAdapter.recoverAfter;
@@ -331,11 +375,14 @@ class CallAudioSourcePressure {
       // Starting or recovering from a measured short soft impairment need
       // not advertise another twelve seconds of congestion after audio is
       // healthy. Earn a bounded source trial from three complete observations;
-      // packet loss, interruptions and real buffer pressure retain the full
-      // recovery. The node still owns its gradual DATA ramp and flight limits.
+      // hard failures retain the full recovery unless the resumed receivers
+      // independently confirm the measured adaptive reserves above.
       final measuredRecovery =
-          !_hardRecoveryRequired &&
-          _measuredHealthy >= CallBitrateAdapter.probeResumeAfter;
+          (!_hardRecoveryRequired &&
+              _measuredHealthy >= CallBitrateAdapter.probeResumeAfter) ||
+          (filledReserve &&
+              _filledReserveSamples >= CallBitrateAdapter.probeResumeAfter &&
+              peerSampleSequence > _filledReservePeerBaseline!);
       if ((_healthy >= _recoverySamples || measuredRecovery) && !shortHold) {
         _pressured = false;
         _hardRecoveryRequired = false;
@@ -363,6 +410,9 @@ class CallAudioSourcePressure {
     _pressured = true;
     _healthy = 0;
     _measuredHealthy = 0;
+    _filledReserveSamples = 0;
+    _filledReservePeerBaseline = null;
+    _lastFilledReserveSample = null;
     _hardRecoveryRequired = false;
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
