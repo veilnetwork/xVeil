@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
@@ -95,6 +96,8 @@ class _Harness {
   /// Peers the injected punch adapter was invoked for (ladder-order proof).
   final List<Uint8List> punchCalls = [];
   final List<String> joined = [];
+  Future<void> Function(String uri)? joinHandler;
+  Future<bool> Function()? admissionHandler;
   DateTime now = DateTime.utc(2026, 7, 18, 12);
 
   /// Contacts the boot-time announce should reach.
@@ -137,13 +140,16 @@ class _Harness {
     messagingAllowsP2P: (_) async => messagingAllows,
     joinEndpoint: (uri) async {
       joined.add(uri);
+      await joinHandler?.call(uri);
       registeredTransportPeers.add(BootstrapInvite.parse(uri).nodeId.hex);
       if (admitOnJoin) admitted = true;
     },
     pnetStatus: (peer) async {
       admissionReads++;
       return (
-        admitted: admitted || admittedDevices.contains(NodeId(peer).hex),
+        admitted:
+            await admissionHandler?.call() ??
+            (admitted || admittedDevices.contains(NodeId(peer).hex)),
         hasCert: false,
       );
     },
@@ -538,6 +544,113 @@ void main() {
     h.messaging.onP2PEndpoints!(peer, frame(100, '192.168.1.10'));
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(h.svc.knownEndpoints(peer).single, contains('192.168.1.20'));
+  });
+
+  for (final allowed in [true, false]) {
+    test('new endpoints during a pending join (consent=$allowed)', () {
+      fakeAsync((time) {
+        final h = _Harness();
+        final original = _inviteUri(3, host: '192.0.2.9');
+        final abandoned = _inviteUri(3, host: '192.0.2.10');
+        final intermediate = _inviteUri(3, host: '192.0.2.20');
+        final replacement = _inviteUri(3, host: '192.0.2.30');
+        final pending = Completer<void>();
+        h.joinHandler = (uri) async {
+          if (uri == original) await pending.future;
+          if (uri == replacement) h.admitted = true;
+        };
+        void offer(int stamp, List<String> uris) {
+          h.messaging.onP2PEndpoints!(
+            _peer(3),
+            jsonEncode({'v': 1, 'ts': stamp, 'e': uris}),
+          );
+          time.flushMicrotasks();
+        }
+
+        offer(1, [original, abandoned]);
+        expect(h.joined, [original]);
+        offer(2, [intermediate]);
+        offer(3, [replacement]);
+        expect(h.svc.knownEndpoints(_peer(3)), [replacement]);
+        expect(h.joined, [original], reason: 'registrations stay serialized');
+        h.allows = allowed;
+        pending.complete();
+        time.flushMicrotasks();
+        expect(h.joined, [original, if (allowed) replacement]);
+        time.elapse(const Duration(seconds: 2));
+        expect(h.joined, [original, if (allowed) replacement]);
+        h.svc.dispose();
+      });
+    });
+  }
+
+  for (final changedAddress in [true, false]) {
+    test(
+      'admission polling on an endpoint reshare (changed=$changedAddress)',
+      () {
+        fakeAsync((time) {
+          final h = _Harness();
+          final peer = _peer(3);
+          final original = _inviteUri(3, host: '192.0.2.9');
+          final replacement = _inviteUri(3, host: '192.0.2.30');
+          h.joinHandler = (uri) async {
+            if (uri == replacement) h.admitted = true;
+          };
+          void offer(int stamp, String uri) {
+            h.messaging.onP2PEndpoints!(
+              peer,
+              jsonEncode({
+                'v': 1,
+                'ts': stamp,
+                'e': [uri],
+              }),
+            );
+            time.flushMicrotasks();
+          }
+
+          offer(1, original);
+          expect(h.joined, [original]);
+          offer(2, changedAddress ? replacement : original);
+          expect(h.joined, [original, if (changedAddress) replacement]);
+          time.elapse(const Duration(seconds: 2));
+          expect(h.joined, [original, if (changedAddress) replacement]);
+          h.svc.dispose();
+        });
+      },
+    );
+  }
+
+  test('a new address retires a pending admission read', () {
+    fakeAsync((time) {
+      final h = _Harness();
+      final peer = _peer(3);
+      final original = _inviteUri(3, host: '192.0.2.9');
+      final replacement = _inviteUri(3, host: '192.0.2.30');
+      final pending = Completer<bool>();
+      void offer(int stamp, String uri) {
+        h.messaging.onP2PEndpoints!(
+          peer,
+          jsonEncode({
+            'v': 1,
+            'ts': stamp,
+            'e': [uri],
+          }),
+        );
+        time.flushMicrotasks();
+      }
+
+      offer(1, original);
+      h.admissionHandler = () => pending.future;
+      time.elapse(const Duration(milliseconds: 400));
+      expect(h.admissionReads, 2, reason: 'the old admission poll started');
+      h.admissionHandler = null;
+      offer(2, replacement);
+      expect(h.joined, [original, replacement]);
+      pending.complete(true); // A stale positive must not own the new dial.
+      time.flushMicrotasks();
+      expect(h.joined, [original, replacement]);
+      h.svc.dispose();
+    });
   });
 
   test('ensureReady is true immediately on an admitted session', () async {

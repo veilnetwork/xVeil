@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_ffi.dart' show VeilHolePunchStatus;
 
@@ -207,8 +208,15 @@ class P2PEndpointService {
   /// ladder, this paces one admission lookup.
   final Map<String, DateTime> _lastRouteCheckAt = {};
 
-  /// Per-peer in-flight dial guard.
-  final Set<String> _dialing = {};
+  /// Per-peer dial ownership and notification of a changed address list.
+  final Map<String, Completer<void>> _dialing = {};
+
+  void _rememberPeerEndpoints(String key, List<String> uris) {
+    if (listEquals(_peerEndpoints[key], uris)) return;
+    _peerEndpoints[key] = List.unmodifiable(uris);
+    final active = _dialing[key];
+    if (active != null && !active.isCompleted) active.complete();
+  }
 
   /// Re-decide which of [peer]'s devices to address, off the hot path.
   ///
@@ -829,7 +837,7 @@ class P2PEndpointService {
             return;
           }
           _peerEndpointTs[peer.hex] = ts;
-          _peerEndpoints[peer.hex] = uris;
+          _rememberPeerEndpoints(peer.hex, uris);
           // ALSO under the device that declared it, when one did.
           //
           // The identity slot above is kept byte-for-byte: it is what every
@@ -872,7 +880,7 @@ class P2PEndpointService {
             final prevDeviceTs = _peerEndpointTs[device.hex] ?? 0;
             if (ts > prevDeviceTs) {
               _peerEndpointTs[device.hex] = ts;
-              _peerEndpoints[device.hex] = uris;
+              _rememberPeerEndpoints(device.hex, uris);
               (_contactDevices[peer.hex] ??= {})[device.hex] = device;
               devLog(
                 () =>
@@ -996,7 +1004,7 @@ class P2PEndpointService {
             continue;
           }
           _peerEndpointTs[device.hex] = ts;
-          _peerEndpoints[device.hex] = List.unmodifiable(group);
+          _rememberPeerEndpoints(device.hex, group);
           devLog(
             () =>
                 'xVeil[p2p]: peer ${device.short} shared ${group.length} '
@@ -1042,60 +1050,90 @@ class P2PEndpointService {
   Future<void> _dialPeer(NodeId peer, {NodeId? presentsIdentity}) async {
     if (_disposed) return;
     final key = peer.hex;
-    final uris = _peerEndpoints[key];
-    if (uris == null || uris.isEmpty) return;
-    if (!_dialing.add(key)) return;
-    // A SIBLING MINTS UNDER THE IDENTITY'S KEY, not under its own.
-    //
-    // Every device of one identity publishes the identity's public key, so a
-    // candidate for my own device presents that key and not the device id it
-    // is filed under. Pinning the dialed peer alone therefore refused every
-    // one of them — the address was learned and never used.
-    //
-    // Widened for MY OWN DEVICES ONLY, and only to MY OWN identity key: a
-    // candidate naming any third party still dies exactly as before, which is
-    // the whole point of the pin.
-    NodeId? alsoAccepts = presentsIdentity;
-    if (alsoAccepts == null && await _isOwnDevice(peer)) {
-      try {
-        alsoAccepts = _myIdentity().nodeId;
-      } catch (_) {
-        alsoAccepts = null;
-      }
+    if ((_peerEndpoints[key]?.isEmpty ?? true) || _dialing.containsKey(key)) {
+      return;
     }
+    var changed = _dialing[key] = Completer<void>();
     try {
-      for (final uri in uris) {
-        if (_disposed) return;
-        if (await _admitted(peer)) return;
-        NodeId target = peer;
+      // A sibling's invite can present our shared identity key even though
+      // the address is stored under the sibling's device ID.
+      NodeId? alsoAccepts = presentsIdentity;
+      if (alsoAccepts == null && await _isOwnDevice(peer)) {
         try {
-          final presented = BootstrapInvite.parse(uri).nodeId;
-          if (_messaging.identityOfDevice(presented) == peer) {
-            target = presented;
-          }
+          alsoAccepts = _myIdentity().nodeId;
         } catch (_) {
-          // The existing invite pin below reports malformed candidates.
+          alsoAccepts = null;
         }
-        if (!_invitePresents(uri, target, alsoAccepts: alsoAccepts)) continue;
-        if (target != peer && await _admitted(target)) return;
-        try {
-          await _joinEndpoint(uri);
-        } catch (e) {
-          devLog(() => 'xVeil[p2p]: join failed for ${peer.short}: $e');
-          continue;
-        }
-        // Give this candidate a moment to hand-shake before the next one
-        // overwrites the stored transport (repeat joins refresh + re-dial).
-        for (var i = 0; i < 4; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 400));
-          if (await _admitted(target)) {
-            devLog(() => 'xVeil[p2p]: direct session up with ${peer.short}');
+      }
+      while (!_disposed) {
+        if (changed.isCompleted) {
+          // Coalesce updates that arrive while waiting for consent. Keep the
+          // lane until the old join responds, as joins overwrite the daemon's
+          // stored address for this peer.
+          if (!await _localAllowsP2P(presentsIdentity ?? peer) || _disposed) {
             return;
           }
+          changed = _dialing[key] = Completer<void>();
         }
+        await _dialEndpointBatch(
+          peer,
+          _peerEndpoints[key]!,
+          alsoAccepts: alsoAccepts,
+          changed: changed,
+        );
+        if (!changed.isCompleted) return;
       }
     } finally {
       _dialing.remove(key);
+    }
+  }
+
+  Future<void> _dialEndpointBatch(
+    NodeId peer,
+    List<String> uris, {
+    required NodeId? alsoAccepts,
+    required Completer<void> changed,
+  }) async {
+    bool current() => !_disposed && !changed.isCompleted;
+    final superseded = changed.future.then((_) => false);
+    Future<bool> admitted(NodeId device) =>
+        Future.any([_admitted(device), superseded]);
+
+    for (final uri in uris) {
+      if (!current()) break;
+      if (await admitted(peer)) return;
+      if (!current()) break;
+      NodeId target = peer;
+      try {
+        final presented = BootstrapInvite.parse(uri).nodeId;
+        if (_messaging.identityOfDevice(presented) == peer) {
+          target = presented;
+        }
+      } catch (_) {
+        // The invite pin below reports malformed candidates.
+      }
+      if (!_invitePresents(uri, target, alsoAccepts: alsoAccepts)) continue;
+      if (target != peer && await admitted(target)) return;
+      if (!current()) break;
+      try {
+        await _joinEndpoint(uri);
+      } catch (e) {
+        devLog(() => 'xVeil[p2p]: join failed for ${peer.short}: $e');
+        continue;
+      }
+      // Leave time for the session to come up before trying another address.
+      // A changed list retires this poll, so the fresh address can join now.
+      for (var i = 0; i < 4 && current(); i++) {
+        await Future.any([
+          Future<void>.delayed(const Duration(milliseconds: 400)),
+          changed.future,
+        ]);
+        if (!current()) break;
+        if (await admitted(target) && current()) {
+          devLog(() => 'xVeil[p2p]: direct session up with ${peer.short}');
+          return;
+        }
+      }
     }
   }
 
