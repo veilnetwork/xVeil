@@ -8077,6 +8077,79 @@ void main() {
       });
     }
 
+    for (final (admitted, overlapping) in [
+      (true, false),
+      (false, false),
+      (true, true),
+      (false, true),
+    ]) {
+      test('admission after a completed discovery miss '
+          '(admitted=$admitted, overlapping=$overlapping)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final admissions = StreamController<void>(sync: true);
+          final staleRead = Completer<bool>();
+          final device = NodeId.fromHex('b' * 64);
+          var probes = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async {
+              probes++;
+              return false;
+            },
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const id = 'admission-after-discovery-miss';
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            fake.onCallSignal!(peer, ready(id));
+            async.flushMicrotasks();
+            final previousProbes = probes;
+            expect(previousProbes, greaterThan(1));
+            expect(media.admissionChecks, isEmpty);
+            expect(media.switches, isEmpty);
+            expect(svc.current?.transport, CallTransportKind.relay);
+
+            if (overlapping) {
+              media.requiredAdmissionGate = staleRead;
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.admissionChecks, [device]);
+              media.requiredAdmissionGate = null;
+            }
+            media.directPeerAdmitted = admitted;
+            admissions.add(null);
+            if (overlapping) {
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.admissionChecks, [device]);
+              expect(media.switches, isEmpty);
+              staleRead.complete(false);
+            }
+            async.flushMicrotasks();
+            expect(media.admissionChecks, [device, if (overlapping) device]);
+            expect(media.switches, [if (admitted) CallTransportKind.p2p]);
+            expect(svc.current?.callId, id);
+            expect(
+              svc.current?.transport,
+              admitted ? CallTransportKind.p2p : CallTransportKind.relay,
+            );
+            expect(probes, previousProbes);
+          } finally {
+            if (!staleRead.isCompleted) staleRead.complete(false);
+            svc.dispose();
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final admission in <bool?>[true, false, null]) {
       test('relay recovery reuses current device admission=$admission', () {
         fakeAsync((async) {

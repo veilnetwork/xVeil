@@ -321,6 +321,8 @@ abstract class CallMediaController {
 
 enum _PeerRelayWake { available, requested, used }
 
+enum _LateP2PCheck { discover, reuseAdmission, admissionOnly }
+
 enum _RelayRetryTrigger { overlay, timer, closedDirect }
 
 /// The call-session state machine (control plane). One active call at a time.
@@ -798,7 +800,9 @@ class CallService {
   /// Heartbeats repeat readiness until the peer confirms its active direct
   /// route, so one lost signal cannot strand one side. Older peers omit that
   /// confirmation and keep the existing retry behavior.
-  Future<void> _checkLateP2P({bool reuseCurrentAdmission = false}) async {
+  Future<void> _checkLateP2P([
+    _LateP2PCheck check = _LateP2PCheck.discover,
+  ]) async {
     final c = _current;
     final media = _media;
     if (c == null ||
@@ -811,6 +815,7 @@ class CallService {
         _relayRebuildAdmission != null ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
         media.isRepairingReceiveSession ||
+        (!_lateP2PLocalReady && _lateP2PAttempted) ||
         (c.transport == CallTransportKind.p2p && _lateP2PPeerActive) ||
         (c.transport != CallTransportKind.relay &&
             !_lateP2PLocalReady &&
@@ -866,8 +871,7 @@ class CallService {
           !_lateP2PConsent) {
         return;
       }
-      if (!_lateP2PLocalReady) {
-        if (_lateP2PAttempted) return;
+      if (!_lateP2PLocalReady && check != _LateP2PCheck.admissionOnly) {
         Future<bool> readDirectAdmission() async {
           try {
             return await media.currentDirectPeerAdmission(c) == true;
@@ -875,9 +879,11 @@ class CallService {
             return false;
           }
         }
+
         final lastAdmission = _relayConnectionGeneration;
         final alreadyAdmitted =
-            (_lateP2PNeedsDatedReadiness || reuseCurrentAdmission) &&
+            (_lateP2PNeedsDatedReadiness ||
+                check == _LateP2PCheck.reuseAdmission) &&
             await readOnCurrentNetwork(readDirectAdmission);
         if (!sameNetwork() || !_lateP2PConsent) return;
         // After a network handover the answering device can already have a
@@ -904,9 +910,17 @@ class CallService {
       }
       // Admission can disappear between heartbeats while we await the peer.
       // Withdraw local readiness before announcing or opening a stale route.
-      final admitted = await readOnCurrentNetwork(
-        () => media.isDirectPeerAdmitted(c),
-      );
+      Future<bool> readRequiredAdmission() => media.isDirectPeerAdmitted(c);
+      final beforeRequiredRead = _relayConnectionGeneration;
+      var admitted = await readOnCurrentNetwork(readRequiredAdmission);
+      if (!admitted &&
+          sameNetwork() &&
+          _lateP2PConsent &&
+          _hasCurrentRelayAdmissionSince(beforeRequiredRead)) {
+        // A negative snapshot can precede the registration even if its IPC
+        // response arrives later. Coalesce the intervening hints into one read.
+        admitted = await readOnCurrentNetwork(readRequiredAdmission);
+      }
       if (!sameNetwork()) return;
       admissionAtCheck = null;
       if (!admitted || !_lateP2PConsent) {
@@ -1004,7 +1018,13 @@ class CallService {
             networkVersion != _networkObservationVersion &&
             _hasCurrentRelayAdmissionSince(admission) &&
             _current?.transport == CallTransportKind.relay) {
-          unawaited(_checkLateP2P(reuseCurrentAdmission: true));
+          unawaited(
+            _checkLateP2P(
+              check == _LateP2PCheck.admissionOnly
+                  ? check
+                  : _LateP2PCheck.reuseAdmission,
+            ),
+          );
         }
       }
     }
@@ -2498,7 +2518,15 @@ class CallService {
       devLog(() => 'xVeil[call-media]: $description');
       _wakeDeferredRelay(call.peer, call.callId);
       _announceHandoverHealth();
-      _onLateP2PAdmission?.call();
+      final onAdmission = _onLateP2PAdmission;
+      if (onAdmission != null) {
+        onAdmission();
+      } else if (call.transport == CallTransportKind.relay) {
+        // Discovery can finish before the direct registration arrives. Let
+        // the event check the device even with no discovery in flight, but
+        // don't start another identity lookup for an unrelated registration.
+        unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
+      }
     }
   }
 
