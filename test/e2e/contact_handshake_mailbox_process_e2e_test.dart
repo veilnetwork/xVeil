@@ -1,6 +1,7 @@
 @Timeout(Duration(minutes: 12))
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -205,7 +206,13 @@ void main() {
           'anonymity.rendezvous_recipient.published_immediate',
         );
       }, what: 'the requester publishes its built-in live relay set');
-      await requester.checked('/contact_request', query: {'peer': answererId});
+      final invite = (await answerer.checked('/device_invite'))['contactInvite'];
+      expect(invite, isA<String>());
+      final submission = await requester.checked(
+        '/contact_request',
+        body: jsonEncode({'invite': invite}),
+      );
+      expect(submission['submission'], isIn(['queued', 'deposited']));
       await waitUntil(
         () async =>
             await base.contactStatus(answerer, requesterId) ==

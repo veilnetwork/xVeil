@@ -179,6 +179,7 @@ const Set<String> kSecretQueryParams = {
   'pass',
   'secret',
   'token',
+  'invite',
 };
 
 /// Whether a query parameter's value is a secret, case-insensitively.
@@ -281,6 +282,42 @@ Map<String, Object?> folderSyncAddHookAnswer({
         if (refusal.path != null) 'path': refusal.path,
         if (refusal.detail != null) 'detail': refusal.detail,
       };
+
+/// Submit a request using the same contact invite and Outbox admission as the
+/// app. A bare peer ID still supports fixtures that already warmed discovery.
+@visibleForTesting
+Future<Map<String, Object?>> contactRequestHookAnswer({
+  required Map<String, String> params,
+  required Future<void> Function(BootstrapInvite) addContact,
+  required Future<ContactRequestSubmission> Function(NodeId, String) submit,
+}) async {
+  final peerHex = params['peer'];
+  final inviteText = params['invite'];
+  if (peerHex == null && inviteText == null) {
+    return {'ok': false, 'error': 'peer or invite required'};
+  }
+  final BootstrapInvite? invite;
+  final NodeId peer;
+  try {
+    invite = inviteText == null ? null : BootstrapInvite.parse(inviteText);
+    peer = peerHex == null ? invite!.nodeId : NodeId.fromHex(peerHex);
+  } catch (error) {
+    if (error is! FormatException && error is! ArgumentError) rethrow;
+    return {'ok': false, 'error': 'invalid peer or invite'};
+  }
+  if (invite != null) {
+    if (peer != invite.nodeId) {
+      return {'ok': false, 'error': 'peer does not match invite'};
+    }
+    await addContact(invite);
+  }
+  final outcome = await submit(peer, params['text'] ?? 'hello');
+  return {
+    'ok': outcome.admitted,
+    'submission': outcome.name,
+    'deposited': outcome == ContactRequestSubmission.deposited,
+  };
+}
 
 /// What one purge run managed to do (report17 XV17-L6).
 ///
@@ -5073,20 +5110,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// drives, so a three-instance stand can form a contact without a camera.
   Future<void> _contactRequestHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
-    final q = req.uri.queryParameters;
-    final peerHex = q['peer'];
-    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
-    final NodeId peer;
+    final messaging = ref.read(messagingServiceProvider);
+    final stack = ref.read(realStackProvider);
     try {
-      peer = NodeId.fromHex(peerHex);
-    } catch (e) {
-      return _json(req, {'ok': false, 'error': '$e'}, status: 400);
-    }
-    try {
-      await ref
-          .read(messagingServiceProvider)
-          .sendRequest(peer, q['text'] ?? 'hello');
-      return _json(req, {'ok': true});
+      final params = await _mergedParams(req);
+      return _json(
+        req,
+        await contactRequestHookAnswer(
+          params: params,
+          addContact: (invite) async {
+            if (stack == null) throw StateError('node unavailable');
+            await stack.addContact(invite);
+          },
+          submit: (peer, greeting) {
+            if (!mounted ||
+                !identical(ref.read(messagingServiceProvider), messaging)) {
+              return Future.value(ContactRequestSubmission.refused);
+            }
+            return messaging.submitContactRequest(peer, greeting);
+          },
+        ),
+      );
     } catch (e) {
       return _json(req, {'ok': false, 'error': '$e'});
     }

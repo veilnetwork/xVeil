@@ -102,6 +102,14 @@ void main() {
           isNot(contains('deadbeef')));
     });
 
+    test('invitation addresses never reach the request log', () {
+      const address = 'tcp://198.51.100.42:7070';
+      final uri = Uri(path: '/contact_request', queryParameters: {
+        'invite': 'veil:bootstrap?t=$address',
+      });
+      expect(redactSecrets(uri), '/contact_request?invite=REDACTED');
+    });
+
     test('a partial key is not good enough', () {
       // Whole-value replacement, not a prefix trim: half a key in a log is
       // still half a key.
