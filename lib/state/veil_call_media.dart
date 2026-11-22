@@ -2348,7 +2348,7 @@ class VeilCallMediaController implements CallMediaController {
                     kCallAudioPlayoutFeedbackMinVersion &&
                 !_microphoneState.muted,
           );
-          if (engine.supportsVideoSendPause) {
+          void applyVideoPause() {
             final paused = adapter.applyPendingPause(
               (paused) => _setVideoSendPausedForAudio(engine, paused),
             );
@@ -2360,6 +2360,10 @@ class VeilCallMediaController implements CallMediaController {
               );
             }
           }
+          if (engine.supportsVideoSendPause && adapter.audioReserve) {
+            applyVideoPause();
+          }
+          var budgetAccepted = true;
           if (_diagnosticVideoTarget == null) {
             final ok = adapter.applyPendingTarget(
               (target) => engine.setVideoBitrate(
@@ -2367,6 +2371,7 @@ class VeilCallMediaController implements CallMediaController {
                 maxFps: target.maxFps,
               ),
             );
+            budgetAccepted = ok != false;
             if (ok != null) {
               final target = adapter.targetForStart;
               devLog(
@@ -2376,6 +2381,11 @@ class VeilCallMediaController implements CallMediaController {
                     '${target.maxFps}fps ok=$ok',
               );
             }
+          }
+          if (engine.supportsVideoSendPause &&
+              !adapter.audioReserve &&
+              budgetAccepted) {
+            applyVideoPause();
           }
           // Out of rungs on a link that is still failing. Until now this state
           // produced nothing at all — `onSample` returns null both for "held

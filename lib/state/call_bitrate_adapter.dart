@@ -492,6 +492,15 @@ class CallBitrateAdapter {
   bool? applyPendingPause(bool Function(bool paused) apply) {
     final desired = audioReserve;
     if (_appliedPause == desired) return null;
+    // A late pause may have left the encoder at the sparse fallback. Keep
+    // the gate closed until the worker accepts a usable recovery budget.
+    final appliedTarget = _appliedTarget;
+    if (!desired &&
+        _appliedPause == true &&
+        appliedTarget != null &&
+        appliedTarget.maxFps < 1) {
+      return null;
+    }
     if (!apply(desired)) return false;
     _appliedPause = desired;
     return true;

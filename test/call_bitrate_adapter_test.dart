@@ -205,6 +205,37 @@ void main() {
     },
   );
 
+  test('video stays paused until the worker accepts a usable recovery budget', () {
+    final a = direct(level: 4);
+    apply(a);
+    final floor = a.acknowledgedTarget;
+    poor(a, 2);
+    expect(a.applyPendingPause((_) => false), isFalse);
+    expect(a.applyPendingTarget((_) => true), isTrue);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 1, maxFps: 0.02));
+    expect(a.applyPendingPause((_) => true), isTrue);
+    expect(a.applyPendingTarget((_) => false), isFalse);
+
+    good(a, CallBitrateAdapter.recoverAfter);
+    expect(a.audioReserve, isFalse);
+    final pauseCommands = <bool>[];
+    bool applyPause(bool paused) {
+      pauseCommands.add(paused);
+      return true;
+    }
+
+    expect(a.applyPendingPause(applyPause), isNull);
+    expect(a.acknowledgedPause, isTrue);
+    expect(a.applyPendingTarget((_) => false), isFalse);
+    expect(a.applyPendingPause(applyPause), isNull);
+    expect(pauseCommands, isEmpty);
+    expect(a.applyPendingTarget((_) => true), isTrue);
+    expect(a.acknowledgedTarget, floor);
+    expect(a.applyPendingPause(applyPause), isTrue);
+    expect(pauseCommands, [false]);
+    expect(a.acknowledgedPause, isFalse);
+  });
+
   test('isolated short holds cannot starve acknowledged video recovery', () {
     final a = CallBitrateAdapter(
       baseBitrateKbps: 150,
