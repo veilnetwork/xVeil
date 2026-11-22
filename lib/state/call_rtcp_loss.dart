@@ -1,3 +1,5 @@
+import 'call_audio_transient_loss.dart';
+
 /// Consumes endpoint-local loss witnesses from authenticated RTCP reports.
 /// Native code expires witnesses; a healthy report never renews a loss time.
 class CallRtcpLoss {
@@ -9,9 +11,12 @@ class CallRtcpLoss {
 
   int _audioHighWater = 0;
   int _videoHighWater = 0;
+  int _mutedAudioThroughUs = 0;
+  bool _audioWasExpected = true;
 
-  ({bool audio, bool video}) observe({
+  ({bool audio, bool video, bool? repeatedAudio}) observe({
     Object? audioReportUs,
+    Object? previousAudioReportUs,
     Object? videoReportUs,
     required bool audioExpected,
     required bool videoExpected,
@@ -23,11 +28,32 @@ class CallRtcpLoss {
     // Consume reports while a source is off, too; resume is not another loss.
     if (audio) _audioHighWater = audioReportUs;
     if (video) _videoHighWater = videoReportUs;
-    return (audio: audio && audioExpected, video: video && videoExpected);
+    if (!audioExpected) _mutedAudioThroughUs = _audioHighWater;
+    // The native pair can catch reports received between polls. A zero
+    // predecessor means this route has only one report. Missing legacy
+    // telemetry leaves repetition detection to the caller's poll history.
+    final repeatedAudio =
+        previousAudioReportUs is int && previousAudioReportUs >= 0
+        ? audio &&
+              audioExpected &&
+              _audioWasExpected &&
+              previousAudioReportUs > _mutedAudioThroughUs &&
+              previousAudioReportUs < audioReportUs &&
+              audioReportUs - previousAudioReportUs <=
+                  CallAudioTransientLoss.repeatWindow.inMicroseconds
+        : null;
+    _audioWasExpected = audioExpected;
+    return (
+      audio: audio && audioExpected,
+      video: video && videoExpected,
+      repeatedAudio: repeatedAudio,
+    );
   }
 
   void reset() {
     _audioHighWater = 0;
     _videoHighWater = 0;
+    _mutedAudioThroughUs = 0;
+    _audioWasExpected = true;
   }
 }

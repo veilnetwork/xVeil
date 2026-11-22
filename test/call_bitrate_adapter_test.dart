@@ -1023,6 +1023,20 @@ void main() {
     }
   });
 
+  test('two mild loss reports between polls still reduce video', () {
+    final a = direct();
+    final stats = {
+      ...healthy(),
+      'audio_loss_report_us': 5000000,
+      'audio_previous_loss_report_us': 4500000,
+      'audio_loss_report_fraction': 1,
+    };
+    native(a, stats: stats, currentPeerDelay: 60, peerSequence: 1);
+    expect(a.level, 2);
+    native(a, stats: stats, currentPeerDelay: 60, peerSequence: 2);
+    expect(a.level, 2, reason: 'the cached pair cannot cut again');
+  });
+
   test('fresh RTCP loss protects the floor with an older peer', () {
     final a = direct();
     for (var i = 1; i <= 4; i++) {

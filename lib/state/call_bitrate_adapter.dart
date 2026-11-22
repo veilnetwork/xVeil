@@ -846,6 +846,7 @@ class CallBitrateAdapter {
     );
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
+      previousAudioReportUs: stats['audio_previous_loss_report_us'],
       videoReportUs: stats.containsKey('video_persistent_loss_report_us')
           ? stats['video_persistent_loss_report_us']
           : stats['video_loss_report_us'],
@@ -1108,6 +1109,7 @@ class CallBitrateAdapter {
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
+      nativeRepeatedAudioLoss: networkLoss.repeatedAudio,
       smallAudioNetworkLoss: CallRtcpLoss.isSmallAudioLoss(
         stats['audio_loss_report_fraction'],
       ),
@@ -1221,6 +1223,7 @@ class CallBitrateAdapter {
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
     bool smallAudioNetworkLoss = false,
+    bool? nativeRepeatedAudioLoss,
     bool audioConcealmentObserved = false,
     bool audioReceiveConcealmentObserved = false,
     bool? audioSendSoftLossSignificant,
@@ -1454,10 +1457,11 @@ class CallBitrateAdapter {
               audioReceiveSoftLossSignificant == true),
       sampledAt: sampledAt,
     );
-    final repeatedNetworkLoss = _networkAudioLoss.observe(
+    final repeatFromPolls = _networkAudioLoss.observe(
       audioNetworkLossObserved && sendAudioExpected,
       sampledAt: sampledAt,
     );
+    final repeatedNetworkLoss = nativeRepeatedAudioLoss ?? repeatFromPolls;
     final receiveGood =
         !requireAudioReceive ||
         (audioReceiveAgeMs != null &&

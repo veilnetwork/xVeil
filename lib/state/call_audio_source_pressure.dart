@@ -70,13 +70,13 @@ class CallAudioSourcePressure {
     bool? peerRecoveryObserved,
     Map<String, dynamic>? nativeStats,
   }) {
-    final networkLoss = _rtcpLoss
-        .observe(
-          audioReportUs: audioLossReportUs,
-          audioExpected: sendExpected,
-          videoExpected: false,
-        )
-        .audio;
+    final rtcpLoss = _rtcpLoss.observe(
+      audioReportUs: audioLossReportUs,
+      previousAudioReportUs: nativeStats?['audio_previous_loss_report_us'],
+      audioExpected: sendExpected,
+      videoExpected: false,
+    );
+    final networkLoss = rtcpLoss.audio;
     final peerRecovered = _peerRecoveryLoss
         .observe(
           audioReportUs: peerAudioRecoveryReportUs,
@@ -203,10 +203,11 @@ class CallAudioSourcePressure {
       _networkAudioLoss.reset();
       _audioRouteEpoch = routeEpoch;
     }
-    final repeatedNetworkLoss = _networkAudioLoss.observe(
+    final repeatFromPolls = _networkAudioLoss.observe(
       singlePeerPlayout && networkLoss,
       sampledAt: sampledAt,
     );
+    final repeatedNetworkLoss = rtcpLoss.repeatedAudio ?? repeatFromPolls;
     final hardPlayoutFailure =
         newDrop ||
         interrupted ||
@@ -248,7 +249,9 @@ class CallAudioSourcePressure {
         singlePeerPlayout &&
         networkLoss &&
         !repeatedNetworkLoss &&
-        CallRtcpLoss.isSmallAudioLoss(nativeStats?['audio_loss_report_fraction']) &&
+        CallRtcpLoss.isSmallAudioLoss(
+          nativeStats?['audio_loss_report_fraction'],
+        ) &&
         rttMs is num &&
         rttMs > 0 &&
         rttMs < CallBitrateAdapter.severeRttMs &&

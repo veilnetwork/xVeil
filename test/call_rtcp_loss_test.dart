@@ -4,13 +4,17 @@ import 'package:xveil/state/call_rtcp_loss.dart';
 void main() {
   test('each fresh loss witness is consumed once per media lane', () {
     final loss = CallRtcpLoss();
-    ({bool audio, bool video}) sample(Object? audio, Object? video) =>
-        loss.observe(
-          audioReportUs: audio,
-          videoReportUs: video,
-          audioExpected: true,
-          videoExpected: true,
-        );
+    ({bool audio, bool video}) sample(Object? audio, Object? video) {
+      final observed = loss.observe(
+        audioReportUs: audio,
+        videoReportUs: video,
+        audioExpected: true,
+        videoExpected: true,
+      );
+      expect(observed.repeatedAudio, isNull);
+      return (audio: observed.audio, video: observed.video);
+    }
+
     expect(sample(null, null), (audio: false, video: false));
     expect(sample(100, 0), (audio: true, video: false));
     expect(sample(100, 200), (audio: false, video: true));
@@ -37,7 +41,7 @@ void main() {
         audioExpected: false,
         videoExpected: false,
       ),
-      (audio: false, video: false),
+      (audio: false, video: false, repeatedAudio: null),
     );
     expect(
       loss.observe(
@@ -46,7 +50,7 @@ void main() {
         audioExpected: true,
         videoExpected: true,
       ),
-      (audio: false, video: false),
+      (audio: false, video: false, repeatedAudio: null),
     );
     expect(
       loss.observe(
@@ -55,7 +59,44 @@ void main() {
         audioExpected: true,
         videoExpected: true,
       ),
-      (audio: true, video: true),
+      (audio: true, video: true, repeatedAudio: null),
     );
+  });
+
+  test('report arrivals distinguish repeated loss from adjacent polls', () {
+    final loss = CallRtcpLoss();
+    bool? repeated(int latest, int previous) => loss
+        .observe(
+          audioReportUs: latest,
+          previousAudioReportUs: previous,
+          audioExpected: true,
+          videoExpected: false,
+        )
+        .repeatedAudio;
+
+    expect(repeated(1000000, 0), isFalse);
+    expect(repeated(7000001, 1000000), isFalse);
+    expect(repeated(13000001, 7000001), isTrue);
+    expect(repeated(13000001, 7000001), isFalse);
+    expect(repeated(13400000, 13000001), isTrue);
+    expect(repeated(13900000, 0), isFalse); // First report on a new route.
+  });
+
+  test('native repetition does not span a mute', () {
+    final loss = CallRtcpLoss();
+    bool? repeated(int latest, int previous, {bool sending = true}) => loss
+        .observe(
+          audioReportUs: latest,
+          previousAudioReportUs: previous,
+          audioExpected: sending,
+          videoExpected: false,
+        )
+        .repeatedAudio;
+
+    expect(repeated(100, 0), isFalse);
+    expect(repeated(200, 100, sending: false), isFalse);
+    expect(repeated(200, 100), isFalse);
+    expect(repeated(300, 200), isFalse);
+    expect(repeated(400, 300), isTrue);
   });
 }

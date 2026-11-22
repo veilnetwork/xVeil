@@ -324,6 +324,27 @@ void main() {
     expect(policy.growthHoldStartedAt, isNull);
   });
 
+  test('two mild RTCP reports seen in one sample protect source credit', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    recover(policy);
+    expect(
+      sample(
+        policy,
+        currentPeer: 100,
+        peerSequence: 1,
+        lossReportUs: 5000000,
+        nativeStats: {
+          ...measured,
+          'rtt_ms': 80,
+          'audio_previous_loss_report_us': 4500000,
+          'audio_loss_report_fraction': 1,
+        },
+      ),
+      isTrue,
+    );
+    expect(policy.measuredAudioPressure, isTrue);
+  });
+
   test('peer concealment yields sources once, including mute/resume', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
