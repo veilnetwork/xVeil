@@ -9214,6 +9214,176 @@ void main() {
       });
     });
 
+    for (final wake in ['native admission', 'dated peer readiness']) {
+      test('verified direct route can return early after relay ($wake)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+          final admissions = StreamController<void>(sync: true);
+          final device = NodeId.fromHex('b' * 64);
+          var discoveries = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async {
+              discoveries++;
+              return true;
+            },
+            overlaySessionAdmissions: admissions.stream,
+          )..start();
+          const id = 'early-direct-after-relay';
+          void peerReady() {
+            fake.onCallSignal!(
+              peer,
+              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+          }
+
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            unawaited(svc.requestRelayRecoveryForDiagnostics());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            final priorDiscoveries = discoveries;
+            async.elapse(const Duration(seconds: 1));
+            if (wake == 'native admission') {
+              media.directPeerAdmitted = false;
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.admissionChecks, [device]);
+              expect(svc.current?.transport, CallTransportKind.relay);
+              media.directPeerAdmitted = true;
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.admissionChecks, [device, device]);
+              expect(media.switches, [CallTransportKind.relay]);
+            }
+            peerReady();
+            expect(media.admissionChecks, isNotEmpty);
+            expect(media.admissionChecks.last, device);
+            expect(discoveries, priorDiscoveries);
+            expect(media.switches, [
+              CallTransportKind.relay,
+              CallTransportKind.p2p,
+            ]);
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            expect(svc.current?.callId, id);
+
+            // A rapid second fallback keeps the ordinary cooldown.
+            async.elapse(const Duration(milliseconds: 1));
+            unawaited(svc.requestRelayRecoveryForDiagnostics());
+            async.flushMicrotasks();
+            final reads = media.admissionChecks.length;
+            async.elapse(const Duration(milliseconds: 1));
+            admissions.add(null);
+            peerReady();
+            expect(media.admissionChecks, hasLength(reads));
+            expect(media.switches, [
+              CallTransportKind.relay,
+              CallTransportKind.p2p,
+              CallTransportKind.relay,
+            ]);
+          } finally {
+            svc.dispose();
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
+    test('admission during relay opening is checked after relay settles', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _GatedRelaySwitchMedia()
+          ..openedTransport = CallTransportKind.p2p;
+        final admissions = StreamController<void>(sync: true);
+        final device = NodeId.fromHex('b' * 64);
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+          overlaySessionAdmissions: admissions.stream,
+        )..start();
+        const id = 'relay-open-direct-admission';
+        try {
+          offer(fake, id, device: device);
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          unawaited(svc.requestRelayRecoveryForDiagnostics());
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.relay]);
+          admissions.add(null);
+          async.flushMicrotasks();
+          expect(media.admissionChecks, isEmpty);
+          media.relayGate.complete(true);
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(media.admissionChecks, [device]);
+          expect(media.switches, [CallTransportKind.relay]);
+        } finally {
+          svc.dispose();
+          unawaited(admissions.close());
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test('scheduled retry survives an early read that spans the deadline', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        const id = 'early-read-spans-retry';
+        try {
+          offer(fake, id);
+          unawaited(svc.accept());
+          async.flushMicrotasks();
+          async.elapse(const Duration(milliseconds: 250));
+          unawaited(svc.requestRelayRecoveryForDiagnostics());
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 1));
+          final held = media.requiredAdmissionGate = Completer<bool>();
+          fake.onCallSignal!(
+            peer,
+            ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+          );
+          async.flushMicrotasks();
+          expect(media.admissionChecks, [peer]);
+          media.rxAt = clock.now();
+          async.elapse(kCallP2PCandidateRetry - const Duration(seconds: 1));
+          expect(media.switches, [CallTransportKind.relay]);
+          media.requiredAdmissionGate = null;
+          held.complete(false);
+          async.flushMicrotasks();
+          expect(media.admissionChecks, [peer, peer]);
+          expect(media.switches, [
+            CallTransportKind.relay,
+            CallTransportKind.p2p,
+          ]);
+          expect(svc.current?.transport, CallTransportKind.p2p);
+        } finally {
+          svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     for (final trigger in ['relay fallback', 'failed direct probe', 'hangup']) {
       test('direct retry observes its own deadline after $trigger', () {
         fakeAsync((async) {
@@ -9224,12 +9394,14 @@ void main() {
                 ? CallTransportKind.p2p
                 : CallTransportKind.relay
             ..failed = fromFallback;
+          final admissions = StreamController<void>(sync: true);
           final svc = CallService(
             fake,
             media: media,
             now: () => clock.now(),
             localAllowsP2P: (_) async => true,
             peerReachableForP2P: (_) async => true,
+            overlaySessionAdmissions: admissions.stream,
           )..start();
           const callId = 'direct-retry-deadline';
           void peerReady() {
@@ -9256,7 +9428,12 @@ void main() {
               fromFallback ? CallTransportKind.relay : CallTransportKind.p2p,
             ]);
             async.elapse(const Duration(seconds: 1));
+            if (fromFallback) media.directPeerAdmitted = false;
             peerReady();
+            final reads = media.admissionChecks.length;
+            admissions.add(null);
+            async.flushMicrotasks();
+            if (!fromFallback) expect(media.admissionChecks, hasLength(reads));
             const beforeDeadline = Duration(milliseconds: 1);
             media.rxAt = clock.now();
             async.elapse(
@@ -9264,6 +9441,7 @@ void main() {
             );
             expect(svc.current?.transport, CallTransportKind.relay);
             expect(media.switches, hasLength(1), reason: 'no early retry');
+            media.directPeerAdmitted = true;
             if (trigger == 'hangup') {
               unawaited(svc.hangup());
               async.flushMicrotasks();
@@ -9287,6 +9465,7 @@ void main() {
             expect(svc.current?.transport, CallTransportKind.p2p);
           } finally {
             svc.dispose();
+            unawaited(admissions.close());
             async.flushMicrotasks();
           }
         });

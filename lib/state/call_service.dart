@@ -640,8 +640,9 @@ class CallService {
   int _lastPeerRouteHealthAtMs = 0;
   bool _lateP2PAttempted = false;
   bool _lateP2PBusy = false;
-  DateTime? _lateP2PRetryAt;
+  ({DateTime at, bool allowAdmissionWake})? _lateP2PRetry;
   Timer? _lateP2PRetryTimer;
+  DateTime? _lastEarlyDirectTrialAt;
   DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
   Object? _pendingDirectReadiness;
@@ -664,13 +665,14 @@ class CallService {
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
     _onLateP2PAdmission = null;
-    _lateP2PRetryAt = null;
+    _lateP2PRetry = null;
     _lateP2PRetryTimer?.cancel();
     _lateP2PRetryTimer = null;
+    _lastEarlyDirectTrialAt = null;
     _lateP2PActivatedAt = null;
   }
 
-  void _rearmP2PAfterRelay() {
+  void _rearmP2PAfterRelay({required bool allowAdmissionWake}) {
     _lateP2PGeneration++;
     _lateP2PLocalReady = false;
     _lateP2PPeerReady = false;
@@ -680,7 +682,7 @@ class CallService {
     _lateP2PBusy = false;
     _pendingDirectReadiness = null;
     _onLateP2PAdmission = null;
-    _scheduleLateP2PRetry();
+    _scheduleLateP2PRetry(allowAdmissionWake: allowAdmissionWake);
     // Keep the direct activation time until relay actually commits. A failed
     // relay candidate can leave direct live; fresh peer relay health must still
     // be able to request a later fallback. _set clears the time on relay commit.
@@ -701,8 +703,18 @@ class CallService {
     }
   }
 
-  void _scheduleLateP2PRetry() {
-    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+  void _scheduleLateP2PRetry({bool allowAdmissionWake = false}) {
+    final now = _now();
+    final lastEarlyTrial = _lastEarlyDirectTrialAt;
+    _lateP2PRetry = (
+      at: now.add(kCallP2PCandidateRetry),
+      // After a rejected candidate or a quick second fallback, keep the
+      // ordinary retry window even when more admissions arrive.
+      allowAdmissionWake:
+          allowAdmissionWake &&
+          (lastEarlyTrial == null ||
+              now.difference(lastEarlyTrial) >= kCallP2PCandidateRetry),
+    );
     _lateP2PRetryTimer?.cancel();
     // Readiness received during the cooldown can already satisfy the peer
     // side. Check at expiration even when the next heartbeat is still far off.
@@ -806,6 +818,8 @@ class CallService {
   ]) async {
     final c = _current;
     final media = _media;
+    final retry = _lateP2PRetry;
+    final early = retry != null && _now().isBefore(retry.at);
     if (c == null ||
         media == null ||
         _networkOffline ||
@@ -815,7 +829,9 @@ class CallService {
         _relayHandoverProbeEpoch == _mediaOperationEpoch ||
         _relayFallbackFlight != null ||
         _relayRebuildAdmission != null ||
-        (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
+        (early &&
+            (!retry.allowAdmissionWake ||
+                check != _LateP2PCheck.admissionOnly)) ||
         media.isRepairingReceiveSession ||
         (!_lateP2PLocalReady && _lateP2PAttempted) ||
         (c.transport == CallTransportKind.p2p && _lateP2PPeerActive) ||
@@ -829,14 +845,17 @@ class CallService {
     var epoch = _mediaOperationEpoch;
     int? admissionAtCheck;
     _lateP2PBusy = true;
-    // An ordinary wake at the same deadline can take the retry first.
-    _lateP2PRetryTimer?.cancel();
-    _lateP2PRetryTimer = null;
+    // Keep scheduled discovery if an early read finds no direct session.
+    if (!early) {
+      _lateP2PRetryTimer?.cancel();
+      _lateP2PRetryTimer = null;
+    }
     bool stillCurrent() =>
         generation == _lateP2PGeneration &&
         epoch == _mediaOperationEpoch &&
         _current?.callId == c.callId &&
         _current?.peer == c.peer &&
+        _current?.peerDevice == c.peerDevice &&
         _current?.status == CallStatus.active;
     // A native network notification and the resulting attachment event can
     // straddle admission. Keep their validity separate from call ownership,
@@ -943,6 +962,10 @@ class CallService {
         return;
       }
       _lateP2PAttempted = true;
+      if (early && _now().isBefore(retry.at)) {
+        _lastEarlyDirectTrialAt = _now();
+        devLog(() => 'xVeil[call-media]: checking direct before retry deadline');
+      }
       epoch = ++_mediaOperationEpoch;
       final ok = await media.switchRoute(
         CallTransportKind.p2p,
@@ -961,7 +984,9 @@ class CallService {
       if (!stillCurrent()) return;
       final cur = _current!;
       if (ok && media.activeTransport == CallTransportKind.p2p) {
-        _lateP2PRetryAt = null;
+        _lateP2PRetry = null;
+        _lateP2PRetryTimer?.cancel();
+        _lateP2PRetryTimer = null;
         _directSessionUnavailable = false;
         _set(cur.copyWith(transport: CallTransportKind.p2p));
         devLog(
@@ -1015,7 +1040,14 @@ class CallService {
       if (generation == _lateP2PGeneration) {
         _lateP2PBusy = false;
         final admission = admissionAtCheck;
-        if (admission != null &&
+        if (early &&
+            retry == _lateP2PRetry &&
+            !_now().isBefore(retry.at) &&
+            stillCurrent() &&
+            _current?.transport == CallTransportKind.relay) {
+          // The deadline can ring while an early device read is outstanding.
+          unawaited(_checkLateP2P());
+        } else if (admission != null &&
             stillCurrent() &&
             networkVersion != _networkObservationVersion &&
             _hasCurrentRelayAdmissionSince(admission) &&
@@ -2103,7 +2135,16 @@ class CallService {
           // Each announcement used to provoke another announcement from its
           // peer, even after both routes were active. Heartbeats already repeat
           // readiness for lost signals; only the first transition needs a reply.
-          if (firstReadiness) unawaited(_checkLateP2P());
+          if (firstReadiness) {
+            final retry = _lateP2PRetry;
+            unawaited(
+              _checkLateP2P(
+                retry != null && _now().isBefore(retry.at)
+                    ? _LateP2PCheck.admissionOnly
+                    : _LateP2PCheck.discover,
+              ),
+            );
+          }
           break;
         }
         final c = _current;
@@ -2373,9 +2414,12 @@ class CallService {
         actual == CallTransportKind.relay &&
         cur.localPosture == CallPosture.direct &&
         cur.peerPosture == CallPosture.direct) {
-      _rearmP2PAfterRelay();
+      _rearmP2PAfterRelay(allowAdmissionWake: true);
       _set(cur.copyWith(transport: CallTransportKind.relay));
       _announceCallRoute(cur, CallTransportKind.relay);
+      if (_hasCurrentRelayAdmissionSince(connections)) {
+        unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
+      }
       return;
     }
     if (!repaired && actual == null) {
@@ -2783,6 +2827,10 @@ class CallService {
               _peerDirectLossWake == _PeerRelayWake.requested) {
             _wakeDeferredRelay(peer, callId);
           }
+          if (_current?.transport == CallTransportKind.relay &&
+              _hasCurrentRelayAdmissionSince(connections)) {
+            unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
+          }
         }
       },
     );
@@ -2813,7 +2861,7 @@ class CallService {
         !before.isLive) {
       return;
     }
-    _rearmP2PAfterRelay();
+    _rearmP2PAfterRelay(allowAdmissionWake: false);
     // Supersede an in-flight P2P start. Its eventual failure belongs to the
     // abandoned route and must not tear down the relay session opened below.
     final epoch = ++_mediaOperationEpoch;
@@ -2895,7 +2943,7 @@ class CallService {
     if (cur == null) return;
     if (ok && media.activeTransport == CallTransportKind.relay) {
       _cancelRelayCandidateRetry();
-      _rearmP2PAfterRelay();
+      _rearmP2PAfterRelay(allowAdmissionWake: true);
       final settled = cur.copyWith(
         transport: CallTransportKind.relay,
         status: cur.status == CallStatus.connecting
