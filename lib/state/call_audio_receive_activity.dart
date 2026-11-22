@@ -103,7 +103,14 @@ class CallAudioReceiveActivity {
     final current = playoutFeedback(now);
     _expireFeedbackPeaks(now);
     final delay = current.delayMs;
-    if (delay == null) return current;
+    if (delay == null) {
+      if (_sampledAt == null) return current;
+      // The last native sample expired without a replacement. Withdraw it
+      // once with a new sequence, so the peer's replay guard accepts the
+      // unknown state and a delayed copy cannot restore the old measurement.
+      _sampledAt = null;
+      return CallAudioPlayoutFeedback(sequence: ++_sequence);
+    }
     var peak = delay;
     for (final sample in _feedbackPeaks) {
       if (sample.delay > peak) peak = sample.delay;

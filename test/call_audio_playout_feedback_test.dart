@@ -500,6 +500,81 @@ void main() {
     },
   );
 
+  for (final delay in [520, 720]) {
+    test('a heartbeat withdraws an expired $delay ms playout sample', () {
+      final rx = CallAudioReceiveActivity();
+      final peer = CallPeerAudioPlayout();
+      final adapter = CallBitrateAdapter(
+        baseBitrateKbps: 150,
+        baseFps: 15,
+        supportsLowRateVideo: true,
+      );
+      void forward(CallAudioPlayoutFeedback report, DateTime now) {
+        final wire = CallSignal(
+          callId: 'expired-playout',
+          type: CallSignalType.health,
+          audioPlayout: report,
+        ).encode();
+        peer.observe(CallSignal.tryDecode(wire)!.audioPlayout!, now);
+      }
+
+      void poll(DateTime now) => adapter.onNativeStats(
+        healthyNetwork,
+        sampledAt: now,
+        peerAudioDelayMs: peer.delayMs(now),
+        peerCurrentAudioDelayMs: peer.currentDelayMs(now),
+        peerTargetAudioDelayMs: peer.targetDelayMs(now),
+        peerAudioSampleSequence: peer.sampleSequence,
+        peerAudioBufferGrowing: peer.bufferGrowing(now),
+        requirePeerAudioPlayout: true,
+      );
+
+      rx.observe({
+        'audio_rx_pkts': 10,
+        'audio_rx_native_age_ms': 0,
+        'worker_stalled': 0,
+        'audio_delay_ms': delay,
+        'audio_jb_target_ms': 500,
+      }, start);
+      final measured = rx.outgoingPlayoutFeedback(start);
+      forward(measured, start);
+      expect(peer.currentDelayMs(start), delay);
+      expect(peer.targetDelayMs(start), 500);
+      poll(start);
+      expect(adapter.audioBufferPressure, delay == 720);
+
+      // No new native sample reached the application before its next beat.
+      final expired = start.add(const Duration(seconds: 5));
+      final unknown = rx.outgoingPlayoutFeedback(expired);
+      expect(unknown.delayMs, isNull);
+      forward(unknown, expired);
+      expect(peer.currentDelayMs(expired), isNull);
+      expect(unknown.sequence, greaterThan(measured.sequence));
+      poll(expired);
+      expect(adapter.audioBufferPressure, isFalse);
+
+      forward(measured, expired);
+      expect(peer.currentDelayMs(expired), isNull);
+      final repeated = rx.outgoingPlayoutFeedback(expired);
+      expect(repeated.sequence, unknown.sequence);
+      expect(repeated.delayMs, isNull);
+      // A clock correction alone cannot resurrect the withdrawn sample.
+      expect(rx.outgoingPlayoutFeedback(start).delayMs, isNull);
+
+      rx.observe({
+        'audio_rx_pkts': 11,
+        'audio_rx_native_age_ms': 0,
+        'worker_stalled': 0,
+        'audio_delay_ms': 520,
+        'audio_jb_target_ms': 500,
+      }, expired);
+      final next = rx.outgoingPlayoutFeedback(expired);
+      expect(next.sequence, greaterThan(unknown.sequence));
+      forward(next, expired);
+      expect(peer.currentDelayMs(expired), 520);
+    });
+  }
+
   test(
     'receive repair invalidates delay but never reuses a sample sequence',
     () {
