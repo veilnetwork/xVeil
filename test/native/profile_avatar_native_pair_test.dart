@@ -22,6 +22,7 @@ import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/managed_identity_catalog.dart';
 import 'package:xveil/data/storage/managed_identity_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
@@ -130,7 +131,13 @@ class _Peer {
   }
 
   Future<void> open({bool fresh = false}) async {
-    await root.create(recursive: true);
+    if (fresh && protection.hasPublicCatalogEntry) {
+      // Match the app's private profile creation, including explicit owner
+      // selection when the Windows shell defaults to the Administrators group.
+      expect(const ManagedFsPlatform().createPrivateDirectory(root.path), true);
+    } else {
+      await root.create(recursive: true);
+    }
     expect(
       storage,
       isNull,
@@ -741,10 +748,11 @@ void _registerPairTest({
             }
           }
         } finally {
-          // An inspector failure must also close the diagnostic file. Keep
-          // failed evidence, without leaking an open Windows file handle or
-          // redirecting the next test's log into this retired fixture.
+          // The override schedules an asynchronous close. Windows cannot
+          // delete the fixture until that close has completed.
+          await flushDevLogFile();
           devLogDirectoryOverride = oldLog;
+          await flushDevLogFile();
         }
         stderr.writeln(
           jsonEncode({
@@ -764,10 +772,10 @@ void _registerPairTest({
         );
         // Preserve failed-run evidence for the owning stand to collect. A
         // teardown error must not hide the original network/SDK failure.
-        if (completed && cleanupErrors.isEmpty) {
+        if (completed) {
+          expect(cleanupErrors, isEmpty);
           await root.delete(recursive: true);
         }
-        expect(cleanupErrors, isEmpty);
       }
     },
     skip: !enabled
