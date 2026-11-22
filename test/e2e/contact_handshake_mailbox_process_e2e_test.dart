@@ -17,7 +17,7 @@ void main() {
   test(
     'offline acceptance recovers after relay storage loss',
     () async {
-      final fleet = await ProcessFleet.start(gate, labels: ['A', 'C']);
+      final fleet = await ProcessFleet.start(gate);
       addTearDown(fleet.dispose);
       final requester = fleet.a, answerer = fleet.c;
       final requesterId =
@@ -57,6 +57,12 @@ void main() {
           );
         }, what: '${device.label} advertises a relay with a mailbox handler');
       }
+      await waitUntil(() async {
+        final log = await File(requester.logPath).readAsString();
+        return log.contains(
+          'anonymity.rendezvous_recipient.published_immediate',
+        );
+      }, what: 'the requester publishes its built-in live relay set');
       await requester.checked('/contact_request', query: {'peer': answererId});
       await waitUntil(
         () async =>
@@ -71,10 +77,10 @@ void main() {
       );
       E2eLog.line('MAILBOX_CONTACT_REQUEST_RECEIVED');
 
-      // A local publisher registration is asynchronous with respect to remote
-      // DHT visibility. Establish that this sender can resolve the intended
-      // mailbox before stopping the publisher.
-      final ipc = await Directory('${answerer.dir.path}/runtime')
+      // Wait for DHT replication from an independent client. The answerer's
+      // first deposit must find the signed mailbox ad after the requester
+      // stops, without a last-known route seeded by this readiness check.
+      final ipc = await Directory('${fleet.b.dir.path}/runtime')
           .list(recursive: true, followLinks: false)
           .where((entry) => entry.path.endsWith('/app.sock'))
           .single;
@@ -92,7 +98,7 @@ void main() {
                 NodeId(ad.relayNodeId).hex == mailboxId &&
                 ad.rendezvousKemPk.length == 32,
           );
-        }, what: 'the answerer resolves the requester’s mailbox advertisement');
+        }, what: 'a third client resolves the requester’s published mailbox');
       } finally {
         await client.close();
       }
