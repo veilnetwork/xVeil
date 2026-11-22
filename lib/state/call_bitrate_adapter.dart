@@ -825,6 +825,7 @@ class CallBitrateAdapter {
     Map<String, dynamic> stats, {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
+    bool filledJitterReserveConfirmed = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
@@ -1021,6 +1022,11 @@ class CallBitrateAdapter {
     final audioRoute = stats['audio_rtt_route_epoch'];
     bool measuredDelay(int? value) =>
         value != null && value >= 0 && value <= 60000;
+    final peerReportOnRoute =
+        !_videoTimingPeerRefreshRequired ||
+        (_videoTimingPeerBaseline != null &&
+            peerAudioSampleSequence != null &&
+            peerAudioSampleSequence > _videoTimingPeerBaseline!);
     final videoTimingAvailable =
         supportsLowRateVideo &&
         sendAudioExpected &&
@@ -1048,9 +1054,7 @@ class CallBitrateAdapter {
         peerCurrentAudioDelayMs! <= peerAudioDelayMs! &&
         peerAudioSampleSequence != null &&
         peerAudioSampleSequence > 0 &&
-        (!_videoTimingPeerRefreshRequired ||
-            (_videoTimingPeerBaseline != null &&
-                peerAudioSampleSequence > _videoTimingPeerBaseline!)) &&
+        peerReportOnRoute &&
         (!receiveRequested ||
             (requireAudioReceivePlayout &&
                 receive.expected &&
@@ -1083,6 +1087,8 @@ class CallBitrateAdapter {
     final outcome = onSample(
       sampledAt: sampledAt,
       sourceBudgetPressured: sourceBudgetPressured,
+      filledJitterReserveConfirmed:
+          filledJitterReserveConfirmed && peerReportOnRoute,
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -1236,6 +1242,7 @@ class CallBitrateAdapter {
   ({int maxBitrateKbps, double maxFps})? onSample({
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
+    bool filledJitterReserveConfirmed = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -1603,9 +1610,6 @@ class CallBitrateAdapter {
         (requirePeerAudioPlayout && peerAudioDelayMs == null);
     // Missing/stale reports cannot earn growth or declare buffer pressure.
     final playoutBad = bufferPressure;
-    final playoutGood =
-        !requirePeerAudioPlayout ||
-        (peerPressureDelay != null && peerPressureDelay < playoutRecoverMs);
     if (!feedbackAvailable &&
         !freshMediaLoss &&
         !newDrops &&
@@ -1659,7 +1663,7 @@ class CallBitrateAdapter {
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
-    final audioPlayoutHealthy =
+    final audioPlayoutReady =
         targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
@@ -1668,12 +1672,10 @@ class CallBitrateAdapter {
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
         !audioUnproven &&
-        playoutGood &&
         !audioInterrupted &&
-        receiveGood &&
-        (!requireAudioReceivePlayout ||
-            (receivePressureDelay != null &&
-                receivePressureDelay < playoutRecoverMs));
+        receiveGood;
+    final belowRecoveryDelay = playoutBelow(playoutRecoverMs);
+    final audioPlayoutHealthy = audioPlayoutReady && belowRecoveryDelay;
     final audioHealthyApartFromRtt = audioPlayoutHealthy && jitterGood;
     final audioWithinRecoveryLimits = audioHealthyApartFromRtt && rttGood;
     final recoveredAudio = audioWithinRecoveryLimits && !bufferGrowing;
@@ -1687,8 +1689,8 @@ class CallBitrateAdapter {
     // not prove an audio failure that needs another twelve healthy samples.
     // Every expected audio direction must have measured playout; legacy,
     // unknown, congested and idle producers retain the ordinary reset.
-    final measuredPlayoutPathHealthy =
-        audioPlayoutHealthy &&
+    final measuredPlayoutPathReady =
+        audioPlayoutReady &&
         usePlayout &&
         (!sendAudioExpected || requirePeerAudioPlayout) &&
         (!receiveAudioExpected || requireAudioReceivePlayout) &&
@@ -1698,6 +1700,8 @@ class CallBitrateAdapter {
         !sourceBudgetPressured &&
         videoSendExpected &&
         measuredVideoProgress;
+    final measuredPlayoutPathHealthy =
+        measuredPlayoutPathReady && belowRecoveryDelay;
     final measuredAudioPathHealthy = measuredPlayoutPathHealthy && jitterGood;
     final rttGrowthHold = measuredAudioPathHealthy && !rttGood && !rttBad;
     // A stable long path can cross 400 ms with healthy playout in both
@@ -1723,17 +1727,23 @@ class CallBitrateAdapter {
         (rttGrowthHold || relativeRttWarning) &&
         !transientGrowthHeld &&
         txLossPct == 0;
-    // The decoder has already compensated this arrival jitter. Do not
-    // grant ordinary ladder growth: only fresh causal video ACKs may spend
-    // the existing bounded probe, on a stable RTT route and with all expected
-    // audio directions measured. A deliberately muted/absent mic is not
-    // missing feedback. Legacy, partial and merely requested reserves do
-    // not qualify. Loss, growth, repair holds and source pressure still win.
+    // Transmit jitter and a confirmed filled playout reserve may coexist
+    // with stable audio. Allow only the existing bounded probe backed by
+    // fresh decoder ACKs. Loss, queue growth and source pressure still win.
+    final filledReserveProbe =
+        filledJitterReserveConfirmed &&
+        !belowRecoveryDelay &&
+        peerReserveCredit > 0 &&
+        receiveReserveCredit > 0 &&
+        peerAudioSampleSequence != null &&
+        peerAudioSampleSequence == _lastPeerSampleSequence;
     _deliveryJitterProbeEligible =
         _delivery.supported &&
-        measuredPlayoutPathHealthy &&
-        (peerReserveCredit > 0 || receiveReserveCredit > 0) &&
-        !jitterGood &&
+        measuredPlayoutPathReady &&
+        (filledReserveProbe ||
+            (belowRecoveryDelay &&
+                (peerReserveCredit > 0 || receiveReserveCredit > 0) &&
+                !jitterGood)) &&
         (rttGood || highBaselineRttWarning) &&
         !transientGrowthHeld &&
         txLossPct == 0;

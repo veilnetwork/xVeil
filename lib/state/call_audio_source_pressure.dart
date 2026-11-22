@@ -26,6 +26,11 @@ class CallAudioSourcePressure {
   int? _lastAudioDrops;
   bool? _measuredAudioPressure;
   DateTime? _growthHoldStartedAt;
+  bool _filledJitterReserveConfirmed = false;
+
+  /// Both receivers have a current stable reserve and source recovery has
+  /// finished. The video adapter still needs its own decoder acknowledgments.
+  bool get filledJitterReserveConfirmed => _filledJitterReserveConfirmed;
 
   /// Keep current admission, but earn no growth until this event's hold ends.
   /// Distinct from unknown measurements and from measured pressure.
@@ -432,6 +437,8 @@ class CallAudioSourcePressure {
     // A filled steady reserve can stop extending the old lease before the
     // second peer measurement arrives. The local video growth hold continues
     // and the node earns no fresh healthy credit until confirmation.
+    _filledJitterReserveConfirmed =
+        !_pressured && steadyReserve && good && !shortHold;
     if (waitingForReserveConfirmation) return null;
     return _pressured ? true : (good || measuredSmallTransient ? false : null);
   }
@@ -440,6 +447,7 @@ class CallAudioSourcePressure {
 
   void _reset({bool preserveReportWitnesses = false}) {
     _measuredAudioPressure = null;
+    _filledJitterReserveConfirmed = false;
     _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;

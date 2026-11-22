@@ -258,9 +258,13 @@ void main() {
       expect(observe(11), isTrue);
       expect(observe(11), isNull);
       expect(policy.waitingForReserveConfirmation, isTrue);
+      expect(policy.filledJitterReserveConfirmed, isFalse);
       expect(observe(12), isFalse);
       expect(policy.waitingForReserveConfirmation, isFalse);
+      expect(policy.filledJitterReserveConfirmed, isTrue);
       expect(observe(12), isFalse);
+      expect(observe(13, interrupted: true), isTrue);
+      expect(policy.filledJitterReserveConfirmed, isFalse);
     },
   );
 

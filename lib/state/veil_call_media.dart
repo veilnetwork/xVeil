@@ -2327,6 +2327,9 @@ class VeilCallMediaController implements CallMediaController {
                 _sourceFeedbackQueued > 0 &&
                 (sourcePressured == true ||
                     _sourcePressure.waitingForReserveConfirmation),
+            filledJitterReserveConfirmed:
+                _sourceFeedbackQueued > 0 &&
+                _sourcePressure.filledJitterReserveConfirmed,
             videoSendExpected:
                 _screenSharing ||
                 ((_activeCall?.media.video == true ||

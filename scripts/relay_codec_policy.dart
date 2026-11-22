@@ -158,6 +158,9 @@ Future<void> main() async {
       stats,
       sampledAt: now,
       sourceBudgetPressured: sourceBudgetPressured,
+      filledJitterReserveConfirmed:
+          req['sourceFeedbackQueued'] == true &&
+          sourcePressure[i].filledJitterReserveConfirmed,
       videoSendExpected: req['videoSendExpected'] == true,
       sendAudioExpected: true,
       requireAudioReceivePlayout: true,

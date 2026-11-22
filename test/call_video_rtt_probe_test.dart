@@ -31,6 +31,7 @@ void _sample(
   int audioLoss = 0,
   int audioDrops = 0,
   bool sourcePressure = false,
+  bool filledJitterReserveConfirmed = false,
   bool videoExpected = true,
   bool interrupted = false,
   bool workerStalled = false,
@@ -66,6 +67,7 @@ void _sample(
     },
     sampledAt: _epoch.add(Duration(seconds: n)),
     sourceBudgetPressured: sourcePressure,
+    filledJitterReserveConfirmed: filledJitterReserveConfirmed,
     videoSendExpected: videoExpected,
     requireAudioReceivePlayout: true,
     requirePeerAudioPlayout: true,
@@ -344,6 +346,89 @@ void main() {
     expect(a.acknowledgedTarget, (maxBitrateKbps: 48, maxFps: 3.125));
     _sample(a, 5);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 60, maxFps: 3.90625));
+  });
+
+  test('a confirmed filled jitter reserve permits bounded decoder probes', () {
+    final a = _started();
+    void observe(int n, {bool confirmed = true, int? decoderAt}) => _sample(
+      a,
+      n,
+      rtt: 100,
+      receiveDelay: 570,
+      peerDelay: 570,
+      receiveTarget: 450,
+      peerTarget: 450,
+      filledJitterReserveConfirmed: confirmed,
+      decoder: _decoder(decoderAt ?? n),
+    );
+
+    for (var n = 3; n <= 9; n++) {
+      observe(n, confirmed: false);
+    }
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 30, maxFps: 2.0));
+    observe(10);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
+    for (var n = 11; n <= 13; n++) {
+      observe(n, decoderAt: 10);
+      expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
+    }
+    observe(14);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 48, maxFps: 3.125));
+  });
+
+  test('filled reserve probes await a newer peer report after handover', () {
+    final a = _started();
+    void observe(int n, int epoch, int sequence, {bool confirmed = true}) =>
+        _sample(
+          a,
+          n,
+          rtt: 100,
+          receiveDelay: 570,
+          peerDelay: 570,
+          receiveTarget: 450,
+          peerTarget: 450,
+          peerSequence: sequence,
+          filledJitterReserveConfirmed: confirmed,
+          extra: {'audio_rtt_route_epoch': epoch},
+        );
+
+    for (var n = 3; n <= 9; n++) {
+      observe(n, 0, n, confirmed: false);
+    }
+    observe(10, 0, 10);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
+    observe(11, 1, 10);
+    observe(12, 1, 10);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
+    observe(13, 1, 11);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 48, maxFps: 3.125));
+  });
+
+  test('a filled reserve probe still yields to measured failures', () {
+    for (final failure in ['growing', 'loss', 'interruption', 'source hold']) {
+      final a = _started();
+      for (var n = 3; n <= 8; n++) {
+        _sample(
+          a,
+          n,
+          rtt: 100,
+          receiveDelay: 570,
+          peerDelay: 570,
+          receiveTarget: 450,
+          peerTarget: 450,
+          filledJitterReserveConfirmed: true,
+          peerGrowing: failure == 'growing',
+          loss: failure == 'loss' ? 1 : 0,
+          interrupted: failure == 'interruption',
+          sourcePressure: failure == 'source hold',
+        );
+        expect(
+          a.acknowledgedTarget!.maxFps,
+          lessThanOrEqualTo(2),
+          reason: failure,
+        );
+      }
+    }
   });
 
   test('a busy native worker cannot spend or bank a cautious probe', () {
