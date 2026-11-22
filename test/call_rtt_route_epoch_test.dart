@@ -13,6 +13,7 @@ void main() {
     int epoch,
     int rtt, {
     int lossUs = 0,
+    int lossPct = 0,
     bool send = true,
   }) {
     a.applyPendingTarget((_) => true);
@@ -30,7 +31,7 @@ void main() {
         'video_feedback_loss_pct': 0,
         'rtt_ms': rtt,
         'tx_jitter_ms': 5,
-        'tx_loss_pct': 0,
+        'tx_loss_pct': lossPct,
         'tx_drops': 0,
         'audio_tx_rtp_drops': 0,
         'video_tx_rtp_drops': 0,
@@ -113,13 +114,27 @@ void main() {
 
   test('route epoch preserves already consumed and new loss events', () {
     final a = adapter(level: 0);
-    sample(a, 0, 8, lossUs: 1000);
+    sample(a, 0, 8, lossUs: 1000, lossPct: 5);
     expect(a.level, 2);
-    sample(a, 1, 110, lossUs: 1000);
+    sample(a, 1, 110, lossUs: 1000, lossPct: 5);
     expect(a.level, 2);
-    sample(a, 1, 110, lossUs: 2000);
+    sample(a, 1, 110, lossUs: 2000, lossPct: 5);
     expect(a.level, 4);
   });
+
+  test(
+    'loss on the previous route does not confirm a small new-route loss',
+    () {
+      final a = adapter(level: 0);
+      sample(a, 0, 8, lossUs: 1000, lossPct: 1);
+      expect(a.level, 0);
+      sample(a, 1, 110);
+      sample(a, 1, 110, lossUs: 2000, lossPct: 1);
+      expect(a.level, 0);
+      sample(a, 1, 110, lossUs: 3000, lossPct: 1);
+      expect(a.level, 2);
+    },
+  );
 
   test('muted sender uses video RTT from the new route', () {
     final a = adapter();

@@ -970,6 +970,55 @@ void main() {
     native(a, stats: {...healthy(), 'audio_loss_report_us': 100});
     expect(a.audioReserve, isFalse);
   });
+  test('isolated low audio RTP loss holds video with healthy playout', () {
+    final a = direct();
+    void report(int witness, {int lossPct = 1}) => native(
+      a,
+      stats: {
+        ...healthy(),
+        'audio_loss_report_us': witness,
+        'tx_loss_pct': lossPct,
+      },
+      currentPeerDelay: 60,
+      peerSequence: witness,
+    );
+
+    report(1);
+    expect(a.level, 0);
+    report(1);
+    expect(a.level, 0, reason: 'a cached report is the same loss event');
+    for (var i = 0; i < 6; i++) {
+      report(1);
+    }
+    report(2);
+    expect(a.level, 0, reason: 'a distant loss starts a new observation');
+    report(3);
+    expect(a.level, 2, reason: 'repeated loss still cuts video');
+  });
+
+  test('measured audio damage still cuts video on the first RTP report', () {
+    for (final (lossPct, delay, interrupted) in [
+      (5, 60, false),
+      (1, 350, false),
+      (1, 60, true),
+    ]) {
+      final a = direct();
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_loss_report_us': 1,
+          'tx_loss_pct': lossPct,
+        },
+        peerDelay: delay,
+        currentPeerDelay: delay,
+        peerSequence: 1,
+        interrupted: interrupted,
+      );
+      expect(a.level, 2, reason: '$lossPct% / $delay ms / $interrupted');
+    }
+  });
+
   test('fresh RTCP loss protects the floor with an older peer', () {
     final a = direct();
     for (var i = 1; i <= 4; i++) {

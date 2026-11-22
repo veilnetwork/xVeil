@@ -1,8 +1,9 @@
-/// Debounces fresh concealment/catch-up witnesses at the endpoint.
+/// Debounces fresh audio impairment witnesses at the endpoint.
 /// Callers consume native report counters before passing an event here.
 class CallAudioTransientLoss {
   static const repeatWindow = Duration(seconds: 6);
   static const growthHold = Duration(seconds: 3);
+  static const isolatedNetworkLossMaxPct = 1;
   final List<DateTime> _events = [];
   DateTime? _lastAt;
   bool holdingGrowth = false;

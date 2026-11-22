@@ -227,6 +227,7 @@ class CallBitrateAdapter {
   final _softLoss = CallAudioSoftLoss();
   final _transientLoss = CallAudioTransientLoss();
   final _receiveTransientLoss = CallAudioTransientLoss();
+  final _networkAudioLoss = CallAudioTransientLoss();
   bool? _lastTransientSendExpected;
   bool? _lastTransientReceiveExpected;
   DateTime? _lastVideoCutAt;
@@ -552,6 +553,7 @@ class CallBitrateAdapter {
     _softLoss.reset();
     _transientLoss.reset();
     _receiveTransientLoss.reset();
+    _networkAudioLoss.reset();
     _lastTransientSendExpected = null;
     _lastTransientReceiveExpected = null;
     _lastVideoCutAt = null;
@@ -620,6 +622,7 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       _startupGoodStreak = 0;
       _resetAudioRecovery();
+      _networkAudioLoss.reset();
       if (previous != null || epoch > 0) _startupRecovery = false;
     }
     if (_videoTimingPeerRefreshRequired &&
@@ -1302,6 +1305,11 @@ class CallBitrateAdapter {
       audioReceiveDelayMs,
       receiveReserveCredit,
     );
+    bool playoutBelow(int limit) =>
+        (!requirePeerAudioPlayout ||
+            (peerPressureDelay != null && peerPressureDelay < limit)) &&
+        (!requireAudioReceivePlayout ||
+            (receivePressureDelay != null && receivePressureDelay < limit));
     final targetsRecovered =
         CallAudioPlayoutReserve.targetAllowsGrowth(
           receiveTarget,
@@ -1414,10 +1422,11 @@ class CallBitrateAdapter {
     _lastAudioTxDrops = audioTxDrops;
     // Concealment or completed catch-up at a recovered buffer can be a single
     // short impairment. Hold growth briefly; require another fresh event in
-    // the time window before cutting video. Actual interruption, RTP loss and
-    // growing/capped buffers retain their independent protection paths.
+    // the time window before cutting video. Actual interruption and growing
+    // or capped buffers retain their independent protection paths.
     if (_lastTransientSendExpected != sendAudioExpected) {
       _transientLoss.reset();
+      _networkAudioLoss.reset();
       _lastTransientSendExpected = sendAudioExpected;
     }
     final repeatedTransientLoss = _transientLoss.observe(
@@ -1441,20 +1450,61 @@ class CallBitrateAdapter {
               audioReceiveSoftLossSignificant == true),
       sampledAt: sampledAt,
     );
+    final repeatedNetworkLoss = _networkAudioLoss.observe(
+      audioNetworkLossObserved && sendAudioExpected,
+      sampledAt: sampledAt,
+    );
+    final receiveGood =
+        !requireAudioReceive ||
+        (audioReceiveAgeMs != null &&
+            audioReceiveAgeMs >= 0 &&
+            audioReceiveAgeMs < audioReceiveRecoverMs);
+    final bufferGrowing =
+        _receiveBuffer.growing == true || _peerBuffer.growing == true;
+    // A small RTCP loss report can describe a packet NetEq already covered.
+    // With measured playout in every active direction, hold growth on the
+    // first event and cut on repetition or independent audio damage.
+    final isolatedNetworkLoss =
+        audioNetworkLossObserved &&
+        sendAudioExpected &&
+        !repeatedNetworkLoss &&
+        !newAudioDrops &&
+        !audioInterrupted &&
+        feedbackAvailable &&
+        txLossPct >= 0 &&
+        txLossPct <= CallAudioTransientLoss.isolatedNetworkLossMaxPct &&
+        rttMs > 0 &&
+        rttMs < severeRttMs &&
+        requirePeerAudioPlayout &&
+        peerAudioTargetCoherent &&
+        hasCurrentPeerDelay &&
+        peerAudioSampleSequence != null &&
+        peerAudioSampleSequence > 0 &&
+        peerAudioSampleSequence == _lastPeerSampleSequence &&
+        (!receiveExpected ||
+            (requireAudioReceive && requireAudioReceivePlayout)) &&
+        receiveGood &&
+        targetsRecovered &&
+        !bufferPressure &&
+        !bufferGrowing &&
+        playoutBelow(playoutRecoverMs);
     final transientGrowthHeld =
-        _transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth;
+        _transientLoss.holdingGrowth ||
+        _receiveTransientLoss.holdingGrowth ||
+        _networkAudioLoss.holdingGrowth;
     final qualifiedSendLoss = audioSendSoftLossSignificant == null
         ? repeatedTransientLoss
         : sendAudioExpected && audioSendSoftLossSignificant;
     final qualifiedReceiveLoss =
         receiveExpected &&
         (audioReceiveSoftLossSignificant ?? repeatedReceiveLoss);
-    final freshAudioLoss =
+    final hardAudioLoss =
         newAudioDrops ||
         audioInterrupted ||
-        audioNetworkLossObserved ||
-        qualifiedSendLoss ||
-        qualifiedReceiveLoss;
+        (audioNetworkLossObserved && !isolatedNetworkLoss);
+    final significantAudioLoss =
+        hardAudioLoss || qualifiedSendLoss || qualifiedReceiveLoss;
+    final freshAudioLoss = significantAudioLoss || isolatedNetworkLoss;
     final freshMediaLoss =
         freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
     final lossSampleAt = sampledAt ?? DateTime.now();
@@ -1464,8 +1514,6 @@ class CallBitrateAdapter {
     final softCutReady =
         _lastVideoCutAt == null ||
         lossSampleAt.difference(_lastVideoCutAt!) >= softVideoTrial;
-    final hardAudioLoss =
-        newAudioDrops || audioInterrupted || audioNetworkLossObserved;
     // Pending RTP and receiver reports can still describe the larger source
     // while its acknowledged reduction drains. Those observations hold
     // growth, but must not halve the source on every stats poll. Measured
@@ -1482,6 +1530,7 @@ class CallBitrateAdapter {
       'video_rtp_drop': videoLossObserved,
       'audio_interruption': audioInterrupted,
       'audio_network_loss': audioNetworkLossObserved,
+      'audio_network_loss_isolated': isolatedNetworkLoss,
       'audio_peer_concealment': audioConcealmentObserved,
       'audio_local_concealment': audioReceiveConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
@@ -1505,11 +1554,6 @@ class CallBitrateAdapter {
         (requireAudioReceivePlayout &&
             receivePressureDelay != null &&
             receivePressureDelay >= playoutDegradeMs);
-    final receiveGood =
-        !requireAudioReceive ||
-        (audioReceiveAgeMs != null &&
-            audioReceiveAgeMs >= 0 &&
-            audioReceiveAgeMs < audioReceiveRecoverMs);
     final peerPlayoutOutage =
         requirePeerAudioPlayout &&
         peerBufferPressure &&
@@ -1595,8 +1639,6 @@ class CallBitrateAdapter {
                 receivePressureDelay < playoutRecoverMs));
     final audioHealthyApartFromRtt = audioPlayoutHealthy && jitterGood;
     final audioWithinRecoveryLimits = audioHealthyApartFromRtt && rttGood;
-    final bufferGrowing =
-        _receiveBuffer.growing == true || _peerBuffer.growing == true;
     final recoveredAudio = audioWithinRecoveryLimits && !bufferGrowing;
     final audioGood = recoveredAudio && !transientGrowthHeld;
     // An unconfirmed rise and a completed isolated impairment pause growth
@@ -1734,11 +1776,6 @@ class CallBitrateAdapter {
     final receiveRepairAllowsProbe =
         audioReceiveSoftLossSignificant == false ||
         (!audioReceiveConcealmentObserved && !audioReceiveRecoveryObserved);
-    bool playoutBelow(int limit) =>
-        (!requirePeerAudioPlayout ||
-            (peerPressureDelay != null && peerPressureDelay < limit)) &&
-        (!requireAudioReceivePlayout ||
-            (receivePressureDelay != null && receivePressureDelay < limit));
 
     final measuredPlayoutReady =
         (requirePeerAudioPlayout || requireAudioReceivePlayout) &&
@@ -1783,7 +1820,7 @@ class CallBitrateAdapter {
     }
 
     final measuredAudioFailure =
-        freshAudioLoss ||
+        significantAudioLoss ||
         (usePlayout
             ? floorBufferFailure
             : receiveOutage ||
@@ -1795,7 +1832,7 @@ class CallBitrateAdapter {
                           txJitterMs >= 80 ||
                           rttMs >= severeRttMs)));
     if (atFloor && videoFloorApplied && measuredAudioFailure) {
-      if (pressureSampleCanAdvance || freshAudioLoss) _severeStreak++;
+      if (pressureSampleCanAdvance || significantAudioLoss) _severeStreak++;
     } else {
       _severeStreak = 0;
     }

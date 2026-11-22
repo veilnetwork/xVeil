@@ -71,7 +71,7 @@ void main() {
         sourceBudgetPressured: true,
         rttMs: 80,
         txJitterMs: 1,
-        txLossPct: 0,
+        txLossPct: loss ? 5 : 0,
         txDrops: 0,
         audioTxDrops: 0,
         audioNetworkLossObserved: loss,

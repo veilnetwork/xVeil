@@ -667,7 +667,7 @@ class VeilCallMediaController implements CallMediaController {
   final _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
   CallPeerAudioRecovery _peerAudioRecovery = CallPeerAudioRecovery();
-  final _sourcePressure = CallAudioSourcePressure();
+  final _sourcePressure = CallAudioSourcePressure(singlePeerPlayout: true);
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
   int _sourceFeedbackSkipped = 0;

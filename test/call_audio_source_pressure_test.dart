@@ -12,6 +12,7 @@ void main() {
     bool requirePeer = true,
     int? peer = 100,
     int? currentPeer,
+    int? peerSequence,
     int? targetPeer,
     int? targetLocal,
     int? local = 100,
@@ -37,6 +38,7 @@ void main() {
     requirePeerPlayout: requirePeer,
     peerDelayMs: peer,
     peerCurrentDelayMs: currentPeer,
+    peerSampleSequence: peerSequence,
     peerTargetDelayMs: targetPeer,
     receiveTargetDelayMs: targetLocal,
     receiveDelayMs: local,
@@ -269,6 +271,34 @@ void main() {
     expect(sample(policy, lossReportUs: 0), isFalse);
     expect(sample(policy, lossReportUs: 50), isFalse);
     expect(sample(policy, lossReportUs: 101), isTrue);
+  });
+
+  test('a small isolated loss holds source growth without cutting credit', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    recover(policy);
+    final start = times[policy]!.add(const Duration(seconds: 1));
+    var sequence = 0;
+    bool? report(int witness, {int epoch = 0}) => sample(
+      policy,
+      currentPeer: 100,
+      peerSequence: ++sequence,
+      lossReportUs: witness,
+      nativeStats: {
+        ...measured,
+        'rtt_ms': 80,
+        'audio_rtt_route_epoch': epoch,
+        'tx_loss_pct': 1,
+      },
+    );
+    expect(report(100), isFalse);
+    expect(policy.measuredAudioPressure, isFalse);
+    expect(policy.growthHoldStartedAt, start);
+    expect(report(100), isFalse);
+    expect(policy.growthHoldStartedAt, start);
+    expect(report(101, epoch: 1), isFalse);
+    expect(report(102, epoch: 1), isTrue);
+    expect(policy.measuredAudioPressure, isTrue);
+    expect(policy.growthHoldStartedAt, isNull);
   });
 
   test('peer concealment yields sources once, including mute/resume', () {
