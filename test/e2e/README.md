@@ -67,6 +67,25 @@ the test. This distinguishes slow progress from a stalled stream; it does not
 qualify file throughput. For private diagnostics, opt into
 `XVEIL_E2E_BULK_STREAM_TRACE=1`; raw endpoint logs are not anonymous reports.
 
+### Route return
+
+The macOS test checks the same active video call on P2P, on relay after
+one endpoint requests recovery, and after both return to P2P. Each stage
+requires incoming audio RTP and new decoded frames at both ends. The test
+uses a synthetic tone and the native moving I420 source.
+
+Set the three base gates above before running the test.
+
+```bash
+export TMPDIR=/private/tmp/
+media_dir=$(mktemp -d /private/tmp/xveil-route-media.XXXXXXXX)
+VEIL_MEDIA_TEST_HOOKS=1 \
+  bash third_party/veil/flutter/veil_media/macos/build_veil_media_dylib.sh "$media_dir"
+XVEIL_E2E_SYNTHETIC_MEDIA=1 VEIL_MEDIA_TEST_VIDEO=1 \
+  VEIL_MEDIA_DYLIB="$media_dir/libveil_media.dylib" \
+  flutter test --no-pub test/e2e/call_route_return_process_e2e_test.dart
+```
+
 ### Environment gates
 
 | Variable | What it must be |

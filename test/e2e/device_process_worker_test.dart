@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -141,6 +142,19 @@ void main() {
     'isolated device process worker',
     (tester) async {
       final gate = E2eGate.read();
+      if (env['XVEIL_E2E_SYNTHETIC_MEDIA'] == '1') {
+        final engine = gate.mediaDylib;
+        expect(engine, isNotNull);
+        expect(
+          latin1.decode(File(engine!).readAsBytesSync()),
+          contains('XVEIL_E2E_SYNTHETIC_MEDIA'),
+          reason: 'the fixture must never grant access to real media devices',
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('xveil/media_permissions'),
+          (call) async => call.method == 'status' ? 'granted' : true,
+        );
+      }
       final dir = Directory(env['XVEIL_E2E_WORKER_DIR']!);
       final peers = (jsonDecode(env['XVEIL_E2E_WORKER_PEERS']!) as List)
           .map(
