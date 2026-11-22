@@ -734,6 +734,16 @@ class CallService {
     });
   }
 
+  void _resumeLateP2PAfterRelay(int connections, {bool allowDiscovery = false}) {
+    final retry = _lateP2PRetry;
+    if (allowDiscovery && (retry == null || !_now().isBefore(retry.at))) {
+      unawaited(_checkLateP2P());
+    } else if (_lateP2PPeerReadyNetwork == _networkObservationVersion ||
+        _hasCurrentRelayAdmissionSince(connections)) {
+      unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
+    }
+  }
+
   bool _canUpgradeP2P(Call c) =>
       !_disposed &&
       _lateP2PConsent &&
@@ -2407,9 +2417,11 @@ class CallService {
     if (cur == null) return;
     final actual = media.activeTransport;
     if (repaired && actual == cur.transport) {
-      // A heartbeat may have reached the P2P retry deadline during repair.
-      // Re-evaluate on the restored relay as soon as the repair releases it.
-      if (actual == CallTransportKind.relay) unawaited(_checkLateP2P());
+      // Readiness, admission or the retry deadline may have arrived while
+      // the relay was busy. Re-evaluate once the repair releases it.
+      if (actual == CallTransportKind.relay) {
+        _resumeLateP2PAfterRelay(connections, allowDiscovery: true);
+      }
       return;
     }
     // repaired with NO open channel = a rebuild is still converging (repair
@@ -2835,10 +2847,8 @@ class CallService {
               _peerDirectLossWake == _PeerRelayWake.requested) {
             _wakeDeferredRelay(peer, callId);
           }
-          if (_current?.transport == CallTransportKind.relay &&
-              (_lateP2PPeerReady ||
-                  _hasCurrentRelayAdmissionSince(connections))) {
-            unawaited(_checkLateP2P(_LateP2PCheck.admissionOnly));
+          if (_current?.transport == CallTransportKind.relay) {
+            _resumeLateP2PAfterRelay(connections);
           }
         }
       },
@@ -3252,6 +3262,7 @@ class CallService {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
         if (_relayHandoverProbeEpoch == epoch) _relayHandoverProbeEpoch = null;
+        final restored = refreshed && ownedCall() != null;
         if (_relayHandover == handover) {
           // Admission during the probe also counts. Allow one probe retry,
           // but keep observing actual audio even after that retry fails.
@@ -3266,6 +3277,7 @@ class CallService {
               : null;
         }
         _finishMediaWatchdogCheck();
+        if (restored) _resumeLateP2PAfterRelay(probeGeneration);
       }
       return;
     }

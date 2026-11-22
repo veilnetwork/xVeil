@@ -9470,6 +9470,97 @@ void main() {
       });
     });
 
+    for (final (scenario, replaceRelay, settled) in [
+      ('rebuild', false, true),
+      ('qualified relay probe', true, true),
+      ('rejected relay probe', true, false),
+    ]) {
+      test('remember peer readiness during relay recovery ($scenario)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final media = _GatedRepairMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..audioTelemetry = true;
+          final echo = Completer<bool>();
+          media.relayRefresh = (canCommit) async =>
+              await echo.future && await canCommit();
+          final device = NodeId.fromHex('b' * 64);
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            networkAttachments: network.stream,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          const id = 'ready-during-relay-repair';
+
+          try {
+            offer(fake, id, device: device);
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            unawaited(svc.requestRelayRecoveryForDiagnostics());
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+
+            media.audioRxAt = media.rxAt = clock.now();
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                capture: const CallMedia(audio: true),
+                mediaRepairRequested: !replaceRelay,
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+            async.flushMicrotasks();
+            if (replaceRelay) {
+              async.elapse(const Duration(milliseconds: 100));
+              network.add(NetworkAttachment.cellular);
+              async.elapse(const Duration(seconds: 4));
+            }
+            expect(media.repairs, replaceRelay ? 0 : 1);
+            expect(media.relayRefreshes, replaceRelay ? 1 : 0);
+            expect(media.admissionChecks, isEmpty);
+
+            async.elapse(const Duration(milliseconds: 1));
+            fake.onCallSignal!(
+              peer,
+              ready(id).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+            expect(media.admissionChecks, isEmpty);
+            expect(media.switches, [CallTransportKind.relay]);
+
+            if (replaceRelay) {
+              echo.complete(settled);
+            } else {
+              media.gate.complete(true);
+            }
+            async.flushMicrotasks();
+            expect(svc.current?.callId, id);
+            expect(svc.current?.status, CallStatus.active);
+            expect(media.admissionChecks, settled ? [device] : isEmpty);
+            expect(media.switches, [
+              CallTransportKind.relay,
+              if (settled) CallTransportKind.p2p,
+            ]);
+            expect(
+              svc.current?.transport,
+              settled ? CallTransportKind.p2p : CallTransportKind.relay,
+            );
+          } finally {
+            svc.dispose();
+            unawaited(network.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final trigger in ['relay fallback', 'failed direct probe', 'hangup']) {
       test('direct retry observes its own deadline after $trigger', () {
         fakeAsync((async) {
