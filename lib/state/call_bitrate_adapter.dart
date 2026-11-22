@@ -1298,12 +1298,20 @@ class CallBitrateAdapter {
     final peerTarget = requirePeerAudioPlayout
         ? validTargetDelay(peerTargetAudioDelayMs, currentPeerDelay)
         : null;
-    final peerReserveCredit = hasCurrentPeerDelay && peerAudioTargetCoherent
-        ? CallAudioPlayoutReserve.creditMs(currentPeerDelay, peerTarget)
-        : 0;
-    final receiveReserveCredit = audioReceiveTargetCoherent
-        ? CallAudioPlayoutReserve.creditMs(audioReceiveDelayMs, receiveTarget)
-        : 0;
+    final peerReserveTarget = hasCurrentPeerDelay && peerAudioTargetCoherent
+        ? peerTarget
+        : null;
+    final receiveReserveTarget = audioReceiveTargetCoherent
+        ? receiveTarget
+        : null;
+    final peerReserveCredit = CallAudioPlayoutReserve.creditMs(
+      currentPeerDelay,
+      peerReserveTarget,
+    );
+    final receiveReserveCredit = CallAudioPlayoutReserve.creditMs(
+      audioReceiveDelayMs,
+      receiveReserveTarget,
+    );
     final peerPressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
       currentPeerDelay,
       peerReserveCredit,
@@ -1333,13 +1341,11 @@ class CallBitrateAdapter {
     final receiveBufferPressure = _receiveBuffer.observe(
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
       sampledAt: sampledAt,
-      targetDelayMs: audioReceiveTargetCoherent ? receiveTarget : null,
+      targetDelayMs: receiveReserveTarget,
     );
     final peerBufferPressure = _peerBuffer.observe(
       requirePeerAudioPlayout ? currentPeerDelay : null,
-      targetDelayMs: hasCurrentPeerDelay && peerAudioTargetCoherent
-          ? peerTarget
-          : null,
+      targetDelayMs: peerReserveTarget,
       sequence: peerAudioSampleSequence,
       sampledAt: sampledAt,
       measuredGrowing: requirePeerAudioPlayout && hasCurrentPeerDelay
@@ -1398,6 +1404,7 @@ class CallBitrateAdapter {
     final floorReceivePressure = _floorReceiveBuffer.observe(
       measuredFloor && requireAudioReceivePlayout ? audioReceiveDelayMs : null,
       sampledAt: sampledAt,
+      targetDelayMs: receiveReserveTarget,
     );
     final floorPeerPressure = _floorPeerBuffer.observe(
       measuredFloor && peerTrialMeasured && requirePeerAudioPlayout
@@ -1405,6 +1412,7 @@ class CallBitrateAdapter {
           : null,
       sequence: peerAudioSampleSequence,
       sampledAt: sampledAt,
+      targetDelayMs: peerReserveTarget,
     );
     // Keep the original full trend for cuts and growth admission. For a
     // below-ceiling pause, additionally prove that the applied floor itself

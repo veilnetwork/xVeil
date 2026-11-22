@@ -1541,6 +1541,45 @@ void main() {
   );
 
   for (final direction in ['local', 'peer']) {
+    test('a filled $direction jitter reserve carries into the floor trial', () {
+      final a = direct(level: 2);
+      var sequence = 0;
+      void tick(int delay) => native(
+        a,
+        stats: {
+          ...healthy(),
+          'video_tx_frames': ++sequence,
+          if (direction == 'local') 'audio_delay_ms': delay,
+          if (direction == 'local') 'audio_jb_target_ms': 500,
+        },
+        peerDelay: direction == 'peer' ? delay : 60,
+        currentPeerDelay: direction == 'peer' ? delay : 60,
+        peerTargetDelay: direction == 'peer' ? 500 : null,
+        peerSequence: sequence,
+      );
+
+      // Raw delay is growing while higher rungs are still active. It stays
+      // below the emergency ceiling once accounting for the actual reserve.
+      for (var delay = 430; delay <= 592; delay += 18) {
+        tick(delay);
+      }
+      expect(a.atFloor, isTrue);
+      for (final delay in [610, 628, 646]) {
+        tick(delay);
+        expect(a.audioBufferPressure, isTrue);
+        expect(a.audioReserve, isFalse, reason: 'floor has just started');
+      }
+      for (var i = 0; i < 10; i++) {
+        tick(520);
+        expect(a.audioReserve, isFalse);
+      }
+
+      for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
+        tick(720);
+      }
+      expect(a.audioReserve, isTrue, reason: 'excess delay still pauses video');
+    });
+
     test('new $direction growth during the floor trial still pauses video', () {
       final a = direct(level: 4);
       var frames = 0;
