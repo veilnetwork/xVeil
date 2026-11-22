@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 // veil_flutter now exports a `SenderProvenance` of its own (veil 78d57520).
 // This test asserts on the APP's port type, so the SDK's name is hidden.
 import 'package:veil_flutter/veil_flutter.dart' hide SenderProvenance;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/relay_key_cache.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/state/mailbox_orchestrator.dart';
 import 'package:xveil/state/mailbox_service.dart';
@@ -18,6 +20,11 @@ class _FakeClient implements VeilClient {
   final events_ = StreamController<VeilEvent>.broadcast();
   final registeredRelays = <String>[];
   Completer<({Uint8List key, int validUntilUnix})?>? lookupBlock;
+  ({Uint8List key, int validUntilUnix})? resolved = (
+    key: Uint8List(32),
+    validUntilUnix: 0,
+  );
+  final registeredKeyExpiries = <int>[];
   int lookups = 0;
   @override
   dynamic noSuchMethod(Invocation i) {
@@ -28,14 +35,14 @@ class _FakeClient implements VeilClient {
       if (block != null) return block.future;
       // The resolve answers with the key AND when it stops being the
       // relay's, so the ad can be clipped to it (report17 V17-M1).
-      return Future<({Uint8List key, int validUntilUnix})?>.value((
-        key: Uint8List(32),
-        validUntilUnix: 0,
-      ));
+      return Future<({Uint8List key, int validUntilUnix})?>.value(resolved);
     }
     if (name.contains('registerRendezvousPublisher')) {
       final id = i.namedArguments[#rendezvousNodeId];
       if (id is Uint8List) {
+        registeredKeyExpiries.add(
+          i.namedArguments[#relayKemValidUntilUnix] as int,
+        );
         registeredRelays.add(
           id.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
         );
@@ -389,6 +396,106 @@ void main() {
     // Idempotent within the session: no duplicate registrations per relay.
     expect(client.registeredRelays.length, 3);
   });
+
+  test(
+    'idle mailbox renews a verified key before its advertisement expires',
+    () {
+      fakeAsync((time) {
+        final origin = DateTime.utc(2026, 1, 1);
+        int at(int minutes) =>
+            origin.add(Duration(minutes: minutes)).millisecondsSinceEpoch ~/
+            1000;
+        final client = _FakeClient()
+          ..resolved = (key: Uint8List(32), validUntilUnix: at(20));
+        var proofs = 0;
+        final service = MailboxService(
+          client: client,
+          me: _id(1),
+          orchestrator: orch,
+          deliver: (_) async {},
+          now: () => origin.add(time.elapsed),
+          confirmRelay: (_, _) async {
+            proofs++;
+            return true;
+          },
+        );
+        try {
+          unawaited(service.start(relays: [_id(7), _id(8)]));
+          time.flushMicrotasks();
+          expect(client.registeredKeyExpiries, [at(20), at(20)]);
+          final initialLookups = client.lookups;
+          time.elapse(const Duration(minutes: 9));
+          expect(client.lookups, initialLookups);
+
+          client.resolved = (key: Uint8List(32), validUntilUnix: at(80));
+          time.elapse(const Duration(minutes: 1));
+          expect(client.registeredKeyExpiries, [at(20), at(20), at(80)]);
+          time.elapse(const Duration(minutes: 1));
+          expect(client.registeredKeyExpiries, [
+            at(20),
+            at(20),
+            at(80),
+            at(80),
+          ]);
+          expect(proofs, 4, reason: 'each renewal needs its own FETCH proof');
+        } finally {
+          unawaited(service.dispose());
+          unawaited(client.events_.close());
+          time.flushMicrotasks();
+        }
+      });
+    },
+  );
+
+  test(
+    'an expired registration recovers without republishing a cached key',
+    () {
+      fakeAsync((time) {
+        final origin = DateTime.utc(2026, 1, 1);
+        final startUnix = origin.millisecondsSinceEpoch ~/ 1000;
+        final client = _FakeClient()
+          ..resolved = (key: Uint8List(32), validUntilUnix: startUnix + 90);
+        final cache = InMemoryRelayKeyCache();
+        final service = MailboxService(
+          client: client,
+          me: _id(1),
+          orchestrator: orch,
+          deliver: (_) async {},
+          relayKeyCache: cache,
+          now: () => origin.add(time.elapsed),
+        );
+        try {
+          unawaited(service.start(relays: [_id(7)]));
+          time.flushMicrotasks();
+          expect(client.registeredKeyExpiries, [startUnix + 90]);
+          var cached = false;
+          unawaited(cache.get(_id(7)).then((key) => cached = key != null));
+          time.flushMicrotasks();
+          expect(cached, isTrue);
+
+          client.resolved = null;
+          time.elapse(const Duration(seconds: 95));
+          expect(client.registeredKeyExpiries, [startUnix + 90]);
+          expect(service.isRegistered, isFalse);
+
+          client.resolved = (
+            key: Uint8List(32),
+            validUntilUnix: startUnix + 3600,
+          );
+          time.elapse(const Duration(seconds: 25));
+          expect(client.registeredKeyExpiries, [
+            startUnix + 90,
+            startUnix + 3600,
+          ]);
+          expect(service.isRegistered, isTrue);
+        } finally {
+          unawaited(service.dispose());
+          unawaited(client.events_.close());
+          time.flushMicrotasks();
+        }
+      });
+    },
+  );
 
   test(
     'concurrent starts coalesce and dispose waits for the native lookup',

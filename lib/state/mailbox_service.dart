@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:veil_flutter/veil_ffi.dart'
     show VeilClient, VeilEvent, VeilEventKind;
 
@@ -114,6 +115,7 @@ class MailboxService implements MailboxSink {
     Future<bool> Function(NodeId, Uint8List)? confirmRelay,
     int ourCertVersion = 0,
     Duration drainInterval = kIdleDrainInterval,
+    DateTime Function()? now,
   }) : _client = client,
        _me = me,
        _orchestrator = orchestrator,
@@ -121,7 +123,8 @@ class MailboxService implements MailboxSink {
        _relayKeyCache = relayKeyCache,
        _confirmRelay = confirmRelay,
        _ourCertVersion = ourCertVersion,
-       _drainInterval = drainInterval;
+       _drainInterval = drainInterval,
+       _now = now ?? DateTime.now;
 
   final VeilClient _client;
   final NodeId _me;
@@ -134,6 +137,7 @@ class MailboxService implements MailboxSink {
   final Future<bool> Function(NodeId, Uint8List)? _confirmRelay;
   final int _ourCertVersion;
   final Duration _drainInterval;
+  final DateTime Function() _now;
 
   /// 16-byte rendezvous auth-cookie for our published mailbox ad. The NETWORK
   /// FETCH path authorizes by our cryptographic identity (NOT this cookie — see
@@ -194,7 +198,6 @@ class MailboxService implements MailboxSink {
   // waiting, so we keep polling within seconds (here: skip one tick ≈ one extra
   // drain interval between attempts) rather than the exponential idle back-off.
   static const int _failureBackoffSkips = 1;
-  bool _registered = false;
   // Set once the underlying veil handle is permanently closed (the node rebooted
   // out from under this service). Retrying is futile on a dead handle, so we stop
   // the timer instead of busy-looping; a fresh stack rebuild starts a NEW mailbox
@@ -219,9 +222,8 @@ class MailboxService implements MailboxSink {
 
   // Candidate relays whose KEM key we have successfully resolved + cached, so the
   // drain can fetch them DIRECT. A SENDER may deposit offline mail at ANY relay
-  // our ad advertises — the built-in receiver task (picks from connected peers, a
-  // different set than our seed list) and stale prior-session slots all draw from
-  // the same connected-relay pool, so draining every warmed candidate collects a
+  // the recipient published, including a still-valid slot from a previous
+  // session. Draining every warmed candidate collects a
   // deposit even when it landed on a relay other than [_registeredRelay]. Only
   // warmed candidates are drained — one without a known key would burn a 5s fetch
   // timeout on the (always-failing) relay self-resolve fallback.
@@ -238,9 +240,15 @@ class MailboxService implements MailboxSink {
   // of the others (we warm only ONE per tick to keep the UI isolate responsive).
   int _warmCursor = 0;
 
-  /// Whether we have successfully advertised a mailbox relay this session.
+  /// Whether a successfully registered publisher still has a usable key.
   @override
-  bool get isRegistered => _registered;
+  bool get isRegistered {
+    if (_disposed || _handleDead) return false;
+    final nowUnix = _now().millisecondsSinceEpoch ~/ 1000;
+    return _publisherRegistrations.values.any(
+      (entry) => entry.validUntilUnix == 0 || entry.validUntilUnix > nowUnix,
+    );
+  }
 
   /// Advertise mailbox hosts from [relays] and begin draining. The network
   /// transport checks for a signed FETCH response before registration. Safe
@@ -258,12 +266,7 @@ class MailboxService implements MailboxSink {
   }
 
   Future<void> _start(List<NodeId> relays) async {
-    // Order candidates by Kademlia XOR distance to our own node_id so we
-    // deterministically prefer the SAME relay across restarts AND converge with
-    // veil's built-in receiver task (pick_rendezvous_relay_deterministic uses the
-    // identical metric). Both then advertise ONE stable relay per identity
-    // instead of drifting "first that resolved" picks that strand stale ad slots
-    // at relays we no longer drain — which a sender resolves into a black hole.
+    // Keep the mailbox candidates in a stable order across restarts.
     _relays = relaysByXorDistance(_me, relays);
     final candidateIds = _relays.map((relay) => relay.hex).toSet();
     _relayProbeRetryAfter.removeWhere((id, _) => !candidateIds.contains(id));
@@ -280,7 +283,7 @@ class MailboxService implements MailboxSink {
     devLog(
       () =>
           'xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
-          'me=${_me.short}, alreadyRegistered=$_registered',
+          'me=${_me.short}, alreadyRegistered=$isRegistered',
     );
     // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
     // connects its routing table is barely warm, so the first attempt often
@@ -292,7 +295,7 @@ class MailboxService implements MailboxSink {
     const backoffSecs = [0, 4, 8, 16];
     for (
       var attempt = 0;
-      attempt < backoffSecs.length && !_registered;
+      attempt < backoffSecs.length && _registeredRelay == null;
       attempt++
     ) {
       if (backoffSecs[attempt] > 0) {
@@ -305,7 +308,7 @@ class MailboxService implements MailboxSink {
       await _tryRegister();
     }
     if (_disposed || _handleDead) return;
-    devLog(() => 'xVeil[mailbox]: start done — registered=$_registered');
+    devLog(() => 'xVeil[mailbox]: start done — registered=$isRegistered');
     if (_drainTimer == null) _armDrainLoop();
     // In-network deposit wake: a mailbox relay that just STORED a deposit for
     // us pings our live session (MAILBOX_WAKE event) — drain immediately
@@ -375,47 +378,77 @@ class MailboxService implements MailboxSink {
     });
   }
 
-  /// Relays where a KEM-bearing publisher entry was registered THIS session.
-  /// Registering at EVERY resolvable candidate (not just the first) makes
-  /// every published ad slot carry our relay KEM key — so a sender that can
-  /// only resolve SOME slots after our restart still finds a deposit-capable
-  /// ad, instead of hitting usable(KEM)=0 until the preferred slot propagates.
-  final Set<String> _publisherRegistered = {};
+  // Veil stops renewing an advertisement when its relay key expires.
+  // Start checking ten minutes early, one candidate per idle timer tick.
+  static const _publisherRefreshLead = Duration(minutes: 10);
+  static const _publisherRefreshGap = Duration(minutes: 1);
+  static const _unstampedPublisherRefreshGap = Duration(minutes: 15);
+  final _publisherRegistrations =
+      <NodeId, ({Uint8List key, int validUntilUnix, DateTime refreshAfter})>{};
+  final _registeringRelays = <NodeId>{};
 
-  /// One pass over the relay candidates, registering at EVERY one that
-  /// resolves. The FIRST success stays the drain anchor ([_registeredRelay] /
-  /// preferred-relay persistence); the rest only add KEM-bearing publisher
-  /// entries (the node's built-in refresh keeps them alive, preserving KEM).
+  /// Try unregistered candidates. Lease renewal has its own schedule and
+  /// keeps running even after the bounded initial registration attempts.
   Future<void> _tryRegister() async {
     for (final relay in _relays) {
       if (_disposed || _handleDead) return;
-      await _register(relay);
+      if (!_publisherRegistrations.containsKey(relay)) await _register(relay);
     }
   }
 
-  Future<void> _register(NodeId relay) async {
-    if (_disposed || _handleDead || _publisherRegistered.contains(relay.hex)) {
-      return;
+  Future<void> _renewDuePublisher() async {
+    final now = _now();
+    NodeId? due;
+    DateTime? earliest;
+    for (final relay in _relays) {
+      final refreshAfter = _publisherRegistrations[relay]?.refreshAfter;
+      if (refreshAfter != null &&
+          !now.isBefore(refreshAfter) &&
+          (earliest == null || refreshAfter.isBefore(earliest))) {
+        due = relay;
+        earliest = refreshAfter;
+      }
     }
-    final retryAfter = _relayProbeRetryAfter[relay.hex];
-    if (retryAfter != null && _relayProbeClock.elapsed < retryAfter) return;
-    // Prefer a FRESH, verified resolve — now a one-hop fast path straight to the
-    // connected relay (see veil's connected-peer resolver), so it succeeds even
-    // on a cold routing table right after a restart. Only if that genuinely
-    // fails do we fall back to a cached last-known-good key, so a transient DHT
-    // hiccup doesn't leave us unreachable. We never cache a miss; only a fresh
-    // key is written back, and a cached key that then fails to register is
-    // evicted (it may be stale).
+    if (due != null) await _register(due);
+  }
+
+  Future<void> _register(NodeId relay) async {
+    if (_disposed || _handleDead || _registeringRelays.contains(relay)) return;
+    final previous = _publisherRegistrations[relay];
+    final now = _now();
+    if (previous != null) {
+      final gap = previous.validUntilUnix == 0
+          ? _unstampedPublisherRefreshGap
+          : _publisherRefreshGap;
+      // Space failures as well as successes. The next timer tick can service
+      // another due relay even if this one is unreachable.
+      _publisherRegistrations[relay] = (
+        key: previous.key,
+        validUntilUnix: previous.validUntilUnix,
+        refreshAfter: now.add(gap),
+      );
+    } else {
+      final retryAfter = _relayProbeRetryAfter[relay.hex];
+      if (retryAfter != null && _relayProbeClock.elapsed < retryAfter) return;
+    }
+
+    _registeringRelays.add(relay);
     var fromFresh = false;
     try {
-      // The resolve now answers WHEN this stops being the relay's key as well
-      // as what it is. A cached key has no such stamp — it was written down
-      // before this existed — so it registers with 0, which leaves the ad on
-      // its own hour-long window exactly as before (report17 V17-M1).
       final resolved = await _client.lookupRelayX25519(relay.bytes);
       fromFresh = resolved != null;
-      var kem = resolved?.key ?? await _relayKeyCache?.get(relay);
       final kemValidUntil = resolved?.validUntilUnix ?? 0;
+      if (previous != null) {
+        // A cached key may bootstrap a new registration. It cannot extend a
+        // lease; a previously verified expiry must never become unknown.
+        if (resolved == null ||
+            (previous.validUntilUnix > 0 && kemValidUntil == 0) ||
+            (listEquals(previous.key, resolved.key) &&
+                kemValidUntil <= previous.validUntilUnix)) {
+          return;
+        }
+      }
+      final kem = resolved?.key ?? await _relayKeyCache?.get(relay);
       if (kem == null || _disposed || _handleDead) {
         // No fresh resolve and no usable cached key — a later start()/reconnect
         // retries.
@@ -429,15 +462,29 @@ class MailboxService implements MailboxSink {
         return;
       }
       final confirm = _confirmRelay;
+      if (previous != null && backgroundDrainPaused) return;
+      if (kemValidUntil > 0 &&
+          kemValidUntil <= _now().millisecondsSinceEpoch ~/ 1000) {
+        return;
+      }
       if (confirm != null && !await confirm(relay, kem)) {
-        _relayProbeRetryAfter[relay.hex] =
-            _relayProbeClock.elapsed + _relayProbeRetryDelay;
+        if (previous == null) {
+          _relayProbeRetryAfter[relay.hex] =
+              _relayProbeClock.elapsed + _relayProbeRetryDelay;
+        }
         devLog(
           () => 'xVeil[mailbox]: relay ${relay.short} did not answer FETCH',
         );
         return;
       }
-      if (_disposed || _handleDead) return;
+      if (_disposed ||
+          _handleDead ||
+          (previous != null && backgroundDrainPaused) ||
+          !_relays.contains(relay) ||
+          (kemValidUntil > 0 &&
+              kemValidUntil <= _now().millisecondsSinceEpoch ~/ 1000)) {
+        return;
+      }
       _relayProbeRetryAfter.remove(relay.hex);
       await _client.registerRendezvousPublisher(
         rendezvousNodeId: relay.bytes,
@@ -456,16 +503,37 @@ class MailboxService implements MailboxSink {
         // the point that key stops being the relay's.
         relayKemValidUntilUnix: kemValidUntil,
       );
-      _publisherRegistered.add(relay.hex);
-      if (!_registered) {
-        _registered = true;
+      if (_disposed || _handleDead || !_relays.contains(relay)) return;
+      final earliestRefresh = _now().add(
+        kemValidUntil == 0
+            ? _unstampedPublisherRefreshGap
+            : _publisherRefreshGap,
+      );
+      var refreshAfter = earliestRefresh;
+      if (kemValidUntil > 0) {
+        final beforeExpiry = DateTime.fromMillisecondsSinceEpoch(
+          kemValidUntil * 1000,
+        ).subtract(_publisherRefreshLead);
+        if (beforeExpiry.isAfter(refreshAfter)) refreshAfter = beforeExpiry;
+      }
+      _publisherRegistrations[relay] = (
+        key: Uint8List.fromList(kem),
+        validUntilUnix: kemValidUntil,
+        refreshAfter: refreshAfter,
+      );
+      if (_registeredRelay == null) {
         _registeredRelay = relay; // drain anchor (no DHT re-resolve per poll)
         // Remember this relay so the next session re-picks it first (Fix 4).
         unawaited(_relayKeyCache?.setPreferredRelay(relay) ?? Future.value());
       }
       if (fromFresh) {
         // Persist the freshly-verified key for a future cold start.
-        unawaited(_relayKeyCache?.put(relay, kem) ?? Future.value());
+        final write = _relayKeyCache?.put(relay, kem);
+        if (previous == null) {
+          unawaited(write);
+        } else {
+          await write;
+        }
       }
       devLog(
         () =>
@@ -475,7 +543,7 @@ class MailboxService implements MailboxSink {
       );
     } catch (e) {
       devLog(() => 'xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
-      if (!fromFresh && !_disposed) {
+      if (previous == null && !fromFresh && !_disposed) {
         // We registered with a cached key and it failed — it may be stale; drop
         // it so the next tick resolves fresh instead of reusing a bad key.
         unawaited(_relayKeyCache?.evict(relay) ?? Future.value());
@@ -493,6 +561,8 @@ class MailboxService implements MailboxSink {
               'stack rebuilds this service',
         );
       }
+    } finally {
+      _registeringRelays.remove(relay);
     }
   }
 
@@ -720,13 +790,16 @@ class MailboxService implements MailboxSink {
   }
 
   Future<void> _runDrainTick() async {
+    // Expiry is independent of whether recent inbox polls found mail.
+    await _renewDuePublisher();
+    if (_disposed || _handleDead || backgroundDrainPaused) return;
     // Warm candidate relay KEM keys BEFORE the back-off gate. The registered
     // relay keeps returning our un-openable dead blobs (recovered=empty), which
     // escalates the empty-drain back-off and would SKIP the body below — so if we
     // warmed there, we'd never discover the relay the deposit actually landed on
     // once back-off kicks in. One-hop resolves, bounded, and self-limiting once
     // every candidate is warmed.
-    if (_registered &&
+    if (_registeredRelay != null &&
         _warmedRelays.length < _relays.length &&
         _warmAttempts < _maxWarmAttempts) {
       _warmAttempts++;
@@ -765,12 +838,11 @@ class MailboxService implements MailboxSink {
       // retry (every drain interval) is what makes us reachable by node_id once
       // a relay is actually resolvable. Once ONE stuck we are reachable; keep
       // (bounded) trying to cover the REMAINING candidates too, so every ad
-      // slot carries our KEM key (see [_publisherRegistered]).
-      if (_relays.isNotEmpty &&
-          (!_registered ||
-              (_publisherRegistered.length < _relays.length &&
-                  _registerAttempts < _maxRegisterAttempts))) {
-        if (_registered) _registerAttempts++;
+      // slot carries our KEM key.
+      final registeredOnce = _registeredRelay != null;
+      if ((!registeredOnce || _registerAttempts < _maxRegisterAttempts) &&
+          _relays.any((relay) => !_publisherRegistrations.containsKey(relay))) {
+        if (registeredOnce) _registerAttempts++;
         await _tryRegister();
       }
       // Deduped union: the relay we registered at + the candidate relays whose
@@ -904,14 +976,8 @@ class MailboxService implements MailboxSink {
   }
 }
 
-/// Sort [relays] by Kademlia XOR distance to [me]'s node_id (closest first),
-/// returning a new list (input untouched). Deterministic and stable across
-/// restarts, and IDENTICAL to veil's `pick_rendezvous_relay_deterministic`
-/// metric — so the app's mailbox publisher and the node's built-in receiver
-/// converge on the SAME rendezvous relay per identity, collapsing the multiple
-/// drifting ad slots that previously black-holed incoming delivery. Ties (which
-/// require two distinct node_ids with equal distance — impossible for real
-/// 32-byte ids) resolve to stable input order.
+/// Sort [relays] by Kademlia XOR distance to [me]'s node_id (closest first).
+/// Returns a new list. Ties resolve to stable input order.
 List<NodeId> relaysByXorDistance(NodeId me, List<NodeId> relays) {
   final anchor = me.bytes;
   final sorted = [...relays];
