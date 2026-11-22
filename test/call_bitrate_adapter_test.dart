@@ -3189,6 +3189,43 @@ void main() {
     expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
   });
 
+  test('a confirmed high reserve can retry the floor through small trims', () {
+    for (final duration in [80, 120, null]) {
+      final a = direct(level: 4);
+      native(a, peerDelay: 300);
+      native(a, peerDelay: 300);
+      expect(a.acknowledgedPause, isTrue);
+
+      for (var n = 1; n <= 3; n++) {
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_delay_ms': 713,
+            'audio_jb_target_ms': 500,
+            'audio_soft_loss_duration_supported': 1,
+            'audio_peer_soft_loss_duration_supported': 1,
+            'audio_local_soft_loss_report_us': 0,
+            'audio_peer_soft_loss_report_us': 0,
+            'audio_local_soft_loss_window_ms': duration,
+            'audio_peer_soft_loss_window_ms': 40,
+          },
+          peerDelay: 713,
+          currentPeerDelay: 713,
+          peerTargetDelay: 500,
+          peerSequence: n,
+          peerBufferGrowing: false,
+          recovered: true,
+          filledJitterReserveConfirmed: true,
+        );
+        expect(a.acknowledgedPause, duration != 80 || n < 3);
+      }
+      if (duration == 80) {
+        expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+      }
+    }
+  });
+
   test('one near-threshold audio sample does not restart a video probe', () {
     CallBitrateAdapter paused() {
       final adapter = direct(level: 4);

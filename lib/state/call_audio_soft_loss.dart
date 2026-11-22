@@ -3,6 +3,16 @@ import 'call_rtcp_loss.dart';
 /// Native per-decoder duration windows cover non-silent concealment and
 /// discarded speech. Missing/partial/older snapshots retain event fallback.
 class CallAudioSoftLoss {
+  // The native six-second window starts reporting sustained damage at
+  // 120 ms. Use the full window here, including previously reported damage.
+  static bool? bothWindowsBelowThreshold(Map<String, dynamic>? stats) {
+    num? valid(Object? ms) => ms is num && ms.isFinite && ms >= 0 ? ms : null;
+    final peer = valid(stats?['audio_peer_soft_loss_window_ms']);
+    final local = valid(stats?['audio_local_soft_loss_window_ms']);
+    if (peer == null || local == null) return null;
+    return peer < 120 && local < 120;
+  }
+
   final _send = CallRtcpLoss();
   final _receive = CallRtcpLoss();
 

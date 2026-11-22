@@ -1108,6 +1108,10 @@ class CallBitrateAdapter {
       sourceBudgetPressured: sourceBudgetPressured,
       filledJitterReserveConfirmed:
           filledJitterReserveConfirmed && peerReportOnRoute,
+      audioSoftLossBelowThreshold:
+          softLoss.send == false &&
+          softLoss.receive == false &&
+          CallAudioSoftLoss.bothWindowsBelowThreshold(stats) == true,
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -1263,6 +1267,7 @@ class CallBitrateAdapter {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
+    bool audioSoftLossBelowThreshold = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -1866,14 +1871,16 @@ class CallBitrateAdapter {
         receiveGood &&
         rttMs < severeRttMs;
     // A verified high reserve can reopen the paused source at the floor.
-    // This does not spend video delivery credit or rely on frame progress
-    // from the source that is still paused.
+    // Measured small trims may coexist with this trial. Ordinary growth
+    // and a recent RTP loss still observe their full holds.
     final filledReserveRecovery =
         filledReserveProbe &&
         !sourceBudgetPressured &&
         !bufferPressure &&
         !bufferGrowing &&
-        !transientGrowthHeld &&
+        (!transientGrowthHeld ||
+            (audioSoftLossBelowThreshold &&
+                !_networkAudioLoss.holdingGrowth)) &&
         rttMs > 0 &&
         txLossPct == 0;
     final measuredPlayoutHealthy =

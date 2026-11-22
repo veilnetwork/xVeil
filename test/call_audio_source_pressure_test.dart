@@ -360,6 +360,63 @@ void main() {
   });
 
   test(
+    'a stable high reserve can recover through measured subthreshold trims',
+    () {
+      for (final (localDamage, peerDamage) in [
+        (null, 80),
+        (-1, 80),
+        (double.nan, 80),
+        (120, 80),
+        (80, 120),
+        (80, null),
+        (119.5, 80),
+      ]) {
+        final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+        bool? observe(int n, {int report = 0, num? laterDamage}) => sample(
+          policy,
+          peer: 713,
+          currentPeer: 713,
+          peerSequence: 1 + n ~/ 5,
+          peerGrowing: false,
+          targetPeer: 500,
+          local: 713,
+          targetLocal: 500,
+          interrupted: n == 0,
+          recovered: n != 0 && n.isEven,
+          nativeStats: {
+            ...measured,
+            'rtt_ms': 620,
+            'audio_rtt_route_epoch': 0,
+            'audio_local_soft_loss_report_us': report,
+            'audio_local_soft_loss_window_ms': laterDamage ?? localDamage,
+            'audio_peer_soft_loss_window_ms': peerDamage,
+          },
+        );
+
+        expect(observe(0), isTrue);
+        final verdicts = [for (var n = 1; n <= 23; n++) observe(n)];
+        if (localDamage == 119.5) {
+          expect(verdicts.take(15), everyElement(isNot(isFalse)));
+          expect(verdicts.skip(15), everyElement(isFalse));
+          expect(policy.filledJitterReserveConfirmed, isTrue);
+          expect(observe(24, laterDamage: 120), isNull);
+          expect(policy.filledJitterReserveConfirmed, isFalse);
+          expect(observe(25, report: 4000), isTrue);
+          expect(policy.filledJitterReserveConfirmed, isFalse);
+          expect(policy.measuredAudioPressure, isTrue);
+        } else {
+          expect(
+            verdicts,
+            everyElement(isNot(isFalse)),
+            reason: '$localDamage/$peerDamage',
+          );
+          expect(policy.filledJitterReserveConfirmed, isFalse);
+        }
+      }
+    },
+  );
+
+  test(
     'transport reserve margin requires corroborated playout on both ends',
     () {
       const stats = {...measured, 'rtt_ms': 60, 'audio_rtt_route_epoch': 0};

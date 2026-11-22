@@ -361,17 +361,26 @@ class CallAudioSourcePressure {
       }
     }
     // Both recovery paths require continuous measurements and another
-    // authenticated peer snapshot. The longer path can keep its evidence
-    // through an isolated, duration-measured impairment. That impairment
-    // pauses the count until the audio hold expires.
+    // authenticated peer snapshot. When the longer path has explicit
+    // subthreshold damage totals from both endpoints, those totals carry
+    // more information than repeatedly counting small concealment or trims.
+    // Keep the pause for recent RTP loss and the event-only fallback.
     final assessReserve = (_hardRecoveryRequired || !playoutHealthy) && !bad;
     final fastConfirmed = _fastReserveWindow.observe(
       assessReserve && fastReserve && good && !shortHold ? sampledAt : null,
       peerSampleSequence,
     );
-    final hold = transient || shortHold;
+    final damageBelowThreshold = CallAudioSoftLoss.bothWindowsBelowThreshold(
+      nativeStats,
+    );
+    final belowDamageThreshold =
+        damageBelowThreshold == true && !_networkAudioLoss.holdingGrowth;
+    final hold = (transient || shortHold) && !belowDamageThreshold;
     final sustainedConfirmed = _sustainedReserveWindow.observe(
-      assessReserve && sustainedReserve && (!hold || durationKnown)
+      assessReserve &&
+              sustainedReserve &&
+              damageBelowThreshold != false &&
+              (!hold || durationKnown)
           ? sampledAt
           : null,
       peerSampleSequence,
@@ -410,11 +419,11 @@ class CallAudioSourcePressure {
       final measuredRecovery =
           (!_hardRecoveryRequired &&
               _measuredHealthy >= CallBitrateAdapter.probeResumeAfter) ||
-          fastConfirmed ||
-          sustainedConfirmed;
-      if (((playoutHealthy && _healthy >= _recoverySamples) ||
-              measuredRecovery) &&
-          !shortHold) {
+          fastConfirmed;
+      if (sustainedConfirmed ||
+          (!shortHold &&
+              ((playoutHealthy && _healthy >= _recoverySamples) ||
+                  measuredRecovery))) {
         _pressured = false;
         _hardRecoveryRequired = false;
       }
