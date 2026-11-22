@@ -117,6 +117,7 @@ void main() {
     bool filledJitterReserveConfirmed = false,
     bool sourceBudgetPressured = false,
     bool sourceRecoveryProbeReady = false,
+    bool sourceRecoveryProbeRequested = false,
   }) {
     apply(a);
     a.onNativeStats(
@@ -125,6 +126,7 @@ void main() {
       filledJitterReserveConfirmed: filledJitterReserveConfirmed,
       sourceBudgetPressured: sourceBudgetPressured,
       sourceRecoveryProbeReady: sourceRecoveryProbeReady,
+      sourceRecoveryProbeRequested: sourceRecoveryProbeRequested,
       videoSendExpected: video,
       sendAudioExpected: send,
       receiveAudioExpected: receive,
@@ -3277,6 +3279,84 @@ void main() {
     }
     expect(a.acknowledgedPause, isFalse);
     observe(permit: false);
+    expect(a.acknowledgedPause, isTrue);
+  });
+
+  test('an active floor probe tolerates one marginal local buffer sample', () {
+    final a = direct(level: 4);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
+    expect(a.acknowledgedPause, isTrue);
+
+    var sequence = 0;
+    void observe(
+      int delay, {
+      int peer = 700,
+      bool interrupted = false,
+      bool requestingRenewal = false,
+    }) =>
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_delay_ms': delay,
+            'audio_jb_target_ms': 500,
+            'audio_soft_loss_duration_supported': 1,
+            'audio_peer_soft_loss_duration_supported': 1,
+            'audio_local_soft_loss_report_us': 0,
+            'audio_peer_soft_loss_report_us': 0,
+            'audio_local_soft_loss_window_ms': 15,
+            'audio_peer_soft_loss_window_ms': 28,
+          },
+          peerDelay: peer,
+          currentPeerDelay: peer,
+          peerTargetDelay: 500,
+          peerSequence: ++sequence,
+          peerBufferGrowing: false,
+          interrupted: interrupted,
+          sourceRecoveryProbeReady:
+              delay < 720 && peer < 720 && !interrupted && !requestingRenewal,
+          sourceRecoveryProbeRequested: requestingRenewal,
+          sourceBudgetPressured: true,
+        );
+
+    void reopen() {
+      for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
+        observe(700);
+      }
+      expect(a.acknowledgedPause, isFalse);
+    }
+
+    reopen();
+    observe(721);
+    expect(a.audioBufferPressure, isTrue);
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+    observe(700, requestingRenewal: true);
+    expect(a.audioBufferPressure, isFalse);
+    expect(a.acknowledgedPause, isFalse);
+    observe(700);
+    expect(a.acknowledgedPause, isFalse);
+    observe(721);
+    expect(a.acknowledgedPause, isFalse);
+    observe(721);
+    expect(a.acknowledgedPause, isTrue);
+
+    reopen();
+    observe(721);
+    observe(700, requestingRenewal: true);
+    expect(a.acknowledgedPause, isFalse);
+    observe(700, requestingRenewal: true);
+    expect(a.acknowledgedPause, isTrue);
+
+    reopen();
+    observe(725);
+    expect(a.acknowledgedPause, isTrue);
+    reopen();
+    observe(721, peer: 720);
+    expect(a.acknowledgedPause, isTrue);
+    reopen();
+    observe(721, interrupted: true);
     expect(a.acknowledgedPause, isTrue);
   });
 

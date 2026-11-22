@@ -197,10 +197,12 @@ class CallBitrateAdapter {
   int _startupGoodStreak = 0;
   int _audioRecoveryStreak = 0;
   bool _audioRecoveryBoundaryHeld = false;
+  bool _reserveRecoveryRenewalWaited = false;
 
   void _resetAudioRecovery() {
     _audioRecoveryStreak = 0;
     _audioRecoveryBoundaryHeld = false;
+    _reserveRecoveryRenewalWaited = false;
   }
 
   int _severeStreak = 0;
@@ -829,6 +831,7 @@ class CallBitrateAdapter {
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
     bool sourceRecoveryProbeReady = false,
+    bool sourceRecoveryProbeRequested = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
@@ -1112,6 +1115,8 @@ class CallBitrateAdapter {
       filledJitterReserveConfirmed:
           filledJitterReserveConfirmed && peerReportOnRoute,
       sourceRecoveryProbeReady: sourceRecoveryProbeReady && peerReportOnRoute,
+      sourceRecoveryProbeRequested:
+          sourceRecoveryProbeRequested && peerReportOnRoute,
       audioSoftLossBelowThreshold:
           softLoss.send == false &&
           softLoss.receive == false &&
@@ -1272,6 +1277,7 @@ class CallBitrateAdapter {
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
     bool sourceRecoveryProbeReady = false,
+    bool sourceRecoveryProbeRequested = false,
     bool audioSoftLossBelowThreshold = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
@@ -1899,27 +1905,50 @@ class CallBitrateAdapter {
     // The node can accept one small lossy trial while the app is still
     // collecting evidence for ordinary growth. Keep the same audio checks
     // and the existing sparse floor throughout the trial.
-    final earlyReserveRecovery =
+    final measuredTrialReserve =
         atFloor &&
         sourceBudgetPressured &&
-        sourceRecoveryProbeReady &&
         requirePeerAudioPlayout &&
         requireAudioReceivePlayout &&
         measuredPlayoutReady &&
         peerReserveCredit > 0 &&
         receiveReserveCredit > 0 &&
-        !bufferPressure &&
         !bufferGrowing &&
         audioSoftLossBelowThreshold &&
         !_networkAudioLoss.holdingGrowth &&
         rttMs > 0 &&
         probeLossAcceptable;
+    final earlyReserveRecovery =
+        measuredTrialReserve && sourceRecoveryProbeReady && !bufferPressure;
     if (_reserveRecoveryTrial) {
       if (!sourceBudgetPressured && measuredPlayoutHealthy) {
         _reserveRecoveryTrial = false;
       } else if (!earlyReserveRecovery && !measuredPlayoutHealthy) {
-        // Return the allowance immediately if audio fails or the supporting
-        // observations expire, including before the first encoded frame.
+        if (videoFloorApplied &&
+            _appliedPause == false &&
+            measuredTrialReserve) {
+          // Preserve the applied floor through one near-limit local sample.
+          // The node still receives pressure and can revoke admission.
+          if (!_audioRecoveryBoundaryHeld &&
+              receiveBufferPressure &&
+              !peerBufferPressure &&
+              receivePressureDelay != null &&
+              receivePressureDelay >= playoutDegradeMs &&
+              receivePressureDelay <
+                  playoutDegradeMs + _probeRecoveryBoundaryMs) {
+            _audioRecoveryBoundaryHeld = true;
+            return target;
+          }
+          // A recovered sample can request renewal after the old permit
+          // expired. Let that request complete before cycling the encoder.
+          if (_audioRecoveryBoundaryHeld &&
+              !_reserveRecoveryRenewalWaited &&
+              !bufferPressure &&
+              sourceRecoveryProbeRequested) {
+            _reserveRecoveryRenewalWaited = true;
+            return target;
+          }
+        }
         _reserveRecoveryTrial = false;
         _audioReserve = true;
         _goodStreak = 0;

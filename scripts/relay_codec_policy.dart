@@ -168,6 +168,7 @@ Future<void> main() async {
       filledJitterReserveConfirmed:
           req['sourceFeedbackQueued'] == true &&
           sourcePressure[i].filledJitterReserveConfirmed,
+      sourceRecoveryProbeRequested: sourceRecoveryProbe,
       sourceRecoveryProbeReady:
           sourceRecoveryProbe &&
           queuedProbeAt is int &&

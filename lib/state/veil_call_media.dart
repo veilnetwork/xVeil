@@ -2225,6 +2225,8 @@ class VeilCallMediaController implements CallMediaController {
                 ((call.media.video || call.media.screen) &&
                     _cameraState.enabledForCall(call.callId)));
         final sourceProbeRoute = stats['audio_rtt_route_epoch'];
+        final sourceRecoveryProbeRequested =
+            sourceRecoveryProbe && !_sourceFeedbackPending;
         if ((sourcePressured != null || sourceRecoveryProbe) &&
             !_sourceFeedbackPending) {
           // One small outstanding report, with the ORIGINAL sampling time.
@@ -2355,6 +2357,7 @@ class VeilCallMediaController implements CallMediaController {
             filledJitterReserveConfirmed:
                 _sourceFeedbackQueued > 0 &&
                 _sourcePressure.filledJitterReserveConfirmed,
+            sourceRecoveryProbeRequested: sourceRecoveryProbeRequested,
             sourceRecoveryProbeReady:
                 sourceRecoveryProbe &&
                 receipt != null &&
