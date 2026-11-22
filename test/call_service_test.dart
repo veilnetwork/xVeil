@@ -8198,6 +8198,101 @@ void main() {
       );
     }
 
+    for (final handover in ['attachment', 'offline', 'pending IPC']) {
+      test(
+        'fresh admission replaces discovery on the old network ($handover)',
+        () {
+          fakeAsync((async) {
+            final fake = _FakeMessaging();
+            final media = _FakeMedia()
+              ..openedTransport = CallTransportKind.p2p
+              ..liveDirectAdmission = false;
+            final admissions = StreamController<void>(sync: true);
+            final network = StreamController<NetworkAttachment>(sync: true);
+            final oldDiscovery = Completer<bool>();
+            final oldSnapshot = Completer<bool?>();
+            final device = NodeId.fromHex('b' * 64);
+            var holdDiscovery = false;
+            var networkGeneration = 0;
+            final svc = CallService(
+              fake,
+              media: media,
+              now: () => clock.now(),
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) =>
+                  holdDiscovery ? oldDiscovery.future : Future.value(true),
+              overlaySessionAdmissions: admissions.stream,
+              networkAttachments: network.stream,
+              readNetworkChangeGeneration: () => networkGeneration,
+            )..start();
+            const id = 'admission-supersedes-old-discovery';
+            try {
+              offer(fake, id, device: device);
+              unawaited(svc.accept());
+              async.flushMicrotasks();
+              unawaited(svc.requestRelayRecoveryForDiagnostics());
+              async.flushMicrotasks();
+              expect(svc.current?.transport, CallTransportKind.relay);
+
+              holdDiscovery = true;
+              for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+                media.rxAt = clock.now();
+                async.elapse(const Duration(seconds: 1));
+              }
+              fake.onCallSignal!(
+                peer,
+                ready(
+                  id,
+                ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+              );
+              media.liveAdmissionGate = oldSnapshot;
+              admissions.add(null);
+              async.flushMicrotasks();
+              expect(media.liveAdmissionChecks, [device, device]);
+
+              if (handover == 'offline') network.add(NetworkAttachment.offline);
+              networkGeneration++;
+              if (handover == 'attachment') {
+                network.add(NetworkAttachment.cellular);
+              }
+              async.flushMicrotasks();
+              expect(media.switches, [CallTransportKind.relay]);
+
+              media.liveAdmissionGate = null;
+              media.liveDirectAdmission = true;
+              admissions.add(null);
+              async.flushMicrotasks();
+              if (handover == 'offline') {
+                expect(media.switches, [CallTransportKind.relay]);
+                network.add(NetworkAttachment.cellular);
+                async.flushMicrotasks();
+              }
+              expect(media.liveAdmissionChecks, [device, device, device]);
+              expect(svc.current?.callId, id);
+              expect(svc.current?.transport, CallTransportKind.p2p);
+              expect(oldDiscovery.isCompleted, isFalse);
+              expect(oldSnapshot.isCompleted, isFalse);
+
+              oldDiscovery.complete(false);
+              oldSnapshot.complete(true);
+              async.flushMicrotasks();
+              expect(media.switches, [
+                CallTransportKind.relay,
+                CallTransportKind.p2p,
+              ]);
+            } finally {
+              if (!oldDiscovery.isCompleted) oldDiscovery.complete(false);
+              if (!oldSnapshot.isCompleted) oldSnapshot.complete(false);
+              svc.dispose();
+              unawaited(admissions.close());
+              unawaited(network.close());
+              async.flushMicrotasks();
+            }
+          });
+        },
+      );
+    }
+
     for (final beforeDeadline in [true, false]) {
       test('discovery miss respects pending exact-device read '
           'before deadline: $beforeDeadline', () {

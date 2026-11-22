@@ -760,7 +760,15 @@ class CallService {
       }
     }
 
-    void wake() => unawaited(checkRegistration());
+    void wake() {
+      if (!isCurrent()) {
+        // A registration on the new network must not wait for the old
+        // discovery or its in-flight admission read to return.
+        complete(false);
+      } else {
+        unawaited(checkRegistration());
+      }
+    }
     _wakeLateP2PDiscovery = wake;
     final timeout = Timer(kCallP2PSetupTimeout, () => complete(false));
     try {
@@ -812,6 +820,7 @@ class CallService {
     final generation = _lateP2PGeneration;
     final networkVersion = _networkObservationVersion;
     var epoch = _mediaOperationEpoch;
+    int? admissionAtDiscovery;
     _lateP2PBusy = true;
     // An ordinary wake at the same deadline can take the retry first.
     _lateP2PRetryTimer?.cancel();
@@ -862,6 +871,7 @@ class CallService {
                 'endpoint refresh not needed',
           );
         } else {
+          if (recovering) admissionAtDiscovery = lastAdmission;
           final reachable = recovering
               ? await _discoverLateDirectSession(
                   c.mediaIdentity,
@@ -871,6 +881,7 @@ class CallService {
                 )
               : await _peerReachableWithoutBlockingSignal(c.mediaIdentity);
           if (!reachable || !sameNetwork() || !_lateP2PConsent) return;
+          admissionAtDiscovery = null;
         }
       }
       // Admission can disappear between heartbeats while we await the peer.
@@ -964,7 +975,17 @@ class CallService {
         }
       }
     } finally {
-      if (generation == _lateP2PGeneration) _lateP2PBusy = false;
+      if (generation == _lateP2PGeneration) {
+        _lateP2PBusy = false;
+        final admission = admissionAtDiscovery;
+        if (admission != null &&
+            stillCurrent() &&
+            networkVersion != _networkObservationVersion &&
+            _hasCurrentRelayAdmissionSince(admission) &&
+            _current?.transport == CallTransportKind.relay) {
+          unawaited(_checkLateP2P());
+        }
+      }
     }
   }
 
