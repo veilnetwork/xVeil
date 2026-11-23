@@ -6246,7 +6246,9 @@ void main() {
       'late confirmation',
       'unproven relay',
       'sender recovered',
-      'new overlay admission',
+      'new overlay admission with a closed sender',
+      'new overlay admission with a recovered sender',
+      'overlay admission supersedes the recheck',
       'new handover',
     ]) {
       test('P2P admission started within the handover window: $outcome', () {
@@ -6287,6 +6289,7 @@ void main() {
           media.rxAt = clock.now();
           final first = Completer<bool?>();
           final confirmation = Completer<bool?>();
+          final recheck = Completer<bool?>();
           media.liveAdmissionGate = first;
           async.elapse(offset);
           expect(media.liveAdmissionChecks, [device, device, device]);
@@ -6301,9 +6304,12 @@ void main() {
           async.elapse(const Duration(seconds: 1) + offset);
           expect(media.switches, isEmpty);
 
-          if (outcome == 'new overlay admission') admissions.add(null);
+          final admissionChanged =
+              outcome.startsWith('new overlay admission') ||
+              outcome == 'overlay admission supersedes the recheck';
+          if (admissionChanged) admissions.add(null);
           if (outcome == 'new handover') network.add(NetworkAttachment.cellular);
-          media.liveAdmissionGate = null;
+          media.liveAdmissionGate = admissionChanged ? recheck : null;
           media.liveDirectAdmission =
               outcome == 'sender recovered' || outcome == 'new handover';
           if (delayFirst) {
@@ -6313,17 +6319,30 @@ void main() {
           }
           async.flushMicrotasks();
           async.elapse(Duration.zero);
+          if (admissionChanged) {
+            expect(media.liveAdmissionChecks, hasLength(5));
+            expect(media.switches, isEmpty, reason: 'the old reply is stale');
+            if (outcome == 'overlay admission supersedes the recheck') {
+              admissions.add(null);
+            }
+            media.liveAdmissionGate = null;
+            recheck.complete(
+              outcome == 'new overlay admission with a recovered sender',
+            );
+            async.flushMicrotasks();
+          }
           final startRelay = const {
             'late first reply',
             'late confirmation',
             'unproven relay',
+            'new overlay admission with a closed sender',
           }.contains(outcome);
           expect(media.liveAdmissionChecks, [
             device,
             device,
             device,
             device,
-            if (outcome == 'new handover') device,
+            if (outcome == 'new handover' || admissionChanged) device,
           ]);
           expect(media.switches, startRelay ? [CallTransportKind.relay] : []);
           expect(svc.current?.status, CallStatus.active);

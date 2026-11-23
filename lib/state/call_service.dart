@@ -3363,12 +3363,13 @@ class CallService {
       return;
     }
     final networkVersion = _networkObservationVersion;
-    final connectionGeneration = _relayConnectionGeneration;
+    var connectionGeneration = _relayConnectionGeneration;
     final mediaEpoch = _mediaOperationEpoch;
-    Call? ownedCall() {
+    Call? ownedCall({bool requireUnchangedAdmission = true}) {
       final current = _current;
       if (networkVersion != _networkObservationVersion ||
-          connectionGeneration != _relayConnectionGeneration ||
+          (requireUnchangedAdmission &&
+              connectionGeneration != _relayConnectionGeneration) ||
           mediaEpoch != _mediaOperationEpoch ||
           current == null ||
           current.callId != call.callId ||
@@ -3468,6 +3469,17 @@ class CallService {
           );
         }
       }
+      // An overlay registration invalidates the old answer, but may have
+      // been for another node. Read this peer once more on the same network
+      // before releasing the early handover check, even if its start window
+      // has closed. Another registration still invalidates the new answer.
+      if (early &&
+          connectionGeneration != _relayConnectionGeneration &&
+          sameHandover() &&
+          ownedCall(requireUnchangedAdmission: false) != null) {
+        connectionGeneration = _relayConnectionGeneration;
+        admitted = await readAdmission();
+      }
     } catch (_) {
       // A failed query is not proof of a closed session.
       admitted = null;
@@ -3475,8 +3487,6 @@ class CallService {
       _finishMediaWatchdogCheck();
     }
     final current = ownedCall();
-    // If the overlay recovered during the probe, let the next tick sample the
-    // current session before starting relay recovery.
     if (admitted != false ||
         current == null ||
         (early ? !sameHandover() : !_directSessionSilent(current))) {
