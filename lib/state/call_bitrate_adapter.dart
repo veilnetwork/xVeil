@@ -1930,31 +1930,36 @@ class CallBitrateAdapter {
         probeLossAcceptable;
     final earlyReserveRecovery =
         measuredTrialReserve && sourceRecoveryProbeReady && !bufferPressure;
+    final canHoldLocalTrialBoundary =
+        !_audioRecoveryBoundaryHeld &&
+        receiveBufferPressure &&
+        !peerBufferPressure &&
+        receivePressureDelay != null &&
+        receivePressureDelay >= playoutDegradeMs &&
+        receivePressureDelay < playoutDegradeMs + _probeRecoveryBoundaryMs;
+    final canWaitForTrialRenewal =
+        _audioRecoveryBoundaryHeld &&
+        !_reserveRecoveryRenewalWaited &&
+        !bufferPressure &&
+        sourceRecoveryProbeRequested;
     if (_reserveRecoveryTrial) {
       if (!sourceBudgetPressured && measuredPlayoutHealthy) {
         _reserveRecoveryTrial = false;
       } else if (!earlyReserveRecovery && !measuredPlayoutHealthy) {
-        if (videoFloorApplied &&
+        if (_appliedTarget == target &&
+            _appliedTarget?.maxFps == 1 &&
             _appliedPause == false &&
             measuredTrialReserve) {
           // Preserve the applied floor through one near-limit local sample.
-          // The node still receives pressure and can revoke admission.
-          if (!_audioRecoveryBoundaryHeld &&
-              receiveBufferPressure &&
-              !peerBufferPressure &&
-              receivePressureDelay != null &&
-              receivePressureDelay >= playoutDegradeMs &&
-              receivePressureDelay <
-                  playoutDegradeMs + _probeRecoveryBoundaryMs) {
+          // The node still receives pressure and can revoke admission. The
+          // encoder need not have produced its first frames for this wait.
+          if (canHoldLocalTrialBoundary) {
             _audioRecoveryBoundaryHeld = true;
             return target;
           }
           // A recovered sample can request renewal after the old permit
           // expired. Let that request complete before cycling the encoder.
-          if (_audioRecoveryBoundaryHeld &&
-              !_reserveRecoveryRenewalWaited &&
-              !bufferPressure &&
-              sourceRecoveryProbeRequested) {
+          if (canWaitForTrialRenewal) {
             _reserveRecoveryRenewalWaited = true;
             return target;
           }
@@ -1998,6 +2003,16 @@ class CallBitrateAdapter {
             useEarlyReserve && !measuredPlayoutHealthy && !audioGood;
         return target;
       }
+    } else if (mayRecover &&
+        _appliedPause == true &&
+        measuredTrialReserve &&
+        _audioRecoveryStreak > (_audioRecoveryStartedPending ? 1 : 0) &&
+        (canHoldLocalTrialBoundary || canWaitForTrialRenewal)) {
+      // Keep previously earned observations through one marginal local
+      // sample and one renewal poll. Neither counts toward recovery;
+      // unpausing still requires a new healthy sample with a fresh receipt.
+      _audioRecoveryBoundaryHeld = true;
+      _reserveRecoveryRenewalWaited = canWaitForTrialRenewal;
     } else if (mayRecover &&
         _appliedPause == true &&
         measuredTrialReserve &&

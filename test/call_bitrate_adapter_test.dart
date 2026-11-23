@@ -3338,7 +3338,7 @@ void main() {
     expect(a.acknowledgedPause, isTrue);
   });
 
-  test('an active floor probe tolerates one marginal local buffer sample', () {
+  test('floor recovery tolerates one marginal local buffer sample', () {
     final a = direct(level: 4);
     native(a, peerDelay: 300);
     native(a, peerDelay: 300);
@@ -3350,31 +3350,32 @@ void main() {
       int peer = 700,
       bool interrupted = false,
       bool requestingRenewal = false,
-    }) =>
-        native(
-          a,
-          stats: {
-            ...healthy(),
-            'audio_delay_ms': delay,
-            'audio_jb_target_ms': 500,
-            'audio_soft_loss_duration_supported': 1,
-            'audio_peer_soft_loss_duration_supported': 1,
-            'audio_local_soft_loss_report_us': 0,
-            'audio_peer_soft_loss_report_us': 0,
-            'audio_local_soft_loss_window_ms': 15,
-            'audio_peer_soft_loss_window_ms': 28,
-          },
-          peerDelay: peer,
-          currentPeerDelay: peer,
-          peerTargetDelay: 500,
-          peerSequence: ++sequence,
-          peerBufferGrowing: false,
-          interrupted: interrupted,
-          sourceRecoveryProbeReady:
-              delay < 720 && peer < 720 && !interrupted && !requestingRenewal,
-          sourceRecoveryProbeRequested: requestingRenewal,
-          sourceBudgetPressured: true,
-        );
+      int? sentFrames,
+    }) => native(
+      a,
+      stats: {
+        ...healthy(),
+        'audio_delay_ms': delay,
+        'audio_jb_target_ms': 500,
+        'video_tx_frames': ?sentFrames,
+        'audio_soft_loss_duration_supported': 1,
+        'audio_peer_soft_loss_duration_supported': 1,
+        'audio_local_soft_loss_report_us': 0,
+        'audio_peer_soft_loss_report_us': 0,
+        'audio_local_soft_loss_window_ms': 15,
+        'audio_peer_soft_loss_window_ms': 28,
+      },
+      peerDelay: peer,
+      currentPeerDelay: peer,
+      peerTargetDelay: 500,
+      peerSequence: ++sequence,
+      peerBufferGrowing: false,
+      interrupted: interrupted,
+      sourceRecoveryProbeReady:
+          delay < 720 && peer < 720 && !interrupted && !requestingRenewal,
+      sourceRecoveryProbeRequested: requestingRenewal,
+      sourceBudgetPressured: true,
+    );
 
     void reopen() {
       for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
@@ -3383,7 +3384,54 @@ void main() {
       expect(a.acknowledgedPause, isFalse);
     }
 
-    reopen();
+    // A local 723-ms reading revokes the transport permit while the camera
+    // is still paused. Wait for ordinary audio and a new receipt, without
+    // erasing the two observations already backed by the previous permit.
+    observe(683);
+    observe(703);
+    observe(723);
+    expect(a.audioBufferPressure, isTrue);
+    expect(a.acknowledgedPause, isTrue);
+    observe(683, requestingRenewal: true);
+    expect(a.acknowledgedPause, isTrue);
+    observe(703);
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+    // A near-limit reading just after resuming does not restart the pause
+    // before the new floor has had time to produce its first two frames.
+    observe(723, sentFrames: 1);
+    expect(a.acknowledgedPause, isFalse);
+    observe(683, requestingRenewal: true, sentFrames: 1);
+    expect(a.acknowledgedPause, isFalse);
+    observe(683, sentFrames: 1);
+    expect(a.acknowledgedPause, isFalse);
+
+    // A second boundary hit, significant pressure or a genuine interruption
+    // must discard the old observations while the camera is still paused.
+    for (final gap in [
+      () => observe(724),
+      () => observe(725),
+      () => observe(723, peer: 720),
+      () => observe(723, interrupted: true),
+      () {
+        observe(683, requestingRenewal: true);
+        observe(703, requestingRenewal: true);
+      },
+    ]) {
+      observe(725, interrupted: true);
+      expect(a.acknowledgedPause, isTrue);
+      observe(683);
+      observe(703);
+      observe(723);
+      gap();
+      observe(703);
+      expect(a.acknowledgedPause, isTrue);
+      observe(683);
+      expect(a.acknowledgedPause, isTrue);
+      observe(683);
+      expect(a.acknowledgedPause, isFalse);
+    }
+
     observe(721);
     expect(a.audioBufferPressure, isTrue);
     expect(a.acknowledgedPause, isFalse);
