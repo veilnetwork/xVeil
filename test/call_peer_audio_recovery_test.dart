@@ -190,6 +190,58 @@ void main() {
     },
   );
 
+  test('a new decoder baseline preserves a pending health event', () {
+    final peer = CallPeerAudioPlayout();
+    final now = DateTime(2026);
+    void health(int sequence, int count, int origin, int discardedMs) =>
+        peer.observe(
+          CallAudioPlayoutFeedback(
+            sequence: sequence,
+            delayMs: 80,
+            interruptionCount: count,
+            recoveryCount: count,
+            callScopedCounters: true,
+            recoveryOrigin: origin,
+            recoveryDiscardedMs: discardedMs,
+          ),
+          now,
+        );
+
+    health(1, 0, 7, 0);
+    health(2, 1, 7, 20);
+    health(3, 1, 8, 0);
+
+    final recovery = CallPeerAudioRecovery();
+    expect(
+      observe(
+        recovery,
+        {},
+        health: peer.recoveryIdentity(now),
+        recovered: peer.takeRecovery(),
+      ),
+      isTrue,
+    );
+    expect(observe(recovery, report(100, 7, 20)), isFalse);
+    health(4, 2, 8, 10);
+    health(5, 2, 8, 0); // A lagging canonical snapshot cannot replace it.
+    expect(
+      observe(
+        recovery,
+        {},
+        health: peer.recoveryIdentity(now),
+        recovered: peer.takeRecovery(),
+      ),
+      isTrue,
+    );
+    expect(observe(recovery, report(200, 8, 10)), isFalse);
+    health(6, 2, 8, 10);
+    expect(peer.takeRecovery(), isFalse);
+    health(7, 3, 8, 30);
+    health(8, 4, 9, 10);
+    expect(peer.recoveryIdentity(now), (origin: 9, discardedMs: 10));
+    expect(peer.takeRecovery(), isTrue);
+  });
+
   test('legacy witnesses remain usable without canonical identities', () {
     final r = CallPeerAudioRecovery();
     expect(observe(r, {'audio_peer_recovery_report_us': 100}), isTrue);

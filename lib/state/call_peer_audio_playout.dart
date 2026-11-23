@@ -47,22 +47,22 @@ class CallPeerAudioPlayout {
       feedback.recoveryOrigin,
       feedback.recoveryDiscardedMs,
     );
-    // Preserve the identity of an unconsumed event if a later unknown sample
-    // arrives before the next stats tick. A real legacy event below explicitly
-    // replaces it with null, retaining the older peer's conservative behavior.
-    if (!_recovered || identity != null) _recoveryIdentity = identity;
+    // Only a newer event can replace the identity of an unconsumed event.
+    // A replacement decoder's zero baseline or a lagging sample may arrive
+    // before the next stats tick. Legacy events still explicitly clear it.
+    if (!_recovered) _recoveryIdentity = identity;
     if (identity != null) {
       final previous = _lastCanonicalRecovery;
-      if (previous != null &&
+      final advanced =
+          previous != null &&
           (identity.origin > previous.origin ||
               (identity.origin == previous.origin &&
-                  identity.discardedMs > previous.discardedMs))) {
-        _recovered = identity.discardedMs > 0 || _recovered;
+                  identity.discardedMs > previous.discardedMs));
+      if (advanced && identity.discardedMs > 0) {
+        _recovered = true;
+        _recoveryIdentity = identity;
       }
-      if (previous == null ||
-          identity.origin > previous.origin ||
-          (identity.origin == previous.origin &&
-              identity.discardedMs >= previous.discardedMs)) {
+      if (previous == null || advanced) {
         _lastCanonicalRecovery = identity;
       }
     }
