@@ -158,10 +158,13 @@ void main() {
   late HiddenVolumeStorage sA, sB;
   late MessagingService mA, mB;
   late void Function(Duration) advanceSenderClock;
+  late void Function(Duration) changeSenderWallClock;
 
   setUp(() async {
     var senderClockOffset = Duration.zero;
+    var senderWallClockChange = Duration.zero;
     advanceSenderClock = (step) => senderClockOffset += step;
+    changeSenderWallClock = (step) => senderWallClockChange += step;
     a = _id(1);
     b = _id(2);
     tA = _FakeTransport(a);
@@ -175,7 +178,8 @@ void main() {
     mA = MessagingService(
       tA,
       sA,
-      now: () => DateTime.now().add(senderClockOffset),
+      now: () => DateTime.now().add(senderClockOffset + senderWallClockChange),
+      retryNow: () => DateTime.now().add(senderClockOffset),
     )..start();
     mB = MessagingService(tB, sB)..start();
     // Establish a mutually-accepted contact so free messaging is allowed.
@@ -591,6 +595,28 @@ void main() {
       }
     });
   }
+
+  test('live contact retry survives a wall clock rollback', () async {
+    await mA.deleteConversation(b);
+    await mB.deleteConversation(a);
+    tA.online = false;
+    expect((await mA.submitContactRequest(b, 'hello')).admitted, isTrue);
+    expect(
+      (await sA.pendingOutboxFrames()).single.frameId,
+      startsWith('request:'),
+    );
+
+    changeSenderWallClock(const Duration(minutes: -11));
+    tA.online = true;
+    await mA.debugFlushOutboxFrames();
+    await _pump();
+    expect(await sB.getContact(a), isNull);
+
+    advanceSenderClock(const Duration(seconds: 21));
+    await mA.debugFlushOutboxFrames();
+    await _pump();
+    expect((await sB.getContact(a))?.status, ContactStatus.pendingIncoming);
+  });
 
   test('queued seals recheck peer backoff after own-device lookup', () async {
     final mailbox = _UnresolvedMailboxSink();

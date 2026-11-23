@@ -356,7 +356,7 @@ class _MessagingOutbox {
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
     _invalidateCandidate(peerHex, frameId);
-    final now = _owner._now();
+    final now = _owner._retryNow();
     _liveBackoff[_key(peerHex, frameId)] = (
       count: 1,
       nextAt: now.add(callSignal ? _callSignalLiveResend : _liveResend),
@@ -386,7 +386,7 @@ class _MessagingOutbox {
   /// its full backoff until another inbound arrives. The periodic flush owns
   /// future deadlines; return whether any frame becomes due right now.
   bool nudge(String peerHex) {
-    final now = _owner._now();
+    final now = _owner._retryNow();
     var nudged = false;
     for (final id in _liveBackoff.keys.toList()) {
       final backoff = _liveBackoff[id]!;
@@ -791,7 +791,7 @@ class _MessagingOutbox {
           return;
         }
 
-        final now = _owner._now();
+        final now = _owner._retryNow();
         final count = previous.count + 1;
         final nextDelay = Duration(
           milliseconds: _jittered(
@@ -834,7 +834,7 @@ class _MessagingOutbox {
   /// Give backed-off calls one early pass, using the same stored frames and
   /// consent checks. The fast call timers already own their initial retries.
   void onOverlayRestored() {
-    final now = _owner._now();
+    final now = _owner._retryNow();
     var hasWaitingCall = false;
     for (final key in _callReceiptKeys) {
       final backoff = _liveBackoff[key];
@@ -1153,7 +1153,9 @@ class _MessagingOutbox {
       if (!snapshot.contains(frame.peerHex, frame.frameId)) continue;
       if (_activeLivePeers.containsKey(frame.peerHex)) continue;
       final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
-      if (backoff != null && now.isBefore(backoff.nextAt)) continue;
+      if (backoff != null && _owner._retryNow().isBefore(backoff.nextAt)) {
+        continue;
+      }
       // A CEILING ON THE LIVE HALF OF ONE PASS.
       //
       // The ladder that spaces re-drives lives in `_liveBackoff`, which is RAM
@@ -1254,11 +1256,12 @@ class _MessagingOutbox {
     if (!inSnapshot()) return true;
     final peerHex = entry.frame.peerHex;
     if (_activeLivePeers.containsKey(peerHex)) return false;
-    final now = _owner._now();
+    final now = _owner._retryNow();
     final key = _key(entry.frame.peerHex, entry.frame.frameId);
     final backoff = _liveBackoff[key];
     if (backoff != null && now.isBefore(backoff.nextAt)) return true;
-    if (!entry.callSignal && !_takeSilentProbe(entry.frame.peerHex, now)) {
+    if (!entry.callSignal &&
+        !_takeSilentProbe(entry.frame.peerHex, _owner._now())) {
       return true;
     }
     final count = (backoff?.count ?? 0) + 1;
@@ -1527,12 +1530,15 @@ class _MessagingOutbox {
     final hadQuiet = _quietSince.remove(peerHex) != null;
     if (hadContact || hadQuiet) _storeSilence(peerHex);
     if (!wasSilent) return false;
+    final retryNow = _owner._retryNow();
     for (final id in _liveBackoff.keys.toList()) {
       final backoff = _liveBackoff[id]!;
-      if (backoff.peer != peerHex || !backoff.nextAt.isAfter(now)) continue;
+      if (backoff.peer != peerHex || !backoff.nextAt.isAfter(retryNow)) {
+        continue;
+      }
       _liveBackoff[id] = (
         count: backoff.count,
-        nextAt: now,
+        nextAt: retryNow,
         peer: backoff.peer,
         lastSentAt: backoff.lastSentAt,
       );

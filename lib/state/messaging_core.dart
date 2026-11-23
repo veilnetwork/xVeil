@@ -156,7 +156,7 @@ class MessagingService {
   /// Whether a deposit for [peerHex] is currently suppressed.
   @visibleForTesting
   bool debugDepositSuppressed(String peerHex) =>
-      _mailboxDelivery.suppressedByBackoff(peerHex, DateTime.now(), 'test');
+      _mailboxDelivery.suppressedByBackoff(peerHex, 'test');
 
   /// What an authenticated delivery from [peerHex] does to that backoff.
   @visibleForTesting
@@ -170,6 +170,7 @@ class MessagingService {
     this._anonymous = false,
     PeerDeviceAuthorizationHandle? deviceAuthorization,
     DateTime Function()? now,
+    DateTime Function()? retryNow,
     Duration? contentReRequestInterval,
     Duration? contentPacing,
     int? contentServeBatch,
@@ -193,6 +194,7 @@ class MessagingService {
              _ => null,
            },
        _now = now ?? DateTime.now,
+       _retryNow = retryNow ?? now ?? _startRetryClock(),
        _contentReRequestInterval =
            contentReRequestInterval ?? const Duration(seconds: 20),
        _contentPacing = contentPacing ?? _configuredContentPacing(),
@@ -231,6 +233,16 @@ class MessagingService {
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
   final DateTime Function() _now;
+
+  // In-memory retries use elapsed time in production. An injected wall clock
+  // drives both clocks in tests unless the retry clock is also supplied.
+  final DateTime Function() _retryNow;
+
+  static DateTime Function() _startRetryClock() {
+    final start = DateTime.now();
+    final elapsed = Stopwatch()..start();
+    return () => start.add(elapsed.elapsed);
+  }
 
   final VeilTransport _transport;
   final Storage _storage;
@@ -320,7 +332,7 @@ class MessagingService {
       _MessagingRealtimeControl(this);
   late final _MessagingMailboxDelivery _mailboxDelivery =
       _MessagingMailboxDelivery(
-        now: _now,
+        retryNow: _retryNow,
         ownDevice: (peer) =>
             isOwnDevice == null ? null : _isSiblingDevice(peer),
       );

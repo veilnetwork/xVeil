@@ -177,16 +177,22 @@ void main() {
   late _BlackholeTransport tA;
   late _RecordingSink sink;
   DateTime? testClock;
+  DateTime? retryClock;
 
   setUp(() async {
     testClock = null;
+    retryClock = null;
     a = _id(1);
     b = _id(2);
     sA = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
     tA = _BlackholeTransport(a);
-    mA = MessagingService(tA, sA, now: () => testClock ?? DateTime.now())
-      ..start();
+    mA = MessagingService(
+      tA,
+      sA,
+      now: () => testClock ?? DateTime.now(),
+      retryNow: () => retryClock ?? testClock ?? DateTime.now(),
+    )..start();
     sink = _RecordingSink();
     mA.attachMailbox(sink);
   });
@@ -407,6 +413,26 @@ void main() {
     expect(sink.stashed, hasLength(deposits));
     await mA.cancelRequest(b);
     expect(await sA.pendingOutboxFrames(), isEmpty);
+  });
+
+  test('mailbox contact retry survives a wall clock rollback', () async {
+    final start = DateTime.now();
+    testClock = start;
+    retryClock = start;
+    expect(await mA.sendRequest(b, 'hello'), isTrue);
+    expect(sink.stashed, hasLength(1));
+
+    testClock = start.subtract(const Duration(minutes: 11));
+    retryClock = start.add(const Duration(seconds: 29));
+    await mA.flushOutbox();
+    await pumpEventQueue();
+    expect(sink.stashed, hasLength(1));
+
+    retryClock = start.add(const Duration(seconds: 30));
+    await mA.flushOutbox();
+    await pumpEventQueue();
+    expect(sink.stashed, hasLength(2));
+    expect(sink.contentIds.last, sink.contentIds.first);
   });
 
   for (final kind in [WireKind.request, WireKind.accept]) {

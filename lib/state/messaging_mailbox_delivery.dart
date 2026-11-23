@@ -11,9 +11,9 @@ class _ActiveMailboxOffers {
 /// session deduplication and backoff needed to keep unreachable peers from
 /// waking worker isolates every retry tick.
 class _MessagingMailboxDelivery {
-  _MessagingMailboxDelivery({required this.now, this.ownDevice});
+  _MessagingMailboxDelivery({required this.retryNow, this.ownDevice});
 
-  final DateTime Function() now;
+  final DateTime Function() retryNow;
 
   /// Whether a destination is one of MY OWN other devices, by its device id.
   /// Those are never deposited for: see [maybeStash].
@@ -29,7 +29,7 @@ class _MessagingMailboxDelivery {
   /// Suppress offers during the backoff while the durable frame awaits ACK.
   bool hasRecentSubmission(String peerHex, String frameId) {
     final submission = _submissions[(peerHex, frameId)];
-    return submission != null && now().isBefore(submission.retryAt);
+    return submission != null && retryNow().isBefore(submission.retryAt);
   }
   final _offers = <(String, String), _ActiveMailboxOffers>{};
   final Set<String> _inFlight = {};
@@ -182,7 +182,7 @@ class _MessagingMailboxDelivery {
             _peerUnresolvedCap.inSeconds,
           );
     final delay = Duration(seconds: seconds);
-    _submissions[key] = (retryAt: now().add(delay), delay: delay);
+    _submissions[key] = (retryAt: retryNow().add(delay), delay: delay);
     _failedAt.remove(id);
     _lastDeferredLog.remove(id);
   }
@@ -199,7 +199,7 @@ class _MessagingMailboxDelivery {
   /// healthy case, and the ceiling is what matters when it is not.
   void _pruneFailedAt() {
     if (_failedAt.length <= _maxFailedFrames) return;
-    final cutoff = DateTime.now().subtract(_retryBackoff);
+    final cutoff = retryNow().subtract(_retryBackoff);
     _failedAt.removeWhere((_, at) => at.isBefore(cutoff));
   }
 
@@ -232,10 +232,7 @@ class _MessagingMailboxDelivery {
   /// it outright.
   @visibleForTesting
   void debugArmBackoff(String peerHex, Duration wait) {
-    _peerUnresolvedBackoff[peerHex] = (
-      count: 10,
-      nextAt: DateTime.now().add(wait),
-    );
+    _peerUnresolvedBackoff[peerHex] = (count: 10, nextAt: retryNow().add(wait));
   }
 
   void notePeerReachable(String peerHex) {
@@ -258,9 +255,11 @@ class _MessagingMailboxDelivery {
   /// to [_peerUnresolvedCap]. That silence, not the backoff itself, was the
   /// expensive half of diagnosing the 2026-08-06 outage. Keeping the two joined
   /// means a future call site cannot acquire the behaviour without the evidence.
-  bool suppressedByBackoff(String peerHex, DateTime now, String where) {
+  bool suppressedByBackoff(String peerHex, String where) {
     final backoff = _peerUnresolvedBackoff[peerHex];
-    if (backoff == null || !now.isBefore(backoff.nextAt)) return false;
+    if (backoff == null) return false;
+    final now = retryNow();
+    if (!now.isBefore(backoff.nextAt)) return false;
     // One line per peer per window rather than one per pass: the flush loop asks
     // about every conversation every few seconds, and a line each would bury the
     // log this exists to make readable.
@@ -308,7 +307,7 @@ class _MessagingMailboxDelivery {
     // decline it anyway, and asking here keeps the line below for deposits
     // that are really waiting. Measured on the stand: 3 205 "deferred" lines
     // in an hour for one peer that was never going to be deposited for.
-    if (suppressedByBackoff(peer.hex, DateTime.now(), 'stashInBackground')) {
+    if (suppressedByBackoff(peer.hex, 'stashInBackground')) {
       return;
     }
     if (_paused || _inFlight.length >= _maxBackgroundStashes) {
@@ -335,7 +334,7 @@ class _MessagingMailboxDelivery {
   /// peer, 11 328 lines in seven minutes — the 500-line log ring turned over
   /// every ten seconds and took everything else with it.
   void _noteDeferred(NodeId peer, String id) {
-    final now = DateTime.now();
+    final now = retryNow();
     final last = _lastDeferredLog[id];
     if (last != null && now.difference(last) < _suppressionLogEvery) return;
     if (_lastDeferredLog.length >= _maxFailedFrames) {
@@ -416,7 +415,7 @@ class _MessagingMailboxDelivery {
     // hammering the mailbox of a peer we had just failed to resolve. The frame
     // stays durable regardless: the flush loop deposits it once the backoff
     // expires.
-    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) {
+    if (suppressedByBackoff(peer.hex, 'maybeStash')) {
       return false;
     }
     // MY OWN DEVICES DO NOT GO THROUGH THE MAILBOX (owner's decision,
@@ -492,8 +491,7 @@ class _MessagingMailboxDelivery {
     // flush; the durable entry remains pending and retries after this window.
     _pruneFailedAt();
     final failedAt = _failedAt[id];
-    if (failedAt != null &&
-        DateTime.now().difference(failedAt) < _retryBackoff) {
+    if (failedAt != null && retryNow().difference(failedAt) < _retryBackoff) {
       return false;
     }
     // Initial send and periodic flush can race for the same stable id.
@@ -505,7 +503,7 @@ class _MessagingMailboxDelivery {
     // lookups are pending. The first failed seal may arm a peer-wide backoff
     // before the others reach this point; do not seal every queued frame for
     // the same unresolved peer after that failure.
-    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash admission')) {
+    if (suppressedByBackoff(peer.hex, 'maybeStash admission')) {
       return false;
     }
     // THE SLOT IS TAKEN WHERE IT IS CHECKED. [stashInBackground] asks first,
@@ -531,7 +529,7 @@ class _MessagingMailboxDelivery {
     // deferred before its turn came, inside a 70-second end-to-end. That 18 s
     // is either the cost of one slow seal or the sum of several fast deposits,
     // and those ask for opposite fixes. This line is what tells them apart.
-    final slotHeldFrom = DateTime.now();
+    final slotHeldFrom = retryNow();
     var deposited = false;
     try {
       try {
@@ -551,7 +549,8 @@ class _MessagingMailboxDelivery {
         );
       } catch (error, stackTrace) {
         if (!isCurrent()) return false;
-        _failedAt[id] = DateTime.now();
+        final failedAt = retryNow();
+        _failedAt[id] = failedAt;
         // Both spellings of the same dead end: the native path says
         // `PeerUnresolved`, the Dart path throws [MailboxPeerUnresolved]. Only
         // the first was recognised, so a peer that had simply not advertised a
@@ -567,20 +566,20 @@ class _MessagingMailboxDelivery {
           );
           _peerUnresolvedBackoff[peer.hex] = (
             count: count,
-            nextAt: DateTime.now().add(Duration(seconds: seconds)),
+            nextAt: failedAt.add(Duration(seconds: seconds)),
           );
         }
         devLog(
           () =>
               'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
-              '(backoff ${_peerUnresolvedBackoff[peer.hex]?.nextAt.difference(DateTime.now()).inSeconds ?? _retryBackoff.inSeconds}s, '
+              '(backoff ${_peerUnresolvedBackoff[peer.hex]?.nextAt.difference(failedAt).inSeconds ?? _retryBackoff.inSeconds}s, '
               'attempt ${_peerUnresolvedBackoff[peer.hex]?.count ?? 0}): '
               '$error\n$stackTrace',
         );
       }
     } finally {
       _inFlight.remove(id);
-      final heldMs = DateTime.now().difference(slotHeldFrom).inMilliseconds;
+      final heldMs = retryNow().difference(slotHeldFrom).inMilliseconds;
       devLog(
         () =>
             'xVeil[send]: deposit slot held ${heldMs}ms by id=$id '
