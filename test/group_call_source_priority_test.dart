@@ -291,6 +291,8 @@ void main() {
       poll(p, n, {
         ...stats(sequence: n, healthy: true, paused: true),
         'audio_tx_packet_duration_ms': 60,
+        'audio_playout_ms': 520,
+        'audio_playout_pressure_ms': 100,
       }, audioMs: 60);
     }
     expect(p.paused, isFalse);

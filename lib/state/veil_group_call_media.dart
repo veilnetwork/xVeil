@@ -770,7 +770,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         audioReceiveDelayMs: _groupAudioReceivePressureDelay(stats),
         audioInterrupted: _audioInterrupted,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
-        peerAudioDelayMs: _groupPeerAudioDelay(stats),
+        peerAudioDelayMs: _groupPeerAudioPressureDelay(stats),
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
       );
       // Mount while transmission is paused: an older engine may reject the
@@ -1097,8 +1097,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         audioInterrupted: _audioInterrupted,
         audioRecoveryObserved: audioRecovered,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
-        peerAudioDelayMs: _groupPeerAudioDelay(stats),
-        peerCurrentAudioDelayMs: _groupPeerAudioDelay(stats),
+        peerAudioDelayMs: _groupPeerAudioPressureDelay(stats),
+        peerCurrentAudioDelayMs: _groupPeerAudioPressureDelay(stats),
         peerAudioSampleSequence: _groupPeerAudioSequence(stats),
         peerAudioBufferGrowing: _groupPeerAudioSequence(stats) == null
             ? false
@@ -1175,7 +1175,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _expectedMediaPeers.isNotEmpty;
     final receiveExpected = _audioEnabled && _expectedAudioPeers.isNotEmpty;
     final channelsComplete = _expectedMediaPeers.every(_peers.containsKey);
-    var peerDelay = _groupPeerAudioDelay(stats);
+    var peerDelay = _groupPeerAudioPressureDelay(stats);
     final reports = stats['audio_playout_reports'];
     // Any known overloaded listener suffices. Recovery requires fresh reports
     // for the whole fanout, including listeners whose microphones are muted.
@@ -1409,14 +1409,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   // Require every capable receiver before earning recovery. A known poor
   // estimate still substantiates congestion when another estimate is missing.
-  int? _groupPeerAudioDelay(Map<String, dynamic> stats) {
+  int? _groupPeerAudioPressureDelay(Map<String, dynamic> stats) {
     final peers = _peerAudioPlayoutPeers;
     final reports = stats['audio_playout_reports'];
-    final delay = stats['audio_playout_ms'];
-    if (delay is! num ||
-        !delay.isFinite ||
-        delay < 0 ||
-        delay > 60000 ||
+    final delay = GroupCallAudioAdapter.peerPressureDelayMs(stats);
+    if (delay == null ||
         peers <= 0 ||
         reports is! num ||
         !reports.isFinite ||
@@ -1424,7 +1421,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       return null;
     }
     return reports >= peers || delay >= CallBitrateAdapter.playoutDegradeMs
-        ? delay.toInt()
+        ? delay
         : null;
   }
 

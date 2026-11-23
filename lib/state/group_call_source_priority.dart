@@ -1,3 +1,5 @@
+import 'group_call_audio_adapter.dart';
+
 /// Orders real group source reductions before spending audio quality on long
 /// packets. This is an endpoint policy, not a bandwidth estimate or relay QoS.
 class GroupCallSourcePriority {
@@ -145,6 +147,7 @@ class GroupCallSourcePriority {
     final freshPeer =
         sequence != null && (_sequence == null || sequence > _sequence!);
     if (freshPeer) _sequence = sequence;
+    final delay = GroupCallAudioAdapter.peerPressureDelayMs(stats);
     final healthy =
         stats['worker_stalled'] == 0 &&
         stats['audio_config_valid'] == 1 &&
@@ -160,9 +163,8 @@ class GroupCallSourcePriority {
         (_transientOnly ||
             stats['audio_peer_recovery_report_us'] == null ||
             stats['audio_peer_recovery_report_us'] == 0) &&
-        stats['audio_playout_ms'] is int &&
-        (stats['audio_playout_ms'] as int) >= 0 &&
-        (stats['audio_playout_ms'] as int) < 160;
+        delay != null &&
+        delay < 160;
     if (!healthy) {
       _healthy = 0;
     } else if (freshPeer && _stage > 0) {

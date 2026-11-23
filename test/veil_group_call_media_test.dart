@@ -2087,11 +2087,18 @@ void main() {
         (maxBitrateKbps: 8, maxFps: 1.0),
         reason: 'a borderline audio delay has not earned video recovery',
       );
-      engine.stats = {...engine.stats, 'audio_playout_ms': 100};
+      engine.stats = {
+        ...engine.stats,
+        'audio_playout_ms': 520,
+        'audio_playout_pressure_ms': 100,
+      };
       clock.elapse(const Duration(seconds: 12));
       expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      engine.stats = {...engine.stats, 'audio_playout_pressure_ms': 300};
+      clock.elapse(const Duration(seconds: 10));
+      expect(engine.pauses.last, isTrue);
       controller.stop();
       clock.flushMicrotasks();
     });

@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'call_audio_buffer_window.dart';
+import 'call_audio_playout_reserve.dart';
 import 'call_bitrate_adapter.dart';
 
 typedef GroupAudioBudget = ({int packetMs, int payloadBps});
@@ -23,6 +24,20 @@ class GroupCallAudioAdapter {
   static const recoveryCooldown = Duration(seconds: 8);
   static const healthySamples = 8;
   static const _rttWindowSpan = Duration(minutes: 2);
+
+  /// Native aggregates each peer's authenticated delay after its own reserve.
+  /// Raw delay remains the fallback for older engines and invalid adjustments.
+  static int? peerPressureDelayMs(Map<String, dynamic> stats) {
+    final delay = stats['audio_playout_ms'];
+    if (delay is! int || delay < 0 || delay > 60000) return null;
+    final pressure = stats['audio_playout_pressure_ms'];
+    return pressure is int &&
+            pressure >= 0 &&
+            pressure <= delay &&
+            delay - pressure <= CallAudioPlayoutReserve.maximumCreditMs
+        ? pressure
+        : delay;
+  }
 
   // Avoid filling a shared uplink before the first listener reports. Shorter
   // packets are recovered only after fresh evidence establishes headroom.
@@ -123,7 +138,7 @@ class GroupCallAudioAdapter {
     }
     final sequence = counter(stats['audio_playout_sequence']);
     final reports = counter(stats['audio_playout_reports']);
-    final delay = counter(stats['audio_playout_ms']);
+    final delay = peerPressureDelayMs(stats);
     final peerValid =
         sequence != null &&
         reports != null &&

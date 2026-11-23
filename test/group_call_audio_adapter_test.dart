@@ -43,6 +43,27 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test('room audio does not retune for a filled peer jitter reserve', () {
+    final p = start();
+    observe(p, {...sample(1, delay: 520), 'audio_playout_pressure_ms': 100}, 1);
+    expect(p.target, (packetMs: 40, payloadBps: 32000));
+
+    observe(p, {...sample(2, delay: 520), 'audio_playout_pressure_ms': 300}, 2);
+    expect(p.target, (packetMs: 40, payloadBps: 24000));
+
+    final legacy = start();
+    observe(legacy, sample(1, delay: 520), 1);
+    expect(legacy.target, (packetMs: 40, payloadBps: 24000));
+
+    final invalid = start();
+    observe(
+      invalid,
+      {...sample(1, delay: 520), 'audio_playout_pressure_ms': 99},
+      1,
+    );
+    expect(invalid.target, (packetMs: 40, payloadBps: 24000));
+  });
+
   test(
     'secondary yield distinguishes transient damage from outgoing pressure',
     () {
