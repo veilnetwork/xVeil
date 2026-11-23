@@ -15,10 +15,12 @@ class GroupCallSourcePriority {
   DateTime? _lastAt, _floorAckAt, _pauseAckAt, _quietAt, _pressureAt;
   DateTime? _peerRecoveryFirstSeenAt;
   int? _packets, _sequence, _audioTxDrops, _peerRecoveryReport;
-  int _floorSamples = 0, _healthy = 0;
+  int? _floorAdmittedFrames;
+  int _floorSamples = 0, _healthy = 0, _settledFullSamples = 0;
   int _sparseLocalSamples = 0, _sparsePeerSamples = 0;
   bool _yielded = false;
   bool _transientOnly = false;
+  bool _acceptedOnFloor = false;
 
   bool get floor => _stage > 0;
   bool get paused => _stage == 2;
@@ -33,6 +35,7 @@ class GroupCallSourcePriority {
 
   void requestYield(DateTime now, {bool transient = false}) {
     _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
+    _settledFullSamples = 0;
     if (_stage == 0) {
       _stage = 1;
       _transientOnly = transient;
@@ -73,7 +76,10 @@ class GroupCallSourcePriority {
     _floorAckAt = _pauseAckAt = _quietAt = null;
     _packets = _sequence = _audioTxDrops = _peerRecoveryReport = null;
     _peerRecoveryFirstSeenAt = null;
-    _floorSamples = _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
+    _floorAdmittedFrames = null;
+    _acceptedOnFloor = false;
+    _floorSamples = _healthy = _settledFullSamples = 0;
+    _sparseLocalSamples = _sparsePeerSamples = 0;
     _yielded = false;
   }
 
@@ -134,8 +140,24 @@ class GroupCallSourcePriority {
       // A configured one-fps ceiling and a cached counter are not emitted
       // video. Count distinct native progress samples under the applied floor.
       if (_packets != null && packets > _packets!) _floorSamples++;
+      // Fanout attempts can grow even if the SDK refuses all packets. Only
+      // a native admitted-frame witness can complete the new recovery path.
+      final admitted = count('video_tx_admitted_frame_markers');
+      final previous = _floorAdmittedFrames;
+      final trialRunning = _stage == 1 && stats['video_send_paused'] == 0;
+      if (trialRunning &&
+          admitted != null &&
+          previous != null &&
+          admitted >= previous) {
+        _acceptedOnFloor |= admitted > previous;
+      } else {
+        _acceptedOnFloor = false;
+      }
+      _floorAdmittedFrames = trialRunning ? admitted : null;
     } else {
       _floorSamples = 0;
+      _floorAdmittedFrames = null;
+      _acceptedOnFloor = false;
       if (nativeFresh && fps is num && fps > 1) _floorAckAt = null;
     }
     if (_stage == 2 &&
@@ -184,12 +206,14 @@ class GroupCallSourcePriority {
         (delay < CallBitrateAdapter.playoutRecoverMs || sparseAudioRecovery);
     if (!complete) {
       _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
+      _settledFullSamples = 0;
       return false;
     }
     if (_stage == 0) return false;
     final loss = stats['audio_loss_report_us'];
     final recoveryCleared = peerRecovery == null || peerRecovery == 0;
-    if (loss == 0 && (_transientOnly || recoveryCleared)) {
+    final historyCleared = loss == 0 && (_transientOnly || recoveryCleared);
+    if (historyCleared) {
       if (freshPeer) _healthy++;
     } else {
       _healthy = 0;
@@ -207,17 +231,28 @@ class GroupCallSourcePriority {
         loss is int && loss > 0 && lossAge != null && lossAge >= eventWindow;
     final oldRecovery =
         recoverySeenAt != null && now.difference(recoverySeenAt) >= eventWindow;
-    if (paused &&
-        _yielded &&
+    final historySettled =
         stats['tx_loss_pct'] == 0 &&
         (loss == 0 || oldLoss) &&
-        (recoveryCleared || oldRecovery)) {
+        (recoveryCleared || oldRecovery);
+    if (paused && _yielded && historySettled) {
       if (freshPeer) _sparsePeerSamples++;
       _sparseLocalSamples = sparseAudioRecovery && stableDrops
           ? _sparseLocalSamples + 1
           : 0;
     } else {
       _sparseLocalSamples = _sparsePeerSamples = 0;
+    }
+    // A completed event can remain visible while healthy feedback arrives.
+    // Preserve those measurements only at the ordinary pressure rail. Full
+    // recovery still requires expiry and actual output from the sparse trial.
+    if (historySettled &&
+        stableDrops &&
+        sparseAudioRecovery &&
+        delay < CallBitrateAdapter.playoutRecoverMs) {
+      if (freshPeer) _settledFullSamples++;
+    } else {
+      _settledFullSamples = 0;
     }
     final quiet = _transientOnly ? transientQuietRecovery : quietRecovery;
     final pressureAt = _pressureAt;
@@ -227,7 +262,9 @@ class GroupCallSourcePriority {
       return false;
     }
     final samples = _transientOnly ? transientRecoverySamples : recoverySamples;
-    if (_healthy >= samples) {
+    final completedTrial = _stage == 1 && _acceptedOnFloor;
+    if (_healthy >= samples ||
+        (historyCleared && completedTrial && _settledFullSamples >= samples)) {
       _stage = 0;
       _transientOnly = false;
       _pressureAt = null;

@@ -84,6 +84,35 @@ void main() {
     }
   });
 
+  test('retain measured recovery while the last old report expires', () {
+    for (final emittedFrames in [false, true]) {
+      final p = pausedSource()..acknowledgePause(true, at(2));
+      for (var n = 3; n <= 30; n++) {
+        poll(p, n, {
+          ...stats(
+            packets: n > 22 ? n : 20,
+            paused: p.paused,
+            sequence: n,
+            healthy: true,
+          ),
+          'audio_loss_report_us': 42,
+          'audio_loss_report_age_ms': 8000,
+          'audio_peer_recovery_report_us': 55,
+          'video_tx_admitted_frame_markers': emittedFrames && n > 22 ? n : 20,
+        }, sparseAudioRecovery: true);
+        expect(p.floor, isTrue);
+        if (n == 22) p.acknowledgeFloor(at(n));
+      }
+      expect(p.paused, isFalse);
+      // An expired history and a fresh report still gate full recovery.
+      poll(p, 31, {
+        ...stats(packets: 31, sequence: 31, healthy: true),
+        'video_tx_admitted_frame_markers': emittedFrames ? 31 : 20,
+      }, sparseAudioRecovery: true);
+      expect(p.floor, !emittedFrames);
+    }
+  });
+
   test('unknown loss age and fresh impairment still block the floor retry', () {
     for (final (lossAgeMs, newCatchUp, currentLoss) in [
       (null, false, 0),
