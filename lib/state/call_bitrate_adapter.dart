@@ -473,6 +473,7 @@ class CallBitrateAdapter {
       _floorPeerSampleSequence = _lastPeerSampleSequence;
       _floorReceiveBuffer.reset();
       _floorPeerBuffer.reset();
+      _resetFloorFrames();
     }
     if (_delivery.supported && proposed != previous) {
       _delivery.applied(
@@ -513,6 +514,7 @@ class CallBitrateAdapter {
     }
     if (!apply(desired)) return false;
     _appliedPause = desired;
+    _resetFloorFrames();
     return true;
   }
 
@@ -566,8 +568,7 @@ class CallBitrateAdapter {
     _lastTransientSendExpected = null;
     _lastTransientReceiveExpected = null;
     _lastVideoCutAt = null;
-    _floorTrialLastFrames = null;
-    _floorTrialFrames = 0;
+    _resetFloorFrames();
     _floorPeerSampleSequence = null;
     // A rebuilt engine may restart native report numbering; encrypted peer
     // health may instead continue its call-wide sequence. Neither can inherit
@@ -1269,6 +1270,13 @@ class CallBitrateAdapter {
     }
     _floorTrialFrames += count - previous;
     return _floorTrialFrames >= 2;
+  }
+
+  void _resetFloorFrames() {
+    // The last pre-acknowledgement poll can precede more output at the former
+    // rate. Establish a new counter baseline after the budget or gate change.
+    _floorTrialLastFrames = null;
+    _floorTrialFrames = 0;
   }
 
   bool _videoCanEarnRecovery(Map<String, dynamic> stats, bool expected) {

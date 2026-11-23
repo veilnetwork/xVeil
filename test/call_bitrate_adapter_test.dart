@@ -2961,6 +2961,32 @@ void main() {
     expect(a.audioReserve, isTrue);
   });
 
+  test('frames sent before the floor acknowledgement cannot fund a pause', () {
+    final a = direct(level: 3);
+    native(a, stats: {...healthy(), 'video_tx_frames': 100});
+    native(a, stats: {...healthy(), 'video_tx_frames': 101}, interrupted: true);
+    expect(a.atFloor, isTrue);
+
+    // The encoder can send more frames at the previous rate between the
+    // last stats snapshot and accepting the new one-fps budget.
+    apply(a);
+    expect(a.acknowledgedTarget?.maxFps, 1);
+    void interrupted(int frames) => native(
+      a,
+      stats: {...healthy(), 'video_tx_frames': frames},
+      interrupted: true,
+    );
+
+    interrupted(105);
+    interrupted(105);
+    expect(a.audioReserve, isFalse);
+    interrupted(106);
+    interrupted(107);
+    expect(a.audioReserve, isFalse);
+    interrupted(108);
+    expect(a.audioReserve, isTrue);
+  });
+
   test('engine replacement invalidates the measured floor trial', () {
     final a = direct(level: 4);
     for (final frames in [10, 11, 12]) {
