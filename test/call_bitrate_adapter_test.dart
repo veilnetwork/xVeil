@@ -3445,7 +3445,7 @@ void main() {
     expect(a.acknowledgedPause, isTrue);
   });
 
-  test('floor recovery tolerates one marginal local buffer sample', () {
+  test('floor recovery tolerates one marginal buffer sample', () {
     final a = direct(level: 4);
     native(a, peerDelay: 300);
     native(a, peerDelay: 300);
@@ -3558,6 +3558,33 @@ void main() {
     observe(700, requestingRenewal: true);
     expect(a.acknowledgedPause, isFalse);
     observe(700, requestingRenewal: true);
+    expect(a.acknowledgedPause, isTrue);
+
+    // A single near-limit report from the peer has the same recovery path
+    // as a local sample. Transport still withdraws the current permit.
+    reopen();
+    observe(692, peer: 723);
+    expect(a.audioBufferPressure, isTrue);
+    expect(a.acknowledgedPause, isFalse);
+    observe(712, peer: 696, requestingRenewal: true);
+    expect(a.acknowledgedPause, isFalse);
+    observe(684, peer: 696);
+    expect(a.acknowledgedPause, isFalse);
+    observe(700, peer: 722);
+    expect(a.acknowledgedPause, isFalse);
+    observe(700, peer: 722);
+    expect(a.acknowledgedPause, isTrue);
+
+    reopen();
+    observe(722);
+    expect(a.acknowledgedPause, isFalse);
+    observe(673, peer: 722);
+    expect(a.acknowledgedPause, isTrue);
+    reopen();
+    observe(700, peer: 725);
+    expect(a.acknowledgedPause, isTrue);
+    reopen();
+    observe(700, peer: 722, interrupted: true);
     expect(a.acknowledgedPause, isTrue);
 
     reopen();

@@ -2001,10 +2001,20 @@ class CallBitrateAdapter {
             _appliedTarget?.maxFps == 1 &&
             _appliedPause == false &&
             measuredTrialReserve) {
-          // Preserve the applied floor through one near-limit local sample.
+          final canHoldPeerTrialBoundary =
+              !_audioRecoveryBoundaryHeld &&
+              peerBufferPressure &&
+              !receiveBufferPressure &&
+              freshPeerSample &&
+              peerAudioSampleSequence != null &&
+              peerAudioSampleSequence > 0 &&
+              peerPressureDelay != null &&
+              peerPressureDelay >= playoutDegradeMs &&
+              peerPressureDelay < playoutDegradeMs + _probeRecoveryBoundaryMs;
+          // Preserve the applied floor through one near-limit sample.
           // The node still receives pressure and can revoke admission. The
           // encoder need not have produced its first frames for this wait.
-          if (canHoldLocalTrialBoundary) {
+          if (canHoldLocalTrialBoundary || canHoldPeerTrialBoundary) {
             _audioRecoveryBoundaryHeld = true;
             return target;
           }
