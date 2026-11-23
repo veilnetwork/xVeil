@@ -453,7 +453,11 @@ class CallAudioSourcePressure {
     // samples. The video adapter still holds growth and the node earns no
     // fresh healthy credit until the full window and peer confirmation.
     _reserveSupportsRecoveryProbe =
-        _pressured && assessReserve && sustainedReserve && belowDamageThreshold;
+        _pressured &&
+        assessReserve &&
+        sustainedReserve &&
+        !_networkAudioLoss.holdingGrowth &&
+        CallAudioSoftLoss.allowsRecoveryProbe(nativeStats);
     _filledJitterReserveConfirmed =
         !_pressured &&
         ((fastReserve && good && !shortHold) || sustainedConfirmed);

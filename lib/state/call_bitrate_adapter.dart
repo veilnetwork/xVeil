@@ -1126,6 +1126,10 @@ class CallBitrateAdapter {
           softLoss.send == false &&
           softLoss.receive == false &&
           CallAudioSoftLoss.bothWindowsBelowThreshold(stats) == true,
+      audioSoftLossAllowsProbe:
+          softLoss.send == false &&
+          softLoss.receive == false &&
+          CallAudioSoftLoss.allowsRecoveryProbe(stats),
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -1284,6 +1288,7 @@ class CallBitrateAdapter {
     bool sourceRecoveryProbeReady = false,
     bool sourceRecoveryProbeRequested = false,
     bool audioSoftLossBelowThreshold = false,
+    bool audioSoftLossAllowsProbe = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -1919,7 +1924,7 @@ class CallBitrateAdapter {
         peerReserveCredit > 0 &&
         receiveReserveCredit > 0 &&
         !bufferGrowing &&
-        audioSoftLossBelowThreshold &&
+        (audioSoftLossBelowThreshold || audioSoftLossAllowsProbe) &&
         !_networkAudioLoss.holdingGrowth &&
         rttMs > 0 &&
         probeLossAcceptable;

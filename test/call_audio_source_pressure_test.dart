@@ -417,7 +417,14 @@ void main() {
   );
 
   test('a measured steady reserve stops extending the pressure lease', () {
-    for (final peerDamage in [8, 120, null]) {
+    for (final (peerDamage, peerProbe, localProbe, permitsProbe) in [
+      (8, null, null, true),
+      (120, null, null, false),
+      (null, null, null, false),
+      (900, 59, 6, true),
+      (900, 60, 6, false),
+      (900, 59, null, false),
+    ]) {
       final policy = CallAudioSourcePressure(singlePeerPlayout: true);
       bool? observe({
         int sequence = 2,
@@ -440,6 +447,8 @@ void main() {
           'audio_rtt_route_epoch': route,
           'audio_local_soft_loss_window_ms': 0,
           'audio_peer_soft_loss_window_ms': peerDamage,
+          'audio_local_soft_loss_probe_ms': localProbe,
+          'audio_peer_soft_loss_probe_ms': peerProbe,
         },
       );
 
@@ -447,11 +456,19 @@ void main() {
       for (var n = 0; n < 4; n++) {
         expect(observe(), isTrue, reason: 'local trend is still warming');
       }
-      expect(observe(), peerDamage == 8 ? isNull : isTrue);
-      expect(policy.waitingForReserveConfirmation, peerDamage == 8);
-      expect(policy.reserveSupportsRecoveryProbe, peerDamage == 8);
+      expect(observe(), permitsProbe ? isNull : isTrue);
+      expect(policy.waitingForReserveConfirmation, permitsProbe);
+      expect(policy.reserveSupportsRecoveryProbe, permitsProbe);
       expect(policy.filledJitterReserveConfirmed, isFalse);
-      if (peerDamage != 8) continue;
+      if (peerDamage != 8) {
+        if (permitsProbe) {
+          for (var n = 0; n < 15; n++) {
+            expect(observe(sequence: 3 + n), isNull);
+            expect(policy.filledJitterReserveConfirmed, isFalse);
+          }
+        }
+        continue;
+      }
 
       for (var n = 0; n < 11; n++) {
         expect(

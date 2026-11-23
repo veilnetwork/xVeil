@@ -3241,6 +3241,7 @@ void main() {
       bool interrupted = false,
       bool requested = false,
       int delay = 710,
+      int? recentPeerDamage,
     }) => native(
       a,
       stats: {
@@ -3254,7 +3255,11 @@ void main() {
         'audio_local_soft_loss_report_us': 0,
         'audio_peer_soft_loss_report_us': 0,
         'audio_local_soft_loss_window_ms': 40,
-        'audio_peer_soft_loss_window_ms': 80,
+        'audio_peer_soft_loss_window_ms': recentPeerDamage == null ? 80 : 900,
+        if (recentPeerDamage != null) ...{
+          'audio_local_soft_loss_probe_ms': 20,
+          'audio_peer_soft_loss_probe_ms': recentPeerDamage,
+        },
       },
       peerDelay: delay,
       currentPeerDelay: delay,
@@ -3317,6 +3322,20 @@ void main() {
     expect(a.acknowledgedPause, isTrue);
     observe(delay: 690);
     expect(a.acknowledgedPause, isFalse);
+
+    observe(interrupted: true);
+    expect(a.acknowledgedPause, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
+      observe(recentPeerDamage: 60);
+      expect(a.acknowledgedPause, isTrue);
+    }
+    for (var i = 1; i <= CallBitrateAdapter.probeResumeAfter; i++) {
+      observe(recentPeerDamage: 59);
+      expect(a.acknowledgedPause, i < CallBitrateAdapter.probeResumeAfter);
+    }
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+    observe(recentPeerDamage: 60);
+    expect(a.acknowledgedPause, isTrue);
   });
 
   test('an active floor probe tolerates one marginal local buffer sample', () {
