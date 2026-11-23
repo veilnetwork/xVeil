@@ -27,7 +27,6 @@ import 'call_network_activity.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
-import 'call_audio_playout_reserve.dart';
 import 'call_audio_source_pressure.dart';
 import 'group_call_service.dart';
 import 'group_call_audio_adapter.dart';
@@ -1327,21 +1326,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
         },
       };
-      final delay = CallAudioReceiveActivity.nativePlayoutDelay(sample);
+      final delay = CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(
+        sample,
+      );
       if (delay == null) {
         complete = false;
         continue;
       }
-      // Each stream has its own NetEq. Charge the worst excess across the
-      // room without borrowing one receiver's jitter reserve for another.
-      // Upstream RTP age can raise pressure but cannot fill the local queue.
-      final buffered = (sample['audio_delay_ms'] as num).toInt();
-      final credit = CallAudioPlayoutReserve.creditMs(
-        buffered,
-        CallAudioReceiveActivity.nativeTargetDelay(sample),
-      );
-      final pressureDelay = delay - credit;
-      if (pressureDelay > worstDelay) worstDelay = pressureDelay;
+      if (delay > worstDelay) worstDelay = delay;
     }
     return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
         ? worstDelay

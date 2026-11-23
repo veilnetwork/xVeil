@@ -1,5 +1,6 @@
 import '../domain/call_signal.dart';
 import 'call_audio_buffer_window.dart';
+import 'call_audio_playout_reserve.dart';
 import 'call_peer_audio_recovery.dart';
 
 /// Audio activity measured at the receive stream, separately from video and
@@ -69,6 +70,19 @@ class CallAudioReceiveActivity {
     return target is num && target.isFinite && target >= 0 && target <= 60000
         ? target.toInt()
         : null;
+  }
+
+  /// Normalize one receiver before aggregating independent group streams.
+  static int? nativePlayoutDelayAfterReserve(Map<String, Object?> stats) {
+    final delay = nativePlayoutDelay(stats);
+    if (delay == null) return null;
+    // nativePlayoutDelay validates the queue delay. Upstream RTP age can
+    // increase pressure without filling this receiver's local reserve.
+    final buffered = (stats['audio_delay_ms'] as num).toInt();
+    return delay - CallAudioPlayoutReserve.creditMs(
+      buffered,
+      nativeTargetDelay(stats),
+    );
   }
 
   int _lastPackets = 0;

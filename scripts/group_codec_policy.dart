@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
+import 'package:xveil/state/group_call_audio_adapter.dart';
 import 'package:xveil/state/group_call_source_priority.dart';
 
 int? measured(Object? value) =>
@@ -36,30 +37,22 @@ class RoomPolicy {
     for (final peer in peers) {
       final receiver = receivers is Map ? receivers[peer] : null;
       final activity = incoming.putIfAbsent(peer, CallAudioReceiveActivity.new);
-      activity.observe({
+      final native = <String, Object?>{
         'worker_stalled': stats['worker_stalled'],
         if (receiver is Map) ...{
           'audio_rx_pkts': receiver['audio_rx_pkts'],
           'audio_delay_ms': receiver['audio_delay_ms'],
           'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+          'audio_jb_target_ms': receiver['audio_jb_target_ms'],
           'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
           'audio_interruption_count': receiver['audio_interruption_count'],
         },
-      }, now);
+      };
+      activity.observe(native, now);
       interrupted |= activity.interrupted;
-      final packets = receiver is Map ? receiver['audio_rx_pkts'] : null;
-      final d = receiver is Map
-          ? CallAudioReceiveActivity.nativePlayoutDelay({
-              'worker_stalled': stats['worker_stalled'],
-              'audio_rx_pkts': receiver['audio_rx_pkts'],
-              'audio_delay_ms': receiver['audio_delay_ms'],
-              'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
-            })
-          : null;
-      final a = receiver is Map
-          ? measured(receiver['audio_rx_native_age_ms'])
-          : null;
-      if (packets is! num || packets <= 0 || d == null || a == null) {
+      final d = CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(native);
+      final a = measured(native['audio_rx_native_age_ms']);
+      if (d == null || a == null) {
         complete = false;
       } else {
         if (d > delay) delay = d;
@@ -80,7 +73,7 @@ class RoomPolicy {
     final supported = stats['audio_playout_peers'];
     if (supported is int && supported >= 0) playoutPeers = supported;
     final reports = stats['audio_playout_reports'];
-    final peerValue = measured(stats['audio_playout_ms']);
+    final peerValue = GroupCallAudioAdapter.peerPressureDelayMs(stats);
     final peerDelay =
         playoutPeers > 0 &&
             reports is num &&
