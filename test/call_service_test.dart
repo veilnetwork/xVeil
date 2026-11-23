@@ -4394,6 +4394,93 @@ void main() {
       });
     }
 
+    for (final outcome in ['confirmed', 'rejected', 'expired']) {
+      test('liveness awaits the current relay handover probe: $outcome', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final network = StreamController<NetworkAttachment>(sync: true);
+          final admissions = StreamController<void>(sync: true);
+          final echo = Completer<bool>();
+          final media = _FakeMedia()
+            ..openedTransport = CallTransportKind.relay
+            ..audioTelemetry = true;
+          bool? committed;
+          media.relayRefresh = (canCommit) async {
+            if (media.relayRefreshes == 1) return false;
+            final accepted = await echo.future && await canCommit();
+            committed = accepted;
+            if (accepted) media.rxAt = media.audioRxAt = clock.now();
+            return accepted;
+          };
+          final svc = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+            networkAttachments: network.stream,
+            overlaySessionAdmissions: admissions.stream,
+            localAllowsP2P: (_) async => false,
+          )..start();
+          const id = 'relay-probe-crosses-liveness';
+          final ends = wire.sent.where((s) => s.type == CallSignalType.end);
+          try {
+            wire.onCallSignal!(
+              peer,
+              offer(id).copyWith(
+                transport: const CallTransportProposal(CallTransportKind.relay),
+              ),
+            );
+            unawaited(svc.accept());
+            async.flushMicrotasks();
+            wire.onCallSignal!(
+              peer,
+              const CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                capture: CallMedia(audio: true),
+              ),
+            );
+            async.elapse(const Duration(milliseconds: 4100));
+            media.rxAt = media.audioRxAt = clock.now();
+            async.elapse(const Duration(milliseconds: 2700));
+            network.add(NetworkAttachment.cellular);
+            async.elapse(const Duration(seconds: 13));
+            expect(media.relayRefreshes, 1);
+            expect(media.repairs, 1);
+
+            // The first attempt could not qualify. A new admission during
+            // the same handover starts the one allowed retry at the next tick.
+            admissions.add(null);
+            async.elapse(const Duration(milliseconds: 5200));
+            expect(media.relayRefreshes, 2);
+            expect(svc.current?.callId, id);
+            expect(ends, isEmpty);
+            expect(media.repairs, 1, reason: 'keep the candidate in flight');
+
+            if (outcome == 'expired') {
+              async.elapse(const Duration(milliseconds: 1800));
+              expect(ends.single.reason, CallEndReason.timeout);
+            }
+            echo.complete(outcome != 'rejected');
+            async.flushMicrotasks();
+            expect(committed, outcome == 'confirmed');
+            if (outcome == 'confirmed') {
+              expect(svc.current?.status, CallStatus.active);
+              expect(ends, isEmpty);
+            } else {
+              expect(svc.current, isNull);
+              expect(ends.single.reason, CallEndReason.timeout);
+            }
+          } finally {
+            svc.dispose();
+            if (!echo.isCompleted) echo.complete(false);
+            unawaited(network.close());
+            unawaited(admissions.close());
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     for (final mode in [
       'confirmed stall',
       'only pre-change audio',

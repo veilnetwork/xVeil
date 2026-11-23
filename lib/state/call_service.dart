@@ -570,7 +570,13 @@ class CallService {
     bool probeRetrySpent,
   })?
   _relayHandover;
-  int? _relayHandoverProbeEpoch;
+  ({
+    int epoch,
+    (int, int?) networkVersion,
+    DateTime until,
+    Completer<void> released,
+  })?
+  _relayHandoverProbe;
   StreamSubscription<void>? _screenShareStoppedSub;
   StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
@@ -854,7 +860,7 @@ class CallService {
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
         _mediaRepair?.epoch == _mediaOperationEpoch ||
-        _relayHandoverProbeEpoch == _mediaOperationEpoch ||
+        _relayHandoverProbe?.epoch == _mediaOperationEpoch ||
         _relayFallbackFlight != null ||
         _relayRebuildAdmission != null ||
         (early &&
@@ -2361,6 +2367,8 @@ class CallService {
         _networkOffline ||
         _relayRebuildInProgress ||
         _mediaRepair?.epoch == _mediaOperationEpoch ||
+        (localRebuild == null &&
+            _currentRelayHandoverProbe(before, _now()) != null) ||
         (_lateP2PBusy && _lateP2PAttempted)) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
@@ -3260,16 +3268,27 @@ class CallService {
       // media while we wait for the peer's echo on the candidate.
       epoch = ++_mediaOperationEpoch;
       final retiredCheck = _retireLateP2PCheck();
-      _relayHandoverProbeEpoch = epoch;
+      final handoverUntil = handoverAt.add(kCallLivenessTimeout);
+      final probeUntil = _now().add(kCallMediaStartTimeout);
+      final probe = (
+        epoch: epoch,
+        networkVersion: networkVersion,
+        until: probeUntil.isBefore(handoverUntil) ? probeUntil : handoverUntil,
+        released: Completer<void>(),
+      );
+      _relayHandoverProbe = probe;
       _mediaWatchdogCheckBusy = true;
       try {
         refreshed = await media.refreshRelayRoute(
           canCommit: () async {
-            if (ownedCall() == null) return false;
+            if (ownedCall() == null || !_now().isBefore(probe.until)) {
+              return false;
+            }
             final latest = await readAudio();
             final live = ownedCall();
             if (live == null || latest == null) return false;
             final now = _now();
+            if (!now.isBefore(probe.until)) return false;
             originalRelayRecovered =
                 !latest.isBefore(handoverAt) &&
                 !latest.isAfter(now) &&
@@ -3280,7 +3299,8 @@ class CallService {
       } catch (_) {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
-        if (_relayHandoverProbeEpoch == epoch) _relayHandoverProbeEpoch = null;
+        if (_relayHandoverProbe == probe) _relayHandoverProbe = null;
+        probe.released.complete();
         // A fresh packet on the original relay can cancel the replacement.
         // Its recovery also releases direct checks deferred by this probe.
         final relayUsable =
@@ -4284,10 +4304,29 @@ class CallService {
         fallback.peer == call.peer) {
       return (until: fallback.livenessUntil, future: fallback.future);
     }
+    final probe = _currentRelayHandoverProbe(call, _now());
+    if (probe != null) return probe;
     final retry = _relayCandidateRetry;
     final wait = retry?.handoverLiveness;
     if (retry?.callId != call.callId || wait == null) return null;
     return (until: wait.until, future: wait.released.future);
+  }
+
+  ({DateTime until, Future<void> future})? _currentRelayHandoverProbe(
+    Call call,
+    DateTime now,
+  ) {
+    final probe = _relayHandoverProbe;
+    // A candidate is already proving this relay route end to end. Give it
+    // the remaining handover budget before repairing or ending the call.
+    if (probe == null ||
+        probe.epoch != _mediaOperationEpoch ||
+        probe.networkVersion != _networkObservationVersion ||
+        call.transport != CallTransportKind.relay ||
+        !now.isBefore(probe.until)) {
+      return null;
+    }
+    return (until: probe.until, future: probe.released.future);
   }
 
   Future<void> _awaitRelayRecovery(
@@ -4323,7 +4362,7 @@ class CallService {
     _relayRebuildAdmission = null;
     if (waiting != null && !waiting.isCompleted) waiting.complete(false);
     _relayHandover = null;
-    _relayHandoverProbeEpoch = null;
+    _relayHandoverProbe = null;
     _mediaWatchdogTimer?.cancel();
     _mediaWatchdogTimer = null;
     _heartbeatTimer?.cancel();
