@@ -27,6 +27,7 @@ import 'call_network_activity.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
+import 'call_audio_playout_reserve.dart';
 import 'call_audio_source_pressure.dart';
 import 'group_call_service.dart';
 import 'group_call_audio_adapter.dart';
@@ -766,7 +767,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         receiveAudioExpected: _hasExpectedIncomingAudio,
         requireAudioReceivePlayout:
             _hasExpectedIncomingAudio && _supportsAudioReceiveAgeStats,
-        audioReceiveDelayMs: _groupAudioReceiveDelay(stats),
+        audioReceiveDelayMs: _groupAudioReceivePressureDelay(stats),
         audioInterrupted: _audioInterrupted,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
@@ -1092,7 +1093,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         receiveAudioExpected: _hasExpectedIncomingAudio,
         requireAudioReceivePlayout:
             _hasExpectedIncomingAudio && _supportsAudioReceiveAgeStats,
-        audioReceiveDelayMs: _groupAudioReceiveDelay(stats),
+        audioReceiveDelayMs: _groupAudioReceivePressureDelay(stats),
         audioInterrupted: _audioInterrupted,
         audioRecoveryObserved: audioRecovered,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
@@ -1198,7 +1199,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       peerCurrentDelayMs: peerDelay,
       peerSampleSequence: _groupPeerAudioSequence(stats),
       peerBufferGrowing: _groupPeerAudioSequence(stats) == null ? false : null,
-      receiveDelayMs: channelsComplete ? _groupAudioReceiveDelay(stats) : null,
+      receiveDelayMs: channelsComplete
+          ? _groupAudioReceivePressureDelay(stats)
+          : null,
       receiveAgeMs: channelsComplete ? receiveQuality.ageMs : null,
       interrupted: _audioInterrupted,
       recovered: recovered,
@@ -1306,28 +1309,39 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return ok;
   }
 
-  int? _groupAudioReceiveDelay(Map<String, dynamic> stats) {
+  int? _groupAudioReceivePressureDelay(Map<String, dynamic> stats) {
     if (stats['worker_stalled'] != 0) return null;
     var complete = true;
     var worstDelay = 0;
     final receivers = stats['audio_receivers'];
     for (final key in _peers.keys.where(_expectedAudioPeers.contains)) {
       final receiver = receivers is Map ? receivers[key] : null;
-      final delay = receiver is Map
-          ? CallAudioReceiveActivity.nativePlayoutDelay({
-              'worker_stalled': 0,
-              'audio_rx_pkts': receiver['audio_rx_pkts'],
-              'audio_delay_ms': receiver['audio_delay_ms'],
-              'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
-              if (_supportsAudioReceiveAgeStats)
-                'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
-            })
-          : null;
+      final sample = <String, Object?>{
+        'worker_stalled': 0,
+        if (receiver is Map) ...{
+          'audio_rx_pkts': receiver['audio_rx_pkts'],
+          'audio_delay_ms': receiver['audio_delay_ms'],
+          'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+          'audio_jb_target_ms': receiver['audio_jb_target_ms'],
+          if (_supportsAudioReceiveAgeStats)
+            'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
+        },
+      };
+      final delay = CallAudioReceiveActivity.nativePlayoutDelay(sample);
       if (delay == null) {
         complete = false;
         continue;
       }
-      if (delay > worstDelay) worstDelay = delay;
+      // Each stream has its own NetEq. Charge the worst excess across the
+      // room without borrowing one receiver's jitter reserve for another.
+      // Upstream RTP age can raise pressure but cannot fill the local queue.
+      final buffered = (sample['audio_delay_ms'] as num).toInt();
+      final credit = CallAudioPlayoutReserve.creditMs(
+        buffered,
+        CallAudioReceiveActivity.nativeTargetDelay(sample),
+      );
+      final pressureDelay = delay - credit;
+      if (pressureDelay > worstDelay) worstDelay = pressureDelay;
     }
     return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
         ? worstDelay

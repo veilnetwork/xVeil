@@ -1693,6 +1693,65 @@ void main() {
     },
   );
 
+  test('room subtracts only each receiver’s own filled jitter reserve', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
+        now: test_clock.clock.now,
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      Map<String, dynamic> sample(
+        int bobDelay, {
+        int aliceDelay = 520,
+        int? alicePressure,
+      }) => {
+        'audio_rx_native_age_supported': 1,
+        'worker_stalled': 0,
+        'audio_feedback_reports': 2,
+        'rtt_ms': 80,
+        'audio_receivers': {
+          alice.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': aliceDelay,
+            'audio_pressure_delay_ms': ?alicePressure,
+            'audio_jb_target_ms': 500,
+            'audio_rx_native_age_ms': 100,
+          },
+          bob.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': bobDelay,
+            'audio_jb_target_ms': 40,
+            'audio_rx_native_age_ms': 100,
+          },
+        },
+      };
+      engine.stats = sample(100);
+      controller.start(_call(self, [alice, bob], video: true));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 6));
+      expect(engine.pauses.last, isFalse);
+
+      engine.stats = sample(CallAudioBufferWindow.ceilingMs);
+      clock.elapse(const Duration(seconds: 4));
+      expect(engine.pauses.last, isTrue);
+
+      engine.stats = sample(100);
+      clock.elapse(const Duration(seconds: 12));
+      expect(engine.pauses.last, isFalse);
+      engine.stats = sample(100, aliceDelay: 100, alicePressure: 520);
+      clock.elapse(const Duration(seconds: 4));
+      expect(engine.pauses.last, isTrue);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test('group receive priority follows remote mute, unmute and removal', () {
     fakeAsync((clock) {
       final self = _id(1), alice = _id(2), bob = _id(3);
