@@ -115,6 +115,7 @@ void main() {
     int? audioReceivers,
     int? videoReceivers,
     bool filledJitterReserveConfirmed = false,
+    bool sparseGroupAudioRecovery = false,
     bool sourceBudgetPressured = false,
     bool sourceRecoveryProbeReady = false,
     bool sourceRecoveryProbeRequested = false,
@@ -124,6 +125,7 @@ void main() {
       stats ?? healthy(),
       sampledAt: nextTime(a),
       filledJitterReserveConfirmed: filledJitterReserveConfirmed,
+      sparseGroupAudioRecovery: sparseGroupAudioRecovery,
       sourceBudgetPressured: sourceBudgetPressured,
       sourceRecoveryProbeReady: sourceRecoveryProbeReady,
       sourceRecoveryProbeRequested: sourceRecoveryProbeRequested,
@@ -3232,6 +3234,58 @@ void main() {
     expect(a.audioReserve, isFalse);
     expect(a.acknowledgedTarget?.maxFps, 1.0);
     expect(a.acknowledgedPause, isFalse);
+  });
+
+  test('filled group reserves reopen only the sparse video floor', () {
+    final a = direct(level: 4);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
+    expect(a.audioReserve, isTrue);
+
+    void observe(int sequence, {bool ready = true, int lossMs = 0}) {
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_feedback_reports': 2,
+          'audio_delay_ms': 182,
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_local_soft_loss_window_ms': lossMs,
+          'audio_peer_soft_loss_window_ms': 0,
+        },
+        peerDelay: 184,
+        currentPeerDelay: 184,
+        peerSequence: sequence,
+        audioReceivers: 2,
+        sparseGroupAudioRecovery: ready,
+        sourceBudgetPressured: true,
+      );
+    }
+
+    for (var n = 1; n <= 3; n++) {
+      observe(n, ready: false);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var n = 4; n <= 6; n++) {
+      observe(n, lossMs: 120);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var n = 0; n < 3; n++) {
+      observe(7);
+    }
+    expect(a.audioReserve, isTrue, reason: 'repeated report earns no credit');
+    observe(8);
+    observe(8);
+    expect(a.audioReserve, isTrue);
+    observe(9);
+    expect(a.acknowledgedPause, isFalse);
+    for (var n = 11; n <= 30; n++) {
+      observe(n);
+    }
+    expect(a.acknowledgedTarget?.maxFps, 1);
   });
 
   test('paused video retries at one fps after confirmed 645-ms playout', () {

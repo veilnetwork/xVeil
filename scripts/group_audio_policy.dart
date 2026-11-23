@@ -30,6 +30,7 @@ Future<void> main() async {
         if (paused != null) room.sourcePriority.acknowledgePause(paused, now);
       }
     } else if (request['op'] == 'poll') {
+      if (request['load'] == true) room.observeAudio(request);
       room.sourcePriority.observe(
         (request['stats'] as Map).cast<String, dynamic>(),
         now,
@@ -37,6 +38,7 @@ Future<void> main() async {
         appliedAudioMs: policy.applied?.packetMs,
         expectedPeers: request['expectedPeers'] as int,
         audioSending: true,
+        sparseAudioRecovery: room.sparseAudioRecovery,
       );
       policy.observe(
         (request['stats'] as Map).cast<String, dynamic>(),

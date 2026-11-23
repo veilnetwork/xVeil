@@ -7,6 +7,7 @@ class CallAudioPlayoutReserve {
   // A 60-ms packet and two render blocks can straddle a current snapshot.
   static const arrivalToleranceMs = 80;
   static const maximumCreditMs = maximumTargetMs - nominalTargetMs;
+  static const sparseGroupRecoveryMs = 200;
 
   static bool _valid(int? value) =>
       value != null && value >= 0 && value <= 60000;

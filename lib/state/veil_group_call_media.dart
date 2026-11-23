@@ -1042,6 +1042,19 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
     }
     final audioAdapter = _audioAdapter;
+    final expectedPeers = _expectedMediaPeers.every(_peers.containsKey)
+        ? _expectedMediaPeers.length
+        : 0;
+    final sparseAudioRecovery =
+        _hasExpectedIncomingAudio &&
+        !_audioInterrupted &&
+        !audioRecovered &&
+        GroupCallAudioAdapter.peerAllowsSparseRecovery(stats, expectedPeers) &&
+        _expectedAudioPeers.every(
+          (key) => GroupCallAudioAdapter.receiverAllowsSparseRecovery(
+            _groupAudioReceiverStats(stats, key),
+          ),
+        );
     if (audioAdapter != null) {
       _sourcePriority.observe(
         stats,
@@ -1050,10 +1063,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             _videoRunning &&
             (_cameraEnabled || _screenSharing || _screenStarting != null),
         appliedAudioMs: audioAdapter.applied?.packetMs,
-        expectedPeers: _expectedMediaPeers.every(_peers.containsKey)
-            ? _expectedMediaPeers.length
-            : 0,
+        expectedPeers: expectedPeers,
         audioSending: _audioEnabled && !_microphoneState.muted,
+        sparseAudioRecovery: sparseAudioRecovery,
       );
       audioAdapter.observe(
         stats,
@@ -1087,6 +1099,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         sampledAt: now,
         sourceBudgetPressured:
             _sourceFeedbackQueued > 0 && _sourcePressured == true,
+        sparseGroupAudioRecovery: sparseAudioRecovery,
         videoSendExpected: _cameraEnabled || _screenSharing,
         sendAudioExpected: _audioEnabled && !_microphoneState.muted,
         receiveAudioExpected: _hasExpectedIncomingAudio,
@@ -1312,22 +1325,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (stats['worker_stalled'] != 0) return null;
     var complete = true;
     var worstDelay = 0;
-    final receivers = stats['audio_receivers'];
     for (final key in _peers.keys.where(_expectedAudioPeers.contains)) {
-      final receiver = receivers is Map ? receivers[key] : null;
-      final sample = <String, Object?>{
-        'worker_stalled': 0,
-        if (receiver is Map) ...{
-          'audio_rx_pkts': receiver['audio_rx_pkts'],
-          'audio_delay_ms': receiver['audio_delay_ms'],
-          'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
-          'audio_jb_target_ms': receiver['audio_jb_target_ms'],
-          if (_supportsAudioReceiveAgeStats)
-            'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
-        },
-      };
       final delay = CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(
-        sample,
+        _groupAudioReceiverStats(stats, key),
       );
       if (delay == null) {
         complete = false;
@@ -1338,6 +1338,25 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
         ? worstDelay
         : null;
+  }
+
+  Map<String, Object?> _groupAudioReceiverStats(
+    Map<String, dynamic> stats,
+    String key,
+  ) {
+    final receivers = stats['audio_receivers'];
+    final receiver = receivers is Map ? receivers[key] : null;
+    return {
+      'worker_stalled': stats['worker_stalled'],
+      if (receiver is Map) ...{
+        'audio_rx_pkts': receiver['audio_rx_pkts'],
+        'audio_delay_ms': receiver['audio_delay_ms'],
+        'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+        'audio_jb_target_ms': receiver['audio_jb_target_ms'],
+        if (_supportsAudioReceiveAgeStats)
+          'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
+      },
+    };
   }
 
   bool get _audioInterrupted =>

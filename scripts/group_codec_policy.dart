@@ -25,31 +25,60 @@ class RoomPolicy {
   final incoming = <String, CallAudioReceiveActivity>{};
   int? recoveries;
   int playoutPeers = 0;
+  bool interrupted = false, recovered = false, sparseAudioRecovery = false;
+
+  Map<String, Object?> _receiverStats(Map<String, dynamic> stats, String peer) {
+    final receivers = stats['audio_receivers'];
+    final receiver = receivers is Map ? receivers[peer] : null;
+    return {
+      'worker_stalled': stats['worker_stalled'],
+      if (receiver is Map) ...{
+        'audio_rx_pkts': receiver['audio_rx_pkts'],
+        'audio_delay_ms': receiver['audio_delay_ms'],
+        'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+        'audio_jb_target_ms': receiver['audio_jb_target_ms'],
+        'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
+        'audio_interruption_count': receiver['audio_interruption_count'],
+      },
+    };
+  }
+
+  void observeAudio(Map<String, dynamic> request) {
+    final stats = (request['stats'] as Map).cast<String, dynamic>();
+    final peers = (request['peers'] as List).cast<String>();
+    final now = DateTime.fromMillisecondsSinceEpoch(request['now'] as int);
+    interrupted = false;
+    var allReceiversReady = true;
+    for (final peer in peers) {
+      final native = _receiverStats(stats, peer);
+      final activity = incoming.putIfAbsent(peer, CallAudioReceiveActivity.new);
+      activity.observe(native, now);
+      interrupted |= activity.interrupted;
+      allReceiversReady &= GroupCallAudioAdapter.receiverAllowsSparseRecovery(
+        native,
+      );
+    }
+    final count = stats['audio_latency_recovery_count'];
+    recovered = false;
+    if (stats['worker_stalled'] == 0 && count is int && count >= 0) {
+      recovered = recoveries != null && count > recoveries!;
+      recoveries = count;
+    }
+    sparseAudioRecovery =
+        !interrupted &&
+        !recovered &&
+        allReceiversReady &&
+        GroupCallAudioAdapter.peerAllowsSparseRecovery(stats, peers.length);
+  }
 
   Map<String, Object?> poll(Map<String, dynamic> request) {
     final stats = (request['stats'] as Map).cast<String, dynamic>();
     final peers = (request['peers'] as List).cast<String>();
     final now = DateTime.fromMillisecondsSinceEpoch(request['now'] as int);
-    final receivers = stats['audio_receivers'];
     var complete = stats['worker_stalled'] == 0;
     var delay = 0, age = 0;
-    var interrupted = false;
     for (final peer in peers) {
-      final receiver = receivers is Map ? receivers[peer] : null;
-      final activity = incoming.putIfAbsent(peer, CallAudioReceiveActivity.new);
-      final native = <String, Object?>{
-        'worker_stalled': stats['worker_stalled'],
-        if (receiver is Map) ...{
-          'audio_rx_pkts': receiver['audio_rx_pkts'],
-          'audio_delay_ms': receiver['audio_delay_ms'],
-          'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
-          'audio_jb_target_ms': receiver['audio_jb_target_ms'],
-          'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
-          'audio_interruption_count': receiver['audio_interruption_count'],
-        },
-      };
-      activity.observe(native, now);
-      interrupted |= activity.interrupted;
+      final native = _receiverStats(stats, peer);
       final d = CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(native);
       final a = measured(native['audio_rx_native_age_ms']);
       if (d == null || a == null) {
@@ -64,12 +93,6 @@ class RoomPolicy {
     final receiveAge = complete || age >= CallBitrateAdapter.audioReceivePauseMs
         ? age
         : null;
-    final count = stats['audio_latency_recovery_count'];
-    var recovered = false;
-    if (stats['worker_stalled'] == 0 && count is int && count >= 0) {
-      recovered = recoveries != null && count > recoveries!;
-      recoveries = count;
-    }
     final supported = stats['audio_playout_peers'];
     if (supported is int && supported >= 0) playoutPeers = supported;
     final reports = stats['audio_playout_reports'];
@@ -132,6 +155,7 @@ class RoomPolicy {
         sampledAt: now,
         sourceBudgetPressured:
             request['sourceFeedbackQueued'] == true && pressured == true,
+        sparseGroupAudioRecovery: sparseAudioRecovery,
         videoSendExpected: true,
         sendAudioExpected: true,
         receiveAudioExpected: true,
@@ -172,6 +196,7 @@ class RoomPolicy {
         'fps': adapter.target.maxFps,
       },
       'audioReserve': adapter.audioReserve,
+      'sparseAudioRecovery': sparseAudioRecovery,
       'sourcePriority': sourcePriority.diagnostics,
       'audioAdaptation': adapter.bufferDiagnostics,
     };
@@ -190,6 +215,7 @@ Future<void> main() async {
       room.adapter.applyPendingPause((_) => request['pauseOk'] == true);
       stdout.writeln('{}');
     } else {
+      room.observeAudio(request);
       stdout.writeln(jsonEncode(room.poll(request)));
     }
   }

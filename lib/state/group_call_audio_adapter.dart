@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import 'call_audio_buffer_window.dart';
 import 'call_audio_playout_reserve.dart';
+import 'call_audio_receive_activity.dart';
+import 'call_audio_soft_loss.dart';
 import 'call_bitrate_adapter.dart';
 
 typedef GroupAudioBudget = ({int packetMs, int payloadBps});
@@ -37,6 +39,47 @@ class GroupCallAudioAdapter {
             delay - pressure <= CallAudioPlayoutReserve.maximumCreditMs
         ? pressure
         : delay;
+  }
+
+  /// Each listener above the ordinary gate must have its own filled reserve.
+  /// Native excludes only fully reserved listeners from the second maximum.
+  static bool peerAllowsSparseRecovery(Map<String, dynamic> stats, int peers) {
+    final pressure = peerPressureDelayMs(stats);
+    final unreserved = stats['audio_playout_unreserved_pressure_ms'];
+    final rtt = stats['rtt_ms'];
+    return peers > 0 &&
+        stats['worker_stalled'] == 0 &&
+        stats['audio_playout_reports'] == peers &&
+        stats['audio_feedback_reports'] == peers &&
+        rtt is num &&
+        rtt > 0 &&
+        rtt < CallBitrateAdapter.severeRttMs &&
+        stats['tx_loss_pct'] == 0 &&
+        CallAudioSoftLoss.bothWindowsBelowThreshold(stats) == true &&
+        pressure != null &&
+        pressure < CallAudioPlayoutReserve.sparseGroupRecoveryMs &&
+        unreserved is int &&
+        unreserved >= 0 &&
+        unreserved <= pressure &&
+        unreserved < CallBitrateAdapter.playoutRecoverMs;
+  }
+
+  static bool receiverAllowsSparseRecovery(Map<String, Object?> stats) {
+    final delay = CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(
+      stats,
+    );
+    final age = stats['audio_rx_native_age_ms'];
+    return delay != null &&
+        age is num &&
+        age >= 0 &&
+        age < CallBitrateAdapter.audioReceiveRecoverMs &&
+        (delay < CallBitrateAdapter.playoutRecoverMs ||
+            (delay < CallAudioPlayoutReserve.sparseGroupRecoveryMs &&
+                CallAudioReceiveActivity.nativePlayoutDelayAfterReserve(
+                      stats,
+                      requireFullReserve: true,
+                    ) !=
+                    null));
   }
 
   // Avoid filling a shared uplink before the first listener reports. Shorter

@@ -29,6 +29,7 @@ void poll(
   int audioMs = 40,
   bool video = true,
   bool sending = true,
+  bool sparseAudioRecovery = false,
 }) => p.observe(
   s,
   at(n),
@@ -36,6 +37,7 @@ void poll(
   appliedAudioMs: audioMs,
   expectedPeers: 2,
   audioSending: sending,
+  sparseAudioRecovery: sparseAudioRecovery,
 );
 
 GroupCallSourcePriority pausedSource() {
@@ -51,6 +53,25 @@ GroupCallSourcePriority pausedSource() {
 }
 
 void main() {
+  test('verified group reserve can release the independent source pause', () {
+    final p = pausedSource()..acknowledgePause(true, at(2));
+    Map<String, dynamic> reserved(int sequence) => {
+      ...stats(paused: true, sequence: sequence),
+      'audio_playout_ms': 604,
+      'audio_playout_pressure_ms': 184,
+    };
+    for (var n = 3; n <= 22; n++) {
+      poll(p, n, reserved(n));
+    }
+    expect(p.paused, isTrue);
+    for (var n = 23; n < 30; n++) {
+      poll(p, n, reserved(n), sparseAudioRecovery: true);
+      expect(p.paused, isTrue);
+    }
+    poll(p, 30, reserved(30), sparseAudioRecovery: true);
+    expect(p.paused, isFalse);
+  });
+
   test('a cached floor counter cannot justify pausing video', () {
     final p = GroupCallSourcePriority()..acknowledgeFloor(at(0));
     for (var n = 0; n <= 5; n++) {

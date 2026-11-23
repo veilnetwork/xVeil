@@ -43,6 +43,55 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test('each late group listener needs its own full reserve', () {
+    final input = {
+      ...sample(1, delay: 604),
+      'rtt_ms': 440,
+      'tx_loss_pct': 0,
+      'audio_local_soft_loss_window_ms': 0,
+      'audio_peer_soft_loss_window_ms': 0,
+      'audio_playout_pressure_ms': 184,
+    };
+    bool eligible(Map<String, Object> changes) =>
+        GroupCallAudioAdapter.peerAllowsSparseRecovery({
+          ...input,
+          ...changes,
+        }, 2);
+    expect(eligible({}), isFalse);
+    expect(eligible({'audio_playout_unreserved_pressure_ms': 184}), isFalse);
+    expect(eligible({'audio_playout_unreserved_pressure_ms': 152}), isTrue);
+    expect(
+      eligible({
+        'audio_playout_unreserved_pressure_ms': 152,
+        'audio_playout_reports': 1,
+      }),
+      isFalse,
+    );
+
+    final local = {
+      'worker_stalled': 0,
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 40,
+      'audio_delay_ms': 602,
+      'audio_jb_target_ms': 500,
+    };
+    expect(GroupCallAudioAdapter.receiverAllowsSparseRecovery(local), isTrue);
+    expect(
+      GroupCallAudioAdapter.receiverAllowsSparseRecovery({
+        ...local,
+        'audio_jb_target_ms': 495,
+      }),
+      isFalse,
+    );
+    expect(
+      GroupCallAudioAdapter.receiverAllowsSparseRecovery({
+        ...local,
+        'audio_rx_native_age_ms': 500,
+      }),
+      isFalse,
+    );
+  });
+
   test('room audio does not retune for a filled peer jitter reserve', () {
     final p = start();
     observe(p, {...sample(1, delay: 520), 'audio_playout_pressure_ms': 100}, 1);

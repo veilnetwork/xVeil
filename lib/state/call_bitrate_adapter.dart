@@ -837,6 +837,7 @@ class CallBitrateAdapter {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
+    bool sparseGroupAudioRecovery = false,
     bool sourceRecoveryProbeReady = false,
     bool sourceRecoveryProbeRequested = false,
     bool videoSendExpected = true,
@@ -1144,6 +1145,7 @@ class CallBitrateAdapter {
       sourceBudgetPressured: sourceBudgetPressured,
       filledJitterReserveConfirmed:
           filledJitterReserveConfirmed && peerReportOnRoute,
+      sparseGroupAudioRecovery: sparseGroupAudioRecovery && peerReportOnRoute,
       sourceRecoveryProbeReady: sourceRecoveryProbeReady && peerReportOnRoute,
       sourceRecoveryProbeRequested:
           sourceRecoveryProbeRequested && peerReportOnRoute,
@@ -1333,6 +1335,7 @@ class CallBitrateAdapter {
     DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool filledJitterReserveConfirmed = false,
+    bool sparseGroupAudioRecovery = false,
     bool sourceRecoveryProbeReady = false,
     bool sourceRecoveryProbeRequested = false,
     bool audioSoftLossBelowThreshold = false,
@@ -1961,8 +1964,30 @@ class CallBitrateAdapter {
                 !_networkAudioLoss.holdingGrowth)) &&
         rttMs > 0 &&
         probeLossAcceptable;
+    // Each group receiver has already accounted for its own verified reserve.
+    // This path can only reopen the existing one-fps floor. The ordinary
+    // growth gates above still use the stricter playout limit.
+    final sparseGroupRecovery =
+        sparseGroupAudioRecovery &&
+        atFloor &&
+        requirePeerAudioPlayout &&
+        requireAudioReceivePlayout &&
+        peerAudioSampleSequence != null &&
+        peerAudioSampleSequence == _lastPeerSampleSequence &&
+        playoutBelow(CallAudioPlayoutReserve.sparseGroupRecoveryMs) &&
+        !bufferPressure &&
+        !bufferGrowing &&
+        !transientGrowthHeld &&
+        audioSoftLossBelowThreshold &&
+        !newDrops &&
+        !newAudioDrops &&
+        rttMs > 0 &&
+        txLossPct == 0;
     final measuredPlayoutHealthy =
-        measuredPlayoutReady && (belowRecoveryDelay || filledReserveRecovery);
+        measuredPlayoutReady &&
+        (belowRecoveryDelay ||
+            filledReserveRecovery ||
+            (sparseGroupRecovery && freshPeerSample));
     // The node can accept one small lossy trial while the app is still
     // collecting evidence for ordinary growth. Keep the same audio checks
     // and the existing sparse floor throughout the trial.
@@ -2097,7 +2122,9 @@ class CallBitrateAdapter {
       // earns no credit and a second one resets the streak. All three
       // healthy samples are still required before retrying one fps.
       _audioRecoveryBoundaryHeld = true;
-    } else {
+    } else if (!(mayRecover && measuredPlayoutReady && sparseGroupRecovery)) {
+      // RTCP can arrive less often than the local sampling interval. Keep
+      // prior credit on a cached report only while local audio stays clean.
       _resetAudioRecovery();
     }
 

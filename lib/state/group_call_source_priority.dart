@@ -1,3 +1,4 @@
+import 'call_bitrate_adapter.dart';
 import 'group_call_audio_adapter.dart';
 
 /// Orders real group source reductions before spending audio quality on long
@@ -78,6 +79,7 @@ class GroupCallSourcePriority {
     required int? appliedAudioMs,
     required int expectedPeers,
     required bool audioSending,
+    bool sparseAudioRecovery = false,
   }) {
     final previousAt = _lastAt;
     if (previousAt != null && now.isBefore(previousAt)) {
@@ -164,7 +166,7 @@ class GroupCallSourcePriority {
             stats['audio_peer_recovery_report_us'] == null ||
             stats['audio_peer_recovery_report_us'] == 0) &&
         delay != null &&
-        delay < 160;
+        (delay < CallBitrateAdapter.playoutRecoverMs || sparseAudioRecovery);
     if (!healthy) {
       _healthy = 0;
     } else if (freshPeer && _stage > 0) {

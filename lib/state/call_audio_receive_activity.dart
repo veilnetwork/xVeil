@@ -73,16 +73,24 @@ class CallAudioReceiveActivity {
   }
 
   /// Normalize one receiver before aggregating independent group streams.
-  static int? nativePlayoutDelayAfterReserve(Map<String, Object?> stats) {
+  static int? nativePlayoutDelayAfterReserve(
+    Map<String, Object?> stats, {
+    bool requireFullReserve = false,
+  }) {
     final delay = nativePlayoutDelay(stats);
     if (delay == null) return null;
     // nativePlayoutDelay validates the queue delay. Upstream RTP age can
     // increase pressure without filling this receiver's local reserve.
     final buffered = (stats['audio_delay_ms'] as num).toInt();
-    return delay - CallAudioPlayoutReserve.creditMs(
+    final credit = CallAudioPlayoutReserve.creditMs(
       buffered,
       nativeTargetDelay(stats),
     );
+    if (requireFullReserve &&
+        credit != CallAudioPlayoutReserve.maximumCreditMs) {
+      return null;
+    }
+    return delay - credit;
   }
 
   int _lastPackets = 0;
