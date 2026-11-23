@@ -2546,6 +2546,28 @@ void main() {
     expect(a.target.maxBitrateKbps, 90);
   });
 
+  test('video recovery requires frame markers admitted to transport', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    void sample(int attempts, int admitted) => native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_tx_frames': attempts,
+        'video_tx_admitted_frame_markers': admitted,
+      },
+    );
+
+    for (var i = 0; i < 30; i++) {
+      sample(i + 11, 10);
+    }
+    expect(a.target.maxBitrateKbps, 30);
+
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      sample(41 + i, 11 + i ~/ 2);
+    }
+    expect(a.target.maxBitrateKbps, 90);
+  });
+
   test('one-fps polling jitter still earns sustained video recovery', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
     for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {

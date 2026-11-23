@@ -239,9 +239,9 @@ class CallBitrateAdapter {
   bool? _lastTransientSendExpected;
   bool? _lastTransientReceiveExpected;
   DateTime? _lastVideoCutAt;
-  int? _lastVideoTxFrames;
+  ({int count, String key})? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
-  ({int count, bool admitted})? _floorTrialLastFrames;
+  ({int count, String key})? _floorTrialLastFrames;
   int _floorTrialFrames = 0;
   int? _lastPeerSampleSequence;
   int? _recoveryPeerBaseline;
@@ -557,6 +557,7 @@ class CallBitrateAdapter {
     // a new baseline, even if it already exceeds the predecessor's count.
     _lastAudioTxDrops = null;
     _lastVideoTxDrops = null;
+    _resetVideoProgress();
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
     _peerConcealment.reset();
@@ -1112,9 +1113,21 @@ class CallBitrateAdapter {
     }
     final useVideoTiming = missingAudioTiming && _delivery.supported;
     final growthFeedbackAvailable = feedbackAvailable || useVideoTiming;
-    final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
-    final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
-    final videoFrames = stats['video_tx_frames'];
+    const admissionKey = 'video_tx_admitted_frame_markers';
+    final videoFrameKey = stats.containsKey(admissionKey)
+        ? admissionKey
+        : 'video_tx_frames';
+    final videoProgress = _videoCanEarnRecovery(
+      stats,
+      videoSendExpected,
+      videoFrameKey,
+    );
+    final floorTrialMeasured = _observeFloorTrial(
+      stats,
+      videoSendExpected,
+      videoFrameKey,
+    );
+    final videoFrames = stats[videoFrameKey];
     final audioLossAge = CallRtcpLoss.audioLossAge(stats);
     final cachedAudioLossPrecedesProbe = CallAudioSoftLoss.lossPrecedesProbe(
       stats,
@@ -1247,19 +1260,18 @@ class CallBitrateAdapter {
 
   /// Count original frame markers admitted by the SDK under the current
   /// budget. Older engines provide attempted frames or only settings.
-  bool _observeFloorTrial(Map<String, dynamic> stats, bool expected) {
-    const admissionKey = 'video_tx_admitted_frame_markers';
-    final admitted = stats.containsKey(admissionKey);
-    final key = admitted ? admissionKey : 'video_tx_frames';
+  bool _observeFloorTrial(
+    Map<String, dynamic> stats,
+    bool expected,
+    String key,
+  ) {
     if (!stats.containsKey(key)) return expected;
     final value = stats[key];
     final count = value is num && value.isFinite && value >= 0
         ? value.toInt()
         : null;
     final previous = _floorTrialLastFrames;
-    _floorTrialLastFrames = count == null
-        ? null
-        : (count: count, admitted: admitted);
+    _floorTrialLastFrames = count == null ? null : (count: count, key: key);
     if (!expected ||
         !atFloor ||
         _audioReserve ||
@@ -1268,7 +1280,7 @@ class CallBitrateAdapter {
         stats['video_worker_stalled'] == 1 ||
         count == null ||
         previous == null ||
-        previous.admitted != admitted ||
+        previous.key != key ||
         count < previous.count) {
       _floorTrialFrames = 0;
       return false;
@@ -1284,24 +1296,34 @@ class CallBitrateAdapter {
     _floorTrialFrames = 0;
   }
 
-  bool _videoCanEarnRecovery(Map<String, dynamic> stats, bool expected) {
+  void _resetVideoProgress() {
+    _lastVideoTxFrames = null;
+    _videoIdleSamples = 0;
+  }
+
+  bool _videoCanEarnRecovery(
+    Map<String, dynamic> stats,
+    bool expected,
+    String key,
+  ) {
     if (!expected) {
-      _lastVideoTxFrames = null;
-      _videoIdleSamples = 0;
+      _resetVideoProgress();
       return false;
     }
     if (stats['video_worker_stalled'] == 1) return false;
     // Older engines without this counter retain intent-based adaptation.
-    if (!stats.containsKey('video_tx_frames')) return true;
-    final frames = stats['video_tx_frames'];
+    if (!stats.containsKey(key)) return true;
+    final frames = stats[key];
     if (frames is! num || !frames.isFinite || frames < 0) return false;
     final count = frames.toInt();
-    _videoIdleSamples = count > (_lastVideoTxFrames ?? 0)
-        ? 0
-        : _videoIdleSamples + 1;
-    _lastVideoTxFrames = count;
+    final previous = _lastVideoTxFrames;
+    final previousCount = previous != null && previous.key == key
+        ? previous.count
+        : 0;
+    _videoIdleSamples = count > previousCount ? 0 : _videoIdleSamples + 1;
+    _lastVideoTxFrames = (count: count, key: key);
     // A one-fps trial can straddle a stats poll. Two quiet samples tolerate
-    // that jitter; no frames or a stalled capture cannot earn a larger budget.
+    // that jitter. A source with no admitted frames cannot earn a larger budget.
     return count > 0 && _videoIdleSamples < 3;
   }
 
