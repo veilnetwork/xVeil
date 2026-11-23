@@ -88,22 +88,19 @@ class CallAudioFeedbackSchedule {
     }
     final pressure = _pressure(feedback);
     final lastAttempt = _lastAttemptAt;
+    final urgent =
+        pressure == true || (pressure == false && _lastPressure == true);
     final confirmReserve =
         _reserveConfirmationPending &&
-        lastAttempt != null &&
         pressure == false &&
-        _reserve(feedback) > 0 &&
-        now.difference(lastAttempt) >= _reserveConfirmationDelay;
-    if (pressure != true &&
-        !(pressure == false && _lastPressure == true) &&
-        !confirmReserve) {
-      return null;
-    }
+        _reserve(feedback) > 0;
+    if (!urgent && !confirmReserve) return null;
     // Let the ordinary heartbeat re-anchor a reversed wall clock, rather
     // than using that reversal to authorize a burst of urgent reports.
     if (lastAttempt == null) return Duration.zero;
     if (now.isBefore(lastAttempt)) return null;
-    final remaining = minimumInterval - now.difference(lastAttempt);
+    final interval = urgent ? minimumInterval : _reserveConfirmationDelay;
+    final remaining = interval - now.difference(lastAttempt);
     return remaining > Duration.zero ? remaining : Duration.zero;
   }
 

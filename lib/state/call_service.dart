@@ -4075,17 +4075,16 @@ class CallService {
       _media?.audioPlayoutFeedback,
       _now(),
     );
+    _urgentAudioFeedbackTimer?.cancel();
+    _urgentAudioFeedbackTimer = null;
     if (delay == null) return;
     if (delay == Duration.zero) {
-      _urgentAudioFeedbackTimer?.cancel();
-      _urgentAudioFeedbackTimer = null;
       unawaited(_announceCapture());
       return;
     }
-    // A watchdog tick just before the rate limit opens used to defer fresh
-    // feedback by a full poll interval. Recheck against the latest sample
-    // and any intervening health attempt at the actual due time.
-    _urgentAudioFeedbackTimer ??= Timer(delay, () {
+    // Recheck the latest sample at the due time. An urgent pressure report
+    // may move the deadline ahead of a pending reserve confirmation.
+    _urgentAudioFeedbackTimer = Timer(delay, () {
       _urgentAudioFeedbackTimer = null;
       final current = _current;
       if (current != null && current.callId == call.callId) {

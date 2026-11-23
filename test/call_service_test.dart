@@ -2793,6 +2793,80 @@ void main() {
       });
     }
 
+    for (final announceBeforeDeadline in [false, true]) {
+      test('confirms a filled reserve at its deadline between watchdog ticks '
+          '(announcement=$announceBeforeDeadline)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          CallAudioPlayoutFeedback playout(int sequence, int current) =>
+              CallAudioPlayoutFeedback(
+                sequence: sequence,
+                delayMs: 723,
+                currentDelayMs: current,
+                targetDelayMs: 500,
+                bufferGrowing: false,
+              );
+          try {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'reserve-confirmation-deadline',
+                type: CallSignalType.offer,
+                media: const CallMedia(audio: true),
+                posture: CallPosture.direct,
+                protocolVersion: kCallSignalProtocolVersion,
+              ),
+            );
+            svc.accept();
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+
+            async.elapse(const Duration(milliseconds: 5));
+            media.playout = playout(1, 723);
+            svc.setMicEnabled(false);
+            async.flushMicrotasks();
+            expect(fake.sent.last.audioPlayout?.sequence, 1);
+            fake.sent.clear();
+
+            media.playout = playout(2, 683);
+            async.elapse(const Duration(seconds: 1));
+            expect(fake.sent.single.audioPlayout?.sequence, 2);
+            fake.sent.clear();
+
+            media.playout = playout(3, 683);
+            async.elapse(const Duration(milliseconds: 1999));
+            expect(fake.sent, isEmpty);
+            // The due-time check uses the latest sample, even if it arrived
+            // just after the last watchdog tick.
+            media.playout = playout(4, 681);
+            if (announceBeforeDeadline) {
+              svc.setMicEnabled(true);
+              async.flushMicrotasks();
+              expect(fake.sent.single.audioPlayout?.sequence, 4);
+              fake.sent.clear();
+            }
+            async.elapse(const Duration(milliseconds: 1));
+            if (announceBeforeDeadline) {
+              expect(fake.sent, isEmpty);
+            } else {
+              expect(fake.sent.single.audioPlayout?.sequence, 4);
+              expect(fake.sent.single.audioPlayout?.currentDelayMs, 681);
+              fake.sent.clear();
+            }
+            media.playout = playout(5, 679);
+            async.elapse(const Duration(seconds: 1));
+            expect(fake.sent, isEmpty);
+          } finally {
+            svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('compact health retains bootstrap, backstop and repair signaling', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

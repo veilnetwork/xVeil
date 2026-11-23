@@ -147,6 +147,8 @@ void main() {
     final steady = sample(3, peak: 720, current: 520, target: 500, growing: false);
     final later = next.add(const Duration(seconds: 1));
     expect(schedule.shouldSendUrgent(steady, later), isFalse);
+    expect(schedule.urgentDelay(steady, later), const Duration(seconds: 1));
+    expect(schedule.urgentDelay(clear, later), isNull);
     expect(
       schedule.shouldSendUrgent(
         sample(3, peak: 720, current: 520, target: 500),
