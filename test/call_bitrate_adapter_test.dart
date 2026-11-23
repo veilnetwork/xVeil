@@ -1405,6 +1405,35 @@ void main() {
     native(a, stats: {...healthy(), 'video_tx_frames': ++frames});
     expect(a.level, 3);
   });
+
+  test('expired RTP age cannot make a filled reserve look overloaded', () {
+    final a = direct();
+    void sample(int age, int delay) => native(
+      a,
+      stats: {
+        ...healthy(),
+        'audio_rx_native_age_ms': age,
+        'audio_delay_ms': delay,
+        'audio_jb_target_ms': 500,
+      },
+    );
+
+    sample(400, 520); // Ordinary Opus DTX gap.
+    expect(a.audioBufferPressure, isFalse);
+    sample(1000, 0); // Measured gap. Playout has drained.
+    expect(a.audioBufferPressure, isFalse);
+    sample(3001, 520);
+    expect(a.audioBufferPressure, isFalse);
+    sample(4001, 520);
+    expect(a.level, 0);
+    expect(a.audioReserve, isFalse);
+
+    sample(5001, 720);
+    expect(a.audioBufferPressure, isTrue);
+    sample(6001, 720);
+    expect(a.level, 2);
+  });
+
   test(
     'fresh local discards need actual floor frames but not a new peer report',
     () {

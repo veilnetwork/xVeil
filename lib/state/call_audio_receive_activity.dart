@@ -64,9 +64,10 @@ class CallAudioReceiveActivity {
   }
 
   static int? nativeTargetDelay(Map<String, Object?> stats) {
-    if (nativePlayoutDelay(stats) == null) return null;
-    final age = _nativeReceiveAgeMs(stats);
-    if (age == null || age > sampleLifetime.inMilliseconds) {
+    // The target is measured alongside the current queue. Packet age gates
+    // recovery and outgoing feedback separately from that paired reading.
+    if (_nativeReceiveAgeMs(stats) == null ||
+        nativePlayoutDelay(stats) == null) {
       return null;
     }
     final target = stats['audio_jb_target_ms'];
@@ -262,8 +263,12 @@ class CallAudioReceiveActivity {
     }
     _lastPackets = count;
     final delay = nativePlayoutDelay(stats);
-    // Only a successfully queried audio worker supplies a playout estimate.
-    if (delay != null) {
+    final arrival = lastRxAt;
+    // Only a fresh receive sample contributes feedback, including its peak.
+    if (delay != null &&
+        arrival != null &&
+        !arrival.isAfter(now) &&
+        now.difference(arrival) <= sampleLifetime) {
       _playoutDelayMs = delay;
       _bufferedDelayMs = (stats['audio_delay_ms'] as num).toInt();
       _targetDelayMs = nativeTargetDelay(stats);

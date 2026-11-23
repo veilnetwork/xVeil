@@ -255,6 +255,33 @@ void main() {
     }
   });
 
+  test('expired RTP cannot publish a peak when audio returns', () {
+    final activity = CallAudioReceiveActivity();
+    const current = {
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 20,
+      'worker_stalled': 0,
+      'audio_delay_ms': 520,
+      'audio_jb_target_ms': 500,
+    };
+    activity.observe(current, start);
+    final expired = start.add(const Duration(seconds: 4));
+    activity.observe({
+      ...current,
+      'audio_rx_native_age_ms': 4020,
+      'audio_delay_ms': 720,
+    }, expired);
+    expect(activity.outgoingPlayoutFeedback(expired).delayMs, isNull);
+    expect(activity.lastRxAt, start.subtract(const Duration(milliseconds: 20)));
+
+    final resumed = expired.add(const Duration(seconds: 1));
+    activity.observe({...current, 'audio_rx_pkts': 101}, resumed);
+    final recovered = activity.outgoingPlayoutFeedback(resumed);
+    expect(recovered.delayMs, 520);
+    expect(recovered.bufferedDelayMs, 520);
+    expect(recovered.targetDelayMs, 500);
+  });
+
   test(
     'feedback peaks do not survive a repair or a backwards clock change',
     () {
