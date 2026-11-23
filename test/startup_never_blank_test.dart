@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
@@ -16,6 +18,12 @@ import 'package:xveil/main.dart' show runStartup;
 /// EMPTY WINDOW: process alive, log written where nobody looks, and a user with
 /// no way to tell whether their data had been touched.
 void main() {
+  setUp(errorJournal.clear);
+
+  List<dynamic> startupErrors() =>
+      (jsonDecode(buildErrorReport(phase: 'startup-failed')) as Map)['errors']
+          as List<dynamic>;
+
   for (final duringOpen in [true, false]) {
     testWidgets('can retry a busy preferences file (open=$duringOpen)', (
       tester,
@@ -91,6 +99,10 @@ void main() {
         (presented as StartupFailedApp).retryPreferences != null,
         failure.busy,
       );
+      expect(startupErrors().single['profile_preferences'], {
+        'stage': 'choice',
+        'code': code,
+      });
       final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
       final event = retained?['profileChoiceReadFailed'] as Map?;
       expect(
@@ -135,6 +147,11 @@ void main() {
         isNull,
       ),
     );
+    expect(startupErrors().single['profile_preferences'], {
+      'stage': 'open',
+      'state': ManagedWorkerFailureKind.invalid.index,
+      'code': ManagedPreferencesFailureReason.filesystemUnsafe.index,
+    });
     final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
     final entry = retained?['profilePreferencesOpenFailed'] as Map?;
     expect(
@@ -167,6 +184,11 @@ void main() {
         isNull,
       ),
     );
+    expect(startupErrors().single['profile_preferences'], {
+      'stage': 'read',
+      'state': ManagedWorkerFailureKind.invalid.index,
+      'code': ManagedPreferencesFailureReason.filePermissions.index,
+    });
     final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
     expect(retained?['profilePreferencesOpenFailed'], isNull);
     final event = retained?['profilePreferencesReadFailed'] as Map?;
@@ -195,12 +217,46 @@ void main() {
       );
       await tester.pumpWidget(presented!);
       expect(find.textContaining('unsupported format'), findsOneWidget);
+      expect(startupErrors().single['profile_preferences'], {
+        'stage': 'format',
+        'code': reason.index,
+      });
       final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
       final event = retained?['profilePreferencesFormatFailed'] as Map?;
       expect(
         event?['values'],
         diagnosticJournal.enabled ? {'code': reason.index} : isNull,
       );
+    },
+  );
+
+  test(
+    'different preference failures with the same worker kind survive retries',
+    () async {
+      for (final reason in [
+        ManagedPreferencesFailureReason.filesystemUnsafe,
+        ManagedPreferencesFailureReason.fileOwner,
+        ManagedPreferencesFailureReason.filesystemUnsafe,
+      ]) {
+        await runStartup(
+          present: (_) {},
+          loadPreferences: () async => throw ManagedWorkerFailure(
+            ManagedWorkerFailureKind.invalid,
+            preferencesOpenReason: reason,
+          ),
+        );
+      }
+      final errors = startupErrors();
+      expect(errors, hasLength(2));
+      expect(
+        errors.first['profile_preferences']['code'],
+        ManagedPreferencesFailureReason.fileOwner.index,
+      );
+      expect(
+        errors.last['profile_preferences']['code'],
+        ManagedPreferencesFailureReason.filesystemUnsafe.index,
+      );
+      expect(errors.last['count'], 2);
     },
   );
 
@@ -228,6 +284,8 @@ void main() {
     // Localized text, not a placeholder: the fallback is the only thing the
     // user will read, so it has to be readable.
     expect(find.textContaining('xVeil'), findsWidgets);
+    expect(startupErrors().single, isNot(contains('profile_preferences')));
+    expect(startupErrors().single, isNot(contains('message')));
   });
 
   testWidgets('CONTROL: a startup that succeeds is left alone — no second app '

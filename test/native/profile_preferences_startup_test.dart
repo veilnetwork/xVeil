@@ -115,9 +115,7 @@ void main() {
       legacy = source;
       SharedPreferencesStorePlatform.instance = source;
       Directory(base('older')).createSync(recursive: true);
-      final args = choice == 'explicit'
-          ? ['--profile', 'selected']
-          : <String>[];
+      final args = choice == 'explicit' ? ['--profile', 'selected'] : <String>[];
       if (choice == 'saved') {
         expect(await writeRememberedProfile(support.path, 'selected'), isTrue);
       }
@@ -599,7 +597,7 @@ void main() {
             .having(
               (e) => e.preferencesOpenReason,
               'reason',
-              ManagedPreferencesFailureReason.filesystemUnsafe,
+              ManagedPreferencesFailureReason.profileNotDirectory,
             ),
       ),
     );

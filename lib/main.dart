@@ -120,34 +120,36 @@ Future<void> runStartup({
     await _bootAndRunApp(preferences, present);
   } catch (e, st) {
     devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
-    if (e is ManagedWorkerFailure && e.preferencesOpenReason != null) {
+    final StartupPreferenceFailure? preferenceFailure = switch (e) {
+      ManagedWorkerFailure(:final kind, :final preferencesOpenReason?) => (
+        stage: StartupPreferenceFailureStage.open,
+        code: preferencesOpenReason.index,
+        state: kind.index,
+      ),
+      ManagedWorkerFailure(:final kind, :final preferencesReadReason?) => (
+        stage: StartupPreferenceFailureStage.read,
+        code: preferencesReadReason.index,
+        state: kind.index,
+      ),
+      ProfileChoiceReadFailure(:final diagnosticCode) => (
+        stage: StartupPreferenceFailureStage.choice,
+        code: diagnosticCode,
+        state: null,
+      ),
+      ProfilePreferencesFormatFailure(:final reason) => (
+        stage: StartupPreferenceFailureStage.format,
+        code: reason.index,
+        state: null,
+      ),
+      _ => null,
+    };
+    if (preferenceFailure != null) {
       diagnosticJournal.record(
-        DiagnosticEvent.profilePreferencesOpenFailed,
+        preferenceFailure.stage.event,
         values: {
-          DiagnosticMetric.state: e.kind.index,
-          DiagnosticMetric.code: e.preferencesOpenReason!.index,
+          DiagnosticMetric.code: preferenceFailure.code,
+          DiagnosticMetric.state: ?preferenceFailure.state,
         },
-      );
-    }
-    if (e is ManagedWorkerFailure && e.preferencesReadReason != null) {
-      diagnosticJournal.record(
-        DiagnosticEvent.profilePreferencesReadFailed,
-        values: {
-          DiagnosticMetric.state: e.kind.index,
-          DiagnosticMetric.code: e.preferencesReadReason!.index,
-        },
-      );
-    }
-    if (e is ProfileChoiceReadFailure) {
-      diagnosticJournal.record(
-        DiagnosticEvent.profileChoiceReadFailed,
-        values: {DiagnosticMetric.code: e.diagnosticCode},
-      );
-    }
-    if (e is ProfilePreferencesFormatFailure) {
-      diagnosticJournal.record(
-        DiagnosticEvent.profilePreferencesFormatFailed,
-        values: {DiagnosticMetric.code: e.reason.index},
       );
     }
     errorJournal.record(
@@ -155,6 +157,7 @@ Future<void> runStartup({
       error: e,
       stack: st,
       atMs: DateTime.now().millisecondsSinceEpoch,
+      startupPreferenceFailure: preferenceFailure,
     );
     final canRetry =
         loadingPreferences &&

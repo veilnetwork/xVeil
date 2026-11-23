@@ -143,10 +143,25 @@ ManagedPathWitness inspect(String path) {
       win.FILE_FLAG_BACKUP_SEMANTICS | win.FILE_FLAG_OPEN_REPARSE_POINT,
       0,
     );
-    if (handle == win.INVALID_HANDLE_VALUE ||
-        win.GetFileInformationByHandle(handle, info) == 0 ||
-        info.ref.dwFileAttributes & win.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+    if (handle == win.INVALID_HANDLE_VALUE) {
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: win.GetLastError() == win.ERROR_ACCESS_DENIED
+            ? ManagedFsUnsafeReason.windowsPathAccessDenied
+            : ManagedFsUnsafeReason.windowsPathOpenFailed,
+      );
+    }
+    if (win.GetFileInformationByHandle(handle, info) == 0) {
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.windowsPathInfoFailed,
+      );
+    }
+    if (info.ref.dwFileAttributes & win.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.windowsReparsePoint,
+      );
     }
     final facts = veilPathSecurityFacts(path);
     final policy = managedWindowsAclPolicy(facts, _currentSid());

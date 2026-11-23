@@ -7,10 +7,26 @@ enum ManagedFsFailureKind {
   erasurePending,
 }
 
+enum ManagedFsUnsafeReason {
+  invalidProfilePath,
+  windowsNonDrivePath,
+  windowsPathAccessDenied,
+  windowsPathOpenFailed,
+  windowsPathInfoFailed,
+  windowsReparsePoint,
+  profileNotDirectory,
+  profileOwner,
+  unsafeAncestor,
+  privateDirectory,
+  privateFile,
+  invalidLifetimeLock,
+}
+
 /// Safe to surface in diagnostics: never includes a path, owner or native text.
 final class ManagedFsFailure implements Exception {
-  const ManagedFsFailure(this.kind);
+  const ManagedFsFailure(this.kind, {this.unsafeReason});
   final ManagedFsFailureKind kind;
+  final ManagedFsUnsafeReason? unsafeReason;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';
 }

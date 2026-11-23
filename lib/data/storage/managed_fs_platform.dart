@@ -146,7 +146,10 @@ class ManagedFsPlatform {
   ManagedPathWitness requirePrivateFile(String path) {
     final facts = inspect(path);
     if (facts.directory || !facts.ownerOnly || !facts.ownedByCurrentUser) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.privateFile,
+      );
     }
     return facts;
   }

@@ -416,10 +416,16 @@ final class ManagedDirectoryCatalog {
     if (supplied.isEmpty ||
         supplied.contains('\x00') ||
         !Directory(supplied).isAbsolute) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.invalidProfilePath,
+      );
     }
     if (Platform.isWindows && !RegExp(r'^[A-Za-z]:[\\/]').hasMatch(supplied)) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.windowsNonDrivePath,
+      );
     }
     // The profile is the caller's grant. Resolve once, then use only the actual
     // canonical path; subsequent aliases in the original spelling cannot move it.
@@ -435,7 +441,12 @@ final class ManagedDirectoryCatalog {
             Platform.isWindows &&
             witness.ownedByWindowsAdministrators);
     if (!witness.directory || !owned) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: witness.directory
+            ? ManagedFsUnsafeReason.profileOwner
+            : ManagedFsUnsafeReason.profileNotDirectory,
+      );
     }
     _assertProfile(path, witness, fs);
     return (path: path, witness: witness);
@@ -451,7 +462,10 @@ final class ManagedDirectoryCatalog {
     for (var depth = 0; depth < 256; depth++) {
       final facts = fs.inspect(current.path);
       if (!facts.directory || !facts.safeAncestor) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+        throw const ManagedFsFailure(
+          ManagedFsFailureKind.unsafe,
+          unsafeReason: ManagedFsUnsafeReason.unsafeAncestor,
+        );
       }
       final parent = current.parent;
       if (parent.path == current.path) return;
@@ -468,7 +482,10 @@ final class ManagedDirectoryCatalog {
     if (!witness.directory ||
         !witness.ownerOnly ||
         !witness.ownedByCurrentUser) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.privateDirectory,
+      );
     }
     return witness;
   }

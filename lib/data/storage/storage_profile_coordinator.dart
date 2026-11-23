@@ -222,7 +222,10 @@ final class StorageProfileCoordinator {
     };
     ManagedDirectoryCatalog._checkSqliteSidecars(role, fs);
     if (File('$role.lock').lengthSync() != 0) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.invalidLifetimeLock,
+      );
     }
     final lease = ManagedProfileLease.openOwned(
       ManagedSqliteConnection.openUnencrypted(role),
@@ -286,7 +289,10 @@ final class StorageProfileCoordinator {
           ),
         ).lengthSync() !=
         0) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw const ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.invalidLifetimeLock,
+      );
     }
   }
 

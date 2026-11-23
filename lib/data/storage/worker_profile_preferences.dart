@@ -16,15 +16,52 @@ enum ManagedPreferencesFailureReason {
   fileType,
   fileOwner,
   filePermissions,
+  invalidProfilePath,
+  windowsNonDrivePath,
+  windowsPathAccessDenied,
+  windowsPathOpenFailed,
+  windowsPathInfoFailed,
+  windowsReparsePoint,
+  profileNotDirectory,
+  profileOwner,
+  unsafeAncestor,
+  privateDirectory,
+  privateFile,
+  invalidLifetimeLock,
 }
 
 ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
     switch (error) {
-      ManagedFsFailure(:final kind) => switch (kind) {
+      ManagedFsFailure(:final kind, :final unsafeReason) => switch (kind) {
         ManagedFsFailureKind.unavailable =>
           ManagedPreferencesFailureReason.filesystemUnavailable,
-        ManagedFsFailureKind.unsafe =>
-          ManagedPreferencesFailureReason.filesystemUnsafe,
+        ManagedFsFailureKind.unsafe => switch (unsafeReason) {
+          ManagedFsUnsafeReason.invalidProfilePath =>
+            ManagedPreferencesFailureReason.invalidProfilePath,
+          ManagedFsUnsafeReason.windowsNonDrivePath =>
+            ManagedPreferencesFailureReason.windowsNonDrivePath,
+          ManagedFsUnsafeReason.windowsPathAccessDenied =>
+            ManagedPreferencesFailureReason.windowsPathAccessDenied,
+          ManagedFsUnsafeReason.windowsPathOpenFailed =>
+            ManagedPreferencesFailureReason.windowsPathOpenFailed,
+          ManagedFsUnsafeReason.windowsPathInfoFailed =>
+            ManagedPreferencesFailureReason.windowsPathInfoFailed,
+          ManagedFsUnsafeReason.windowsReparsePoint =>
+            ManagedPreferencesFailureReason.windowsReparsePoint,
+          ManagedFsUnsafeReason.profileNotDirectory =>
+            ManagedPreferencesFailureReason.profileNotDirectory,
+          ManagedFsUnsafeReason.profileOwner =>
+            ManagedPreferencesFailureReason.profileOwner,
+          ManagedFsUnsafeReason.unsafeAncestor =>
+            ManagedPreferencesFailureReason.unsafeAncestor,
+          ManagedFsUnsafeReason.privateDirectory =>
+            ManagedPreferencesFailureReason.privateDirectory,
+          ManagedFsUnsafeReason.privateFile =>
+            ManagedPreferencesFailureReason.privateFile,
+          ManagedFsUnsafeReason.invalidLifetimeLock =>
+            ManagedPreferencesFailureReason.invalidLifetimeLock,
+          null => ManagedPreferencesFailureReason.filesystemUnsafe,
+        },
         ManagedFsFailureKind.changed =>
           ManagedPreferencesFailureReason.filesystemChanged,
         ManagedFsFailureKind.io => ManagedPreferencesFailureReason.filesystemIo,

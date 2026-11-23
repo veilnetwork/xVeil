@@ -3,6 +3,24 @@ import 'dart:io' show FileSystemException;
 
 import 'diagnostic_journal.dart';
 
+enum StartupPreferenceFailureStage {
+  open(DiagnosticEvent.profilePreferencesOpenFailed),
+  read(DiagnosticEvent.profilePreferencesReadFailed),
+  choice(DiagnosticEvent.profileChoiceReadFailed),
+  format(DiagnosticEvent.profilePreferencesFormatFailed);
+
+  const StartupPreferenceFailureStage(this.event);
+
+  final DiagnosticEvent event;
+}
+
+/// The same bounded codes as the diagnostic build's preference events.
+typedef StartupPreferenceFailure = ({
+  StartupPreferenceFailureStage stage,
+  int code,
+  int? state,
+});
+
 /// A bounded record of what went wrong, shaped to be pasted somewhere.
 ///
 /// The point is a report a tester can hand over that says what broke — and
@@ -13,7 +31,8 @@ import 'diagnostic_journal.dart';
 /// The EXPORT is therefore an allow-list in the literal sense: every value that
 /// [toJson] emits is one this app chose — a `kind` label written at the call
 /// site, the exception's class name, `package:`/`dart:` stack locations,
-/// timestamps and counts. Nothing that an error filled in for itself goes out.
+/// timestamps, counts and codes selected from typed failures. Exception text
+/// stays on the device.
 ///
 /// The exception's own TEXT does not, and that is the point of the split. Four
 /// of the record sites are catch-alls — `FlutterError.onError`,
@@ -77,6 +96,7 @@ class ErrorJournal {
     required Object error,
     StackTrace? stack,
     required int atMs,
+    StartupPreferenceFailure? startupPreferenceFailure,
   }) {
     // Redacted even though it never leaves via [toJson]: it is held in RAM and
     // may be shown on screen, and a node id on a screenshot is still a node id.
@@ -87,7 +107,10 @@ class ErrorJournal {
     // which is what lets the exported record drop the message entirely.
     final type = error.runtimeType.toString();
     final existing = _entries.indexWhere(
-      (entry) => entry.kind == kind && entry.message == message,
+      (entry) =>
+          entry.kind == kind &&
+          entry.message == message &&
+          entry.startupPreferenceFailure == startupPreferenceFailure,
     );
     if (existing >= 0) {
       _entries.add(_entries.removeAt(existing).seenAgain(atMs));
@@ -103,6 +126,7 @@ class ErrorJournal {
         message: message,
         frames: _topFrames(stack),
         atMs: atMs,
+        startupPreferenceFailure: startupPreferenceFailure,
       ),
     );
     if (_entries.length > capacity) {
@@ -241,6 +265,7 @@ class RecordedError {
     required this.type,
     required this.message,
     this.numericCode,
+    this.startupPreferenceFailure,
     required this.frames,
     required this.atMs,
     this.count = 1,
@@ -259,6 +284,8 @@ class RecordedError {
 
   /// An OS numeric error code, never its message or path.
   final int? numericCode;
+
+  final StartupPreferenceFailure? startupPreferenceFailure;
 
   /// The redacted exception text. Held for the screen a person can read on
   /// their OWN device, and to tell two failures apart when repeats collapse —
@@ -282,6 +309,7 @@ class RecordedError {
     kind: kind,
     type: type,
     numericCode: numericCode,
+    startupPreferenceFailure: startupPreferenceFailure,
     message: message,
     frames: frames,
     atMs: atMs,
@@ -306,6 +334,12 @@ class RecordedError {
     'kind': kind,
     'type': type,
     'code': ?numericCode,
+    if (startupPreferenceFailure case final failure?)
+      'profile_preferences': {
+        'stage': failure.stage.name,
+        'code': failure.code,
+        'state': ?failure.state,
+      },
     if (includeTimestamps) 'at': atMs,
     if (count > 1) 'count': count,
     if (includeTimestamps && count > 1) 'firstAt': firstAtMs,
