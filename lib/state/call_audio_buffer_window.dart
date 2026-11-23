@@ -28,6 +28,7 @@ class CallAudioBufferWindow {
     bool? measuredGrowing,
     DateTime? sampledAt,
     int? targetDelayMs,
+    int? bufferedDelayMs,
   }) {
     if (delayMs == null || delayMs < 0 || delayMs > 60000) {
       reset();
@@ -104,6 +105,7 @@ class CallAudioBufferWindow {
     final reserveCredit = CallAudioPlayoutReserve.creditMs(
       delayMs,
       targetDelayMs,
+      bufferedDelayMs: bufferedDelayMs,
     );
     _pressure = delayMs >= ceilingMs + reserveCredit || confirmed;
     return _pressure;

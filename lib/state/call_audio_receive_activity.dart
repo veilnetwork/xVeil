@@ -33,7 +33,10 @@ class CallAudioReceiveActivity {
   /// using the larger current buffer too, before that filter catches up.
   /// Relative RTP lag additionally accounts for backlog before this receiver.
   /// Missing pressure stats on older libraries retain the validated estimate.
-  static int? nativePlayoutDelay(Map<String, Object?> stats) {
+  static int? nativePlayoutDelay(
+    Map<String, Object?> stats, {
+    bool bufferedOnly = false,
+  }) {
     final packets = stats['audio_rx_pkts'];
     if (stats['worker_stalled'] != 0 ||
         packets is! num ||
@@ -52,7 +55,7 @@ class CallAudioReceiveActivity {
         ? value.toInt()
         : null;
     final delay = valid(stats['audio_delay_ms']);
-    if (delay == null) return null;
+    if (delay == null || bufferedOnly) return delay;
     final buffer = valid(stats['audio_jb_ms']);
     final pressure = valid(stats['audio_pressure_delay_ms']);
     var worst = buffer != null && buffer > delay ? buffer : delay;
@@ -99,6 +102,7 @@ class CallAudioReceiveActivity {
   DateTime? workerStalledSince;
   int _sequence = 0;
   int? _playoutDelayMs;
+  int? _bufferedDelayMs;
   int? _targetDelayMs;
   DateTime? _sampledAt;
   bool _freshEngine = false;
@@ -147,6 +151,7 @@ class CallAudioReceiveActivity {
       sequence: current.sequence,
       delayMs: peak,
       currentDelayMs: delay,
+      bufferedDelayMs: current.bufferedDelayMs,
       targetDelayMs: current.targetDelayMs,
       bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
@@ -171,6 +176,8 @@ class CallAudioReceiveActivity {
     return CallAudioPlayoutFeedback(
       sequence: _sequence,
       delayMs: fresh ? _playoutDelayMs : null,
+      currentDelayMs: fresh ? _playoutDelayMs : null,
+      bufferedDelayMs: fresh ? _bufferedDelayMs : null,
       targetDelayMs: fresh ? _targetDelayMs : null,
       interruptionCount:
           fresh &&
@@ -200,6 +207,7 @@ class CallAudioReceiveActivity {
     recovered = false;
     _sequence++;
     _playoutDelayMs = null;
+    _bufferedDelayMs = null;
     _targetDelayMs = null;
     _sampledAt = null;
     _nativeRecoveryIdentity = null;
@@ -257,6 +265,7 @@ class CallAudioReceiveActivity {
     // Only a successfully queried audio worker supplies a playout estimate.
     if (delay != null) {
       _playoutDelayMs = delay;
+      _bufferedDelayMs = (stats['audio_delay_ms'] as num).toInt();
       _targetDelayMs = nativeTargetDelay(stats);
       _sampledAt = now;
       // A newer equal/higher sample outlives the older one. Keep descending
@@ -277,6 +286,7 @@ class CallAudioReceiveActivity {
     // Keep sequence monotonic across session repairs and unknown snapshots.
     _sequence++;
     _playoutDelayMs = null;
+    _bufferedDelayMs = null;
     _targetDelayMs = null;
     _sampledAt = null;
     _feedbackPeaks.clear();

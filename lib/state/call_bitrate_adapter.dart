@@ -693,6 +693,7 @@ class CallBitrateAdapter {
     bool audioInterrupted = false,
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
+    int? peerBufferedAudioDelayMs,
     int? peerTargetAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     bool receiveAudioExpected = false,
@@ -721,7 +722,11 @@ class CallBitrateAdapter {
         peerCurrentAudioDelayMs! <= peerAudioDelayMs!;
     final currentPeer = hasCurrent ? peerCurrentAudioDelayMs : peerAudioDelayMs;
     final peerCredit = hasCurrent
-        ? CallAudioPlayoutReserve.creditMs(currentPeer, peerTargetAudioDelayMs)
+        ? CallAudioPlayoutReserve.creditMs(
+            currentPeer,
+            peerTargetAudioDelayMs,
+            bufferedDelayMs: peerBufferedAudioDelayMs,
+          )
         : 0;
     final peerDelay = CallAudioPlayoutReserve.pressureDelayMs(
       currentPeer,
@@ -742,7 +747,16 @@ class CallBitrateAdapter {
         CallAudioReceiveActivity.nativeTargetDelay(stats);
     final receiveCredit =
         audioReceiveDelayMs == null || audioReceiveTargetDelayMs != null
-        ? CallAudioPlayoutReserve.creditMs(receiveDelay, receiveTarget)
+        ? CallAudioPlayoutReserve.creditMs(
+            receiveDelay,
+            receiveTarget,
+            bufferedDelayMs: audioReceiveDelayMs == null
+                ? CallAudioReceiveActivity.nativePlayoutDelay(
+                    stats,
+                    bufferedOnly: true,
+                  )
+                : null,
+          )
         : 0;
     final receivePressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
       receiveDelay,
@@ -848,6 +862,7 @@ class CallBitrateAdapter {
     bool audioInterrupted = false,
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
+    int? peerBufferedAudioDelayMs,
     int? peerTargetAudioDelayMs,
     int? peerAudioSampleSequence,
     bool? peerAudioBufferGrowing,
@@ -966,6 +981,9 @@ class CallBitrateAdapter {
     final receiveRequested =
         receiveAudioExpected || (audioReceiveQuality?.expected ?? false);
     final receiveDelay = audioReceiveDelayMs ?? _nativeReceiveDelay(stats);
+    final receiveBufferedDelay = audioReceiveDelayMs == null
+        ? CallAudioReceiveActivity.nativePlayoutDelay(stats, bufferedOnly: true)
+        : null;
     final receiveTarget =
         audioReceiveTargetDelayMs ??
         CallAudioReceiveActivity.nativeTargetDelay(stats);
@@ -977,7 +995,11 @@ class CallBitrateAdapter {
           requireAudioReceivePlayout &&
               requiredReports == 1 &&
               (audioReceiveDelayMs == null || audioReceiveTargetDelayMs != null)
-          ? CallAudioPlayoutReserve.creditMs(receiveDelay, receiveTarget)
+          ? CallAudioPlayoutReserve.creditMs(
+              receiveDelay,
+              receiveTarget,
+              bufferedDelayMs: receiveBufferedDelay,
+            )
           : 0;
       final pressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
         receiveDelay,
@@ -1192,6 +1214,7 @@ class CallBitrateAdapter {
       anyAudioFeedbackAvailable: anyFeedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
+      peerBufferedAudioDelayMs: peerBufferedAudioDelayMs,
       peerTargetAudioDelayMs: peerTargetAudioDelayMs,
       peerAudioTargetCoherent: requiredReports == 1,
       peerAudioSampleSequence: peerAudioSampleSequence,
@@ -1202,6 +1225,7 @@ class CallBitrateAdapter {
       requireAudioReceivePlayout:
           requireAudioReceivePlayout && receiveRequested,
       audioReceiveDelayMs: receiveDelay,
+      audioReceiveBufferedDelayMs: receiveBufferedDelay,
       audioReceiveTargetDelayMs: receiveTarget,
       audioReceiveTargetCoherent:
           requiredReports == 1 &&
@@ -1347,6 +1371,7 @@ class CallBitrateAdapter {
     bool receiveAudioExpected = false,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
+    int? audioReceiveBufferedDelayMs,
     int? audioReceiveTargetDelayMs,
     bool audioReceiveTargetCoherent = true,
     bool audioInterrupted = false,
@@ -1372,6 +1397,7 @@ class CallBitrateAdapter {
     bool? anyAudioFeedbackAvailable,
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
+    int? peerBufferedAudioDelayMs,
     int? peerTargetAudioDelayMs,
     bool peerAudioTargetCoherent = true,
     int? peerAudioSampleSequence,
@@ -1439,10 +1465,12 @@ class CallBitrateAdapter {
     final peerReserveCredit = CallAudioPlayoutReserve.creditMs(
       currentPeerDelay,
       peerReserveTarget,
+      bufferedDelayMs: peerBufferedAudioDelayMs,
     );
     final receiveReserveCredit = CallAudioPlayoutReserve.creditMs(
       audioReceiveDelayMs,
       receiveReserveTarget,
+      bufferedDelayMs: audioReceiveBufferedDelayMs,
     );
     final peerPressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
       currentPeerDelay,
@@ -1474,10 +1502,12 @@ class CallBitrateAdapter {
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
       sampledAt: sampledAt,
       targetDelayMs: receiveReserveTarget,
+      bufferedDelayMs: audioReceiveBufferedDelayMs,
     );
     final peerBufferPressure = _peerBuffer.observe(
       requirePeerAudioPlayout ? currentPeerDelay : null,
       targetDelayMs: peerReserveTarget,
+      bufferedDelayMs: peerBufferedAudioDelayMs,
       sequence: peerAudioSampleSequence,
       sampledAt: sampledAt,
       measuredGrowing: requirePeerAudioPlayout && hasCurrentPeerDelay
@@ -1534,6 +1564,7 @@ class CallBitrateAdapter {
       measuredFloor && requireAudioReceivePlayout ? audioReceiveDelayMs : null,
       sampledAt: sampledAt,
       targetDelayMs: receiveReserveTarget,
+      bufferedDelayMs: audioReceiveBufferedDelayMs,
     );
     final floorPeerPressure = _floorPeerBuffer.observe(
       measuredFloor && peerTrialMeasured && requirePeerAudioPlayout
@@ -1542,6 +1573,7 @@ class CallBitrateAdapter {
       sequence: peerAudioSampleSequence,
       sampledAt: sampledAt,
       targetDelayMs: peerReserveTarget,
+      bufferedDelayMs: peerBufferedAudioDelayMs,
     );
     // Keep the original full trend for cuts and growth admission. For a
     // below-ceiling pause, additionally prove that the applied floor itself

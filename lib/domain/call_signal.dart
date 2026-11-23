@@ -246,6 +246,7 @@ class CallAudioPlayoutFeedback {
     required this.sequence,
     this.delayMs,
     this.currentDelayMs,
+    this.bufferedDelayMs,
     this.targetDelayMs,
     this.bufferGrowing,
     this.interruptionCount,
@@ -261,6 +262,9 @@ class CallAudioPlayoutFeedback {
   /// Current receiver snapshot, distinguished from the five-second peak in
   /// [delayMs]. Absent on older peers and fixed-size group feedback.
   final int? currentDelayMs;
+
+  /// Receiver playout queue and device delay, excluding upstream RTP age.
+  final int? bufferedDelayMs;
 
   /// Requested jitter-buffer target; this is not measured playout delay.
   /// Absent on older peers. It shares the actual sample's freshness.
@@ -290,6 +294,7 @@ class CallAudioPlayoutFeedback {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
     if (currentDelayMs != null) 'cd': currentDelayMs,
+    if (bufferedDelayMs != null) 'bd': bufferedDelayMs,
     if (targetDelayMs != null) 'td': targetDelayMs,
     if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
@@ -304,6 +309,7 @@ class CallAudioPlayoutFeedback {
     final sequence = raw['n'];
     final delay = raw['d'];
     final current = raw['cd'];
+    final buffered = raw['bd'];
     final target = raw['td'];
     final growing = raw['g'];
     final interruptions = raw['i'];
@@ -327,6 +333,13 @@ class CallAudioPlayoutFeedback {
     }
     if (target != null &&
         (target is! int || target < 0 || target > 60000 || delay == null)) {
+      return null;
+    }
+    if (buffered != null &&
+        (buffered is! int ||
+            buffered < 0 ||
+            current is! int ||
+            buffered > current)) {
       return null;
     }
     if (growing != null && (growing is! bool || current == null)) {
@@ -364,6 +377,7 @@ class CallAudioPlayoutFeedback {
       sequence: sequence,
       delayMs: delay as int?,
       currentDelayMs: current as int?,
+      bufferedDelayMs: buffered as int?,
       targetDelayMs: target as int?,
       bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,

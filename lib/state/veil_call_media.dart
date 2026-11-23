@@ -2179,7 +2179,7 @@ class VeilCallMediaController implements CallMediaController {
             call.media.audio &&
             ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
                 (!_microphoneState.muted && peerInterrupted));
-        final receiveDelay = _audioReceiveActivity.playoutFeedback(now).delayMs;
+        final receivePlayout = _audioReceiveActivity.playoutFeedback(now);
         final receiveAt = _audioReceiveActivity.lastRxAt;
         final nativeDrops = stats['audio_tx_rtp_drops'];
         final sourcePressured = _sourcePressure.observe(
@@ -2192,13 +2192,13 @@ class VeilCallMediaController implements CallMediaController {
               kCallAudioPlayoutFeedbackMinVersion,
           peerDelayMs: _peerAudioPlayout.delayMs(now),
           peerCurrentDelayMs: _peerAudioPlayout.currentDelayMs(now),
+          peerBufferedDelayMs: _peerAudioPlayout.bufferedDelayMs(now),
           peerTargetDelayMs: _peerAudioPlayout.targetDelayMs(now),
           peerSampleSequence: _peerAudioPlayout.sampleSequence,
           peerBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
-          receiveDelayMs: receiveDelay,
-          receiveTargetDelayMs: _audioReceiveActivity
-              .playoutFeedback(now)
-              .targetDelayMs,
+          receiveDelayMs: receivePlayout.delayMs,
+          receiveBufferedDelayMs: receivePlayout.bufferedDelayMs,
+          receiveTargetDelayMs: receivePlayout.targetDelayMs,
           receiveAgeMs: receiveAt == null
               ? null
               : now.difference(receiveAt).inMilliseconds,
@@ -2381,6 +2381,7 @@ class VeilCallMediaController implements CallMediaController {
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
+            peerBufferedAudioDelayMs: _peerAudioPlayout.bufferedDelayMs(now),
             peerTargetAudioDelayMs: _peerAudioPlayout.targetDelayMs(now),
             peerAudioSampleSequence: _peerAudioPlayout.sampleSequence,
             peerAudioBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
@@ -2711,6 +2712,7 @@ class VeilCallMediaController implements CallMediaController {
       receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
       peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
       peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
+      peerBufferedAudioDelayMs: _peerAudioPlayout.bufferedDelayMs(now),
       peerTargetAudioDelayMs: _peerAudioPlayout.targetDelayMs(now),
       requirePeerAudioPlayout:
           call.media.audio &&

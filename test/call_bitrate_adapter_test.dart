@@ -4460,6 +4460,26 @@ void main() {
     expect(a.level, 0);
   });
 
+  test('upstream age cannot fill the local jitter reserve', () {
+    final a = direct();
+    final stats = {
+      ...healthy(),
+      'audio_delay_ms': 205,
+      'audio_pressure_delay_ms': 520,
+      'audio_jb_target_ms': 500,
+    };
+    a.prepareVideoSend(
+      stats,
+      receiveAudioExpected: true,
+      requireAudioReceivePlayout: true,
+    );
+    expect(a.atFloor, isTrue);
+
+    final running = direct();
+    native(running, stats: stats);
+    expect(running.audioBufferPressure, isTrue);
+  });
+
   test(
     'native target cannot credit an unrelated delay override or room maximum',
     () {

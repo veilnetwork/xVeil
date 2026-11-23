@@ -86,10 +86,12 @@ class CallAudioSourcePressure {
     required bool requirePeerPlayout,
     required int? peerDelayMs,
     int? peerCurrentDelayMs,
+    int? peerBufferedDelayMs,
     int? peerTargetDelayMs,
     int? peerSampleSequence,
     bool? peerBufferGrowing,
     required int? receiveDelayMs,
+    int? receiveBufferedDelayMs,
     int? receiveTargetDelayMs,
     required int? receiveAgeMs,
     required bool interrupted,
@@ -176,11 +178,16 @@ class CallAudioSourcePressure {
         ? receiveTargetDelayMs
         : null;
     final peerCredit = hasCurrentPeerDelay
-        ? CallAudioPlayoutReserve.creditMs(peerDelay, peerTarget)
+        ? CallAudioPlayoutReserve.creditMs(
+            peerDelay,
+            peerTarget,
+            bufferedDelayMs: peerBufferedDelayMs,
+          )
         : 0;
     final receiveCredit = CallAudioPlayoutReserve.creditMs(
       receiveDelayMs,
       receiveTarget,
+      bufferedDelayMs: receiveBufferedDelayMs,
     );
     final peerPressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
       peerDelay,
@@ -206,6 +213,7 @@ class CallAudioSourcePressure {
       sequence: peerSampleSequence,
       sampledAt: sampledAt,
       targetDelayMs: hasCurrentPeerDelay ? peerTarget : null,
+      bufferedDelayMs: peerBufferedDelayMs,
       measuredGrowing: peerNeeded && hasCurrentPeerDelay
           ? peerBufferGrowing
           : null,
@@ -214,6 +222,7 @@ class CallAudioSourcePressure {
       receiveExpected ? receiveDelayMs : null,
       sampledAt: sampledAt,
       targetDelayMs: receiveTarget,
+      bufferedDelayMs: receiveBufferedDelayMs,
     );
     if (_lastTransientSendExpected != sendExpected) {
       _transientLoss.reset();

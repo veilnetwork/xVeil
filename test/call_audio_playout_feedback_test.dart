@@ -183,6 +183,98 @@ void main() {
     );
   });
 
+  test(
+    'upstream pressure and the audio queue stay distinct across feedback',
+    () {
+      final activity = CallAudioReceiveActivity();
+      final peer = CallPeerAudioPlayout();
+      final adapter = CallBitrateAdapter(
+        baseBitrateKbps: 1000,
+        baseFps: 24,
+        supportsLowRateVideo: true,
+      );
+      const stats = {
+        ...healthyNetwork,
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 20,
+        'audio_delay_ms': 205,
+        'audio_pressure_delay_ms': 520,
+        'audio_jb_target_ms': 500,
+      };
+      activity.observe(stats, start);
+      final report = activity.outgoingPlayoutFeedback(start);
+      final signal = CallSignal(
+        callId: 'audio-queue-measurement',
+        type: CallSignalType.health,
+        audioPlayout: report,
+      );
+      peer.observe(CallSignal.tryDecode(signal.encode())!.audioPlayout!, start);
+      expect(peer.currentDelayMs(start), 520);
+      expect(peer.bufferedDelayMs(start), 205);
+      expect(peer.targetDelayMs(start), 500);
+
+      adapter.onNativeStats(
+        healthyNetwork,
+        sampledAt: start,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: peer.delayMs(start),
+        peerCurrentAudioDelayMs: peer.currentDelayMs(start),
+        peerBufferedAudioDelayMs: peer.bufferedDelayMs(start),
+        peerTargetAudioDelayMs: peer.targetDelayMs(start),
+        peerAudioSampleSequence: peer.sampleSequence,
+      );
+      expect(adapter.audioBufferPressure, isTrue);
+
+      for (final invalid in [521, -1, 100.5, '205']) {
+        expect(
+          CallAudioPlayoutFeedback.fromJson({
+            ...report.toJson(),
+            'bd': invalid,
+          }),
+          isNull,
+        );
+      }
+      final withoutCurrent = report.toJson()..remove('cd');
+      expect(CallAudioPlayoutFeedback.fromJson(withoutCurrent), isNull);
+      peer.observe(
+        const CallAudioPlayoutFeedback(
+          sequence: 0,
+          delayMs: 520,
+          currentDelayMs: 520,
+          bufferedDelayMs: 520,
+        ),
+        start,
+      );
+      expect(peer.bufferedDelayMs(start), 205);
+      expect(
+        peer.bufferedDelayMs(start.add(const Duration(seconds: 13))),
+        isNull,
+      );
+      final filled = start.add(const Duration(seconds: 1));
+      activity.observe({...stats, 'audio_delay_ms': 520}, filled);
+      peer.observe(
+        CallAudioPlayoutFeedback.fromJson(
+          activity.outgoingPlayoutFeedback(filled).toJson(),
+        )!,
+        filled,
+      );
+      expect(peer.bufferedDelayMs(filled), 520);
+      adapter.onNativeStats(
+        healthyNetwork,
+        sampledAt: filled,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: peer.delayMs(filled),
+        peerCurrentAudioDelayMs: peer.currentDelayMs(filled),
+        peerBufferedAudioDelayMs: peer.bufferedDelayMs(filled),
+        peerTargetAudioDelayMs: peer.targetDelayMs(filled),
+        peerAudioSampleSequence: peer.sampleSequence,
+      );
+      expect(adapter.audioBufferPressure, isFalse);
+      peer.invalidateMeasurement();
+      expect(peer.bufferedDelayMs(filled), isNull);
+    },
+  );
+
   test('native trend shares receipt expiry, replay and repair rules', () {
     final peer = CallPeerAudioPlayout();
     peer.observe(

@@ -12,11 +12,13 @@ void main() {
     bool requirePeer = true,
     int? peer = 100,
     int? currentPeer,
+    int? bufferedPeer,
     int? peerSequence,
     int? targetPeer,
     int? targetLocal,
     bool? peerGrowing,
     int? local = 100,
+    int? bufferedLocal,
     int? age = 50,
     bool interrupted = false,
     int? drops = 0,
@@ -39,11 +41,13 @@ void main() {
     requirePeerPlayout: requirePeer,
     peerDelayMs: peer,
     peerCurrentDelayMs: currentPeer,
+    peerBufferedDelayMs: bufferedPeer,
     peerSampleSequence: peerSequence,
     peerBufferGrowing: peerGrowing,
     peerTargetDelayMs: targetPeer,
     receiveTargetDelayMs: targetLocal,
     receiveDelayMs: local,
+    receiveBufferedDelayMs: bufferedLocal,
     receiveAgeMs: age,
     interrupted: interrupted,
     audioTxDrops: drops,
@@ -1403,6 +1407,27 @@ void main() {
         isTrue,
         reason: 'real excess above the reserve still yields producers',
       );
+    }
+  });
+
+  test('upstream age cannot treat an unfilled reserve as healthy', () {
+    for (final incoming in [false, true]) {
+      final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+      expect(
+        sample(
+          policy,
+          peer: incoming ? 100 : 520,
+          currentPeer: incoming ? 100 : 520,
+          bufferedPeer: incoming ? 100 : 205,
+          targetPeer: incoming ? 80 : 500,
+          local: incoming ? 520 : 100,
+          bufferedLocal: incoming ? 205 : 100,
+          targetLocal: incoming ? 500 : 80,
+          nativeStats: measured,
+        ),
+        isTrue,
+      );
+      expect(policy.measuredAudioPressure, isTrue);
     }
   });
 

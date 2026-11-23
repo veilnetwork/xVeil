@@ -15,11 +15,18 @@ class CallAudioPlayoutReserve {
   /// Only a current, coherent target/delay pair can establish a reserve. The
   /// caller enforces native/peer freshness; a requested, unfilled target alone
   /// is not evidence of healthy audio or an available producer budget.
-  static int creditMs(int? currentDelayMs, int? targetDelayMs) {
+  static int creditMs(
+    int? currentDelayMs,
+    int? targetDelayMs, {
+    int? bufferedDelayMs,
+  }) {
+    final buffered = bufferedDelayMs ?? currentDelayMs;
     if (!_valid(currentDelayMs) ||
+        !_valid(buffered) ||
+        buffered! > currentDelayMs! ||
         !_valid(targetDelayMs) ||
         targetDelayMs! > maximumTargetMs ||
-        currentDelayMs! + arrivalToleranceMs < targetDelayMs) {
+        buffered + arrivalToleranceMs < targetDelayMs) {
       return 0;
     }
     return (targetDelayMs - nominalTargetMs).clamp(0, maximumCreditMs);
