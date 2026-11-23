@@ -26,6 +26,7 @@ class CallAudioFeedbackSchedule {
       CallAudioPlayoutReserve.creditMs(
         feedback.currentDelayMs,
         feedback.targetDelayMs,
+        bufferedDelayMs: feedback.bufferedDelayMs,
       );
 
   int? _playoutInterruptions(CallAudioPlayoutFeedback feedback) {
@@ -55,8 +56,7 @@ class CallAudioFeedbackSchedule {
         (target != null && (target < 0 || target > 60000))) {
       return null;
     }
-    // Only a measured current delay can confirm a filled jitter reserve. A
-    // retained peak or a large target alone still needs the ordinary guard.
+    // A filled jitter reserve needs a current measurement of local buffering.
     final reserve = _reserve(feedback);
     final ceiling = CallAudioBufferWindow.ceilingMs;
     final interruptions = _playoutInterruptions(feedback);

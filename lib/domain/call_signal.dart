@@ -15,7 +15,7 @@ import 'package:crypto/crypto.dart' as crypto;
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d,cd,td,g,i} audio playout,
+///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d,cd,bd,td,g,i} audio playout,
 ///    v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions

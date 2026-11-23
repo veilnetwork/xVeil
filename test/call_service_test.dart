@@ -2713,6 +2713,59 @@ void main() {
       });
     });
 
+    test('reports upstream pressure until the receive reserve fills', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        try {
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'upstream-playout',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              protocolVersion: kCallSignalProtocolVersion,
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          fake.sent.clear();
+
+          void sample(int sequence, int bufferedMs) {
+            media.playout = CallAudioPlayoutFeedback(
+              sequence: sequence,
+              delayMs: 520,
+              currentDelayMs: 520,
+              bufferedDelayMs: bufferedMs,
+              targetDelayMs: 500,
+              bufferGrowing: false,
+            );
+            async.elapse(const Duration(seconds: 1));
+          }
+
+          sample(1, 205);
+          expect(fake.sent, hasLength(1));
+          expect(fake.sent.single.audioPlayout?.bufferedDelayMs, 205);
+          sample(2, 520);
+          expect(fake.sent, hasLength(2));
+          expect(fake.sent.last.audioPlayout?.sequence, 2);
+          expect(fake.sent.last.audioPlayout?.bufferedDelayMs, 520);
+          sample(3, 520);
+          expect(fake.sent, hasLength(2));
+          sample(4, 520);
+          expect(fake.sent, hasLength(3));
+          expect(fake.sent.last.audioPlayout?.sequence, 4);
+        } finally {
+          svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     for (final (endsBeforeSend, announcesBeforeSend) in [
       (false, false),
       (true, false),
