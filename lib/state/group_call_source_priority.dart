@@ -1,4 +1,6 @@
+import 'call_audio_transient_loss.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_rtcp_loss.dart';
 import 'group_call_audio_adapter.dart';
 
 /// Orders real group source reductions before spending audio quality on long
@@ -11,8 +13,10 @@ class GroupCallSourcePriority {
   static const transientRecoverySamples = 3;
   int _stage = 0; // Unrestricted, one-fps floor, paused.
   DateTime? _lastAt, _floorAckAt, _pauseAckAt, _quietAt, _pressureAt;
-  int? _packets, _sequence, _audioTxDrops;
-  int _floorSamples = 0, _healthy = 0, _sparseLocalSamples = 0;
+  DateTime? _peerRecoveryFirstSeenAt;
+  int? _packets, _sequence, _audioTxDrops, _peerRecoveryReport;
+  int _floorSamples = 0, _healthy = 0;
+  int _sparseLocalSamples = 0, _sparsePeerSamples = 0;
   bool _yielded = false;
   bool _transientOnly = false;
 
@@ -28,7 +32,7 @@ class GroupCallSourcePriority {
   };
 
   void requestYield(DateTime now, {bool transient = false}) {
-    _healthy = _sparseLocalSamples = 0;
+    _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
     if (_stage == 0) {
       _stage = 1;
       _transientOnly = transient;
@@ -67,8 +71,9 @@ class GroupCallSourcePriority {
   /// Preserve an already required restriction while re-establishing evidence.
   void invalidate() {
     _floorAckAt = _pauseAckAt = _quietAt = null;
-    _packets = _sequence = _audioTxDrops = null;
-    _floorSamples = _healthy = _sparseLocalSamples = 0;
+    _packets = _sequence = _audioTxDrops = _peerRecoveryReport = null;
+    _peerRecoveryFirstSeenAt = null;
+    _floorSamples = _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
     _yielded = false;
   }
 
@@ -155,8 +160,17 @@ class GroupCallSourcePriority {
     final stableDrops = drops != null && drops == _audioTxDrops;
     _audioTxDrops = drops;
     final delay = GroupCallAudioAdapter.peerPressureDelayMs(stats);
-    final healthy =
-        stats['worker_stalled'] == 0 &&
+    final audioFresh = stats['worker_stalled'] == 0;
+    final peerRecovery = stats['audio_peer_recovery_report_us'];
+    if (audioFresh) {
+      final report = count('audio_peer_recovery_report_us');
+      if (report != _peerRecoveryReport) {
+        _peerRecoveryReport = report;
+        _peerRecoveryFirstSeenAt = report != null && report > 0 ? now : null;
+      }
+    }
+    final complete =
+        audioFresh &&
         stats['audio_config_valid'] == 1 &&
         appliedAudioMs != null &&
         (appliedAudioMs == 20 ||
@@ -166,25 +180,45 @@ class GroupCallSourcePriority {
         expectedPeers > 0 &&
         stats['audio_playout_reports'] == expectedPeers &&
         stats['audio_feedback_reports'] == expectedPeers &&
-        stats['audio_loss_report_us'] == 0 &&
-        (_transientOnly ||
-            stats['audio_peer_recovery_report_us'] == null ||
-            stats['audio_peer_recovery_report_us'] == 0) &&
         delay != null &&
         (delay < CallBitrateAdapter.playoutRecoverMs || sparseAudioRecovery);
-    if (!healthy) {
-      _healthy = _sparseLocalSamples = 0;
+    if (!complete) {
+      _healthy = _sparseLocalSamples = _sparsePeerSamples = 0;
       return false;
     }
     if (_stage == 0) return false;
-    if (freshPeer) _healthy++;
+    final loss = stats['audio_loss_report_us'];
+    final recoveryCleared = peerRecovery == null || peerRecovery == 0;
+    if (loss == 0 && (_transientOnly || recoveryCleared)) {
+      if (freshPeer) _healthy++;
+    } else {
+      _healthy = 0;
+    }
     // RTCP may be sparse even while local audio is sampled every second.
     // Keep distinct peer confirmations separate from clean local samples.
     // A local catch-up or a changed drop counter needs new local evidence.
-    _sparseLocalSamples =
-        paused && _yielded && sparseAudioRecovery && stableDrops
-        ? _sparseLocalSamples + 1
-        : 0;
+    const eventWindow = CallAudioTransientLoss.repeatWindow;
+    final lossAge = CallRtcpLoss.audioLossAge(stats);
+    final recoverySeenAt = _peerRecoveryFirstSeenAt;
+    // RTCP keeps a loss or catch-up witness long after a decoder recovers.
+    // For the sparse trial, count current zero-loss reports after a full
+    // damage window. Catch-up time is counted from our first observation.
+    final oldLoss =
+        loss is int && loss > 0 && lossAge != null && lossAge >= eventWindow;
+    final oldRecovery =
+        recoverySeenAt != null && now.difference(recoverySeenAt) >= eventWindow;
+    if (paused &&
+        _yielded &&
+        stats['tx_loss_pct'] == 0 &&
+        (loss == 0 || oldLoss) &&
+        (recoveryCleared || oldRecovery)) {
+      if (freshPeer) _sparsePeerSamples++;
+      _sparseLocalSamples = sparseAudioRecovery && stableDrops
+          ? _sparseLocalSamples + 1
+          : 0;
+    } else {
+      _sparseLocalSamples = _sparsePeerSamples = 0;
+    }
     final quiet = _transientOnly ? transientQuietRecovery : quietRecovery;
     final pressureAt = _pressureAt;
     if (!freshPeer ||
@@ -200,7 +234,7 @@ class GroupCallSourcePriority {
       invalidate();
       return false;
     }
-    return _healthy >= CallBitrateAdapter.probeResumeAfter &&
+    return _sparsePeerSamples >= CallBitrateAdapter.probeResumeAfter &&
         _sparseLocalSamples >= CallBitrateAdapter.probeResumeAfter;
   }
 
@@ -210,7 +244,7 @@ class GroupCallSourcePriority {
     // quality. New congestion must establish actual output under this floor.
     _stage = 1;
     _floorAckAt = null;
-    _floorSamples = _sparseLocalSamples = 0;
+    _floorSamples = _sparseLocalSamples = _sparsePeerSamples = 0;
     acknowledgePause(false, now);
   }
 }

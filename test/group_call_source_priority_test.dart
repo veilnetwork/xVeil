@@ -20,6 +20,7 @@ Map<String, dynamic> stats({
   'audio_playout_reports': 2,
   'audio_feedback_reports': 2,
   'audio_loss_report_us': 0,
+  'tx_loss_pct': 0,
   'audio_tx_rtp_drops': 0,
   'audio_playout_ms': healthy ? 80 : 240,
 };
@@ -59,6 +60,52 @@ GroupCallSourcePriority pausedSource() {
 }
 
 void main() {
+  test('old loss and already played catch-up do not hold the floor retry', () {
+    final p = pausedSource()..acknowledgePause(true, at(2));
+    for (var n = 3; n <= 22; n++) {
+      final sequence = n < 15 ? 1 : (n < 18 ? 2 : (n < 22 ? 3 : 4));
+      poll(p, n, {
+        ...stats(paused: true, sequence: sequence, healthy: true),
+        'audio_loss_report_us': 42,
+        'audio_loss_report_age_ms': 6000,
+        'audio_peer_recovery_report_us': 55,
+      }, sparseAudioRecovery: true);
+      expect(p.paused, n < 22);
+    }
+    expect(p.floor, isTrue);
+    for (var n = 23; n <= 34; n++) {
+      poll(p, n, {
+        ...stats(sequence: n, healthy: true),
+        'audio_loss_report_us': 42,
+        'audio_loss_report_age_ms': 7000,
+        'audio_peer_recovery_report_us': 55,
+      }, sparseAudioRecovery: true);
+      expect(p.floor, isTrue);
+    }
+  });
+
+  test('unknown loss age and fresh impairment still block the floor retry', () {
+    for (final (lossAgeMs, newCatchUp, currentLoss) in [
+      (null, false, 0),
+      (5999, false, 0),
+      (6000, true, 0),
+      (6000, false, 1),
+    ]) {
+      final p = pausedSource()..acknowledgePause(true, at(2));
+      for (var n = 3; n <= 22; n++) {
+        final sequence = n < 15 ? 1 : (n < 18 ? 2 : (n < 22 ? 3 : 4));
+        poll(p, n, {
+          ...stats(paused: true, sequence: sequence, healthy: true),
+          'audio_loss_report_us': 42,
+          'audio_loss_report_age_ms': lossAgeMs,
+          'audio_peer_recovery_report_us': newCatchUp && n >= 21 ? 60 : 55,
+          'tx_loss_pct': currentLoss,
+        }, sparseAudioRecovery: true);
+      }
+      expect(p.paused, isTrue);
+    }
+  });
+
   test('three fresh complete samples reopen a paused source at the floor', () {
     final p = pausedSource()..acknowledgePause(true, at(2));
     for (var n = 3; n <= 21; n++) {
