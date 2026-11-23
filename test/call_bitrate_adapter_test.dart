@@ -1082,6 +1082,43 @@ void main() {
     expect(a.level, 2, reason: 'the cached pair cannot cut again');
   });
 
+  test('quiet measured audio separates two distant small RTP losses', () {
+    for (final (previousUs, damage, fraction, age, interrupted, expected) in [
+      (1000000, 0, 1, 422, false, 0),
+      (2600000, 0, 1, 422, false, 0),
+      (2601000, 0, 1, 422, false, 2),
+      (5400000, 0, 1, 422, false, 2),
+      (1000000, 60, 1, 422, false, 2),
+      (1000000, null, 1, 422, false, 2),
+      (1000000, 0, 3, 422, false, 2),
+      (1000000, 0, 1, null, false, 2),
+      (1000000, 0, 1, 422, true, 2),
+    ]) {
+      final a = direct();
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_loss_report_us': 6000000,
+          'audio_previous_loss_report_us': previousUs,
+          'audio_loss_report_age_ms': ?age,
+          'audio_loss_report_fraction': fraction,
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_soft_loss_probe_start_age_ms': 3822,
+          'audio_local_soft_loss_probe_ms': 0,
+          'audio_peer_soft_loss_probe_ms': ?damage,
+        },
+        currentPeerDelay: 60,
+        peerSequence: 1,
+        interrupted: interrupted,
+      );
+      expect(a.level, expected, reason: 'previous report at $previousUs');
+    }
+  });
+
   test('fresh RTCP loss protects the floor with an older peer', () {
     final a = direct();
     for (var i = 1; i <= 4; i++) {

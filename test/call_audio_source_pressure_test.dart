@@ -811,6 +811,35 @@ void main() {
     expect(policy.measuredAudioPressure, isTrue);
   });
 
+  test('quiet measured audio keeps source credit after a distant RTP loss', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    recover(policy);
+    final at = times[policy]!.add(const Duration(seconds: 1));
+    final verdict = sample(
+      policy,
+      currentPeer: 100,
+      peerSequence: 1,
+      lossReportUs: 6834505,
+      nativeStats: {
+        ...measured,
+        'rtt_ms': 17,
+        'audio_loss_report_us': 6834505,
+        'audio_previous_loss_report_us': 1000000,
+        'audio_loss_report_age_ms': 422,
+        'audio_loss_report_fraction': 1,
+        'audio_soft_loss_probe_start_age_ms': 3532,
+        'audio_local_soft_loss_probe_ms': 0,
+        'audio_peer_soft_loss_probe_ms': 0,
+      },
+    );
+    expect(verdict, isFalse);
+    expect(policy.measuredAudioPressure, isFalse);
+    expect(
+      policy.growthHoldStartedAt,
+      at.subtract(const Duration(milliseconds: 422)),
+    );
+  });
+
   test('peer concealment yields sources once, including mute/resume', () {
     final policy = CallAudioSourcePressure();
     recover(policy);

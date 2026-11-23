@@ -37,6 +37,31 @@ class CallAudioSoftLoss {
     );
   }
 
+  /// Compare loss and playback in the same local clock. Floor the time
+  /// between reports so rounding cannot move damage outside the window.
+  static bool lossPrecedesProbe(
+    Map<String, dynamic>? stats, {
+    bool previous = false,
+  }) {
+    final latest = stats?['audio_loss_report_us'];
+    final predecessor = stats?['audio_previous_loss_report_us'];
+    final witness = previous ? predecessor : latest;
+    final age = CallRtcpLoss.audioLossAge(stats);
+    if (latest is! int ||
+        witness is! int ||
+        witness <= 0 ||
+        witness > latest ||
+        age == null ||
+        stats?['audio_soft_loss_duration_supported'] != 1 ||
+        stats?['audio_peer_soft_loss_duration_supported'] != 1 ||
+        !bothProbeWindowsBelowThreshold(stats)) {
+      return false;
+    }
+    final elapsedMs = (latest - witness) ~/ 1000;
+    return age.inMilliseconds + elapsedMs >=
+        probeStartAge(stats).inMilliseconds;
+  }
+
   final _send = CallRtcpLoss();
   final _receive = CallRtcpLoss();
 

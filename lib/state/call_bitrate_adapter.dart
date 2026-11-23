@@ -1115,14 +1115,16 @@ class CallBitrateAdapter {
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
     final audioLossAge = CallRtcpLoss.audioLossAge(stats);
-    final audioLossReport = stats['audio_loss_report_us'];
-    // The loss must predate the older start of the two measured windows.
-    final cachedAudioLossPrecedesProbe =
-        audioLossReport is int &&
-        audioLossReport > 0 &&
-        audioLossAge != null &&
-        audioLossAge >= CallAudioSoftLoss.probeStartAge(stats) &&
-        CallAudioSoftLoss.bothProbeWindowsBelowThreshold(stats);
+    final cachedAudioLossPrecedesProbe = CallAudioSoftLoss.lossPrecedesProbe(
+      stats,
+    );
+    // A distant predecessor outside both quiet windows does not make the
+    // current small loss sustained. The current witness still holds growth.
+    final repeatedAudioLoss =
+        networkLoss.repeatedAudio == true &&
+            CallAudioSoftLoss.lossPrecedesProbe(stats, previous: true)
+        ? false
+        : networkLoss.repeatedAudio;
     final outcome = onSample(
       sampledAt: sampledAt,
       sourceBudgetPressured: sourceBudgetPressured,
@@ -1193,7 +1195,7 @@ class CallBitrateAdapter {
       videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
       audioNetworkLossAge: audioLossAge,
-      nativeRepeatedAudioLoss: networkLoss.repeatedAudio,
+      nativeRepeatedAudioLoss: repeatedAudioLoss,
       smallAudioNetworkLoss: CallRtcpLoss.isSmallAudioLoss(
         stats['audio_loss_report_fraction'],
       ),

@@ -285,10 +285,11 @@ class CallAudioSourcePressure {
     final isolatedNetworkLoss =
         singlePeerPlayout &&
         networkLoss &&
-        !repeatedNetworkLoss &&
         CallRtcpLoss.isSmallAudioLoss(
           nativeStats?['audio_loss_report_fraction'],
         ) &&
+        (!repeatedNetworkLoss ||
+            CallAudioSoftLoss.lossPrecedesProbe(nativeStats, previous: true)) &&
         rttMs is num &&
         rttMs > 0 &&
         rttMs < CallBitrateAdapter.severeRttMs &&
