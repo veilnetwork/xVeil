@@ -494,6 +494,7 @@ class CallBitrateAdapter {
   }
 
   bool? _appliedPause;
+  int? _pausedPeerSampleSequence;
   ({int maxBitrateKbps, double maxFps})? get acknowledgedTarget =>
       _appliedTarget;
   bool? get acknowledgedPause => _appliedPause;
@@ -514,6 +515,7 @@ class CallBitrateAdapter {
     }
     if (!apply(desired)) return false;
     _appliedPause = desired;
+    _pausedPeerSampleSequence = desired ? _lastPeerSampleSequence : null;
     _resetFloorFrames();
     return true;
   }
@@ -550,6 +552,7 @@ class CallBitrateAdapter {
     _rampRecoverySamples = 0;
     _lastGrowthObservation = -1;
     _appliedPause = null;
+    _pausedPeerSampleSequence = null;
     _lastRttRouteEpoch = null;
     _videoTimingPeerRefreshRequired = false;
     _videoTimingPeerBaseline = null;
@@ -1431,6 +1434,13 @@ class CallBitrateAdapter {
         (_recoveryPeerBaseline != null &&
             peerAudioSampleSequence > _recoveryPeerBaseline! &&
             peerAudioSampleSequence == _lastPeerSampleSequence);
+    final pausedPeerSequence = _pausedPeerSampleSequence;
+    final peerPlayoutUpdatedWhilePaused =
+        !requirePeerAudioPlayout ||
+        pausedPeerSequence == null ||
+        (peerAudioSampleSequence != null &&
+            peerAudioSampleSequence > pausedPeerSequence &&
+            peerAudioSampleSequence == _lastPeerSampleSequence);
     final hasCurrentPeerDelay =
         peerAudioDelayMs != null &&
         peerAudioDelayMs >= 0 &&
@@ -2115,7 +2125,11 @@ class CallBitrateAdapter {
       final resumeAfter = measuredPlayoutHealthy || useEarlyReserve
           ? probeResumeAfter
           : recoverAfter;
-      if (_audioRecoveryStreak >= resumeAfter) {
+      // Local audio can earn recovery while the peer's next report is in
+      // flight. A report already seen when the pause took effect cannot
+      // confirm that the other direction recovered.
+      if (_audioRecoveryStreak >= resumeAfter &&
+          peerPlayoutUpdatedWhilePaused) {
         _releaseAudioHold();
         _reserveRecoveryTrial =
             useEarlyReserve && !measuredPlayoutHealthy && !audioGood;
@@ -2267,7 +2281,9 @@ class CallBitrateAdapter {
       return null;
     }
     _goodStreak++;
-    if (_audioReserve && _goodStreak >= recoverAfter) {
+    if (_audioReserve &&
+        _goodStreak >= recoverAfter &&
+        peerPlayoutUpdatedWhilePaused) {
       _audioReserve = false;
       _severeStreak = 0;
       _goodStreak = 0;

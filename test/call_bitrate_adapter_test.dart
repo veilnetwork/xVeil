@@ -3225,6 +3225,24 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
+  test('paused video needs a peer playout report received after the pause', () {
+    final a = direct(level: 4);
+    native(a, peerSequence: 10);
+    for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
+      native(a, peerSequence: 10, interrupted: true);
+    }
+    expect(a.acknowledgedPause, isTrue);
+
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(a, peerSequence: i.isEven ? 10 : 9);
+      expect(a.acknowledgedPause, isTrue);
+    }
+
+    native(a, peerSequence: 11);
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.acknowledgedTarget?.maxFps, 1);
+  });
+
   test('a confirmed stable reserve can resume paused video at the floor', () {
     final a = direct(level: 4);
     native(a, peerDelay: 300);
