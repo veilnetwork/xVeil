@@ -394,6 +394,46 @@ void main() {
     expect(m.propose(floor, ceiling, at(5), healthy: true), isNotNull);
   });
 
+  for (final updateBudget in [false, true]) {
+    test('cached decoder report still observes the paused sender clock '
+        '(budget updated: $updateBudget)', () {
+      final m = CallVideoDeliveryModel();
+      observe(m, 1, {'p': report(1)});
+      observe(m, 2, {'p': report(2)});
+      m.observe(
+        {
+          'video_delivery_peers': {'p': report(2, sent: 270000)},
+          'video_rtt_route_epoch': 0,
+        },
+        at(3),
+        1,
+        sourcePaused: true,
+      );
+      if (updateBudget) m.applied(at(3), reduced: false);
+
+      // The receiver now ACKs the last frame sent before the pause. Its
+      // report is fresh, but no post-pause frame has been decoded yet.
+      observe(m, 4, {'p': report(3, sent: 360000)});
+      expect(m.propose(floor, ceiling, at(4), healthy: true), isNull);
+      observe(m, 5, {'p': report(4, sent: 450000)});
+      expect(m.propose(floor, ceiling, at(5), healthy: true), isNotNull);
+    });
+  }
+
+  test('a rate change fences the sent frames in a cached decoder report', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2)});
+    observe(m, 3, {'p': report(2, sent: 270000)});
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNotNull);
+    m.applied(at(3), reduced: false);
+
+    observe(m, 4, {'p': report(3, sent: 360000)});
+    expect(m.propose(floor, ceiling, at(4), healthy: true), isNull);
+    observe(m, 5, {'p': report(4, sent: 450000)});
+    expect(m.propose(floor, ceiling, at(5), healthy: true), isNotNull);
+  });
+
   test('intentional source pause cannot create permanent queue pressure', () {
     final a = CallBitrateAdapter(
       baseBitrateKbps: 900,

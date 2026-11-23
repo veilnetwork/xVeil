@@ -11,6 +11,7 @@ enum CallVideoDeliveryPhase { startup, drain, cruise, probe }
 class CallVideoDeliveryModel {
   static const _maximumVideoDelayMs = 500;
   final _peers = <String, _DeliverySample>{};
+  final _senderWatermarks = <String, (int, int, int)>{};
   final _barriers = <String, (int, int, int)>{};
   final _rates = <(DateTime, double)>[];
   final _qualified = <String>{};
@@ -37,6 +38,7 @@ class CallVideoDeliveryModel {
   void reset() {
     generation++;
     _peers.clear();
+    _senderWatermarks.clear();
     _barriers.clear();
     _qualified.clear();
     _streamEpochs.clear();
@@ -58,7 +60,10 @@ class CallVideoDeliveryModel {
     int? rttMs,
   }) {
     queuePressure = _credit = false;
-    if (sourcePaused) _qualified.clear();
+    if (sourcePaused) {
+      _qualified.clear();
+      _barriers.addAll(_senderWatermarks);
+    }
     final raw = stats['video_delivery_peers'];
     if (raw is! Map) return;
     final names = raw.keys.whereType<String>().toList()..sort();
@@ -109,32 +114,39 @@ class CallVideoDeliveryModel {
         all = false;
         continue;
       }
-      if (old != null &&
-          next.origin == old.origin &&
-          (next.sample <= old.sample || next.arrival <= old.arrival)) {
-        all &=
-            _qualified.contains(name) &&
-            now.difference(old.at) <= const Duration(seconds: 3);
-        continue;
-      }
       if (old != null && next.origin < old.origin) {
         all = false;
         continue;
       }
       if (old != null && next.origin > old.origin) {
+        _senderWatermarks.remove(name);
         _barriers.remove(name);
         _qualified.remove(name);
         _rates.clear();
       }
       final same = old != null && next.origin == old.origin;
-      final progress =
-          same && next.frames > old.frames && next.bytes > old.bytes;
+      final cached =
+          same && (next.sample <= old.sample || next.arrival <= old.arrival);
+      // The sender clock is sampled locally even when the decoder report is
+      // cached. Keep it without refreshing the decoder evidence or rate sample.
       if (next.sentTimestampValid) {
-        _barriers.putIfAbsent(
-          name,
-          () => (next.origin, next.sample, next.sentTimestamp),
+        _senderWatermarks[name] = (
+          next.origin,
+          cached ? old.sample : next.sample,
+          next.sentTimestamp,
         );
       }
+      final watermark = _senderWatermarks[name];
+      if (cached) {
+        if (sourcePaused && watermark != null) _barriers[name] = watermark;
+        all &=
+            _qualified.contains(name) &&
+            now.difference(old.at) <= const Duration(seconds: 3);
+        continue;
+      }
+      final progress =
+          same && next.frames > old.frames && next.bytes > old.bytes;
+      if (watermark != null) _barriers.putIfAbsent(name, () => watermark);
       final barrier = _barriers[name];
       // RTP timestamps use serial arithmetic, including the 32-bit wrap. A
       // fresh report of frames predating the last probe earns nothing.
@@ -167,9 +179,7 @@ class CallVideoDeliveryModel {
         if (!sourcePaused && next.delay >= _maximumVideoDelayMs) {
           queuePressure = true;
         }
-        if (next.sentTimestampValid) {
-          _barriers[name] = (next.origin, next.sample, next.sentTimestamp);
-        }
+        if (watermark != null) _barriers[name] = watermark;
         _qualified.remove(name);
         _peers[name] = next;
         all = false;
@@ -318,14 +328,10 @@ class CallVideoDeliveryModel {
   void applied(DateTime now, {required bool reduced}) {
     _credit = false;
     _lastApply = now;
-    _barriers.clear();
+    _barriers
+      ..clear()
+      ..addAll(_senderWatermarks);
     _qualified.clear();
-    for (final entry in _peers.entries) {
-      final r = entry.value;
-      if (r.sentTimestampValid) {
-        _barriers[entry.key] = (r.origin, r.sample, r.sentTimestamp);
-      }
-    }
     if (reduced) {
       phase = CallVideoDeliveryPhase.drain;
       _drainUntil = now.add(const Duration(seconds: 3));
