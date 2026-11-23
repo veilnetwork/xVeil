@@ -3956,6 +3956,59 @@ void main() {
   });
 
   test(
+    'muted sender can probe at one fps with measured quiet receive audio',
+    () {
+      final a = direct(level: 4);
+      native(a, peerDelay: 714);
+      native(a, peerDelay: 714);
+      expect(a.acknowledgedPause, isTrue);
+
+      void receive(int delayMs, {int? damageMs, bool recovered = false}) {
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'video_tx_source_rtp_drops': 0,
+            'video_feedback_reports': 0,
+            'audio_delay_ms': delayMs,
+            'audio_jb_target_ms': 60,
+            if (damageMs != null) ...{
+              'audio_soft_loss_duration_supported': 1,
+              'audio_local_soft_loss_report_us': 0,
+              'audio_local_soft_loss_window_ms': damageMs,
+            },
+          },
+          send: false,
+          recovered: recovered,
+        );
+      }
+
+      // The remaining direction has low packet age, but its playout estimate
+      // crosses the recovery rail before settling. The paused video path has
+      // no current RTT or receiver reports.
+      for (final delay in [213, 225, 229, 223, 156, 157, 165, 153, 165]) {
+        receive(delay, damageMs: 0);
+        expect(a.acknowledgedPause, isTrue);
+      }
+      receive(150, damageMs: 0);
+      receive(152, damageMs: 0, recovered: true);
+      receive(150, damageMs: 0);
+      receive(153);
+      receive(135, damageMs: 0);
+      receive(148, damageMs: 120);
+      expect(a.acknowledgedPause, isTrue);
+
+      for (final delay in [148, 156]) {
+        receive(delay, damageMs: 0);
+        expect(a.acknowledgedPause, isTrue);
+      }
+      receive(156, damageMs: 0);
+      expect(a.acknowledgedPause, isFalse);
+      expect(a.acknowledgedTarget?.maxFps, 1);
+    },
+  );
+
+  test(
     'both intentionally muted endpoints release an existing audio pause',
     () {
       final a = direct(level: 4);

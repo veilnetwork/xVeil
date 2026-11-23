@@ -8,11 +8,18 @@ class CallAudioSoftLoss {
 
   // The native six-second window starts reporting sustained damage at
   // 120 ms. Use the full window here, including previously reported damage.
+  static const _windowThresholdMs = 120;
+
+  static bool receiveWindowBelowThreshold(Map<String, dynamic> stats) {
+    final duration = _validDuration(stats['audio_local_soft_loss_window_ms']);
+    return duration != null && duration < _windowThresholdMs;
+  }
+
   static bool? bothWindowsBelowThreshold(Map<String, dynamic>? stats) {
     final peer = _validDuration(stats?['audio_peer_soft_loss_window_ms']);
     final local = _validDuration(stats?['audio_local_soft_loss_window_ms']);
     if (peer == null || local == null) return null;
-    return peer < 120 && local < 120;
+    return peer < _windowThresholdMs && local < _windowThresholdMs;
   }
 
   // A bounded probe may also use the native window covering three seconds

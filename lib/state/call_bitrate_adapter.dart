@@ -225,6 +225,7 @@ class CallBitrateAdapter {
 
   bool _supportsNativeReceiveAge = false;
   int _mutedRecoveryStreak = 0;
+  int _mutedProbeStreak = 0;
   int? _lastTxDrops;
   int? _lastAudioTxDrops;
   int? _lastVideoTxDrops;
@@ -285,6 +286,8 @@ class CallBitrateAdapter {
       'ramp_recovery_needed': _rampNeedsRecovery,
       'ramp_recovery_samples_after': _rampRecoverySamples,
       'audio_recovery_streak_after': _audioRecoveryStreak,
+      'muted_recovery_streak_after': _mutedRecoveryStreak,
+      'muted_probe_streak_after': _mutedProbeStreak,
       'reserve_recovery_trial': _reserveRecoveryTrial,
       'severe_streak_after': _severeStreak,
       'paused_after': _audioReserve,
@@ -598,6 +601,7 @@ class CallBitrateAdapter {
     _startupGoodStreak = 0;
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;
+    _mutedProbeStreak = 0;
     _resetAudioRecovery();
   }
 
@@ -1033,16 +1037,36 @@ class CallBitrateAdapter {
                   !audioInterrupted &&
                   (!newDrops || (videoPaused && validSourceDrops))))) {
         _mutedRecoveryStreak++;
+        // The active direction can earn the same sparse probe as a call
+        // with two healthy receivers. Require fresh native playout and a
+        // quiet decoder window throughout the probe's recovery streak.
+        final measuredProbe =
+            _audioReserve &&
+            videoPaused &&
+            receiveRequested &&
+            requireAudioReceivePlayout &&
+            requiredReports == 1 &&
+            audioReceiveQuality == null &&
+            audioReceiveDelayMs == null &&
+            !audioRecoveryObserved &&
+            !localConcealed &&
+            softLoss.receive == false &&
+            CallAudioSoftLoss.receiveWindowBelowThreshold(stats);
+        _mutedProbeStreak = measuredProbe ? _mutedProbeStreak + 1 : 0;
         if (_audioReserve &&
-            (!receiveRequested || _mutedRecoveryStreak >= recoverAfter)) {
+            (!receiveRequested ||
+                _mutedProbeStreak >= probeResumeAfter ||
+                _mutedRecoveryStreak >= recoverAfter)) {
           _releaseAudioHold();
           return target;
         }
       } else {
         _mutedRecoveryStreak = 0;
+        _mutedProbeStreak = 0;
       }
     } else {
       _mutedRecoveryStreak = 0;
+      _mutedProbeStreak = 0;
     }
     _deliveryProbe = false;
     final measuredRttMs = anyFeedbackAvailable && routeRttUsable
@@ -2318,6 +2342,7 @@ class CallBitrateAdapter {
     _resetAudioRecovery();
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;
+    _mutedProbeStreak = 0;
     // The retained floor budget needs no new retune on resume. Start its
     // measurement window here even when applyPendingTarget is a no-op.
     _floorPeerSampleSequence = _lastPeerSampleSequence;
