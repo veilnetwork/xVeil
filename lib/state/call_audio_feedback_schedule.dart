@@ -76,11 +76,15 @@ class CallAudioFeedbackSchedule {
     return feedback.bufferGrowing == false ? false : null;
   }
 
-  bool shouldSendUrgent(CallAudioPlayoutFeedback? feedback, DateTime now) {
+  bool shouldSendUrgent(CallAudioPlayoutFeedback? feedback, DateTime now) =>
+      urgentDelay(feedback, now) == Duration.zero;
+
+  /// Delay before the next eligible urgent report, or null if none is due.
+  Duration? urgentDelay(CallAudioPlayoutFeedback? feedback, DateTime now) {
     if (feedback == null ||
         feedback.sequence < 0 ||
         (_lastSequence != null && feedback.sequence <= _lastSequence!)) {
-      return false;
+      return null;
     }
     final pressure = _pressure(feedback);
     final lastAttempt = _lastAttemptAt;
@@ -93,12 +97,14 @@ class CallAudioFeedbackSchedule {
     if (pressure != true &&
         !(pressure == false && _lastPressure == true) &&
         !confirmReserve) {
-      return false;
+      return null;
     }
     // Let the ordinary heartbeat re-anchor a reversed wall clock, rather
     // than using that reversal to authorize a burst of urgent reports.
-    return (_lastAttemptAt == null || !now.isBefore(_lastAttemptAt!)) &&
-        !attemptedRecently(now);
+    if (lastAttempt == null) return Duration.zero;
+    if (now.isBefore(lastAttempt)) return null;
+    final remaining = minimumInterval - now.difference(lastAttempt);
+    return remaining > Duration.zero ? remaining : Duration.zero;
   }
 
   /// Count attempts, including rejected local queues, to bound traffic on a

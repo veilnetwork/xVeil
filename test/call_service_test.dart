@@ -2713,6 +2713,86 @@ void main() {
       });
     });
 
+    for (final (endsBeforeSend, announcesBeforeSend) in [
+      (false, false),
+      (true, false),
+      (false, true),
+    ]) {
+      test('defers an urgent audio report near the rate limit '
+          '(ends=$endsBeforeSend, announces=$announcesBeforeSend)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          try {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'urgent-window',
+                type: CallSignalType.offer,
+                media: const CallMedia(audio: true),
+                posture: CallPosture.direct,
+                protocolVersion: kCallSignalProtocolVersion,
+              ),
+            );
+            svc.accept();
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+
+            async.elapse(const Duration(milliseconds: 5));
+            media.playout = const CallAudioPlayoutFeedback(
+              sequence: 1,
+              delayMs: 723,
+              currentDelayMs: 723,
+              targetDelayMs: 500,
+              bufferGrowing: false,
+            );
+            svc.setMicEnabled(false);
+            async.flushMicrotasks();
+            expect(fake.sent.last.audioPlayout?.sequence, 1);
+            fake.sent.clear();
+            CallAudioPlayoutFeedback recovered(int sequence) =>
+                CallAudioPlayoutFeedback(
+                  sequence: sequence,
+                  delayMs: 723,
+                  currentDelayMs: 683,
+                  targetDelayMs: 500,
+                  bufferGrowing: false,
+                );
+            media.playout = recovered(2);
+            async.elapse(const Duration(milliseconds: 995));
+            expect(fake.sent, isEmpty);
+            media.playout = recovered(3);
+            async.elapse(const Duration(milliseconds: 4));
+            expect(fake.sent, isEmpty);
+            if (endsBeforeSend) {
+              svc.hangup();
+              async.flushMicrotasks();
+              fake.sent.clear();
+            } else if (announcesBeforeSend) {
+              svc.setMicEnabled(true);
+              async.flushMicrotasks();
+              expect(fake.sent.single.audioPlayout?.sequence, 3);
+              fake.sent.clear();
+            }
+            async.elapse(const Duration(milliseconds: 1));
+            if (endsBeforeSend || announcesBeforeSend) {
+              expect(fake.sent, isEmpty);
+            } else {
+              expect(fake.sent.single.audioPlayout?.sequence, 3);
+              expect(fake.sent.single.audioPlayout?.currentDelayMs, 683);
+              async.elapse(const Duration(seconds: 1));
+              expect(fake.sent, hasLength(1));
+            }
+          } finally {
+            svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      });
+    }
+
     test('compact health retains bootstrap, backstop and repair signaling', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

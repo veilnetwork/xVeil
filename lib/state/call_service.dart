@@ -559,6 +559,7 @@ class CallService {
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
+  Timer? _urgentAudioFeedbackTimer;
   Timer? _mediaWatchdogTimer;
   bool _mediaWatchdogCheckBusy = false;
   bool _directHandoverCheckPending = false;
@@ -4063,6 +4064,36 @@ class CallService {
     _ringTimer = null;
   }
 
+  void _sendUrgentAudioFeedbackWhenDue(Call call) {
+    if (call.status != CallStatus.active ||
+        !call.media.audio ||
+        _signalProtocolVersion < kCallAudioPlayoutFeedbackMinVersion ||
+        (call.peerProtocolVersion ?? 1) < kCallAudioPlayoutFeedbackMinVersion) {
+      return;
+    }
+    final delay = _audioFeedbackSchedule.urgentDelay(
+      _media?.audioPlayoutFeedback,
+      _now(),
+    );
+    if (delay == null) return;
+    if (delay == Duration.zero) {
+      _urgentAudioFeedbackTimer?.cancel();
+      _urgentAudioFeedbackTimer = null;
+      unawaited(_announceCapture());
+      return;
+    }
+    // A watchdog tick just before the rate limit opens used to defer fresh
+    // feedback by a full poll interval. Recheck against the latest sample
+    // and any intervening health attempt at the actual due time.
+    _urgentAudioFeedbackTimer ??= Timer(delay, () {
+      _urgentAudioFeedbackTimer = null;
+      final current = _current;
+      if (current != null && current.callId == call.callId) {
+        _sendUrgentAudioFeedbackWhenDue(current);
+      }
+    });
+  }
+
   /// Start the mid-call liveness heartbeat once a call reaches `connecting`.
   /// Each tick sends a [CallSignalType.health] beat to the peer and, if the peer
   /// has been silent past [kCallLivenessTimeout], tears the call down — this is
@@ -4081,17 +4112,7 @@ class CallService {
         } else {
           unawaited(_checkLostDirectSession(call));
         }
-        if (call.status == CallStatus.active &&
-            call.media.audio &&
-            _signalProtocolVersion >= kCallAudioPlayoutFeedbackMinVersion &&
-            (call.peerProtocolVersion ?? 1) >=
-                kCallAudioPlayoutFeedbackMinVersion &&
-            _audioFeedbackSchedule.shouldSendUrgent(
-              _media?.audioPlayoutFeedback,
-              _now(),
-            )) {
-          unawaited(_announceCapture());
-        }
+        _sendUrgentAudioFeedbackWhenDue(call);
       }
     });
     _heartbeatTimer = Timer.periodic(kCallHeartbeatInterval, (_) {
@@ -4298,6 +4319,8 @@ class CallService {
     _mediaWatchdogTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _urgentAudioFeedbackTimer?.cancel();
+    _urgentAudioFeedbackTimer = null;
     _lastPeerSignalAt = null;
     _lastRegularHealthAt = null;
     _audioFeedbackSchedule.reset();
