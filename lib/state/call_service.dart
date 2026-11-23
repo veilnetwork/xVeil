@@ -3254,6 +3254,7 @@ class CallService {
       }
       final probeGeneration = _relayConnectionGeneration;
       var refreshed = false;
+      var originalRelayRecovered = false;
       // Qualify the replacement relay before an outstanding direct
       // admission read can switch routes. The existing relay keeps carrying
       // media while we wait for the peer's echo on the candidate.
@@ -3267,14 +3268,23 @@ class CallService {
             if (ownedCall() == null) return false;
             final latest = await readAudio();
             final live = ownedCall();
-            return live != null && stalled(live, latest);
+            if (live == null || latest == null) return false;
+            final now = _now();
+            originalRelayRecovered =
+                !latest.isBefore(handoverAt) &&
+                !latest.isAfter(now) &&
+                now.difference(latest) < kCallDirectSessionSilence;
+            return stalled(live, latest);
           },
         );
       } catch (_) {
         devLog(() => 'xVeil[call-media]: early relay probe failed');
       } finally {
         if (_relayHandoverProbeEpoch == epoch) _relayHandoverProbeEpoch = null;
-        final restored = refreshed && ownedCall() != null;
+        // A fresh packet on the original relay can cancel the replacement.
+        // Its recovery also releases direct checks deferred by this probe.
+        final relayUsable =
+            (refreshed || originalRelayRecovered) && ownedCall() != null;
         if (_relayHandover == handover) {
           // Admission during the probe also counts. Allow one probe retry,
           // but keep observing actual audio even after that retry fails.
@@ -3289,7 +3299,7 @@ class CallService {
               : null;
         }
         _finishMediaWatchdogCheck();
-        if (restored) {
+        if (relayUsable) {
           _resumeLateP2PAfterRelay(
             probeGeneration,
             allowDiscovery:

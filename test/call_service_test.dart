@@ -9631,6 +9631,8 @@ void main() {
       ('rebuild', false, true, false),
       ('qualified relay probe', true, true, false),
       ('rejected relay probe', true, false, false),
+      ('audio resumed on original relay', true, true, false),
+      ('audio resumed with a pending admission', true, true, true),
       ('rebuild with a pending admission', false, true, true),
       ('relay probe with a pending admission', true, true, true),
     ]) {
@@ -9642,8 +9644,10 @@ void main() {
             ..openedTransport = CallTransportKind.p2p
             ..audioTelemetry = true;
           final echo = Completer<bool>();
+          final audioResumed = scenario.startsWith('audio resumed');
+          bool? reboundRelay;
           media.relayRefresh = (canCommit) async =>
-              await echo.future && await canCommit();
+              reboundRelay = await echo.future && await canCommit();
           final device = NodeId.fromHex('b' * 64);
           final svc = CallService(
             fake,
@@ -9710,6 +9714,7 @@ void main() {
 
             media.requiredAdmissionGate = null;
             if (replaceRelay) {
+              if (audioResumed) media.audioRxAt = media.rxAt = clock.now();
               echo.complete(settled);
             } else {
               media.gate.complete(true);
@@ -9717,6 +9722,10 @@ void main() {
             async.flushMicrotasks();
             expect(svc.current?.callId, id);
             expect(svc.current?.status, CallStatus.active);
+            expect(
+              reboundRelay,
+              replaceRelay ? settled && !audioResumed : null,
+            );
             final expected = [...before, if (settled) device];
             expect(media.admissionChecks, expected);
             expect(media.switches, [
