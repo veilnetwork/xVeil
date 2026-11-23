@@ -42,6 +42,37 @@ void main() {
     );
   });
 
+  test('a polled loss holds growth from native receipt time', () {
+    final window = CallAudioTransientLoss();
+    const age = Duration(milliseconds: 339);
+    expect(window.observe(true, sampledAt: start, eventAge: age), isFalse);
+    expect(window.lastEventAt, start.subtract(age));
+    window.observe(
+      false,
+      sampledAt: start.add(const Duration(milliseconds: 2660)),
+    );
+    expect(window.holdingGrowth, isTrue);
+    window.observe(
+      false,
+      sampledAt: start.add(const Duration(milliseconds: 2661)),
+    );
+    expect(window.holdingGrowth, isFalse);
+  });
+
+  test('a receipt older than the window cannot renew it or confirm loss', () {
+    final window = CallAudioTransientLoss();
+    expect(
+      window.observe(
+        true,
+        sampledAt: start,
+        eventAge: const Duration(milliseconds: 6001),
+      ),
+      isFalse,
+    );
+    expect(window.holdingGrowth, isFalse);
+    expect(window.observe(true, sampledAt: start), isFalse);
+  });
+
   test('clock rollback and reset cannot join old events to a new episode', () {
     final window = CallAudioTransientLoss();
     expect(window.observe(true, sampledAt: start), isFalse);

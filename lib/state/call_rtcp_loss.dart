@@ -9,6 +9,15 @@ class CallRtcpLoss {
   static bool isSmallAudioLoss(Object? fraction) =>
       fraction is int && fraction > 0 && fraction <= 2;
 
+  /// Age of the loss witness itself. A later healthy receiver report has its
+  /// own age and cannot anchor an earlier loss. Older engines omit this field.
+  static Duration? audioLossAge(Map<String, dynamic>? stats) {
+    final age = stats?['audio_loss_report_age_ms'];
+    return age is int && age >= 0 && age <= 15000
+        ? Duration(milliseconds: age)
+        : null;
+  }
+
   int _audioHighWater = 0;
   int _videoHighWater = 0;
   int _mutedAudioThroughUs = 0;

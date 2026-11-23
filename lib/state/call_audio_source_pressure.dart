@@ -238,6 +238,7 @@ class CallAudioSourcePressure {
     final repeatFromPolls = _networkAudioLoss.observe(
       singlePeerPlayout && networkLoss,
       sampledAt: sampledAt,
+      eventAge: CallRtcpLoss.audioLossAge(nativeStats),
     );
     final repeatedNetworkLoss = rtcpLoss.repeatedAudio ?? repeatFromPolls;
     // Leave room for the requested reserve while it is filling. The request

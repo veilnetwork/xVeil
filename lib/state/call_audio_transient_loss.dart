@@ -11,19 +11,24 @@ class CallAudioTransientLoss {
   DateTime? get lastEventAt => _events.isEmpty ? null : _events.last;
 
   /// Only a new event can confirm repetition. Cached reports and faster
-  /// polling neither add events nor advance a sample-count-based timeout.
-  bool observe(bool event, {DateTime? sampledAt}) {
+  /// polling neither add events nor extend the hold. Native receipt age
+  /// accounts for delay between a report arriving and the observer's poll.
+  bool observe(bool event, {DateTime? sampledAt, Duration? eventAge}) {
     final now = sampledAt ?? DateTime.now();
     if (_lastAt != null && now.isBefore(_lastAt!)) reset();
     _lastAt = now;
     _events.removeWhere((at) => now.difference(at) > repeatWindow);
-    if (event) {
-      _events.add(now);
+    final recentEvent = event && (eventAge == null || eventAge <= repeatWindow);
+    if (recentEvent) {
+      _events.add(
+        eventAge == null || eventAge.isNegative ? now : now.subtract(eventAge),
+      );
+      _events.sort();
       if (_events.length > 2) _events.removeAt(0);
     }
     holdingGrowth =
         _events.isNotEmpty && now.difference(_events.last) < growthHold;
-    return event && _events.length >= 2;
+    return recentEvent && _events.length >= 2;
   }
 
   void reset() {
