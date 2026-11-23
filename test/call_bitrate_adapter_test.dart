@@ -3524,6 +3524,82 @@ void main() {
     }
   });
 
+  test(
+    'a quiet measured interval supersedes an older RTP loss for the floor probe',
+    () {
+      for (final (age, recentDamage, transportPermit, clears) in [
+        (5000, 59, true, true),
+        (4999, 59, true, false),
+        (null, 59, true, false),
+        (5000, 60, true, false),
+        (5000, null, true, false),
+        (5000, 59, false, false),
+      ]) {
+        final a = direct(level: 4);
+        native(a, peerDelay: 300);
+        native(a, peerDelay: 300);
+        expect(a.acknowledgedPause, isTrue);
+        var sequence = 0;
+        void observe(int witness, int? lossAge) => native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_delay_ms': 690,
+            'audio_jb_target_ms': 500,
+            'tx_loss_pct': 11,
+            'audio_loss_report_us': witness,
+            'audio_loss_report_age_ms': ?lossAge,
+            'audio_loss_report_fraction': 29,
+            'audio_soft_loss_duration_supported': 1,
+            'audio_peer_soft_loss_duration_supported': 1,
+            'audio_local_soft_loss_report_us': 0,
+            'audio_peer_soft_loss_report_us': 0,
+            'audio_local_soft_loss_window_ms': 20,
+            'audio_peer_soft_loss_window_ms': 30,
+            if (recentDamage != null) ...{
+              'audio_local_soft_loss_probe_ms': 14,
+              'audio_peer_soft_loss_probe_ms': recentDamage,
+            },
+          },
+          peerDelay: 690,
+          currentPeerDelay: 690,
+          peerTargetDelay: 500,
+          peerSequence: ++sequence,
+          peerBufferGrowing: false,
+          filledJitterReserveConfirmed: !transportPermit,
+          sourceRecoveryProbeReady: transportPermit,
+          sourceBudgetPressured: transportPermit,
+        );
+
+        observe(1, 0);
+        for (final waitingAge in [1000, 2000, 3000, 4000]) {
+          observe(1, waitingAge);
+          expect(a.acknowledgedPause, isTrue);
+        }
+        for (var n = 1; n <= CallBitrateAdapter.probeResumeAfter; n++) {
+          observe(1, age == null ? null : age + (n - 1) * 1000);
+          expect(
+            a.acknowledgedPause,
+            !clears || n < CallBitrateAdapter.probeResumeAfter,
+            reason:
+                'loss age $age, short-window damage $recentDamage, '
+                'transport permit $transportPermit, sample $n',
+          );
+        }
+        if (clears) {
+          expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+          for (var n = 0; n < CallBitrateAdapter.recoverAfter; n++) {
+            observe(1, 8000 + n * 1000);
+            expect(a.acknowledgedTarget!.maxBitrateKbps, lessThanOrEqualTo(15));
+            expect(a.acknowledgedTarget!.maxFps, lessThanOrEqualTo(1));
+          }
+          observe(2, 0);
+          expect(a.acknowledgedPause, isTrue);
+        }
+      }
+    },
+  );
+
   test('one near-threshold audio sample does not restart a video probe', () {
     CallBitrateAdapter paused() {
       final adapter = direct(level: 4);

@@ -1114,6 +1114,16 @@ class CallBitrateAdapter {
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
+    final audioLossAge = CallRtcpLoss.audioLossAge(stats);
+    final audioLossReport = stats['audio_loss_report_us'];
+    // Native short windows cover three seconds and their endpoints can be
+    // up to two seconds old. Require the loss to predate both full windows.
+    final cachedAudioLossPrecedesProbe =
+        audioLossReport is int &&
+        audioLossReport > 0 &&
+        audioLossAge != null &&
+        audioLossAge >= const Duration(seconds: 5) &&
+        CallAudioSoftLoss.bothProbeWindowsBelowThreshold(stats);
     final outcome = onSample(
       sampledAt: sampledAt,
       sourceBudgetPressured: sourceBudgetPressured,
@@ -1130,6 +1140,7 @@ class CallBitrateAdapter {
           softLoss.send == false &&
           softLoss.receive == false &&
           CallAudioSoftLoss.allowsRecoveryProbe(stats),
+      cachedAudioLossPrecedesProbe: cachedAudioLossPrecedesProbe,
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -1182,7 +1193,7 @@ class CallBitrateAdapter {
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
-      audioNetworkLossAge: CallRtcpLoss.audioLossAge(stats),
+      audioNetworkLossAge: audioLossAge,
       nativeRepeatedAudioLoss: networkLoss.repeatedAudio,
       smallAudioNetworkLoss: CallRtcpLoss.isSmallAudioLoss(
         stats['audio_loss_report_fraction'],
@@ -1290,6 +1301,7 @@ class CallBitrateAdapter {
     bool sourceRecoveryProbeRequested = false,
     bool audioSoftLossBelowThreshold = false,
     bool audioSoftLossAllowsProbe = false,
+    bool cachedAudioLossPrecedesProbe = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -1930,7 +1942,7 @@ class CallBitrateAdapter {
         (audioSoftLossBelowThreshold || audioSoftLossAllowsProbe) &&
         !_networkAudioLoss.holdingGrowth &&
         rttMs > 0 &&
-        probeLossAcceptable;
+        (probeLossAcceptable || cachedAudioLossPrecedesProbe);
     final earlyReserveRecovery =
         measuredTrialReserve && sourceRecoveryProbeReady && !bufferPressure;
     final canHoldLocalTrialBoundary =

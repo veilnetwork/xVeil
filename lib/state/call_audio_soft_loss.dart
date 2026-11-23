@@ -18,8 +18,11 @@ class CallAudioSoftLoss {
   // A bounded probe may also use the native window covering three seconds
   // of fresh reports from both ends. Keep the same damage rate as the full
   // window. Its result does not authorize normal growth.
-  static bool allowsRecoveryProbe(Map<String, dynamic>? stats) {
-    if (bothWindowsBelowThreshold(stats) == true) return true;
+  static bool allowsRecoveryProbe(Map<String, dynamic>? stats) =>
+      bothWindowsBelowThreshold(stats) == true ||
+      bothProbeWindowsBelowThreshold(stats);
+
+  static bool bothProbeWindowsBelowThreshold(Map<String, dynamic>? stats) {
     final peer = _validDuration(stats?['audio_peer_soft_loss_probe_ms']);
     final local = _validDuration(stats?['audio_local_soft_loss_probe_ms']);
     return peer != null && local != null && peer < 60 && local < 60;
