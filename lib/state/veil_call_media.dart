@@ -2122,7 +2122,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRepairAt = null;
     var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_engine != engine || _activeCall?.callId != call.callId) return;
+      if (!currentEngine()) return;
       try {
         // Camera2 owns independent source evidence. A failed C++ statistics
         // read must not hide its already observed terminal state.
@@ -2229,22 +2229,21 @@ class VeilCallMediaController implements CallMediaController {
             sourceRecoveryProbe && !_sourceFeedbackPending;
         if ((sourcePressured != null || sourceRecoveryProbe) &&
             !_sourceFeedbackPending) {
-          // One small outstanding report, with the ORIGINAL sampling time.
-          // Delayed workers/writes cannot renew pressure after this call ends.
+          // Keep one report in flight for this engine. The IPC lease uses the
+          // original sample time even if its worker finishes after teardown.
           _sourceFeedbackPending = true;
           unawaited(
-            _transport
-                .reportLocalSourcePressure(
-                  pressured: sourcePressured == true,
-                  sampledAt: now,
-                  growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
-                  recoveryProbe: sourceRecoveryProbe,
+            Future<bool>.sync(
+                  () => _transport.reportLocalSourcePressure(
+                    pressured: sourcePressured == true,
+                    sampledAt: now,
+                    growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
+                    recoveryProbe: sourceRecoveryProbe,
+                  ),
                 )
                 .then<void>(
                   (queued) {
-                    if (_engine != engine || _activeCall?.callId != call.callId) {
-                      return;
-                    }
+                    if (!currentEngine()) return;
                     if (queued) {
                       _sourceFeedbackQueued++;
                       if (sourceRecoveryProbe && sourceProbeRoute is int) {
@@ -2259,10 +2258,12 @@ class VeilCallMediaController implements CallMediaController {
                   },
                   onError: (Object _) {
                     // The lease expires naturally on unavailable/older IPC.
-                    if (_engine == engine) _sourceFeedbackSkipped++;
+                    if (currentEngine()) _sourceFeedbackSkipped++;
                   },
                 )
-                .whenComplete(() => _sourceFeedbackPending = false),
+                .whenComplete(() {
+                  if (currentEngine()) _sourceFeedbackPending = false;
+                }),
           );
         }
         // Per-second quality trace into the devLog ring (2 s cadence to leave
@@ -3014,6 +3015,7 @@ class VeilCallMediaController implements CallMediaController {
     _frameCadenceClock.stop();
     _statsTimer?.cancel();
     _statsTimer = null;
+    _sourceFeedbackPending = false;
     _controlPollTimer?.cancel();
     _controlPollTimer = null;
     // Retain the last real receipt across an internal rebuild. Rebase the

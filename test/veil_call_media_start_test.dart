@@ -70,6 +70,27 @@ class _OpeningTransport extends _Transport {
   }
 }
 
+class _SourceFeedbackTransport extends _Transport {
+  final replies = <Completer<bool>>[];
+  bool throwOnNextReport = false;
+
+  @override
+  Future<bool> reportLocalSourcePressure({
+    required bool pressured,
+    required DateTime sampledAt,
+    DateTime? growthHoldStartedAt,
+    bool recoveryProbe = false,
+  }) {
+    if (throwOnNextReport) {
+      throwOnNextReport = false;
+      throw StateError('source feedback unavailable');
+    }
+    final reply = Completer<bool>();
+    replies.add(reply);
+    return reply.future;
+  }
+}
+
 class _CameraAdmissionTransport extends _Transport {
   bool refuse = false;
   bool throwOnRefusal = false;
@@ -198,6 +219,13 @@ class _PlayoutEvidenceEngine extends _LivenessEngine {
 
   int interruptions = 0;
   int recoveries = 0;
+
+  @override
+  bool setAudioSourcePressure(
+    bool? pressured, {
+    DateTime? sampledAt,
+    DateTime? growthHoldStartedAt,
+  }) => true;
 
   @override
   Map<String, dynamic> getStats() => {
@@ -2296,6 +2324,73 @@ void main() {
       );
     }
   }
+
+  test('source feedback remains bounded within each media engine', () async {
+    final statsPolls = <void Function()>[];
+    final transport = _SourceFeedbackTransport();
+    await runZoned(
+      () async {
+        var now = DateTime.utc(2026, 11, 1);
+        final controller = _PlayoutFeedbackController(
+          transport,
+          statsNow: () => now,
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  _PlayoutEvidenceEngine(),
+        );
+        Future<void> sample() async {
+          await Future<void>.delayed(Duration.zero);
+          now = now.add(const Duration(seconds: 1));
+          statsPolls.last();
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        try {
+          final call = _call();
+          expect(await controller.start(call), isTrue);
+          await sample();
+          await sample();
+          expect(transport.replies, hasLength(1));
+
+          // Rebuilding the same call must be able to report fresh audio
+          // while its former engine's IPC report is still outstanding.
+          expect(await controller.start(call), isTrue);
+          await sample();
+          expect(transport.replies, hasLength(2));
+          transport.replies.first.complete(true);
+          await sample();
+          expect(transport.replies, hasLength(2));
+          expect(controller.diagnostics['local_source_feedback_queued'], 0);
+
+          transport.replies[1].complete(true);
+          await sample();
+          expect(transport.replies, hasLength(3));
+          expect(controller.diagnostics['local_source_feedback_queued'], 1);
+
+          transport.replies.last.complete(false);
+          transport.throwOnNextReport = true;
+          await sample();
+          expect(controller.diagnostics['local_source_feedback_skipped'], 2);
+          await sample();
+          expect(transport.replies, hasLength(4));
+        } finally {
+          await controller.stop();
+          for (final reply in transport.replies) {
+            if (!reply.isCompleted) reply.complete(false);
+          }
+        }
+      },
+      zoneSpecification: ZoneSpecification(
+        createPeriodicTimer: (self, parent, zone, interval, callback) {
+          final timer = parent.createPeriodicTimer(zone, interval, (_) {});
+          if (interval == const Duration(seconds: 1)) {
+            statsPolls.add(() => zone.runUnary(callback, timer));
+          }
+          return timer;
+        },
+      ),
+    );
+  });
 
   test('playout counters follow the call across engine replacements', () async {
     final statsPolls = <void Function()>[];

@@ -1223,6 +1223,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _sourcePressured = pressure;
     if (pressure == null || _sourceFeedbackPending) return;
     final epoch = _mediaEpoch;
+    bool currentEngine() => _engine == engine && _mediaEpoch == epoch;
     _sourceFeedbackPending = true;
     unawaited(
       Future<bool>.sync(
@@ -1234,7 +1235,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           )
           .then<void>(
             (queued) {
-              if (_engine != engine || _mediaEpoch != epoch) return;
+              if (!currentEngine()) return;
               if (queued) {
                 _sourceFeedbackQueued++;
               } else {
@@ -1243,12 +1244,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             },
             onError: (Object _) {
               // Unavailable/older local IPC lets the original lease expire.
-              if (_engine == engine && _mediaEpoch == epoch) {
-                _sourceFeedbackSkipped++;
-              }
+              if (currentEngine()) _sourceFeedbackSkipped++;
             },
           )
-          .whenComplete(() => _sourceFeedbackPending = false),
+          .whenComplete(() {
+            if (currentEngine()) _sourceFeedbackPending = false;
+          }),
     );
   }
 
@@ -1908,6 +1909,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _audioEnabled = false;
     _sourcePressure.reset();
     _sourcePressured = null;
+    _sourceFeedbackPending = false;
     _sourceFeedbackQueued = 0;
     _lastAudioLatencyRecoveryCount = null;
     _audioAdapter = null;

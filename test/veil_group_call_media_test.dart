@@ -1165,11 +1165,12 @@ void main() {
         );
         controller.stop();
         clock.flushMicrotasks();
+        final replacementPending = Completer<bool>();
+        transport.pendingPressure = replacementPending;
         controller.start(room);
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 3));
-        expect(transport.pressureReports, hasLength(1));
-        transport.pendingPressure = null;
+        expect(transport.pressureReports, hasLength(2));
         pending.complete(true);
         clock.flushMicrotasks();
         expect(
@@ -1179,8 +1180,15 @@ void main() {
         );
         clock.elapse(const Duration(seconds: 1));
         expect(transport.pressureReports, hasLength(2));
-        expect(transport.pressureReports.last.at, origin.add(clock.elapsed));
+
+        transport.pendingPressure = null;
+        replacementPending.complete(true);
+        clock.flushMicrotasks();
         expect(controller.debugNativeStats['local_source_feedback_queued'], 1);
+        clock.elapse(const Duration(seconds: 1));
+        expect(transport.pressureReports, hasLength(3));
+        expect(transport.pressureReports.last.at, origin.add(clock.elapsed));
+        expect(controller.debugNativeStats['local_source_feedback_queued'], 2);
         controller.stop();
         clock.flushMicrotasks();
       });
