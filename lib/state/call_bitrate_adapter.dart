@@ -241,7 +241,7 @@ class CallBitrateAdapter {
   DateTime? _lastVideoCutAt;
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
-  int? _floorTrialLastFrames;
+  ({int count, bool admitted})? _floorTrialLastFrames;
   int _floorTrialFrames = 0;
   int? _lastPeerSampleSequence;
   int? _recoveryPeerBaseline;
@@ -1245,17 +1245,21 @@ class CallBitrateAdapter {
     return outcome;
   }
 
-  /// Applying a one-fps budget is not evidence that the encoder sent it.
-  /// Count only new frames under that applied budget, never frames from the
-  /// previous rung or engine. Older engines retain the settings-based trial.
+  /// Count original frame markers admitted by the SDK under the current
+  /// budget. Older engines provide attempted frames or only settings.
   bool _observeFloorTrial(Map<String, dynamic> stats, bool expected) {
-    if (!stats.containsKey('video_tx_frames')) return expected;
-    final value = stats['video_tx_frames'];
+    const admissionKey = 'video_tx_admitted_frame_markers';
+    final admitted = stats.containsKey(admissionKey);
+    final key = admitted ? admissionKey : 'video_tx_frames';
+    if (!stats.containsKey(key)) return expected;
+    final value = stats[key];
     final count = value is num && value.isFinite && value >= 0
         ? value.toInt()
         : null;
     final previous = _floorTrialLastFrames;
-    _floorTrialLastFrames = count;
+    _floorTrialLastFrames = count == null
+        ? null
+        : (count: count, admitted: admitted);
     if (!expected ||
         !atFloor ||
         _audioReserve ||
@@ -1264,11 +1268,12 @@ class CallBitrateAdapter {
         stats['video_worker_stalled'] == 1 ||
         count == null ||
         previous == null ||
-        count < previous) {
+        previous.admitted != admitted ||
+        count < previous.count) {
       _floorTrialFrames = 0;
       return false;
     }
-    _floorTrialFrames += count - previous;
+    _floorTrialFrames += count - previous.count;
     return _floorTrialFrames >= 2;
   }
 

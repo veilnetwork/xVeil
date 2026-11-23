@@ -2961,6 +2961,28 @@ void main() {
     expect(a.audioReserve, isTrue);
   });
 
+  test('rejected video markers do not count towards a floor trial', () {
+    final a = direct(level: 4);
+    void sample(int attempts, int admitted) => native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_tx_frames': attempts,
+        'video_tx_admitted_frame_markers': admitted,
+      },
+      interrupted: true,
+    );
+    for (var attempts = 10; attempts <= 15; attempts++) {
+      sample(attempts, 5);
+    }
+    expect(a.audioReserve, isFalse);
+    sample(16, 6);
+    sample(17, 7);
+    expect(a.audioReserve, isFalse);
+    sample(18, 7);
+    expect(a.audioReserve, isTrue);
+  });
+
   test('frames sent before the floor acknowledgement cannot fund a pause', () {
     final a = direct(level: 3);
     native(a, stats: {...healthy(), 'video_tx_frames': 100});
