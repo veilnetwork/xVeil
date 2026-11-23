@@ -20,6 +20,7 @@ Map<String, dynamic> stats({
   'audio_playout_reports': 2,
   'audio_feedback_reports': 2,
   'audio_loss_report_us': 0,
+  'audio_tx_rtp_drops': 0,
   'audio_playout_ms': healthy ? 80 : 240,
 };
 void poll(
@@ -30,15 +31,20 @@ void poll(
   bool video = true,
   bool sending = true,
   bool sparseAudioRecovery = false,
-}) => p.observe(
-  s,
-  at(n),
-  videoExpected: video,
-  appliedAudioMs: audioMs,
-  expectedPeers: 2,
-  audioSending: sending,
-  sparseAudioRecovery: sparseAudioRecovery,
-);
+}) {
+  final now = at(n);
+  if (p.observe(
+    s,
+    now,
+    videoExpected: video,
+    appliedAudioMs: audioMs,
+    expectedPeers: 2,
+    audioSending: sending,
+    sparseAudioRecovery: sparseAudioRecovery,
+  )) {
+    p.retryFloor(now);
+  }
+}
 
 GroupCallSourcePriority pausedSource() {
   final p = GroupCallSourcePriority();
@@ -53,6 +59,67 @@ GroupCallSourcePriority pausedSource() {
 }
 
 void main() {
+  test('three fresh complete samples reopen a paused source at the floor', () {
+    final p = pausedSource()..acknowledgePause(true, at(2));
+    for (var n = 3; n <= 21; n++) {
+      final sequence = n < 15 ? 1 : (n < 18 ? 2 : 3);
+      poll(
+        p,
+        n,
+        stats(paused: true, sequence: sequence, healthy: true),
+        sparseAudioRecovery: true,
+      );
+      expect(p.paused, isTrue);
+    }
+    poll(
+      p,
+      22,
+      stats(paused: true, sequence: 4, healthy: true),
+      sparseAudioRecovery: true,
+    );
+    expect(p.paused, isFalse);
+    expect(p.floor, isTrue);
+    for (var n = 23; n < 27; n++) {
+      poll(p, n, stats(sequence: n - 18, healthy: true));
+      expect(p.floor, isTrue);
+    }
+    poll(p, 27, stats(sequence: 9, healthy: true));
+    expect(p.floor, isFalse);
+  });
+
+  test('new audio drops require new local evidence before a floor retry', () {
+    final p = pausedSource()..acknowledgePause(true, at(2));
+    for (var n = 3; n <= 21; n++) {
+      final sequence = n < 15 ? 1 : (n < 18 ? 2 : 3);
+      poll(
+        p,
+        n,
+        stats(paused: true, sequence: sequence, healthy: true),
+        sparseAudioRecovery: true,
+      );
+    }
+    for (var n = 22; n < 25; n++) {
+      poll(p, n, {
+        ...stats(paused: true, sequence: 4, healthy: true),
+        'audio_tx_rtp_drops': 1,
+      }, sparseAudioRecovery: true);
+      expect(p.paused, isTrue);
+    }
+    poll(p, 25, {
+      ...stats(paused: true, sequence: 5, healthy: true),
+      'audio_tx_rtp_drops': 1,
+    }, sparseAudioRecovery: true);
+    expect(p.paused, isFalse);
+    expect(p.floor, isTrue);
+
+    p.acknowledgeFloor(at(25));
+    for (var n = 26; n <= 27; n++) {
+      poll(p, n, stats(packets: n));
+      p.requestYield(at(n));
+    }
+    expect(p.paused, isTrue);
+  });
+
   test('verified group reserve can release the independent source pause', () {
     final p = pausedSource()..acknowledgePause(true, at(2));
     Map<String, dynamic> reserved(int sequence) => {
@@ -66,10 +133,11 @@ void main() {
     expect(p.paused, isTrue);
     for (var n = 23; n < 30; n++) {
       poll(p, n, reserved(n), sparseAudioRecovery: true);
-      expect(p.paused, isTrue);
+      expect(p.floor, isTrue);
     }
     poll(p, 30, reserved(30), sparseAudioRecovery: true);
     expect(p.paused, isFalse);
+    expect(p.floor, isFalse);
   });
 
   test('a cached floor counter cannot justify pausing video', () {

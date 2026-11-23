@@ -11,8 +11,8 @@ class GroupCallSourcePriority {
   static const transientRecoverySamples = 3;
   int _stage = 0; // Unrestricted, one-fps floor, paused.
   DateTime? _lastAt, _floorAckAt, _pauseAckAt, _quietAt, _pressureAt;
-  int? _packets, _sequence;
-  int _floorSamples = 0, _healthy = 0;
+  int? _packets, _sequence, _audioTxDrops;
+  int _floorSamples = 0, _healthy = 0, _sparseLocalSamples = 0;
   bool _yielded = false;
   bool _transientOnly = false;
 
@@ -28,7 +28,7 @@ class GroupCallSourcePriority {
   };
 
   void requestYield(DateTime now, {bool transient = false}) {
-    _healthy = 0;
+    _healthy = _sparseLocalSamples = 0;
     if (_stage == 0) {
       _stage = 1;
       _transientOnly = transient;
@@ -67,12 +67,14 @@ class GroupCallSourcePriority {
   /// Preserve an already required restriction while re-establishing evidence.
   void invalidate() {
     _floorAckAt = _pauseAckAt = _quietAt = null;
-    _packets = _sequence = null;
-    _floorSamples = _healthy = 0;
+    _packets = _sequence = _audioTxDrops = null;
+    _floorSamples = _healthy = _sparseLocalSamples = 0;
     _yielded = false;
   }
 
-  void observe(
+  /// Returns whether the paused source can try its floor if the current
+  /// audio budget evaluation finds no new hard pressure.
+  bool observe(
     Map<String, dynamic> stats,
     DateTime now, {
     required bool videoExpected,
@@ -94,12 +96,12 @@ class GroupCallSourcePriority {
       _pressureAt = null;
       invalidate();
       _yielded = true; // No owned secondary sender competes with this audio.
-      return;
+      return false;
     }
     // Audio cadence alone is not pressure. Late video uses the regular
     // adapter's bounded startup trial; only measured audio failure requests
     // an additional restriction. Recovery need not shorten audio packets.
-    if (!fresh) return;
+    if (!fresh) return false;
     int? count(String key) {
       final value = stats[key];
       return value is int && value >= 0 ? value : null;
@@ -149,6 +151,9 @@ class GroupCallSourcePriority {
     final freshPeer =
         sequence != null && (_sequence == null || sequence > _sequence!);
     if (freshPeer) _sequence = sequence;
+    final drops = count('audio_tx_rtp_drops');
+    final stableDrops = drops != null && drops == _audioTxDrops;
+    _audioTxDrops = drops;
     final delay = GroupCallAudioAdapter.peerPressureDelayMs(stats);
     final healthy =
         stats['worker_stalled'] == 0 &&
@@ -168,21 +173,44 @@ class GroupCallSourcePriority {
         delay != null &&
         (delay < CallBitrateAdapter.playoutRecoverMs || sparseAudioRecovery);
     if (!healthy) {
-      _healthy = 0;
-    } else if (freshPeer && _stage > 0) {
-      _healthy++;
-      final samples = _transientOnly
-          ? transientRecoverySamples
-          : recoverySamples;
-      final quiet = _transientOnly ? transientQuietRecovery : quietRecovery;
-      if (_healthy >= samples &&
-          _pressureAt != null &&
-          now.difference(_pressureAt!) >= quiet) {
-        _stage = 0;
-        _transientOnly = false;
-        _pressureAt = null;
-        invalidate();
-      }
+      _healthy = _sparseLocalSamples = 0;
+      return false;
     }
+    if (_stage == 0) return false;
+    if (freshPeer) _healthy++;
+    // RTCP may be sparse even while local audio is sampled every second.
+    // Keep distinct peer confirmations separate from clean local samples.
+    // A local catch-up or a changed drop counter needs new local evidence.
+    _sparseLocalSamples =
+        paused && _yielded && sparseAudioRecovery && stableDrops
+        ? _sparseLocalSamples + 1
+        : 0;
+    final quiet = _transientOnly ? transientQuietRecovery : quietRecovery;
+    final pressureAt = _pressureAt;
+    if (!freshPeer ||
+        pressureAt == null ||
+        now.difference(pressureAt) < quiet) {
+      return false;
+    }
+    final samples = _transientOnly ? transientRecoverySamples : recoverySamples;
+    if (_healthy >= samples) {
+      _stage = 0;
+      _transientOnly = false;
+      _pressureAt = null;
+      invalidate();
+      return false;
+    }
+    return _healthy >= CallBitrateAdapter.probeResumeAfter &&
+        _sparseLocalSamples >= CallBitrateAdapter.probeResumeAfter;
+  }
+
+  void retryFloor(DateTime now) {
+    assert(paused);
+    // Keep the source restriction and the peer streak needed for higher
+    // quality. New congestion must establish actual output under this floor.
+    _stage = 1;
+    _floorAckAt = null;
+    _floorSamples = _sparseLocalSamples = 0;
+    acknowledgePause(false, now);
   }
 }

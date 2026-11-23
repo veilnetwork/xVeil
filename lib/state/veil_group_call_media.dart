@@ -1056,7 +1056,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           ),
         );
     if (audioAdapter != null) {
-      _sourcePriority.observe(
+      final canRetryFloor = _sourcePriority.observe(
         stats,
         now,
         videoExpected:
@@ -1082,6 +1082,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       if (audioAdapter.needsSecondaryYield &&
           !audioAdapter.secondaryYieldTransient) {
         _sourcePriority.requestYield(now);
+      } else if (canRetryFloor) {
+        _sourcePriority.retryFloor(now);
       }
       _applyAudioBudget(expected, audioAdapter);
     }

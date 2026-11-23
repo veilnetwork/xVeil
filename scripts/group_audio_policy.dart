@@ -31,7 +31,7 @@ Future<void> main() async {
       }
     } else if (request['op'] == 'poll') {
       if (request['load'] == true) room.observeAudio(request);
-      room.sourcePriority.observe(
+      final canRetryFloor = room.sourcePriority.observe(
         (request['stats'] as Map).cast<String, dynamic>(),
         now,
         videoExpected: request['video'] == true || request['prepare'] == true,
@@ -52,6 +52,8 @@ Future<void> main() async {
       // only hard outgoing pressure forces the additional group floor.
       if (policy.needsSecondaryYield && !policy.secondaryYieldTransient) {
         room.sourcePriority.requestYield(now);
+      } else if (canRetryFloor) {
+        room.sourcePriority.retryFloor(now);
       }
       room.adapter.constrainSource(
         floor: room.sourcePriority.floor,
