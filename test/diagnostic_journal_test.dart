@@ -754,6 +754,7 @@ void main() {
       'audio_packetization_long_requested': 1,
       'audio_rx_native_age_ms': 520,
       'audio_rtp_lag_ms': 1108,
+      'audio_rtp_arrival_excess_ms': 760,
       'audio_pressure_delay_ms': 1148,
       'audio_input_duration_ms': 29500,
       'audio_latency_recovery_count': 13,
@@ -801,6 +802,7 @@ void main() {
       'audioLongPacketsRequested': 1,
       'audioReceiveAgeMs': 520,
       'audioRtpLagMs': 1108,
+      'audioRtpArrivalExcessMs': 760,
       'audioPressureDelayMs': 1148,
       'audioInputDurationMs': 29500,
       'audioRecoveryCount': 13,
@@ -835,6 +837,7 @@ void main() {
       final journal = DiagnosticJournal(enabled: true);
       journal.recordMediaStats({
         'audio_rtp_lag_ms': invalid,
+        'audio_rtp_arrival_excess_ms': invalid,
         'audio_pressure_delay_ms': invalid,
         'audio_input_duration_ms': -1,
         'audio_jb_target_ms': 300,
@@ -845,12 +848,14 @@ void main() {
     final journal = DiagnosticJournal(enabled: true);
     journal.recordMediaStats({
       'audio_rtp_lag_ms': -1,
+      'audio_rtp_arrival_excess_ms': -1,
       'audio_pressure_delay_ms': 60000,
       'audio_input_duration_ms': 1000000000,
     });
     final sample = (journal.toJson()['events'] as List).single as Map;
     expect(sample['values'], {
       'audioRtpLagMs': -1,
+      'audioRtpArrivalExcessMs': -1,
       'audioPressureDelayMs': 60000,
       'audioInputDurationMs': 1000000000,
     });

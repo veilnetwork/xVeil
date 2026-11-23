@@ -35,6 +35,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
                 "'audio_jb_target_ms': 260, 'audio_rtp_lag_ms': 1108, "
+                "'audio_rtp_arrival_excess_ms': 760, "
                 "'audio_pressure_delay_ms': 1148, "
                 "'audio_input_duration_ms': 29500, "
                 "'camera_capturing': 0, 'camera_capture_status': 7, "
@@ -169,6 +170,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
                             'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
                             'audioTargetDelayMs': 260, 'audioRtpLagMs': 1108,
+                            'audioRtpArrivalExcessMs': 760,
                             'audioPressureDelayMs': 1148,
                             'audioInputDurationMs': 29500,
                             'cameraCapturing': 0,

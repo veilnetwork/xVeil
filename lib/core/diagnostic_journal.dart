@@ -146,6 +146,7 @@ enum DiagnosticMetric {
   micMuted,
   audioDelayMs,
   audioRtpLagMs,
+  audioRtpArrivalExcessMs,
   audioPressureDelayMs,
   audioInputDurationMs,
   audioRecoveryCount,
@@ -455,6 +456,11 @@ class DiagnosticJournal {
     'audio_jb_target_ms': (DiagnosticMetric.audioTargetDelayMs, -1, 60000),
     // Distinguish current playout from the relative RTP age used for pressure.
     'audio_rtp_lag_ms': (DiagnosticMetric.audioRtpLagMs, -1, 60000),
+    'audio_rtp_arrival_excess_ms': (
+      DiagnosticMetric.audioRtpArrivalExcessMs,
+      -1,
+      60000,
+    ),
     'audio_pressure_delay_ms': (
       DiagnosticMetric.audioPressureDelayMs,
       -1,
