@@ -8,6 +8,27 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.107] - 2026-11-24
+
+### Fixed
+
+- Keep video moving during relayed Windows calls by reducing Windows audio
+  capture interruptions and using current playout measurements for recovery.
+- Preserve audio and camera frames through brief relay stalls and recheck
+  direct calling after the relay route recovers.
+- Keep messaging retry deadlines stable across changes to the system clock.
+
+### Diagnostics
+
+- Report specific startup refusal reasons when Windows cannot safely open
+  profile settings. The earlier `filesystemUnsafe` report from Windows 10
+  build 19045.2311 remains unresolved. Startup passed on build 19045.7850
+  with an isolated profile, and the original profile state was unavailable.
+- Record relative RTP packet arrival delay to help diagnose audio playback
+  problems.
+
+This release uses Veil 0.11.59.
+
 ## [0.13.106] - 2026-11-22
 
 ### Fixed
