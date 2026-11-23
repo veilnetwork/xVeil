@@ -659,7 +659,6 @@ try:
         nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
         payload=nonce+healthkeys[i].encrypt(nonce,json.dumps({'n':0}).encode(),b'codec-control-v1')
         checked(normalsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
-    command({'index':0,'op':'ack','pauseOk':False,'budgetOk':False})
     bootstrap_deadline=time.monotonic()+30
     while not all(count==1 for count in healthrecv):
         if time.monotonic()>=bootstrap_deadline:
@@ -833,15 +832,19 @@ try:
                 urgent_feedback[i]=r['urgentFeedback']
                 feedback_recent[i]=r['feedbackRecentlyAttempted']
                 pauseok=True;budgetok=True
-                if r['pause'] is not None:
-                    pauseok=pause(e,int(r['pause']))==0
-                    # A real closed gate changes the pending budget. Match the
-                    # app's pause-before-retune order, never acknowledge a budget
-                    # that was computed before that native result was known.
+                if r['pause'] is True:
+                    pauseok=pause(e,1)==0
+                    # A closed gate changes the pending budget.
                     r.update(command({'index':i,'op':'pauseAck','pauseOk':pauseok}))
                     targets[i]=r['target']
-                if r['budget'] is not None:budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
-                command({'index':i,'op':'ack','pauseOk':pauseok,'budgetOk':budgetok})
+                if r['budget'] is not None:
+                    budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
+                    # A successful budget change can make a pending resume eligible.
+                    pending=command({'index':i,'op':'budgetAck','budgetOk':budgetok})
+                    if not r['audioReserve']: r['pause']=pending['pause']
+                if r['pause'] is False:
+                    pauseok=budgetok and pause(e,0)==0
+                    if budgetok: command({'index':i,'op':'pauseAck','pauseOk':pauseok})
                 samples.append({'t':time.monotonic()-startat,'side':i,'stats':stats,'policy':r,'pause_ok':pauseok,'budget_ok':budgetok})
             if prepare:
                 if not args.no_video:

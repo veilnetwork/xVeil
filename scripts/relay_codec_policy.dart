@@ -70,10 +70,14 @@ Future<void> main() async {
       stdout.writeln('{}');
       continue;
     }
-    if (req['op'] == 'ack') {
-      a.applyPendingPause((_) => req['pauseOk'] == true);
+    if (req['op'] == 'budgetAck') {
       a.applyPendingTarget((_) => req['budgetOk'] == true);
-      stdout.writeln('{}');
+      bool? pause;
+      a.applyPendingPause((value) {
+        pause = value;
+        return false;
+      });
+      stdout.writeln(jsonEncode({'pause': pause}));
       continue;
     }
     if (req['op'] == 'pauseAck') {
@@ -113,6 +117,7 @@ Future<void> main() async {
       healthRecovered: peerRecovered,
       expected: true,
     );
+    final receivePlayout = activity[i].playoutFeedback(now);
     final sourcePressured = sourcePressure[i].observe(
       nativeStats: stats,
       sampledAt: now,
@@ -121,11 +126,13 @@ Future<void> main() async {
       requirePeerPlayout: true,
       peerDelayMs: peer[i].delayMs(now),
       peerCurrentDelayMs: peer[i].currentDelayMs(now),
+      peerBufferedDelayMs: peer[i].bufferedDelayMs(now),
       peerTargetDelayMs: peer[i].targetDelayMs(now),
       peerSampleSequence: peer[i].sampleSequence,
       peerBufferGrowing: peer[i].bufferGrowing(now),
-      receiveDelayMs: activity[i].playoutFeedback(now).delayMs,
-      receiveTargetDelayMs: activity[i].playoutFeedback(now).targetDelayMs,
+      receiveDelayMs: receivePlayout.delayMs,
+      receiveBufferedDelayMs: receivePlayout.bufferedDelayMs,
+      receiveTargetDelayMs: receivePlayout.targetDelayMs,
       receiveAgeMs: activity[i].lastRxAt == null
           ? null
           : now.difference(activity[i].lastRxAt!).inMilliseconds,
@@ -148,6 +155,7 @@ Future<void> main() async {
         receiveAudioExpected: true,
         peerAudioDelayMs: peer[i].delayMs(now),
         peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
+        peerBufferedAudioDelayMs: peer[i].bufferedDelayMs(now),
         peerTargetAudioDelayMs: peer[i].targetDelayMs(now),
         requirePeerAudioPlayout: true,
         audioInterrupted: interrupted,
@@ -182,6 +190,7 @@ Future<void> main() async {
       receiveAudioExpected: true,
       peerAudioDelayMs: peer[i].delayMs(now),
       peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
+      peerBufferedAudioDelayMs: peer[i].bufferedDelayMs(now),
       peerTargetAudioDelayMs: peer[i].targetDelayMs(now),
       peerAudioSampleSequence: peer[i].sampleSequence,
       peerAudioBufferGrowing: peer[i].bufferGrowing(now),
