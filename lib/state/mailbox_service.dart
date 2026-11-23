@@ -5,7 +5,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:cryptography/helpers.dart' show constantTimeBytesEquality;
 import 'package:veil_flutter/veil_ffi.dart'
     show VeilClient, VeilEvent, VeilEventKind;
 
@@ -443,7 +443,7 @@ class MailboxService implements MailboxSink {
         // lease; a previously verified expiry must never become unknown.
         if (resolved == null ||
             (previous.validUntilUnix > 0 && kemValidUntil == 0) ||
-            (listEquals(previous.key, resolved.key) &&
+            (constantTimeBytesEquality.equals(previous.key, resolved.key) &&
                 kemValidUntil <= previous.validUntilUnix)) {
           return;
         }
