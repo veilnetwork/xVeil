@@ -3527,13 +3527,17 @@ void main() {
   test(
     'a quiet measured interval supersedes an older RTP loss for the floor probe',
     () {
-      for (final (age, recentDamage, transportPermit, clears) in [
-        (5000, 59, true, true),
-        (4999, 59, true, false),
-        (null, 59, true, false),
-        (5000, 60, true, false),
-        (5000, null, true, false),
-        (5000, 59, false, false),
+      for (final (age, windowAge, recentDamage, transportPermit, clears) in [
+        (3500, 3500, 59, true, true),
+        (3499, 3500, 59, true, false),
+        (3500, 2999, 59, true, false),
+        (3500, 5001, 59, true, false),
+        (5000, null, 59, true, true),
+        (4999, null, 59, true, false),
+        (null, 3500, 59, true, false),
+        (3500, 3500, 60, true, false),
+        (3500, 3500, null, true, false),
+        (3500, 3500, 59, false, false),
       ]) {
         final a = direct(level: 4);
         native(a, peerDelay: 300);
@@ -3549,6 +3553,7 @@ void main() {
             'tx_loss_pct': 11,
             'audio_loss_report_us': witness,
             'audio_loss_report_age_ms': ?lossAge,
+            'audio_soft_loss_probe_start_age_ms': ?windowAge,
             'audio_loss_report_fraction': 29,
             'audio_soft_loss_duration_supported': 1,
             'audio_peer_soft_loss_duration_supported': 1,
@@ -3572,7 +3577,11 @@ void main() {
         );
 
         observe(1, 0);
-        for (final waitingAge in [1000, 2000, 3000, 4000]) {
+        for (
+          var waitingAge = 1000;
+          waitingAge < (age ?? 5000);
+          waitingAge += 1000
+        ) {
           observe(1, waitingAge);
           expect(a.acknowledgedPause, isTrue);
         }
@@ -3582,7 +3591,7 @@ void main() {
             a.acknowledgedPause,
             !clears || n < CallBitrateAdapter.probeResumeAfter,
             reason:
-                'loss age $age, short-window damage $recentDamage, '
+                'loss age $age, window age $windowAge, damage $recentDamage, '
                 'transport permit $transportPermit, sample $n',
           );
         }

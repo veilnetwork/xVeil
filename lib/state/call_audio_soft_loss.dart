@@ -28,6 +28,15 @@ class CallAudioSoftLoss {
     return peer != null && local != null && peer < 60 && local < 60;
   }
 
+  // Native short windows cover three seconds. Their older endpoint is at
+  // most two seconds old, so older engines use a conservative five seconds.
+  static Duration probeStartAge(Map<String, dynamic>? stats) {
+    final age = stats?['audio_soft_loss_probe_start_age_ms'];
+    return Duration(
+      milliseconds: age is int && age >= 3000 && age <= 5000 ? age : 5000,
+    );
+  }
+
   final _send = CallRtcpLoss();
   final _receive = CallRtcpLoss();
 

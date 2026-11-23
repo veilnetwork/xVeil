@@ -1116,13 +1116,12 @@ class CallBitrateAdapter {
     final videoFrames = stats['video_tx_frames'];
     final audioLossAge = CallRtcpLoss.audioLossAge(stats);
     final audioLossReport = stats['audio_loss_report_us'];
-    // Native short windows cover three seconds and their endpoints can be
-    // up to two seconds old. Require the loss to predate both full windows.
+    // The loss must predate the older start of the two measured windows.
     final cachedAudioLossPrecedesProbe =
         audioLossReport is int &&
         audioLossReport > 0 &&
         audioLossAge != null &&
-        audioLossAge >= const Duration(seconds: 5) &&
+        audioLossAge >= CallAudioSoftLoss.probeStartAge(stats) &&
         CallAudioSoftLoss.bothProbeWindowsBelowThreshold(stats);
     final outcome = onSample(
       sampledAt: sampledAt,
