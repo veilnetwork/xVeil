@@ -486,6 +486,74 @@ void main() {
     }
   });
 
+  test('a small loss holds growth without renewing reserve pressure', () {
+    final policy = CallAudioSourcePressure(singlePeerPlayout: true);
+    var reportUs = 0;
+    var previousUs = 0;
+    var age = 0;
+    bool? observe({bool interrupted = false}) => sample(
+      policy,
+      peer: 520,
+      currentPeer: 516,
+      peerSequence: 1,
+      peerGrowing: false,
+      targetPeer: 460,
+      local: 508,
+      targetLocal: 460,
+      interrupted: interrupted,
+      lossReportUs: reportUs,
+      nativeStats: {
+        ...measured,
+        'rtt_ms': 328,
+        'audio_rtt_route_epoch': 0,
+        'audio_loss_report_us': reportUs,
+        'audio_previous_loss_report_us': previousUs,
+        'audio_loss_report_age_ms': age,
+        'audio_loss_report_fraction': 2,
+        'audio_local_soft_loss_window_ms': 54,
+        'audio_peer_soft_loss_window_ms': 54,
+        'audio_local_soft_loss_probe_ms': 54,
+        'audio_peer_soft_loss_probe_ms': 54,
+        'audio_soft_loss_probe_start_age_ms': 3500,
+      },
+    );
+
+    expect(observe(interrupted: true), isTrue);
+    for (var n = 0; n < 5; n++) {
+      observe();
+    }
+    expect(observe(), isNull);
+    expect(policy.reserveSupportsRecoveryProbe, isTrue);
+
+    reportUs = 7463000;
+    previousUs = 1000000;
+    for (final nextAge in [542, 1542, 2542]) {
+      age = nextAge;
+      expect(observe(), isFalse);
+      expect(policy.measuredAudioPressure, isFalse);
+      expect(policy.waitingForReserveConfirmation, isTrue);
+      expect(policy.reserveSupportsRecoveryProbe, isFalse);
+      expect(policy.filledJitterReserveConfirmed, isFalse);
+      expect(
+        policy.growthHoldStartedAt,
+        times[policy]!.subtract(Duration(milliseconds: nextAge)),
+      );
+    }
+    age = 3542;
+    expect(observe(), isNull);
+    expect(policy.reserveSupportsRecoveryProbe, isTrue);
+    expect(policy.growthHoldStartedAt, isNull);
+
+    previousUs = reportUs;
+    reportUs += 4000000;
+    age = 500;
+    expect(observe(interrupted: true), isTrue);
+    expect(policy.measuredAudioPressure, isTrue);
+    expect(policy.waitingForReserveConfirmation, isFalse);
+    expect(policy.reserveSupportsRecoveryProbe, isFalse);
+    expect(policy.growthHoldStartedAt, isNull);
+  });
+
   test(
     'transport reserve margin requires corroborated playout on both ends',
     () {

@@ -36,6 +36,8 @@ class CallAudioSourcePressure {
   DateTime? _growthHoldStartedAt;
   bool _filledJitterReserveConfirmed = false;
   bool _reserveSupportsRecoveryProbe = false;
+  bool _reserveGrowthHeld = false;
+  bool _latestNetworkLossWasIsolated = false;
 
   /// Both receivers have a current stable reserve and source recovery has
   /// finished. The video adapter still needs its own decoder acknowledgments.
@@ -55,7 +57,8 @@ class CallAudioSourcePressure {
       _pressured &&
       (_fastReserveWindow.ready ||
           _sustainedReserveWindow.ready ||
-          _reserveSupportsRecoveryProbe);
+          _reserveSupportsRecoveryProbe ||
+          _reserveGrowthHeld);
 
   /// A stable measured reserve can permit a small trial before full recovery.
   bool get reserveSupportsRecoveryProbe => _reserveSupportsRecoveryProbe;
@@ -74,6 +77,7 @@ class CallAudioSourcePressure {
   final _receiveBuffer = CallAudioBufferWindow();
 
   /// Null means no source or no verdict: stop refreshing the node lease.
+  /// False with [growthHoldStartedAt] requests a hold on growth.
   /// Freshness of peer and receive measurements is enforced by their trackers.
   bool? observe({
     DateTime? sampledAt,
@@ -298,6 +302,7 @@ class CallAudioSourcePressure {
         peerSampleSequence != null &&
         peerSampleSequence > 0 &&
         playoutHealthy;
+    if (networkLoss) _latestNetworkLossWasIsolated = isolatedNetworkLoss;
     final hardBad = hardPlayoutFailure || (networkLoss && !isolatedNetworkLoss);
     final bad =
         hardBad ||
@@ -454,15 +459,25 @@ class CallAudioSourcePressure {
     // measured threshold, let the old lease expire while counting recovery
     // samples. The video adapter still holds growth and the node earns no
     // fresh healthy credit until the full window and peer confirmation.
-    _reserveSupportsRecoveryProbe =
+    final reserveQualifies =
         _pressured &&
         assessReserve &&
         sustainedReserve &&
-        !_networkAudioLoss.holdingGrowth &&
         CallAudioSoftLoss.allowsRecoveryProbe(nativeStats);
+    _reserveSupportsRecoveryProbe =
+        reserveQualifies && !_networkAudioLoss.holdingGrowth;
+    // A brief RTP loss can suspend a reserve probe without becoming
+    // pressure again. Keep the adapter's recovery latch and submit the
+    // original growth hold to transport, which preserves existing credit.
+    _reserveGrowthHeld =
+        reserveQualifies &&
+        _networkAudioLoss.holdingGrowth &&
+        _latestNetworkLossWasIsolated &&
+        _growthHoldStartedAt != null;
     _filledJitterReserveConfirmed =
         !_pressured &&
         ((fastReserve && good && !shortHold) || sustainedConfirmed);
+    if (_reserveGrowthHeld) return false;
     if (waitingForReserveConfirmation) return null;
     return _pressured
         ? true
@@ -475,6 +490,8 @@ class CallAudioSourcePressure {
     _measuredAudioPressure = null;
     _filledJitterReserveConfirmed = false;
     _reserveSupportsRecoveryProbe = false;
+    _reserveGrowthHeld = false;
+    _latestNetworkLossWasIsolated = false;
     _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;
