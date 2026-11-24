@@ -2,6 +2,7 @@
 # This tool edits only the ordinary xVeil app-data directory's explicit ACL.
 $ErrorActionPreference = 'Stop'
 $handles = [Collections.Generic.List[IDisposable]]::new()
+$result = 'failed'
 try {
     $roaming = [Environment]::GetFolderPath('ApplicationData')
     if ($roaming -notmatch '^[a-zA-Z]:[\\/]') {
@@ -83,8 +84,13 @@ namespace XVeilAclRepair {
             $ace.SecurityIdentifier.Value -in $trusted) { continue }
         $blocked = $ace.AccessMask -band 0x500d0040
         if ($blocked -eq 0) { continue }
-        if ($ace.IsInherited -or $blocked -ne 0x10000) {
-            throw 'An inherited grant or another unsafe right requires manual review. No rights were changed.'
+        if ($ace.IsInherited) {
+            $result = 'inherited'
+            throw 'An inherited grant requires manual review. No rights were changed.'
+        }
+        if ($blocked -ne 0x10000) {
+            $result = 'other-unsafe-right'
+            throw 'Another unsafe right requires manual review. No rights were changed.'
         }
         $principal = $ace.SecurityIdentifier
         try { $principal = $principal.Translate([Security.Principal.NTAccount]) } catch {}
@@ -93,7 +99,7 @@ namespace XVeilAclRepair {
         if ($ace.AccessMask -eq 0) { $dacl.RemoveAce($i) }
     }
     if ($changed.Count -eq 0) {
-        Write-Host 'No matching explicit DELETE grant found.'
+        $result = 'no-explicit-delete'
         return
     }
 
@@ -101,20 +107,23 @@ namespace XVeilAclRepair {
     $principals = ($changed | Sort-Object -Unique) -join ', '
     Write-Host "Remove only DELETE from  $principals"
     if ((Read-Host 'Type REMOVE DELETE to confirm') -cne 'REMOVE DELETE') {
-        Write-Host 'Cancelled.'
+        $result = 'cancelled'
         return
     }
     $latest = (Get-Acl -LiteralPath $folder.FullName).GetSecurityDescriptorBinaryForm()
     if ([Convert]::ToBase64String($original) -cne [Convert]::ToBase64String($latest)) {
+        $result = 'acl-changed'
         throw 'The security descriptor changed during review. Rerun the tool.'
     }
     $updated = [byte[]]::new($descriptor.BinaryLength)
     $descriptor.GetBinaryForm($updated, 0)
     $acl.SetSecurityDescriptorBinaryForm($updated, [Security.AccessControl.AccessControlSections]::Access)
     Set-Acl -LiteralPath $folder.FullName -AclObject $acl
-    Write-Host 'Removed the selected DELETE grant. Run the xVeil folder check again.'
+    $result = 'applied'
 } finally {
     for ($i = $handles.Count - 1; $i -ge 0; $i--) {
         $handles[$i].Dispose()
     }
+    [ordered]@{ schema = 'xveil-windows-acl-repair/1'; result = $result } |
+        ConvertTo-Json -Compress
 }
