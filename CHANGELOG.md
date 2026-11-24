@@ -8,6 +8,26 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.108] - 2026-11-24
+
+### Changed
+
+- On Windows, explain when another account or group has permission to
+  delete or rename the xVeil app-data folder. The startup warning shows
+  the folder and the account or group locally. Users can close xVeil,
+  start once, or remember their choice for that folder and its current
+  permissions.
+- Offer a PowerShell repair for an explicit delete grant. The script
+  previews the change and asks before removing that right.
+
+### Diagnostics
+
+- Explain startup refusals involving a folder's owner or permissions.
+  Exported reports include the cause and folder depth without paths or
+  account names.
+
+This release uses Veil 0.11.59.
+
 ## [0.13.107] - 2026-11-24
 
 ### Fixed
