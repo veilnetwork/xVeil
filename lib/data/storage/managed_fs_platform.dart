@@ -10,6 +10,9 @@ import 'managed_fs_windows.dart' as windows;
 
 export 'managed_fs_contract.dart';
 
+bool _isTrustedPosixOwner(int uid, int currentUid, bool android) =>
+    uid == currentUid || uid == 0 || (android && uid == 1000);
+
 /// Android's AID_SYSTEM (1000) owns the app-data ancestors and its protected
 /// system group may write them. It is an OS authority, not an application UID.
 /// Android also creates getFilesDir() as 0771 under the app's own UID/GID.
@@ -22,10 +25,7 @@ managedPosixPathPolicy(
   required int currentUid,
   bool android = false,
 }) {
-  final trustedOwner =
-      facts.uid == currentUid ||
-      facts.uid == 0 ||
-      (android && facts.uid == 1000);
+  final trustedOwner = _isTrustedPosixOwner(facts.uid, currentUid, android);
   // AOSP Process.FIRST/LAST_APPLICATION_UID, scoped by UserHandle's user offset.
   // A coincidentally equal Unix UID/GID outside Android is not this authority.
   final appId = currentUid % 100000;
@@ -89,10 +89,11 @@ class ManagedFsPlatform {
         }
         facts = refreshed;
       }
+      final android = Platform.isAndroid;
       final policy = managedPosixPathPolicy(
         facts,
         currentUid: current,
-        android: Platform.isAndroid,
+        android: android,
       );
       return ManagedPathWitness(
         identity: '${facts.deviceId}:${facts.inode}:${facts.uid}',
@@ -100,6 +101,11 @@ class ManagedFsPlatform {
         ownerOnly: policy.ownerOnly,
         ownedByCurrentUser: policy.ownedByCurrentUser,
         safeAncestor: policy.safeAncestor,
+        unsafeAncestorCause: policy.safeAncestor
+            ? null
+            : _isTrustedPosixOwner(facts.uid, current, android)
+            ? ManagedAncestorRefusalCause.unsafePermissions
+            : ManagedAncestorRefusalCause.untrustedOwner,
       );
     } on ManagedFsFailure {
       rethrow;

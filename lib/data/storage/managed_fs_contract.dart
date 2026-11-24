@@ -22,11 +22,25 @@ enum ManagedFsUnsafeReason {
   invalidLifetimeLock,
 }
 
+// Keep the ordinal values stable in exported diagnostics.
+enum ManagedAncestorRefusalCause {
+  notDirectory,
+  untrustedOwner,
+  unsafePermissions,
+}
+
+/// Distance from the starting directory of the admission check, in 0..255.
+typedef ManagedAncestorRefusal = ({
+  int depth,
+  ManagedAncestorRefusalCause? cause,
+});
+
 /// Safe to surface in diagnostics: never includes a path, owner or native text.
 final class ManagedFsFailure implements Exception {
-  const ManagedFsFailure(this.kind, {this.unsafeReason});
+  const ManagedFsFailure(this.kind, {this.unsafeReason, this.ancestorRefusal});
   final ManagedFsFailureKind kind;
   final ManagedFsUnsafeReason? unsafeReason;
+  final ManagedAncestorRefusal? ancestorRefusal;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';
 }
@@ -41,6 +55,7 @@ final class ManagedPathWitness {
     required this.ownerOnly,
     required this.ownedByCurrentUser,
     required this.safeAncestor,
+    this.unsafeAncestorCause,
     this.ownedByWindowsAdministrators = false,
     this.otherUsersHaveReadOnlyAccess = false,
   });
@@ -49,6 +64,7 @@ final class ManagedPathWitness {
   final bool ownerOnly;
   final bool ownedByCurrentUser;
   final bool safeAncestor;
+  final ManagedAncestorRefusalCause? unsafeAncestorCause;
   final bool ownedByWindowsAdministrators;
   final bool otherUsersHaveReadOnlyAccess;
 

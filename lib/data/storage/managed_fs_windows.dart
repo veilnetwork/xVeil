@@ -14,6 +14,9 @@ const _trustedSystemSids = {
   'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464',
 };
 
+bool _isTrustedSid(String sid, String currentSid) =>
+    sid == currentSid || _trustedSystemSids.contains(sid);
+
 String _currentSid() {
   final token = calloc<IntPtr>();
   final size = calloc<Uint32>();
@@ -78,7 +81,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
     return null;
   }
   var private = true;
-  var stable = owner == currentSid || _trustedSystemSids.contains(owner);
+  var stable = _isTrustedSid(owner, currentSid);
   var otherUsersHaveReadOnlyAccess = true;
   for (final rule in rules) {
     if (rule is! Map ||
@@ -92,7 +95,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
     if (sid is! String || sid.isEmpty || rights is! int || rights < 0) {
       return null;
     }
-    if (sid == currentSid || _trustedSystemSids.contains(sid)) continue;
+    if (_isTrustedSid(sid, currentSid)) continue;
     if (rights != 0) private = false;
     // A leaf must also exclude content/attribute writes. The ancestor mask
     // below intentionally allows rights that can add children to directories.
@@ -164,7 +167,8 @@ ManagedPathWitness inspect(String path) {
       );
     }
     final facts = veilPathSecurityFacts(path);
-    final policy = managedWindowsAclPolicy(facts, _currentSid());
+    final currentSid = _currentSid();
+    final policy = managedWindowsAclPolicy(facts, currentSid);
     final finalPath = facts?['finalPath'];
     if (policy == null ||
         finalPath is! String ||
@@ -172,13 +176,19 @@ ManagedPathWitness inspect(String path) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
     final f = info.ref;
+    final owner = facts!['owner'] as String;
     return ManagedPathWitness(
-      identity: _fileIdentity(f, facts!['owner'] as String),
+      identity: _fileIdentity(f, owner),
       directory: f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0,
       ownerOnly: policy.ownerOnly,
       ownedByCurrentUser: policy.ownedByCurrentUser,
-      ownedByWindowsAdministrators: facts['owner'] == _administratorsSid,
+      ownedByWindowsAdministrators: owner == _administratorsSid,
       safeAncestor: policy.safeAncestor,
+      unsafeAncestorCause: policy.safeAncestor
+          ? null
+          : _isTrustedSid(owner, currentSid)
+          ? ManagedAncestorRefusalCause.unsafePermissions
+          : ManagedAncestorRefusalCause.untrustedOwner,
       otherUsersHaveReadOnlyAccess: policy.otherUsersHaveReadOnlyAccess,
     );
   } finally {

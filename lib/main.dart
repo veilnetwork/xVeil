@@ -121,25 +121,39 @@ Future<void> runStartup({
   } catch (e, st) {
     devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
     final StartupPreferenceFailure? preferenceFailure = switch (e) {
-      ManagedWorkerFailure(:final kind, :final preferencesOpenReason?) => (
-        stage: StartupPreferenceFailureStage.open,
-        code: preferencesOpenReason.index,
-        state: kind.index,
-      ),
-      ManagedWorkerFailure(:final kind, :final preferencesReadReason?) => (
-        stage: StartupPreferenceFailureStage.read,
-        code: preferencesReadReason.index,
-        state: kind.index,
-      ),
+      ManagedWorkerFailure(
+        :final kind,
+        :final preferencesOpenReason?,
+        :final ancestorRefusal,
+      ) =>
+        (
+          stage: StartupPreferenceFailureStage.open,
+          code: preferencesOpenReason.index,
+          state: kind.index,
+          ancestorRefusal: ancestorRefusal,
+        ),
+      ManagedWorkerFailure(
+        :final kind,
+        :final preferencesReadReason?,
+        :final ancestorRefusal,
+      ) =>
+        (
+          stage: StartupPreferenceFailureStage.read,
+          code: preferencesReadReason.index,
+          state: kind.index,
+          ancestorRefusal: ancestorRefusal,
+        ),
       ProfileChoiceReadFailure(:final diagnosticCode) => (
         stage: StartupPreferenceFailureStage.choice,
         code: diagnosticCode,
         state: null,
+        ancestorRefusal: null,
       ),
       ProfilePreferencesFormatFailure(:final reason) => (
         stage: StartupPreferenceFailureStage.format,
         code: reason.index,
         state: null,
+        ancestorRefusal: null,
       ),
       _ => null,
     };
@@ -149,6 +163,10 @@ Future<void> runStartup({
         values: {
           DiagnosticMetric.code: preferenceFailure.code,
           DiagnosticMetric.state: ?preferenceFailure.state,
+          DiagnosticMetric.ancestorDepth:
+              ?preferenceFailure.ancestorRefusal?.depth,
+          DiagnosticMetric.ancestorCause:
+              ?preferenceFailure.ancestorRefusal?.cause?.index,
         },
       );
     }
@@ -168,10 +186,21 @@ Future<void> runStartup({
                         ManagedPreferencesFailureReason.busy ||
                     e.preferencesReadReason ==
                         ManagedPreferencesFailureReason.busy));
+    final unsafeAncestor =
+        loadingPreferences &&
+        e is ManagedWorkerFailure &&
+        (e.preferencesOpenReason ==
+                ManagedPreferencesFailureReason.unsafeAncestor ||
+            e.preferencesReadReason ==
+                ManagedPreferencesFailureReason.unsafeAncestor);
     present(
       StartupFailedApp(
         preferencesFormatFailed:
             loadingPreferences && e is ProfilePreferencesFormatFailure,
+        preferencesUnsafeAncestor: unsafeAncestor,
+        ancestorRefusal: unsafeAncestor
+            ? preferenceFailure?.ancestorRefusal
+            : null,
         retryPreferences: canRetry
             ? () =>
                   runStartup(loadPreferences: loadPreferences, present: present)

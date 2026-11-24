@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
@@ -161,6 +162,49 @@ void main() {
               'state': ManagedWorkerFailureKind.invalid.index,
               'code': ManagedPreferencesFailureReason.filesystemUnsafe.index,
             }
+          : isNull,
+    );
+  });
+
+  testWidgets('startup explains the unsafe ancestor and exports its category', (
+    tester,
+  ) async {
+    tester.binding.platformDispatcher.localesTestValue = const [Locale('ru')];
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    diagnosticJournal.clear();
+    addTearDown(diagnosticJournal.clear);
+    Widget? presented;
+    await runStartup(
+      loadPreferences: () async => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.invalid,
+        preferencesOpenReason: ManagedPreferencesFailureReason.unsafeAncestor,
+        ancestorRefusal: (
+          depth: 2,
+          cause: ManagedAncestorRefusalCause.unsafePermissions,
+        ),
+      ),
+      present: (widget) => presented = widget,
+    );
+    await tester.pumpWidget(presented!);
+    expect(
+      find.textContaining('разрешение на изменение для другой учётной записи'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('на уровне 2'), findsOneWidget);
+    expect(find.byType(CopyErrorReportTile), findsOneWidget);
+    expect(find.byType(FilledButton), findsNothing);
+    expect(startupErrors().single['profile_preferences'], {
+      'stage': 'open',
+      'state': 7,
+      'code': 21,
+      'ancestor': {'depth': 2, 'cause': 'unsafePermissions'},
+    });
+    final retained = diagnosticJournal.toJson()['last_evidence'] as Map?;
+    final event = retained?['profilePreferencesOpenFailed'] as Map?;
+    expect(
+      event?['values'],
+      diagnosticJournal.enabled
+          ? {'state': 7, 'code': 21, 'ancestorDepth': 2, 'ancestorCause': 2}
           : isNull,
     );
   });

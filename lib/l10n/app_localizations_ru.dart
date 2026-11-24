@@ -144,6 +144,27 @@ class AppL10nRu extends AppL10n {
       'Настройки профиля повреждены или хранятся в неподдерживаемом формате. Исходный файл сохранён.';
 
   @override
+  String get startupPreferencesUnsafeAncestor =>
+      'xVeil не смог открыть настройки профиля. Одна из папок на пути к настройкам не прошла проверку безопасности.';
+
+  @override
+  String get startupPreferencesAncestorNotDirectory =>
+      'xVeil не смог открыть настройки профиля. Один из элементов пути к настройкам оказался не папкой.';
+
+  @override
+  String get startupPreferencesAncestorOwner =>
+      'xVeil не смог открыть настройки профиля. Владелец одной из папок на пути к настройкам не входит в список доверенных учётных записей.';
+
+  @override
+  String get startupPreferencesAncestorPermissions =>
+      'xVeil не смог открыть настройки профиля. В правах одной из папок есть разрешение на изменение для другой учётной записи или группы.';
+
+  @override
+  String startupPreferencesAncestorDepth(int depth) {
+    return 'Проверка остановилась на уровне $depth, где 0 — папка, с которой началась проверка.';
+  }
+
+  @override
   String get startupRetry => 'Повторить';
 
   @override

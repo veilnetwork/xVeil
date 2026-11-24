@@ -349,6 +349,9 @@ void _profilePreferencesEntry(
     );
   } catch (error) {
     final reason = _preferencesFailureReason(error);
+    final ancestorRefusal = error is ManagedFsFailure
+        ? error.ancestorRefusal
+        : null;
     try {
       gate?.close();
     } catch (_) {
@@ -357,6 +360,7 @@ void _profilePreferencesEntry(
           _managedFailureKind(error),
           _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
+          ancestorRefusal: ancestorRefusal,
         ),
       );
       return;
@@ -365,6 +369,7 @@ void _profilePreferencesEntry(
       _ManagedWorkerErr(
         _managedFailureKind(error),
         preferencesOpenReason: reason,
+        ancestorRefusal: ancestorRefusal,
       ),
     );
     return;
@@ -538,6 +543,9 @@ void _profilePreferencesEntry(
                       ? ManagedWorkerFailureKind.busy
                       : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),
+                  ancestorRefusal: error is ManagedFsFailure
+                      ? error.ancestorRefusal
+                      : null,
                 )
               : _workerErrorReply(error, managed: true),
         );

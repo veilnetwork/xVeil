@@ -16,6 +16,7 @@ import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/managed_identity_lease.dart';
 import 'package:xveil/data/storage/managed_sqlite_connection.dart';
 import 'package:xveil/data/storage/profile_preferences_bootstrap.dart';
@@ -604,6 +605,43 @@ void main() {
     expect(marker.readAsStringSync(), 'fixture');
     expect(File(prefs()).existsSync(), isFalse);
   });
+
+  test(
+    'the worker reports a writable parent before opening preferences',
+    () async {
+      final parent = Directory('${support.path}/shared-fixture');
+      final profile = Directory('${parent.path}/profile')
+        ..createSync(recursive: true);
+      final marker = File('${profile.path}/marker')
+        ..writeAsStringSync('fixture');
+      final chmod = await Process.run('chmod', ['g+w', parent.path]);
+      expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
+
+      final path = profilePrefsPath(profile.path, AppProfiles.defaultName);
+      await expectLater(
+        ManagedProfilePreferencesFile.open(path),
+        throwsA(
+          isA<ManagedWorkerFailure>()
+              .having(
+                (error) => error.preferencesOpenReason,
+                'open reason',
+                ManagedPreferencesFailureReason.unsafeAncestor,
+              )
+              .having((error) => error.ancestorRefusal, 'ancestor refusal', (
+                depth: 1,
+                cause: ManagedAncestorRefusalCause.unsafePermissions,
+              )),
+        ),
+      );
+      expect(marker.readAsStringSync(), 'fixture');
+      expect(File(path).existsSync(), isFalse);
+      expect(
+        Directory('${profile.path}/visible-storage').existsSync(),
+        isFalse,
+      );
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
 
   test('a preference read reports a directory without modifying it', () async {
     final owner = await open(prefs());

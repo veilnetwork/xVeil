@@ -327,6 +327,36 @@ abstract class AppL10n {
   /// **'The profile settings are damaged or use an unsupported format. The original file was preserved.'**
   String get startupPreferencesFormatFailed;
 
+  /// No description provided for @startupPreferencesUnsafeAncestor.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open the profile settings because a folder on the path failed the security check.'**
+  String get startupPreferencesUnsafeAncestor;
+
+  /// No description provided for @startupPreferencesAncestorNotDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open the profile settings because an item on the path is not a folder.'**
+  String get startupPreferencesAncestorNotDirectory;
+
+  /// No description provided for @startupPreferencesAncestorOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open the profile settings because a folder on the path has an owner the app does not trust.'**
+  String get startupPreferencesAncestorOwner;
+
+  /// No description provided for @startupPreferencesAncestorPermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open the profile settings. The permissions on a folder along the path include a grant that lets another account or group modify it.'**
+  String get startupPreferencesAncestorPermissions;
+
+  /// No description provided for @startupPreferencesAncestorDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'The check failed at folder level {depth}, where 0 is the folder where the check began.'**
+  String startupPreferencesAncestorDepth(int depth);
+
   /// No description provided for @startupRetry.
   ///
   /// In en, this message translates to:

@@ -19,10 +19,12 @@ final class ManagedWorkerFailure implements Exception {
     this.kind, {
     this.preferencesOpenReason,
     this.preferencesReadReason,
+    this.ancestorRefusal,
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
+  final ManagedAncestorRefusal? ancestorRefusal;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
@@ -49,10 +51,12 @@ final class _ManagedWorkerErr extends _Reply {
     this.kind, {
     this.preferencesOpenReason,
     this.preferencesReadReason,
+    this.ancestorRefusal,
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
+  final ManagedAncestorRefusal? ancestorRefusal;
 }
 
 final class _ManagedReclaimReq extends _Req {
@@ -65,10 +69,12 @@ final class _ManagedOpenFailed extends _Reply {
     this.kind,
     this.cleanup, {
     this.preferencesOpenReason,
+    this.ancestorRefusal,
   });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
+  final ManagedAncestorRefusal? ancestorRefusal;
 }
 
 final class _ManagedBootstrapCleanup implements Exception {

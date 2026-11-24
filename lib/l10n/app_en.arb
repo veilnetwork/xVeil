@@ -38,6 +38,18 @@
   "startupFailedAction": "Close xVeil and open it again. If the error returns, include the diagnostic report when asking for help.",
   "startupPreferencesBusy": "The settings file is in use. Wait a moment, then try again.",
   "startupPreferencesFormatFailed": "The profile settings are damaged or use an unsupported format. The original file was preserved.",
+  "startupPreferencesUnsafeAncestor": "xVeil could not open the profile settings because a folder on the path failed the security check.",
+  "startupPreferencesAncestorNotDirectory": "xVeil could not open the profile settings because an item on the path is not a folder.",
+  "startupPreferencesAncestorOwner": "xVeil could not open the profile settings because a folder on the path has an owner the app does not trust.",
+  "startupPreferencesAncestorPermissions": "xVeil could not open the profile settings. The permissions on a folder along the path include a grant that lets another account or group modify it.",
+  "startupPreferencesAncestorDepth": "The check failed at folder level {depth}, where 0 is the folder where the check began.",
+  "@startupPreferencesAncestorDepth": {
+    "placeholders": {
+      "depth": {
+        "type": "int"
+      }
+    }
+  },
   "startupRetry": "Try again",
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space",

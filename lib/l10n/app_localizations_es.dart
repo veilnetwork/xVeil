@@ -144,6 +144,27 @@ class AppL10nEs extends AppL10n {
       'Los ajustes del perfil están dañados o usan un formato incompatible. Se conservó el archivo original.';
 
   @override
+  String get startupPreferencesUnsafeAncestor =>
+      'xVeil no pudo abrir los ajustes del perfil porque una carpeta de la ruta no pasó la comprobación de seguridad.';
+
+  @override
+  String get startupPreferencesAncestorNotDirectory =>
+      'xVeil no pudo abrir los ajustes del perfil porque un elemento de la ruta no es una carpeta.';
+
+  @override
+  String get startupPreferencesAncestorOwner =>
+      'xVeil no pudo abrir los ajustes del perfil porque el propietario de una carpeta de la ruta no es de confianza.';
+
+  @override
+  String get startupPreferencesAncestorPermissions =>
+      'xVeil no pudo abrir los ajustes del perfil. Los permisos de una carpeta de la ruta incluyen una autorización de modificación para otra cuenta o grupo.';
+
+  @override
+  String startupPreferencesAncestorDepth(int depth) {
+    return 'La comprobación falló en el nivel $depth. El nivel 0 es la carpeta donde comenzó la comprobación.';
+  }
+
+  @override
   String get startupRetry => 'Reintentar';
 
   @override

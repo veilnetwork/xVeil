@@ -230,6 +230,8 @@ enum DiagnosticMetric {
   previewLens,
   previewQuarterTurns,
   previewExtraMirror,
+  ancestorDepth,
+  ancestorCause,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,

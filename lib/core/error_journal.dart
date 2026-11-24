@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' show FileSystemException;
 
+import '../data/storage/managed_fs_contract.dart' show ManagedAncestorRefusal;
 import 'diagnostic_journal.dart';
 
 enum StartupPreferenceFailureStage {
@@ -19,6 +20,7 @@ typedef StartupPreferenceFailure = ({
   StartupPreferenceFailureStage stage,
   int code,
   int? state,
+  ManagedAncestorRefusal? ancestorRefusal,
 });
 
 /// A bounded record of what went wrong, shaped to be pasted somewhere.
@@ -339,6 +341,8 @@ class RecordedError {
         'stage': failure.stage.name,
         'code': failure.code,
         'state': ?failure.state,
+        if (failure.ancestorRefusal case final ancestor?)
+          'ancestor': {'depth': ancestor.depth, 'cause': ?ancestor.cause?.name},
       },
     if (includeTimestamps) 'at': atMs,
     if (count > 1) 'count': count,

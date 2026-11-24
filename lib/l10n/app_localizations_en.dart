@@ -143,6 +143,27 @@ class AppL10nEn extends AppL10n {
       'The profile settings are damaged or use an unsupported format. The original file was preserved.';
 
   @override
+  String get startupPreferencesUnsafeAncestor =>
+      'xVeil could not open the profile settings because a folder on the path failed the security check.';
+
+  @override
+  String get startupPreferencesAncestorNotDirectory =>
+      'xVeil could not open the profile settings because an item on the path is not a folder.';
+
+  @override
+  String get startupPreferencesAncestorOwner =>
+      'xVeil could not open the profile settings because a folder on the path has an owner the app does not trust.';
+
+  @override
+  String get startupPreferencesAncestorPermissions =>
+      'xVeil could not open the profile settings. The permissions on a folder along the path include a grant that lets another account or group modify it.';
+
+  @override
+  String startupPreferencesAncestorDepth(int depth) {
+    return 'The check failed at folder level $depth, where 0 is the folder where the check began.';
+  }
+
+  @override
   String get startupRetry => 'Try again';
 
   @override

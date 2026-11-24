@@ -462,9 +462,15 @@ final class ManagedDirectoryCatalog {
     for (var depth = 0; depth < 256; depth++) {
       final facts = fs.inspect(current.path);
       if (!facts.directory || !facts.safeAncestor) {
-        throw const ManagedFsFailure(
+        throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: ManagedFsUnsafeReason.unsafeAncestor,
+          ancestorRefusal: (
+            depth: depth,
+            cause: facts.directory
+                ? facts.unsafeAncestorCause
+                : ManagedAncestorRefusalCause.notDirectory,
+          ),
         );
       }
       final parent = current.parent;

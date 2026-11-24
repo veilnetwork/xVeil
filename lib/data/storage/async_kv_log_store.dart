@@ -1032,16 +1032,22 @@ class WorkerKvLogStore
         // unregister its owner-exit listener before its isolate stops.
         death.dispose();
         throw hv.HvException(kind, message);
-      case _ManagedWorkerErr(:final kind, :final preferencesOpenReason):
+      case _ManagedWorkerErr(
+        :final kind,
+        :final preferencesOpenReason,
+        :final ancestorRefusal,
+      ):
         death.dispose();
         throw ManagedWorkerFailure(
           kind,
           preferencesOpenReason: preferencesOpenReason,
+          ancestorRefusal: ancestorRefusal,
         );
       case _ManagedOpenFailed(
         :final kind,
         :final cleanup,
         :final preferencesOpenReason,
+        :final ancestorRefusal,
       ):
         // This worker still owns a failed open's native resources. Transfer
         // its close capability instead of abandoning/killing the owner.
@@ -1049,6 +1055,7 @@ class WorkerKvLogStore
           ManagedWorkerFailure(
             kind,
             preferencesOpenReason: preferencesOpenReason,
+            ancestorRefusal: ancestorRefusal,
           ),
           WorkerKvLogStore._(isolate, cleanup, death),
         );
@@ -1098,6 +1105,7 @@ class WorkerKvLogStore
         throw ManagedWorkerFailure(
           r.kind,
           preferencesReadReason: r.preferencesReadReason,
+          ancestorRefusal: r.ancestorRefusal,
         );
       }
       if (r is _LegacyCompactionErr) {

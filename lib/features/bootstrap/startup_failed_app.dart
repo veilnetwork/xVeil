@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../data/storage/managed_fs_contract.dart';
 import '../../l10n/app_localizations.dart';
 import '../settings/error_report.dart';
 
@@ -19,10 +20,14 @@ class StartupFailedApp extends StatelessWidget {
     super.key,
     this.retryPreferences,
     this.preferencesFormatFailed = false,
+    this.preferencesUnsafeAncestor = false,
+    this.ancestorRefusal,
   });
 
   final Future<void> Function()? retryPreferences;
   final bool preferencesFormatFailed;
+  final bool preferencesUnsafeAncestor;
+  final ManagedAncestorRefusal? ancestorRefusal;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +45,8 @@ class StartupFailedApp extends StatelessWidget {
       home: _StartupFailedScreen(
         retryPreferences: retryPreferences,
         preferencesFormatFailed: preferencesFormatFailed,
+        preferencesUnsafeAncestor: preferencesUnsafeAncestor,
+        ancestorRefusal: ancestorRefusal,
       ),
     );
   }
@@ -49,10 +56,14 @@ class _StartupFailedScreen extends StatefulWidget {
   const _StartupFailedScreen({
     required this.retryPreferences,
     required this.preferencesFormatFailed,
+    required this.preferencesUnsafeAncestor,
+    required this.ancestorRefusal,
   });
 
   final Future<void> Function()? retryPreferences;
   final bool preferencesFormatFailed;
+  final bool preferencesUnsafeAncestor;
+  final ManagedAncestorRefusal? ancestorRefusal;
 
   @override
   State<_StartupFailedScreen> createState() => _StartupFailedScreenState();
@@ -76,6 +87,25 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final retryPreferences = widget.retryPreferences;
+    final ancestor = widget.ancestorRefusal;
+    final actionStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant);
+    final explanation = switch (widget.preferencesUnsafeAncestor) {
+      true => switch (ancestor?.cause) {
+        ManagedAncestorRefusalCause.notDirectory =>
+          l.startupPreferencesAncestorNotDirectory,
+        ManagedAncestorRefusalCause.untrustedOwner =>
+          l.startupPreferencesAncestorOwner,
+        ManagedAncestorRefusalCause.unsafePermissions =>
+          l.startupPreferencesAncestorPermissions,
+        null => l.startupPreferencesUnsafeAncestor,
+      },
+      false when widget.preferencesFormatFailed =>
+        l.startupPreferencesFormatFailed,
+      false when retryPreferences != null => l.startupPreferencesBusy,
+      false => l.startupFailedAction,
+    };
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -92,17 +122,15 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 16),
-                const CopyErrorReportTile(phase: 'startup-failed'),
-                Text(
-                  widget.preferencesFormatFailed
-                      ? l.startupPreferencesFormatFailed
-                      : retryPreferences != null
-                      ? l.startupPreferencesBusy
-                      : l.startupFailedAction,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                Text(explanation, style: actionStyle),
+                if (widget.preferencesUnsafeAncestor && ancestor != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    l.startupPreferencesAncestorDepth(ancestor.depth),
+                    style: actionStyle,
                   ),
-                ),
+                ],
+                const CopyErrorReportTile(phase: 'startup-failed'),
                 if (retryPreferences != null) ...[
                   const SizedBox(height: 16),
                   FilledButton(
