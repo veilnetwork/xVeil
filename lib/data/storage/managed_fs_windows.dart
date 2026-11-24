@@ -1,13 +1,19 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart' as win;
 
 import '../vpn/native_path_acl.dart';
 import 'managed_fs_contract.dart';
+import 'windows_profile_delete_approval.dart';
 
 const _administratorsSid = 'S-1-5-32-544';
+// DELETE | FILE_DELETE_CHILD | WRITE_DAC | WRITE_OWNER | GENERIC_ALL |
+// GENERIC_WRITE. Creating unrelated children alone does not replace ours.
+const _ancestorRiskMask = 0x500d0040;
 const _trustedSystemSids = {
   'S-1-5-18',
   _administratorsSid,
@@ -105,9 +111,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
         win.GENERIC_READ |
         win.GENERIC_EXECUTE;
     if (rights & ~readAndExecute != 0) otherUsersHaveReadOnlyAccess = false;
-    // DELETE | FILE_DELETE_CHILD | WRITE_DAC | WRITE_OWNER | GENERIC_ALL |
-    // GENERIC_WRITE. Creating unrelated children alone does not replace ours.
-    if (rights & 0x500d0040 != 0) stable = false;
+    if (rights & _ancestorRiskMask != 0) stable = false;
   }
   return (
     ownerOnly: private,
@@ -130,6 +134,61 @@ bool managedWindowsFinalPathMatches(String requested, String actual) {
 
   return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(requested) &&
       normalize(requested) == normalize(actual);
+}
+
+/// The accepted exception covers only DELETE on the ordinary app support
+/// directory. The fingerprint binds the user, path, file ID, owner and ACL
+/// facts. Changes in the observed ACL or replacing the folder require review.
+({String fingerprint, Map<String, bool> grants})? managedWindowsDeleteGrant({
+  required Map<String, Object?> facts,
+  required String path,
+  required String supportPath,
+  required String identity,
+  required String currentSid,
+}) {
+  if (!managedWindowsFinalPathMatches(supportPath, path) ||
+      managedWindowsAclPolicy(facts, currentSid) == null) {
+    return null;
+  }
+  final owner = facts['owner'] as String;
+  if (owner != currentSid && owner != _administratorsSid) return null;
+  final rules = facts['rules'] as List;
+  final accounts = <String, int>{};
+  for (final rule in rules.cast<Map>()) {
+    if (rule['allow'] != true || rule['inheritOnly'] == true) continue;
+    final sid = rule['sid'] as String;
+    if (_isTrustedSid(sid, currentSid)) continue;
+    final rights = rule['rights'] as int;
+    final unsafe = rights & _ancestorRiskMask;
+    if (unsafe != 0 && unsafe != win.DELETE) return null;
+    accounts.update(
+      sid,
+      (existing) => existing | rights,
+      ifAbsent: () => rights,
+    );
+  }
+  final grants = {
+    for (final account in accounts.entries)
+      if (account.value & win.DELETE != 0)
+        account.key:
+            account.value & (win.FILE_LIST_DIRECTORY | win.GENERIC_READ) != 0,
+  };
+  if (grants.isEmpty) return null;
+  final fingerprint = sha256
+      .convert(
+        utf8.encode(
+          jsonEncode([
+            'xveil-windows-profile-delete-v1',
+            currentSid,
+            path,
+            identity,
+            owner,
+            rules,
+          ]),
+        ),
+      )
+      .toString();
+  return (fingerprint: fingerprint, grants: grants);
 }
 
 ManagedPathWitness inspect(String path) {
@@ -175,20 +234,49 @@ ManagedPathWitness inspect(String path) {
         !managedWindowsFinalPathMatches(path, finalPath)) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
-    final f = info.ref;
     final owner = facts!['owner'] as String;
+    final f = info.ref;
+    final identity = _fileIdentity(f, owner);
+    final directory = f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0;
+    final supportPath = directory && !policy.safeAncestor
+        ? windowsProfileSupportPath
+        : null;
+    final grant = supportPath == null
+        ? null
+        : managedWindowsDeleteGrant(
+            facts: facts,
+            path: finalPath,
+            supportPath: supportPath,
+            identity: identity,
+            currentSid: currentSid,
+          );
+    final approved =
+        grant != null && hasWindowsProfileDeleteApproval(grant.fingerprint);
+    final safeAncestor = policy.safeAncestor || approved;
     return ManagedPathWitness(
-      identity: _fileIdentity(f, owner),
-      directory: f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0,
+      identity: identity,
+      directory: directory,
       ownerOnly: policy.ownerOnly,
       ownedByCurrentUser: policy.ownedByCurrentUser,
       ownedByWindowsAdministrators: owner == _administratorsSid,
-      safeAncestor: policy.safeAncestor,
-      unsafeAncestorCause: policy.safeAncestor
+      safeAncestor: safeAncestor,
+      unsafeAncestorCause: safeAncestor
           ? null
           : _isTrustedSid(owner, currentSid)
           ? ManagedAncestorRefusalCause.unsafePermissions
           : ManagedAncestorRefusalCause.untrustedOwner,
+      windowsDeleteWarning: grant == null || approved
+          ? null
+          : ManagedWindowsDeleteWarning(
+              path: stripExtendedLengthPrefix(finalPath),
+              fingerprint: grant.fingerprint,
+              grants: grant.grants.entries.map(
+                (entry) => (
+                  account: windowsAclAccountLabel(entry.key),
+                  canList: entry.value,
+                ),
+              ),
+            ),
       otherUsersHaveReadOnlyAccess: policy.otherUsersHaveReadOnlyAccess,
     );
   } finally {

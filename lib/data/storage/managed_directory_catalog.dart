@@ -471,6 +471,7 @@ final class ManagedDirectoryCatalog {
                 ? facts.unsafeAncestorCause
                 : ManagedAncestorRefusalCause.notDirectory,
           ),
+          windowsDeleteWarning: facts.windowsDeleteWarning,
         );
       }
       final parent = current.parent;

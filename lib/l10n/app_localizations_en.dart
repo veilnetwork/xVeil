@@ -164,6 +164,54 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get startupAclWarningTitle => 'Review folder permissions';
+
+  @override
+  String get startupAclWarningRisk =>
+      'Windows permission entries allow other accounts or groups to delete or rename this folder. If you continue, someone with that access could replace the folder while xVeil is open. Access to individual files depends on their own permissions.';
+
+  @override
+  String startupAclGrantDelete(String account) {
+    return '$account has a grant to delete or rename the folder.';
+  }
+
+  @override
+  String startupAclGrantDeleteAndList(String account) {
+    return '$account has grants to list the folder’s contents and to delete or rename the folder.';
+  }
+
+  @override
+  String get startupAclCorrectionHint =>
+      'You can correct the permissions before opening this folder. A saved choice applies only to this folder and these permissions.';
+
+  @override
+  String get startupAclApprovalFailed =>
+      'Could not save your choice. You can try again or close xVeil.';
+
+  @override
+  String get startupAclClose => 'Do not start';
+
+  @override
+  String get startupAclContinueOnce => 'Start once';
+
+  @override
+  String get startupAclRemember => 'Start and remember my choice';
+
+  @override
+  String get startupAclRecheck => 'Check permissions again';
+
+  @override
+  String get startupAclCopyRepair => 'Copy PowerShell repair';
+
+  @override
+  String get startupAclRepairCopied =>
+      'Copied. Close xVeil, then paste the repair script into Windows PowerShell.';
+
+  @override
+  String get startupAclRepairCopyFailed =>
+      'Could not copy the PowerShell repair script.';
+
+  @override
   String get startupRetry => 'Try again';
 
   @override

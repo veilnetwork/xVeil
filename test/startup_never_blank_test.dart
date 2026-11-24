@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
@@ -208,6 +209,99 @@ void main() {
           : isNull,
     );
   });
+
+  for (final remember in [false, true]) {
+    testWidgets('Windows ACL approval requires a choice (remember=$remember)', (
+      tester,
+    ) async {
+      const localPath = r'C:\fixture-private\xveil';
+      const localAccount = 'fixture-local-account';
+      final warning = ManagedWindowsDeleteWarning(
+        path: localPath,
+        fingerprint: 'a' * 64,
+        grants: const [(account: localAccount, canList: true)],
+      );
+      final choices = <bool>[];
+      var attempts = 0;
+      Widget? presented;
+      await runStartup(
+        loadPreferences: () async {
+          attempts++;
+          if (choices.isEmpty) {
+            throw ManagedWorkerFailure(
+              ManagedWorkerFailureKind.invalid,
+              preferencesOpenReason:
+                  ManagedPreferencesFailureReason.unsafeAncestor,
+              windowsDeleteWarning: warning,
+            );
+          }
+          return (
+            profile: null,
+            supportDirectory: null,
+            erasurePending: true,
+            legacyPreferences: null,
+          );
+        },
+        recordDeleteApproval: (candidate, {required remember}) {
+          expect(candidate, same(warning));
+          choices.add(remember);
+          return true;
+        },
+        present: (widget) => presented = widget,
+      );
+      await tester.pumpWidget(presented!);
+      expect(find.text('Review folder permissions'), findsOneWidget);
+      expect(find.text(localPath), findsOneWidget);
+      expect(find.textContaining(localAccount), findsOneWidget);
+      expect(find.text('Do not start'), findsOneWidget);
+      expect(choices, isEmpty);
+      expect(attempts, 1);
+      final report = buildErrorReport(phase: 'startup-failed');
+      expect(report, isNot(contains('fixture-private')));
+      expect(report, isNot(contains(localAccount)));
+
+      if (!remember) {
+        String? clipboard;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboard = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        });
+        addTearDown(
+          () =>
+              messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+        );
+        final copy = find.text('Copy PowerShell repair');
+        await tester.ensureVisible(copy);
+        await tester.tap(copy);
+        await tester.runAsync(() async {
+          await rootBundle.loadString(
+            'scripts/repair-windows-profile-delete-grant.ps1',
+          );
+        });
+        await tester.pumpAndSettle();
+        expect(clipboard, startsWith('& {\n'));
+        expect(clipboard, contains('REMOVE DELETE'));
+        expect(choices, isEmpty);
+      }
+
+      final action = find.text(
+        remember ? 'Start and remember my choice' : 'Start once',
+      );
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pump();
+      expect(choices, [remember]);
+      expect(attempts, 2);
+      await tester.pumpWidget(presented!);
+      expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
+    });
+  }
 
   test('startup retains the distinct preference read refusal', () async {
     diagnosticJournal.clear();

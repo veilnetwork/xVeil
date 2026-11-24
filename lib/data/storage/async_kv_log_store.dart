@@ -1036,18 +1036,21 @@ class WorkerKvLogStore
         :final kind,
         :final preferencesOpenReason,
         :final ancestorRefusal,
+        :final windowsDeleteWarning,
       ):
         death.dispose();
         throw ManagedWorkerFailure(
           kind,
           preferencesOpenReason: preferencesOpenReason,
           ancestorRefusal: ancestorRefusal,
+          windowsDeleteWarning: windowsDeleteWarning,
         );
       case _ManagedOpenFailed(
         :final kind,
         :final cleanup,
         :final preferencesOpenReason,
         :final ancestorRefusal,
+        :final windowsDeleteWarning,
       ):
         // This worker still owns a failed open's native resources. Transfer
         // its close capability instead of abandoning/killing the owner.
@@ -1056,6 +1059,7 @@ class WorkerKvLogStore
             kind,
             preferencesOpenReason: preferencesOpenReason,
             ancestorRefusal: ancestorRefusal,
+            windowsDeleteWarning: windowsDeleteWarning,
           ),
           WorkerKvLogStore._(isolate, cleanup, death),
         );
@@ -1106,6 +1110,7 @@ class WorkerKvLogStore
           r.kind,
           preferencesReadReason: r.preferencesReadReason,
           ancestorRefusal: r.ancestorRefusal,
+          windowsDeleteWarning: r.windowsDeleteWarning,
         );
       }
       if (r is _LegacyCompactionErr) {

@@ -357,6 +357,84 @@ abstract class AppL10n {
   /// **'The check failed at folder level {depth}, where 0 is the folder where the check began.'**
   String startupPreferencesAncestorDepth(int depth);
 
+  /// No description provided for @startupAclWarningTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review folder permissions'**
+  String get startupAclWarningTitle;
+
+  /// No description provided for @startupAclWarningRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows permission entries allow other accounts or groups to delete or rename this folder. If you continue, someone with that access could replace the folder while xVeil is open. Access to individual files depends on their own permissions.'**
+  String get startupAclWarningRisk;
+
+  /// No description provided for @startupAclGrantDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'{account} has a grant to delete or rename the folder.'**
+  String startupAclGrantDelete(String account);
+
+  /// No description provided for @startupAclGrantDeleteAndList.
+  ///
+  /// In en, this message translates to:
+  /// **'{account} has grants to list the folder’s contents and to delete or rename the folder.'**
+  String startupAclGrantDeleteAndList(String account);
+
+  /// No description provided for @startupAclCorrectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'You can correct the permissions before opening this folder. A saved choice applies only to this folder and these permissions.'**
+  String get startupAclCorrectionHint;
+
+  /// No description provided for @startupAclApprovalFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save your choice. You can try again or close xVeil.'**
+  String get startupAclApprovalFailed;
+
+  /// No description provided for @startupAclClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not start'**
+  String get startupAclClose;
+
+  /// No description provided for @startupAclContinueOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Start once'**
+  String get startupAclContinueOnce;
+
+  /// No description provided for @startupAclRemember.
+  ///
+  /// In en, this message translates to:
+  /// **'Start and remember my choice'**
+  String get startupAclRemember;
+
+  /// No description provided for @startupAclRecheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check permissions again'**
+  String get startupAclRecheck;
+
+  /// No description provided for @startupAclCopyRepair.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy PowerShell repair'**
+  String get startupAclCopyRepair;
+
+  /// No description provided for @startupAclRepairCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied. Close xVeil, then paste the repair script into Windows PowerShell.'**
+  String get startupAclRepairCopied;
+
+  /// No description provided for @startupAclRepairCopyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not copy the PowerShell repair script.'**
+  String get startupAclRepairCopyFailed;
+
   /// No description provided for @startupRetry.
   ///
   /// In en, this message translates to:

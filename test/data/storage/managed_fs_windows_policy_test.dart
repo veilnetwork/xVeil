@@ -195,4 +195,60 @@ void main() {
       );
     },
   );
+
+  group('Windows app-support DELETE warning', () {
+    const support = r'C:\Users\fixture\AppData\Roaming\network.veil\xveil';
+    const account = 'S-1-1-0';
+    const delete = 0x10000;
+    final rules = [rule(account, delete), rule(account, 1)];
+    ({String fingerprint, Map<String, bool> grants})? grant({
+      List<Object>? entries,
+      String path = support,
+      String identity = 'fixture-1',
+      String owner = current,
+    }) => managedWindowsDeleteGrant(
+      facts: {'owner': owner, 'rules': entries ?? rules},
+      path: path,
+      supportPath: support,
+      identity: identity,
+      currentSid: current,
+    );
+
+    test('binds consent to account, folder identity and ACL', () {
+      final first = grant()!;
+      expect(first.grants, {account: true});
+      expect(grant()!.fingerprint, first.fingerprint);
+      expect(
+        grant(identity: 'fixture-2')!.fingerprint,
+        isNot(first.fingerprint),
+      );
+      expect(
+        grant(owner: 'S-1-5-32-544')!.fingerprint,
+        isNot(first.fingerprint),
+      );
+      expect(
+        grant(entries: [rule('S-1-5-11', delete)])!.fingerprint,
+        isNot(first.fingerprint),
+      );
+      expect(
+        grant(entries: [rule(account, delete)])!.fingerprint,
+        isNot(first.fingerprint),
+      );
+    });
+
+    test('only accepts DELETE on this app support directory', () {
+      expect(grant(path: '$support/profiles/fixture'), isNull);
+      expect(grant(owner: 'S-1-5-21-9-9-9-2000'), isNull);
+      expect(grant(entries: [rule(current, delete)]), isNull);
+      expect(
+        grant(entries: [rule(account, delete, inheritOnly: true)]),
+        isNull,
+      );
+      expect(grant(entries: [rule(account, delete, allow: false)]), isNull);
+      expect(grant(entries: [rule(account, delete), {}]), isNull);
+      for (final extra in [0x40, 0x40000, 0x80000, 0x10000000, 0x40000000]) {
+        expect(grant(entries: [rule(account, delete | extra)]), isNull);
+      }
+    });
+  });
 }

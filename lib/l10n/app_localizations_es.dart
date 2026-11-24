@@ -165,6 +165,54 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String get startupAclWarningTitle => 'Revisa los permisos de la carpeta';
+
+  @override
+  String get startupAclWarningRisk =>
+      'Hay permisos de Windows que permiten a otras cuentas o grupos eliminar o renombrar esta carpeta. Si continúas, alguien con ese permiso podría sustituir la carpeta mientras xVeil está abierto. El acceso a cada archivo depende de sus propios permisos.';
+
+  @override
+  String startupAclGrantDelete(String account) {
+    return '$account tiene permiso para eliminar o renombrar la carpeta.';
+  }
+
+  @override
+  String startupAclGrantDeleteAndList(String account) {
+    return '$account tiene permiso para listar el contenido y para eliminar o renombrar la carpeta.';
+  }
+
+  @override
+  String get startupAclCorrectionHint =>
+      'Puedes corregir los permisos antes de abrir la carpeta. La elección guardada solo se aplica a esta carpeta con estos permisos.';
+
+  @override
+  String get startupAclApprovalFailed =>
+      'No se pudo guardar tu elección. Puedes volver a intentarlo o cerrar xVeil.';
+
+  @override
+  String get startupAclClose => 'No iniciar';
+
+  @override
+  String get startupAclContinueOnce => 'Iniciar una vez';
+
+  @override
+  String get startupAclRemember => 'Iniciar y recordar mi elección';
+
+  @override
+  String get startupAclRecheck => 'Comprobar los permisos de nuevo';
+
+  @override
+  String get startupAclCopyRepair => 'Copiar reparación para PowerShell';
+
+  @override
+  String get startupAclRepairCopied =>
+      'Se copió el script. Cierra xVeil y pégalo en Windows PowerShell.';
+
+  @override
+  String get startupAclRepairCopyFailed =>
+      'No se pudo copiar el script de PowerShell.';
+
+  @override
   String get startupRetry => 'Reintentar';
 
   @override

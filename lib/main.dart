@@ -40,6 +40,7 @@ import 'core/quick_unlock_vault.dart';
 import 'core/storage_features.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
+import 'data/storage/windows_profile_delete_approval.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
 import 'data/transport/veil_native.dart';
@@ -106,6 +107,9 @@ Future<void> runStartup({
   Future<ProfilePreferencesBootstrap> Function() loadPreferences =
       _loadStartupPreferences,
   void Function(Widget) present = runApp,
+  bool Function(ManagedWindowsDeleteWarning, {required bool remember})
+      recordDeleteApproval =
+      recordWindowsProfileDeleteApproval,
 }) async {
   var loadingPreferences = false;
   try {
@@ -193,6 +197,12 @@ Future<void> runStartup({
                 ManagedPreferencesFailureReason.unsafeAncestor ||
             e.preferencesReadReason ==
                 ManagedPreferencesFailureReason.unsafeAncestor);
+    final deleteWarning = unsafeAncestor ? e.windowsDeleteWarning : null;
+    Future<void> retryStartup() => runStartup(
+      loadPreferences: loadPreferences,
+      present: present,
+      recordDeleteApproval: recordDeleteApproval,
+    );
     present(
       StartupFailedApp(
         preferencesFormatFailed:
@@ -201,10 +211,19 @@ Future<void> runStartup({
         ancestorRefusal: unsafeAncestor
             ? preferenceFailure?.ancestorRefusal
             : null,
-        retryPreferences: canRetry
-            ? () =>
-                  runStartup(loadPreferences: loadPreferences, present: present)
+        retryPreferences: canRetry || deleteWarning != null
+            ? retryStartup
             : null,
+        deleteWarning: deleteWarning,
+        acceptDeleteWarning: deleteWarning == null
+            ? null
+            : (remember) async {
+                if (!recordDeleteApproval(deleteWarning, remember: remember)) {
+                  return false;
+                }
+                await retryStartup();
+                return true;
+              },
       ),
     );
   }

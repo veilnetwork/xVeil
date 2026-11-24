@@ -13,18 +13,21 @@ enum ManagedWorkerFailureKind {
   recoveryRequired,
 }
 
-/// Bounded transport error: never contains native messages, paths, IDs or keys.
+/// The error text is bounded. Windows warning details are for the local startup
+/// screen only. Report export uses the numeric failure categories separately.
 final class ManagedWorkerFailure implements Exception {
   const ManagedWorkerFailure(
     this.kind, {
     this.preferencesOpenReason,
     this.preferencesReadReason,
     this.ancestorRefusal,
+    this.windowsDeleteWarning,
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
@@ -52,11 +55,13 @@ final class _ManagedWorkerErr extends _Reply {
     this.preferencesOpenReason,
     this.preferencesReadReason,
     this.ancestorRefusal,
+    this.windowsDeleteWarning,
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
 }
 
 final class _ManagedReclaimReq extends _Req {
@@ -70,11 +75,13 @@ final class _ManagedOpenFailed extends _Reply {
     this.cleanup, {
     this.preferencesOpenReason,
     this.ancestorRefusal,
+    this.windowsDeleteWarning,
   });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
 }
 
 final class _ManagedBootstrapCleanup implements Exception {

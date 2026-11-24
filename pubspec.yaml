@@ -213,6 +213,7 @@ flutter:
   generate: true
 
   assets:
+    - scripts/repair-windows-profile-delete-grant.ps1
     - assets/geoip/country_routes.json.gz
     - assets/geoip/NOTICE.txt
     - assets/icon/app_icon.png

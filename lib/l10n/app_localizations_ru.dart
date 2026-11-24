@@ -165,6 +165,54 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get startupAclWarningTitle => 'Проверьте права папки';
+
+  @override
+  String get startupAclWarningRisk =>
+      'В правах Windows есть разрешение на удаление или переименование этой папки для других учётных записей или групп. Если продолжить, обладатель этого права может подменить папку во время работы xVeil. Доступ к отдельным файлам зависит от их собственных прав.';
+
+  @override
+  String startupAclGrantDelete(String account) {
+    return '$account — есть разрешение удалить или переименовать папку.';
+  }
+
+  @override
+  String startupAclGrantDeleteAndList(String account) {
+    return '$account — есть разрешения просматривать список файлов, удалять или переименовывать папку.';
+  }
+
+  @override
+  String get startupAclCorrectionHint =>
+      'Можно исправить права перед запуском. Запомненный выбор действует только для этой папки с этими правами.';
+
+  @override
+  String get startupAclApprovalFailed =>
+      'Не удалось сохранить выбор. Можно попробовать снова или закрыть xVeil.';
+
+  @override
+  String get startupAclClose => 'Не запускать';
+
+  @override
+  String get startupAclContinueOnce => 'Запустить один раз';
+
+  @override
+  String get startupAclRemember => 'Запустить и запомнить выбор';
+
+  @override
+  String get startupAclRecheck => 'Проверить права снова';
+
+  @override
+  String get startupAclCopyRepair => 'Скопировать исправление для PowerShell';
+
+  @override
+  String get startupAclRepairCopied =>
+      'Сценарий скопирован. Закройте xVeil и вставьте его в Windows PowerShell.';
+
+  @override
+  String get startupAclRepairCopyFailed =>
+      'Не удалось скопировать сценарий PowerShell.';
+
+  @override
   String get startupRetry => 'Повторить';
 
   @override

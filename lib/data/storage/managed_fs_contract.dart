@@ -35,12 +35,32 @@ typedef ManagedAncestorRefusal = ({
   ManagedAncestorRefusalCause? cause,
 });
 
-/// Safe to surface in diagnostics: never includes a path, owner or native text.
+/// Local UI evidence. Keep this out of reports, logs and app preferences.
+final class ManagedWindowsDeleteWarning {
+  ManagedWindowsDeleteWarning({
+    required this.path,
+    required this.fingerprint,
+    required Iterable<({String account, bool canList})> grants,
+  }) : grants = List.unmodifiable(grants);
+
+  final String path;
+  final String fingerprint;
+  final List<({String account, bool canList})> grants;
+}
+
+/// The exception text is safe to log. Windows warning details are local to
+/// the startup UI and must never be serialized with the exception.
 final class ManagedFsFailure implements Exception {
-  const ManagedFsFailure(this.kind, {this.unsafeReason, this.ancestorRefusal});
+  const ManagedFsFailure(
+    this.kind, {
+    this.unsafeReason,
+    this.ancestorRefusal,
+    this.windowsDeleteWarning,
+  });
   final ManagedFsFailureKind kind;
   final ManagedFsUnsafeReason? unsafeReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';
 }
@@ -48,6 +68,8 @@ final class ManagedFsFailure implements Exception {
 /// A witness for the object inspected, not a claim of descriptor-relative I/O.
 /// Private roots exclude other-user mutation; repeated checks detect ordinary
 /// path replacement, but do not defend against hostile same-user ABA races.
+/// A Windows ancestor can also be admitted by explicit user consent for its
+/// exact DELETE grant. That consent accepts the risk of replacement.
 final class ManagedPathWitness {
   const ManagedPathWitness({
     required this.identity,
@@ -56,6 +78,7 @@ final class ManagedPathWitness {
     required this.ownedByCurrentUser,
     required this.safeAncestor,
     this.unsafeAncestorCause,
+    this.windowsDeleteWarning,
     this.ownedByWindowsAdministrators = false,
     this.otherUsersHaveReadOnlyAccess = false,
   });
@@ -65,6 +88,7 @@ final class ManagedPathWitness {
   final bool ownedByCurrentUser;
   final bool safeAncestor;
   final ManagedAncestorRefusalCause? unsafeAncestorCause;
+  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
   final bool ownedByWindowsAdministrators;
   final bool otherUsersHaveReadOnlyAccess;
 

@@ -349,9 +349,7 @@ void _profilePreferencesEntry(
     );
   } catch (error) {
     final reason = _preferencesFailureReason(error);
-    final ancestorRefusal = error is ManagedFsFailure
-        ? error.ancestorRefusal
-        : null;
+    final filesystem = error is ManagedFsFailure ? error : null;
     try {
       gate?.close();
     } catch (_) {
@@ -360,7 +358,8 @@ void _profilePreferencesEntry(
           _managedFailureKind(error),
           _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
-          ancestorRefusal: ancestorRefusal,
+          ancestorRefusal: filesystem?.ancestorRefusal,
+          windowsDeleteWarning: filesystem?.windowsDeleteWarning,
         ),
       );
       return;
@@ -369,7 +368,8 @@ void _profilePreferencesEntry(
       _ManagedWorkerErr(
         _managedFailureKind(error),
         preferencesOpenReason: reason,
-        ancestorRefusal: ancestorRefusal,
+        ancestorRefusal: filesystem?.ancestorRefusal,
+        windowsDeleteWarning: filesystem?.windowsDeleteWarning,
       ),
     );
     return;
@@ -536,6 +536,7 @@ void _profilePreferencesEntry(
       } on ProfilePreferencesFormatFailure catch (error) {
         message.reply.send(error);
       } catch (error) {
+        final filesystem = error is ManagedFsFailure ? error : null;
         message.reply.send(
           message is _PreferencesReadReq
               ? _ManagedWorkerErr(
@@ -543,9 +544,8 @@ void _profilePreferencesEntry(
                       ? ManagedWorkerFailureKind.busy
                       : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),
-                  ancestorRefusal: error is ManagedFsFailure
-                      ? error.ancestorRefusal
-                      : null,
+                  ancestorRefusal: filesystem?.ancestorRefusal,
+                  windowsDeleteWarning: filesystem?.windowsDeleteWarning,
                 )
               : _workerErrorReply(error, managed: true),
         );
