@@ -164,25 +164,110 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get startupAclWarningTitle => 'Review folder permissions';
+  String get startupAclWarningTitle => 'Review access permissions';
 
   @override
   String get startupAclWarningRisk =>
-      'Windows permission entries allow other accounts or groups to delete or rename this folder. If you continue, someone with that access could replace the folder while xVeil is open. Access to individual files depends on their own permissions.';
+      'Other accounts have permissions on this folder. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.';
 
   @override
-  String startupAclGrantDelete(String account) {
-    return '$account has a grant to delete or rename the folder.';
+  String get startupAclFileWarningRisk =>
+      'Other accounts may have access to this file under the permissions shown below.';
+
+  @override
+  String startupAclGrant(String account, String rights) {
+    return '$account — $rights';
   }
 
   @override
-  String startupAclGrantDeleteAndList(String account) {
-    return '$account has grants to list the folder’s contents and to delete or rename the folder.';
+  String startupAclOwner(String account) {
+    return 'Owner $account can change permissions';
   }
+
+  @override
+  String get startupAclEveryone => 'Other users';
+
+  @override
+  String get startupAclDetails => 'Extended ACL';
+
+  @override
+  String get startupAclRead => 'read or list';
+
+  @override
+  String get startupAclWrite => 'write';
+
+  @override
+  String get startupAclExecute => 'execute or traverse';
+
+  @override
+  String get startupAclDelete => 'delete or rename';
+
+  @override
+  String get startupAclDeleteChildren => 'delete contents';
+
+  @override
+  String get startupAclChangePermissions => 'change permissions';
+
+  @override
+  String get startupAclChangeOwner => 'change owner';
+
+  @override
+  String get startupAclFullControl => 'full control';
+
+  @override
+  String get startupAclOther => 'other access';
 
   @override
   String get startupAclCorrectionHint =>
-      'You can correct the permissions before opening this folder. A saved choice applies only to this folder and these permissions.';
+      'Review the permissions in the file or folder properties, or ask your administrator. A saved choice applies only to this object and its current permissions.';
+
+  @override
+  String get startupAclInvalidPath =>
+      'The profile path is invalid or points outside a local drive. Check the configured profile location.';
+
+  @override
+  String get startupAclAccessDenied =>
+      'The operating system denied access to part of the profile path. Check whether your account has access or ask your administrator.';
+
+  @override
+  String get startupAclLinkedPath =>
+      'The profile path passes through a link or a Windows junction. Check the configured profile location.';
+
+  @override
+  String get startupAclExpectedFolder =>
+      'An item in the profile path occupies the place where xVeil expects a folder. Check the profile location.';
+
+  @override
+  String get startupAclExpectedFile =>
+      'A folder occupies the place where xVeil expects the settings file. Check the profile location.';
+
+  @override
+  String get startupAclInsufficientPrivacy =>
+      'xVeil could not verify the required ownership or permissions for the profile. Review them in your system settings or ask your administrator.';
+
+  @override
+  String get startupAclPathChanged =>
+      'A file or folder changed while xVeil was opening it. Close other apps using the profile and reopen xVeil.';
+
+  @override
+  String get startupAclFilesystemUnavailable =>
+      'xVeil could not open or read part of the profile path. Check the drive and your account’s access.';
+
+  @override
+  String get startupAclLockInvalid =>
+      'The profile coordination file is invalid. Close other instances of xVeil. If the problem persists, copy a report for your administrator.';
+
+  @override
+  String get startupAclStorageRoleUnavailable =>
+      'xVeil could not open the profile’s storage records. Check that the storage drive is available and copy a report if the problem persists.';
+
+  @override
+  String get startupProfileChoiceUnreadable =>
+      'xVeil could not read the saved profile choice. Check the drive and your account’s access, then reopen xVeil.';
+
+  @override
+  String get startupProfileChoiceInvalid =>
+      'The saved profile choice contains an invalid profile name. Select an existing profile at launch or ask your administrator to correct the saved choice.';
 
   @override
   String get startupAclApprovalFailed =>
@@ -199,17 +284,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupAclRecheck => 'Check permissions again';
-
-  @override
-  String get startupAclCopyRepair => 'Copy PowerShell repair';
-
-  @override
-  String get startupAclRepairCopied =>
-      'Copied. Close xVeil, then paste the repair script into Windows PowerShell.';
-
-  @override
-  String get startupAclRepairCopyFailed =>
-      'Could not copy the PowerShell repair script.';
 
   @override
   String get startupRetry => 'Try again';

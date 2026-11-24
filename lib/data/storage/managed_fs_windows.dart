@@ -8,6 +8,7 @@ import 'package:win32/win32.dart' as win;
 
 import '../vpn/native_path_acl.dart';
 import 'managed_fs_contract.dart';
+import 'storage_acl_approval.dart';
 import 'windows_profile_delete_approval.dart';
 
 const _administratorsSid = 'S-1-5-32-544';
@@ -136,49 +137,49 @@ bool managedWindowsFinalPathMatches(String requested, String actual) {
       normalize(requested) == normalize(actual);
 }
 
-/// The accepted exception covers only DELETE on the ordinary app support
-/// directory. The fingerprint binds the user, path, file ID, owner and ACL
-/// facts. Changes in the observed ACL or replacing the folder require review.
-({String fingerprint, Map<String, bool> grants})? managedWindowsDeleteGrant({
+/// Bind consent to the observed object and its complete ACL. Keep the older
+/// fingerprint for the identical Windows app-support DELETE warning.
+({String fingerprint, Map<String, int> grants})? managedWindowsAclGrant({
   required Map<String, Object?> facts,
   required String path,
-  required String supportPath,
   required String identity,
   required String currentSid,
+  String? legacySupportPath,
 }) {
-  if (!managedWindowsFinalPathMatches(supportPath, path) ||
-      managedWindowsAclPolicy(facts, currentSid) == null) {
+  final policy = managedWindowsAclPolicy(facts, currentSid);
+  if (policy == null ||
+      (policy.safeAncestor && policy.ownedByCurrentUser && policy.ownerOnly)) {
     return null;
   }
   final owner = facts['owner'] as String;
-  if (owner != currentSid && owner != _administratorsSid) return null;
   final rules = facts['rules'] as List;
   final accounts = <String, int>{};
   for (final rule in rules.cast<Map>()) {
     if (rule['allow'] != true || rule['inheritOnly'] == true) continue;
     final sid = rule['sid'] as String;
-    if (_isTrustedSid(sid, currentSid)) continue;
     final rights = rule['rights'] as int;
-    final unsafe = rights & _ancestorRiskMask;
-    if (unsafe != 0 && unsafe != win.DELETE) return null;
+    if (_isTrustedSid(sid, currentSid) || rights == 0) continue;
     accounts.update(
       sid,
       (existing) => existing | rights,
       ifAbsent: () => rights,
     );
   }
-  final grants = {
-    for (final account in accounts.entries)
-      if (account.value & win.DELETE != 0)
-        account.key:
-            account.value & (win.FILE_LIST_DIRECTORY | win.GENERIC_READ) != 0,
-  };
-  if (grants.isEmpty) return null;
+  final legacy =
+      legacySupportPath != null &&
+      managedWindowsFinalPathMatches(legacySupportPath, path) &&
+      (owner == currentSid || owner == _administratorsSid) &&
+      accounts.values.any((rights) => rights & win.DELETE != 0) &&
+      accounts.values.every(
+        (rights) => rights & (_ancestorRiskMask ^ win.DELETE) == 0,
+      );
   final fingerprint = sha256
       .convert(
         utf8.encode(
           jsonEncode([
-            'xveil-windows-profile-delete-v1',
+            legacy
+                ? 'xveil-windows-profile-delete-v1'
+                : 'xveil-windows-storage-acl-v2',
             currentSid,
             path,
             identity,
@@ -188,7 +189,22 @@ bool managedWindowsFinalPathMatches(String requested, String actual) {
         ),
       )
       .toString();
-  return (fingerprint: fingerprint, grants: grants);
+  return (fingerprint: fingerprint, grants: accounts);
+}
+
+Set<ManagedAclRight> _displayRights(int mask) {
+  final rights = {
+    if (mask & (win.FILE_READ_DATA | win.GENERIC_READ) != 0)
+      ManagedAclRight.read,
+    if (mask & 0x40000116 != 0) ManagedAclRight.write,
+    if (mask & 0x20000020 != 0) ManagedAclRight.execute,
+    if (mask & win.DELETE != 0) ManagedAclRight.delete,
+    if (mask & 0x40 != 0) ManagedAclRight.deleteChildren,
+    if (mask & 0x40000 != 0) ManagedAclRight.changePermissions,
+    if (mask & 0x80000 != 0) ManagedAclRight.changeOwner,
+    if (mask & 0x10000000 != 0) ManagedAclRight.fullControl,
+  };
+  return rights.isEmpty ? {ManagedAclRight.other} : rights;
 }
 
 ManagedPathWitness inspect(String path) {
@@ -238,42 +254,43 @@ ManagedPathWitness inspect(String path) {
     final f = info.ref;
     final identity = _fileIdentity(f, owner);
     final directory = f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0;
-    final supportPath = directory && !policy.safeAncestor
-        ? windowsProfileSupportPath
-        : null;
-    final grant = supportPath == null
+    final grant =
+        policy.safeAncestor && policy.ownerOnly && policy.ownedByCurrentUser
         ? null
-        : managedWindowsDeleteGrant(
+        : managedWindowsAclGrant(
             facts: facts,
             path: finalPath,
-            supportPath: supportPath,
+            legacySupportPath: directory && !policy.safeAncestor
+                ? windowsProfileSupportPath
+                : null,
             identity: identity,
             currentSid: currentSid,
           );
-    final approved =
-        grant != null && hasWindowsProfileDeleteApproval(grant.fingerprint);
-    final safeAncestor = policy.safeAncestor || approved;
+    final approved = grant != null && hasStorageAclApproval(grant.fingerprint);
     return ManagedPathWitness(
       identity: identity,
       directory: directory,
       ownerOnly: policy.ownerOnly,
       ownedByCurrentUser: policy.ownedByCurrentUser,
       ownedByWindowsAdministrators: owner == _administratorsSid,
-      safeAncestor: safeAncestor,
-      unsafeAncestorCause: safeAncestor
+      safeAncestor: policy.safeAncestor,
+      unsafeAncestorCause: policy.safeAncestor
           ? null
           : _isTrustedSid(owner, currentSid)
           ? ManagedAncestorRefusalCause.unsafePermissions
           : ManagedAncestorRefusalCause.untrustedOwner,
-      windowsDeleteWarning: grant == null || approved
+      aclApproved: approved,
+      aclWarning: grant == null || approved
           ? null
-          : ManagedWindowsDeleteWarning(
+          : ManagedStorageAclWarning(
               path: stripExtendedLengthPrefix(finalPath),
+              directory: directory,
               fingerprint: grant.fingerprint,
+              owner: owner == currentSid ? null : windowsAclAccountLabel(owner),
               grants: grant.grants.entries.map(
                 (entry) => (
                   account: windowsAclAccountLabel(entry.key),
-                  canList: entry.value,
+                  rights: _displayRights(entry.value),
                 ),
               ),
             ),

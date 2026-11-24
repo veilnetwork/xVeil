@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
@@ -216,10 +215,15 @@ void main() {
     ) async {
       const localPath = r'C:\fixture-private\xveil';
       const localAccount = 'fixture-local-account';
-      final warning = ManagedWindowsDeleteWarning(
+      final warning = ManagedStorageAclWarning(
         path: localPath,
         fingerprint: 'a' * 64,
-        grants: const [(account: localAccount, canList: true)],
+        grants: const [
+          (
+            account: localAccount,
+            rights: {ManagedAclRight.read, ManagedAclRight.delete},
+          ),
+        ],
       );
       final choices = <bool>[];
       var attempts = 0;
@@ -232,7 +236,7 @@ void main() {
               ManagedWorkerFailureKind.invalid,
               preferencesOpenReason:
                   ManagedPreferencesFailureReason.unsafeAncestor,
-              windowsDeleteWarning: warning,
+              aclWarning: warning,
             );
           }
           return (
@@ -242,7 +246,8 @@ void main() {
             legacyPreferences: null,
           );
         },
-        recordDeleteApproval: (candidate, {required remember}) {
+        restoreAclApproval: (_) async => false,
+        recordAclApproval: (candidate, {required remember}) {
           expect(candidate, same(warning));
           choices.add(remember);
           return true;
@@ -250,7 +255,7 @@ void main() {
         present: (widget) => presented = widget,
       );
       await tester.pumpWidget(presented!);
-      expect(find.text('Review folder permissions'), findsOneWidget);
+      expect(find.text('Review access permissions'), findsOneWidget);
       expect(find.text(localPath), findsOneWidget);
       expect(find.textContaining(localAccount), findsOneWidget);
       expect(find.text('Do not start'), findsOneWidget);
@@ -260,35 +265,8 @@ void main() {
       expect(report, isNot(contains('fixture-private')));
       expect(report, isNot(contains(localAccount)));
 
-      if (!remember) {
-        String? clipboard;
-        final messenger =
-            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-        messenger.setMockMethodCallHandler(SystemChannels.platform, (
-          call,
-        ) async {
-          if (call.method == 'Clipboard.setData') {
-            clipboard = (call.arguments as Map)['text'] as String?;
-          }
-          return null;
-        });
-        addTearDown(
-          () =>
-              messenger.setMockMethodCallHandler(SystemChannels.platform, null),
-        );
-        final copy = find.text('Copy PowerShell repair');
-        await tester.ensureVisible(copy);
-        await tester.tap(copy);
-        await tester.runAsync(() async {
-          await rootBundle.loadString(
-            'scripts/repair-windows-profile-delete-grant.ps1',
-          );
-        });
-        await tester.pumpAndSettle();
-        expect(clipboard, startsWith('& {\n'));
-        expect(clipboard, contains('REMOVE DELETE'));
-        expect(choices, isEmpty);
-      }
+      expect(find.textContaining('PowerShell'), findsNothing);
+      expect(find.textContaining('delete or rename'), findsWidgets);
 
       final action = find.text(
         remember ? 'Start and remember my choice' : 'Start once',
@@ -302,6 +280,26 @@ void main() {
       expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
     });
   }
+
+  testWidgets('an OS access refusal shows what to check', (tester) async {
+    Widget? presented;
+    await runStartup(
+      loadPreferences: () async => throw const ManagedWorkerFailure(
+        ManagedWorkerFailureKind.invalid,
+        preferencesOpenReason:
+            ManagedPreferencesFailureReason.windowsPathAccessDenied,
+      ),
+      present: (widget) => presented = widget,
+    );
+
+    await tester.pumpWidget(presented!);
+    expect(
+      find.textContaining('Check whether your account has access'),
+      findsOneWidget,
+    );
+    expect(find.text('Start once'), findsNothing);
+    expect(find.byType(CopyErrorReportTile), findsOneWidget);
+  });
 
   test('startup retains the distinct preference read refusal', () async {
     diagnosticJournal.clear();

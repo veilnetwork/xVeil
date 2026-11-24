@@ -165,25 +165,110 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
-  String get startupAclWarningTitle => 'Проверьте права папки';
+  String get startupAclWarningTitle => 'Проверьте права доступа';
 
   @override
   String get startupAclWarningRisk =>
-      'В правах Windows есть разрешение на удаление или переименование этой папки для других учётных записей или групп. Если продолжить, обладатель этого права может подменить папку во время работы xVeil. Доступ к отдельным файлам зависит от их собственных прав.';
+      'У других учётных записей есть права на эту папку. Право записи или удаления может позволить им изменить или подменить данные. Доступ к каждому файлу зависит и от его собственных прав.';
 
   @override
-  String startupAclGrantDelete(String account) {
-    return '$account — есть разрешение удалить или переименовать папку.';
+  String get startupAclFileWarningRisk =>
+      'Другие учётные записи могут получить доступ к этому файлу в пределах указанных ниже прав.';
+
+  @override
+  String startupAclGrant(String account, String rights) {
+    return '$account — $rights';
   }
 
   @override
-  String startupAclGrantDeleteAndList(String account) {
-    return '$account — есть разрешения просматривать список файлов, удалять или переименовывать папку.';
+  String startupAclOwner(String account) {
+    return 'Владелец $account может менять права доступа';
   }
+
+  @override
+  String get startupAclEveryone => 'Остальные пользователи';
+
+  @override
+  String get startupAclDetails => 'Дополнительный список прав доступа';
+
+  @override
+  String get startupAclRead => 'чтение или просмотр';
+
+  @override
+  String get startupAclWrite => 'изменение';
+
+  @override
+  String get startupAclExecute => 'выполнение или проход по папке';
+
+  @override
+  String get startupAclDelete => 'удаление или переименование';
+
+  @override
+  String get startupAclDeleteChildren => 'удаление содержимого';
+
+  @override
+  String get startupAclChangePermissions => 'изменение прав';
+
+  @override
+  String get startupAclChangeOwner => 'смена владельца';
+
+  @override
+  String get startupAclFullControl => 'полный доступ';
+
+  @override
+  String get startupAclOther => 'прочие права';
 
   @override
   String get startupAclCorrectionHint =>
-      'Можно исправить права перед запуском. Запомненный выбор действует только для этой папки с этими правами.';
+      'Проверьте права в свойствах файла или папки либо обратитесь к администратору. Запомненный выбор относится только к этому объекту и его текущим правам.';
+
+  @override
+  String get startupAclInvalidPath =>
+      'Путь к профилю недопустим или находится вне локального диска. Проверьте, где указан профиль.';
+
+  @override
+  String get startupAclAccessDenied =>
+      'Операционная система запретила доступ к части пути к профилю. Проверьте права своей учётной записи или обратитесь к администратору.';
+
+  @override
+  String get startupAclLinkedPath =>
+      'На пути к профилю обнаружена ссылка или точка перенаправления Windows. Проверьте расположение профиля.';
+
+  @override
+  String get startupAclExpectedFolder =>
+      'На месте ожидаемой папки профиля находится другой объект. Проверьте расположение профиля.';
+
+  @override
+  String get startupAclExpectedFile =>
+      'На месте файла настроек обнаружена папка. Проверьте расположение профиля.';
+
+  @override
+  String get startupAclInsufficientPrivacy =>
+      'xVeil не смог подтвердить владельца или нужные права профиля. Проверьте их в настройках системы или обратитесь к администратору.';
+
+  @override
+  String get startupAclPathChanged =>
+      'Файл или папка изменились во время открытия. Закройте другие программы, работающие с профилем, и откройте xVeil снова.';
+
+  @override
+  String get startupAclFilesystemUnavailable =>
+      'xVeil не смог открыть или прочитать часть пути к профилю. Проверьте доступность диска и права своей учётной записи.';
+
+  @override
+  String get startupAclLockInvalid =>
+      'Служебный файл блокировки профиля недопустим. Закройте другие экземпляры xVeil. Если сбой повторится, скопируйте отчёт для администратора.';
+
+  @override
+  String get startupAclStorageRoleUnavailable =>
+      'xVeil не смог открыть служебные данные хранилища профиля. Проверьте доступность диска и скопируйте отчёт, если сбой повторится.';
+
+  @override
+  String get startupProfileChoiceUnreadable =>
+      'xVeil не смог прочитать сохранённый выбор профиля. Проверьте доступность диска и права своей учётной записи, затем откройте xVeil снова.';
+
+  @override
+  String get startupProfileChoiceInvalid =>
+      'В сохранённом выборе профиля указано недопустимое имя. Выберите существующий профиль при запуске или обратитесь к администратору.';
 
   @override
   String get startupAclApprovalFailed =>
@@ -200,17 +285,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get startupAclRecheck => 'Проверить права снова';
-
-  @override
-  String get startupAclCopyRepair => 'Скопировать исправление для PowerShell';
-
-  @override
-  String get startupAclRepairCopied =>
-      'Сценарий скопирован. Закройте xVeil и вставьте его в Windows PowerShell.';
-
-  @override
-  String get startupAclRepairCopyFailed =>
-      'Не удалось скопировать сценарий PowerShell.';
 
   @override
   String get startupRetry => 'Повторить';

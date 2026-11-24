@@ -1,9 +1,10 @@
 import 'dart:io' show exit;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../data/storage/managed_fs_contract.dart';
+import '../../data/storage/async_kv_log_store.dart'
+    show ManagedPreferencesFailureReason;
 import '../../l10n/app_localizations.dart';
 import '../settings/error_report.dart';
 
@@ -25,16 +26,18 @@ class StartupFailedApp extends StatelessWidget {
     this.preferencesFormatFailed = false,
     this.preferencesUnsafeAncestor = false,
     this.ancestorRefusal,
-    this.deleteWarning,
-    this.acceptDeleteWarning,
+    this.preferencesReason,
+    this.aclWarning,
+    this.acceptAclWarning,
   });
 
   final Future<void> Function()? retryPreferences;
   final bool preferencesFormatFailed;
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedWindowsDeleteWarning? deleteWarning;
-  final Future<bool> Function(bool remember)? acceptDeleteWarning;
+  final ManagedPreferencesFailureReason? preferencesReason;
+  final ManagedStorageAclWarning? aclWarning;
+  final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
   Widget build(BuildContext context) {
@@ -54,8 +57,9 @@ class StartupFailedApp extends StatelessWidget {
         preferencesFormatFailed: preferencesFormatFailed,
         preferencesUnsafeAncestor: preferencesUnsafeAncestor,
         ancestorRefusal: ancestorRefusal,
-        deleteWarning: deleteWarning,
-        acceptDeleteWarning: acceptDeleteWarning,
+        preferencesReason: preferencesReason,
+        aclWarning: aclWarning,
+        acceptAclWarning: acceptAclWarning,
       ),
     );
   }
@@ -67,16 +71,18 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.preferencesFormatFailed,
     required this.preferencesUnsafeAncestor,
     required this.ancestorRefusal,
-    required this.deleteWarning,
-    required this.acceptDeleteWarning,
+    required this.preferencesReason,
+    required this.aclWarning,
+    required this.acceptAclWarning,
   });
 
   final Future<void> Function()? retryPreferences;
   final bool preferencesFormatFailed;
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedWindowsDeleteWarning? deleteWarning;
-  final Future<bool> Function(bool remember)? acceptDeleteWarning;
+  final ManagedPreferencesFailureReason? preferencesReason;
+  final ManagedStorageAclWarning? aclWarning;
+  final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
   State<_StartupFailedScreen> createState() => _StartupFailedScreenState();
@@ -105,30 +111,14 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     if (mounted && !accepted) setState(() => _approvalFailed = true);
   });
 
-  Future<void> _copyAclRepair() async {
-    final l = AppL10n.of(context);
-    final messenger = ScaffoldMessenger.of(context);
-    String message;
-    try {
-      final script = await rootBundle.loadString(
-        'scripts/repair-windows-profile-delete-grant.ps1',
-      );
-      await Clipboard.setData(ClipboardData(text: '& {\n$script\n}'));
-      message = l.startupAclRepairCopied;
-    } catch (_) {
-      message = l.startupAclRepairCopyFailed;
-    }
-    if (mounted) messenger.showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final retryPreferences = widget.retryPreferences;
     final ancestor = widget.ancestorRefusal;
-    final warning = widget.deleteWarning;
-    final accept = widget.acceptDeleteWarning;
+    final warning = widget.aclWarning;
+    final accept = widget.acceptAclWarning;
     final actionStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant);
@@ -145,7 +135,9 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
       false when widget.preferencesFormatFailed =>
         l.startupPreferencesFormatFailed,
       false when retryPreferences != null => l.startupPreferencesBusy,
-      false => l.startupFailedAction,
+      false =>
+        _preferencesExplanation(l, widget.preferencesReason) ??
+            l.startupFailedAction,
     };
     return Scaffold(
       body: SafeArea(
@@ -170,15 +162,33 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                 ),
                 const SizedBox(height: 16),
                 if (warning != null && accept != null) ...[
-                  Text(l.startupAclWarningRisk, style: actionStyle),
+                  Text(
+                    warning.directory
+                        ? l.startupAclWarningRisk
+                        : l.startupAclFileWarningRisk,
+                    style: actionStyle,
+                  ),
                   const SizedBox(height: 8),
                   SelectableText(warning.path),
                   const SizedBox(height: 8),
+                  if (warning.owner case final owner?)
+                    Text(l.startupAclOwner(owner)),
                   for (final grant in warning.grants)
                     Text(
-                      grant.canList
-                          ? l.startupAclGrantDeleteAndList(grant.account)
-                          : l.startupAclGrantDelete(grant.account),
+                      l.startupAclGrant(
+                        grant.account.isEmpty
+                            ? l.startupAclEveryone
+                            : grant.account,
+                        grant.rights
+                            .map((right) => _rightLabel(l, right))
+                            .join(', '),
+                      ),
+                    ),
+                  if (warning.extendedAcl case final acl?)
+                    ExpansionTile(
+                      title: Text(l.startupAclDetails),
+                      initiallyExpanded: warning.grants.isEmpty,
+                      children: [SelectableText(acl)],
                     ),
                   const SizedBox(height: 8),
                   Text(l.startupAclCorrectionHint, style: actionStyle),
@@ -207,10 +217,6 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                             ? null
                             : () => _accept(accept, true),
                         child: Text(l.startupAclRemember),
-                      ),
-                      TextButton(
-                        onPressed: _retrying ? null : _copyAclRepair,
-                        child: Text(l.startupAclCopyRepair),
                       ),
                     ],
                   ),
@@ -244,3 +250,55 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     );
   }
 }
+
+String _rightLabel(AppL10n l, ManagedAclRight right) => switch (right) {
+  ManagedAclRight.read => l.startupAclRead,
+  ManagedAclRight.write => l.startupAclWrite,
+  ManagedAclRight.execute => l.startupAclExecute,
+  ManagedAclRight.delete => l.startupAclDelete,
+  ManagedAclRight.deleteChildren => l.startupAclDeleteChildren,
+  ManagedAclRight.changePermissions => l.startupAclChangePermissions,
+  ManagedAclRight.changeOwner => l.startupAclChangeOwner,
+  ManagedAclRight.fullControl => l.startupAclFullControl,
+  ManagedAclRight.other => l.startupAclOther,
+};
+
+String? _preferencesExplanation(
+  AppL10n l,
+  ManagedPreferencesFailureReason? reason,
+) => switch (reason) {
+  ManagedPreferencesFailureReason.invalidProfilePath ||
+  ManagedPreferencesFailureReason.windowsNonDrivePath =>
+    l.startupAclInvalidPath,
+  ManagedPreferencesFailureReason.windowsPathAccessDenied ||
+  ManagedPreferencesFailureReason.filesystemAccessDenied =>
+    l.startupAclAccessDenied,
+  ManagedPreferencesFailureReason.windowsReparsePoint => l.startupAclLinkedPath,
+  ManagedPreferencesFailureReason.profileNotDirectory =>
+    l.startupAclExpectedFolder,
+  ManagedPreferencesFailureReason.fileType => l.startupAclExpectedFile,
+  ManagedPreferencesFailureReason.profileOwner ||
+  ManagedPreferencesFailureReason.fileOwner ||
+  ManagedPreferencesFailureReason.filePermissions ||
+  ManagedPreferencesFailureReason.privateDirectory ||
+  ManagedPreferencesFailureReason.privateFile ||
+  ManagedPreferencesFailureReason.filesystemUnsafe =>
+    l.startupAclInsufficientPrivacy,
+  ManagedPreferencesFailureReason.filesystemChanged => l.startupAclPathChanged,
+  ManagedPreferencesFailureReason.windowsPathOpenFailed ||
+  ManagedPreferencesFailureReason.windowsPathInfoFailed ||
+  ManagedPreferencesFailureReason.filesystemUnavailable ||
+  ManagedPreferencesFailureReason.filesystemIo =>
+    l.startupAclFilesystemUnavailable,
+  ManagedPreferencesFailureReason.invalidLifetimeLock =>
+    l.startupAclLockInvalid,
+  ManagedPreferencesFailureReason.sqlite ||
+  ManagedPreferencesFailureReason.missingCatalog ||
+  ManagedPreferencesFailureReason.invalidRole =>
+    l.startupAclStorageRoleUnavailable,
+  ManagedPreferencesFailureReason.profileChoiceUnreadable =>
+    l.startupProfileChoiceUnreadable,
+  ManagedPreferencesFailureReason.profileChoiceInvalid =>
+    l.startupProfileChoiceInvalid,
+  _ => null,
+};

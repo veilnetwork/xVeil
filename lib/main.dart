@@ -40,7 +40,7 @@ import 'core/quick_unlock_vault.dart';
 import 'core/storage_features.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
-import 'data/storage/windows_profile_delete_approval.dart';
+import 'core/storage_acl_vault.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
 import 'data/transport/veil_native.dart';
@@ -107,9 +107,11 @@ Future<void> runStartup({
   Future<ProfilePreferencesBootstrap> Function() loadPreferences =
       _loadStartupPreferences,
   void Function(Widget) present = runApp,
-  bool Function(ManagedWindowsDeleteWarning, {required bool remember})
-      recordDeleteApproval =
-      recordWindowsProfileDeleteApproval,
+  FutureOr<bool> Function(ManagedStorageAclWarning, {required bool remember})
+      recordAclApproval =
+      recordStorageAclApproval,
+  Future<bool> Function(ManagedStorageAclWarning) restoreAclApproval =
+      restoreRememberedStorageAcl,
 }) async {
   var loadingPreferences = false;
   try {
@@ -123,6 +125,19 @@ Future<void> runStartup({
     loadingPreferences = false;
     await _bootAndRunApp(preferences, present);
   } catch (e, st) {
+    final aclWarning = loadingPreferences && e is ManagedWorkerFailure
+        ? e.aclWarning
+        : null;
+    Future<void> retryStartup() => runStartup(
+      loadPreferences: loadPreferences,
+      present: present,
+      recordAclApproval: recordAclApproval,
+      restoreAclApproval: restoreAclApproval,
+    );
+    if (aclWarning != null && await restoreAclApproval(aclWarning)) {
+      await retryStartup();
+      return;
+    }
     devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
     final StartupPreferenceFailure? preferenceFailure = switch (e) {
       ManagedWorkerFailure(
@@ -197,28 +212,31 @@ Future<void> runStartup({
                 ManagedPreferencesFailureReason.unsafeAncestor ||
             e.preferencesReadReason ==
                 ManagedPreferencesFailureReason.unsafeAncestor);
-    final deleteWarning = unsafeAncestor ? e.windowsDeleteWarning : null;
-    Future<void> retryStartup() => runStartup(
-      loadPreferences: loadPreferences,
-      present: present,
-      recordDeleteApproval: recordDeleteApproval,
-    );
     present(
       StartupFailedApp(
+        preferencesReason: loadingPreferences
+            ? switch (e) {
+                ManagedWorkerFailure() =>
+                  e.preferencesOpenReason ?? e.preferencesReadReason,
+                ProfileChoiceReadFailure() =>
+                  e.malformed
+                      ? ManagedPreferencesFailureReason.profileChoiceInvalid
+                      : ManagedPreferencesFailureReason.profileChoiceUnreadable,
+                _ => null,
+              }
+            : null,
         preferencesFormatFailed:
             loadingPreferences && e is ProfilePreferencesFormatFailure,
         preferencesUnsafeAncestor: unsafeAncestor,
         ancestorRefusal: unsafeAncestor
             ? preferenceFailure?.ancestorRefusal
             : null,
-        retryPreferences: canRetry || deleteWarning != null
-            ? retryStartup
-            : null,
-        deleteWarning: deleteWarning,
-        acceptDeleteWarning: deleteWarning == null
+        retryPreferences: canRetry || aclWarning != null ? retryStartup : null,
+        aclWarning: aclWarning,
+        acceptAclWarning: aclWarning == null
             ? null
             : (remember) async {
-                if (!recordDeleteApproval(deleteWarning, remember: remember)) {
+                if (!await recordAclApproval(aclWarning, remember: remember)) {
                   return false;
                 }
                 await retryStartup();

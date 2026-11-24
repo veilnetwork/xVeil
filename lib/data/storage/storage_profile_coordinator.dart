@@ -57,6 +57,7 @@ final class StorageProfileCoordinator {
     String supplied, {
     ManagedFsPlatform fs = const ManagedFsPlatform(),
     bool includeApplicationJournal = true,
+    bool allowAclApproval = false,
   }) => ManagedDirectoryCatalog._safe(() {
     final profile = ManagedDirectoryCatalog._admitProfile(supplied, fs);
     final path = ManagedDirectoryCatalog._child(profile.path, directoryName);
@@ -64,7 +65,11 @@ final class StorageProfileCoordinator {
         FileSystemEntityType.notFound) {
       return false;
     }
-    final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
+    final directory = ManagedDirectoryCatalog._privateDirectory(
+      path,
+      fs,
+      allowAclApproval: allowAclApproval,
+    );
     final pending =
         [
           ManagedRootErasure.pendingName,
@@ -209,18 +214,30 @@ final class StorageProfileCoordinator {
   }) {
     ManagedDirectoryCatalog._assertProfile(profile, witness, fs);
     final path = ManagedDirectoryCatalog._child(profile, directoryName);
-    final directory = ManagedDirectoryCatalog._privateDirectory(path, fs);
+    final directory = ManagedDirectoryCatalog._privateDirectory(
+      path,
+      fs,
+      allowAclApproval: !exclusive,
+    );
     final role = ManagedDirectoryCatalog._child(
       path,
       ManagedProfileLease.fileName,
     );
     final files = <String, ManagedPathWitness>{
-      ManagedProfileLease.fileName: fs.requirePrivateFile(role),
+      ManagedProfileLease.fileName: fs.requirePrivateFile(
+        role,
+        allowAclApproval: !exclusive,
+      ),
       '${ManagedProfileLease.fileName}.lock': fs.requirePrivateFile(
         '$role.lock',
+        allowAclApproval: !exclusive,
       ),
     };
-    ManagedDirectoryCatalog._checkSqliteSidecars(role, fs);
+    ManagedDirectoryCatalog._checkSqliteSidecars(
+      role,
+      fs,
+      allowAclApproval: !exclusive,
+    );
     if (File('$role.lock').lengthSync() != 0) {
       throw const ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
@@ -275,11 +292,15 @@ final class StorageProfileCoordinator {
       _profileWitness,
       _fs,
     );
-    ManagedDirectoryCatalog._privateDirectory(directory, _fs);
+    ManagedDirectoryCatalog._privateDirectory(
+      directory,
+      _fs,
+      allowAclApproval: !this.exclusive,
+    );
     ManagedDirectoryCatalog._assertSame(directory, _directoryWitness, _fs);
     for (final entry in _files.entries) {
       final path = ManagedDirectoryCatalog._child(directory, entry.key);
-      _fs.requirePrivateFile(path);
+      _fs.requirePrivateFile(path, allowAclApproval: !this.exclusive);
       ManagedDirectoryCatalog._assertSame(path, entry.value, _fs);
     }
     if (File(

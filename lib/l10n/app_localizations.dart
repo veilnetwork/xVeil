@@ -360,32 +360,176 @@ abstract class AppL10n {
   /// No description provided for @startupAclWarningTitle.
   ///
   /// In en, this message translates to:
-  /// **'Review folder permissions'**
+  /// **'Review access permissions'**
   String get startupAclWarningTitle;
 
   /// No description provided for @startupAclWarningRisk.
   ///
   /// In en, this message translates to:
-  /// **'Windows permission entries allow other accounts or groups to delete or rename this folder. If you continue, someone with that access could replace the folder while xVeil is open. Access to individual files depends on their own permissions.'**
+  /// **'Other accounts have permissions on this folder. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.'**
   String get startupAclWarningRisk;
 
-  /// No description provided for @startupAclGrantDelete.
+  /// No description provided for @startupAclFileWarningRisk.
   ///
   /// In en, this message translates to:
-  /// **'{account} has a grant to delete or rename the folder.'**
-  String startupAclGrantDelete(String account);
+  /// **'Other accounts may have access to this file under the permissions shown below.'**
+  String get startupAclFileWarningRisk;
 
-  /// No description provided for @startupAclGrantDeleteAndList.
+  /// No description provided for @startupAclGrant.
   ///
   /// In en, this message translates to:
-  /// **'{account} has grants to list the folder’s contents and to delete or rename the folder.'**
-  String startupAclGrantDeleteAndList(String account);
+  /// **'{account} — {rights}'**
+  String startupAclGrant(String account, String rights);
+
+  /// No description provided for @startupAclOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner {account} can change permissions'**
+  String startupAclOwner(String account);
+
+  /// No description provided for @startupAclEveryone.
+  ///
+  /// In en, this message translates to:
+  /// **'Other users'**
+  String get startupAclEveryone;
+
+  /// No description provided for @startupAclDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Extended ACL'**
+  String get startupAclDetails;
+
+  /// No description provided for @startupAclRead.
+  ///
+  /// In en, this message translates to:
+  /// **'read or list'**
+  String get startupAclRead;
+
+  /// No description provided for @startupAclWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'write'**
+  String get startupAclWrite;
+
+  /// No description provided for @startupAclExecute.
+  ///
+  /// In en, this message translates to:
+  /// **'execute or traverse'**
+  String get startupAclExecute;
+
+  /// No description provided for @startupAclDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'delete or rename'**
+  String get startupAclDelete;
+
+  /// No description provided for @startupAclDeleteChildren.
+  ///
+  /// In en, this message translates to:
+  /// **'delete contents'**
+  String get startupAclDeleteChildren;
+
+  /// No description provided for @startupAclChangePermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'change permissions'**
+  String get startupAclChangePermissions;
+
+  /// No description provided for @startupAclChangeOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'change owner'**
+  String get startupAclChangeOwner;
+
+  /// No description provided for @startupAclFullControl.
+  ///
+  /// In en, this message translates to:
+  /// **'full control'**
+  String get startupAclFullControl;
+
+  /// No description provided for @startupAclOther.
+  ///
+  /// In en, this message translates to:
+  /// **'other access'**
+  String get startupAclOther;
 
   /// No description provided for @startupAclCorrectionHint.
   ///
   /// In en, this message translates to:
-  /// **'You can correct the permissions before opening this folder. A saved choice applies only to this folder and these permissions.'**
+  /// **'Review the permissions in the file or folder properties, or ask your administrator. A saved choice applies only to this object and its current permissions.'**
   String get startupAclCorrectionHint;
+
+  /// No description provided for @startupAclInvalidPath.
+  ///
+  /// In en, this message translates to:
+  /// **'The profile path is invalid or points outside a local drive. Check the configured profile location.'**
+  String get startupAclInvalidPath;
+
+  /// No description provided for @startupAclAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The operating system denied access to part of the profile path. Check whether your account has access or ask your administrator.'**
+  String get startupAclAccessDenied;
+
+  /// No description provided for @startupAclLinkedPath.
+  ///
+  /// In en, this message translates to:
+  /// **'The profile path passes through a link or a Windows junction. Check the configured profile location.'**
+  String get startupAclLinkedPath;
+
+  /// No description provided for @startupAclExpectedFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'An item in the profile path occupies the place where xVeil expects a folder. Check the profile location.'**
+  String get startupAclExpectedFolder;
+
+  /// No description provided for @startupAclExpectedFile.
+  ///
+  /// In en, this message translates to:
+  /// **'A folder occupies the place where xVeil expects the settings file. Check the profile location.'**
+  String get startupAclExpectedFile;
+
+  /// No description provided for @startupAclInsufficientPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not verify the required ownership or permissions for the profile. Review them in your system settings or ask your administrator.'**
+  String get startupAclInsufficientPrivacy;
+
+  /// No description provided for @startupAclPathChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'A file or folder changed while xVeil was opening it. Close other apps using the profile and reopen xVeil.'**
+  String get startupAclPathChanged;
+
+  /// No description provided for @startupAclFilesystemUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open or read part of the profile path. Check the drive and your account’s access.'**
+  String get startupAclFilesystemUnavailable;
+
+  /// No description provided for @startupAclLockInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'The profile coordination file is invalid. Close other instances of xVeil. If the problem persists, copy a report for your administrator.'**
+  String get startupAclLockInvalid;
+
+  /// No description provided for @startupAclStorageRoleUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open the profile’s storage records. Check that the storage drive is available and copy a report if the problem persists.'**
+  String get startupAclStorageRoleUnavailable;
+
+  /// No description provided for @startupProfileChoiceUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not read the saved profile choice. Check the drive and your account’s access, then reopen xVeil.'**
+  String get startupProfileChoiceUnreadable;
+
+  /// No description provided for @startupProfileChoiceInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'The saved profile choice contains an invalid profile name. Select an existing profile at launch or ask your administrator to correct the saved choice.'**
+  String get startupProfileChoiceInvalid;
 
   /// No description provided for @startupAclApprovalFailed.
   ///
@@ -416,24 +560,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Check permissions again'**
   String get startupAclRecheck;
-
-  /// No description provided for @startupAclCopyRepair.
-  ///
-  /// In en, this message translates to:
-  /// **'Copy PowerShell repair'**
-  String get startupAclCopyRepair;
-
-  /// No description provided for @startupAclRepairCopied.
-  ///
-  /// In en, this message translates to:
-  /// **'Copied. Close xVeil, then paste the repair script into Windows PowerShell.'**
-  String get startupAclRepairCopied;
-
-  /// No description provided for @startupAclRepairCopyFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not copy the PowerShell repair script.'**
-  String get startupAclRepairCopyFailed;
 
   /// No description provided for @startupRetry.
   ///

@@ -21,6 +21,7 @@ Future<ManagedProfileBootstrap> bootstrapManagedProfile({
   bool pending() => StorageProfileCoordinator.hasErasureIntent(
     profileDirectory,
     fs: inspectionFs,
+    allowAclApproval: true,
   );
   if (pending()) return (erasurePending: true, owner: null);
   final ProfileStorageRouter router;

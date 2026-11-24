@@ -8,6 +8,20 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.109] - 2026-11-24
+
+### Changed
+
+- Explain startup failures that a user or administrator can address,
+  including denied access, an invalid profile path and an unreadable drive.
+- Show the affected object, owner and available permission details when
+  profile storage does not meet xVeil’s default access policy. Users can
+  close xVeil, start once, remember their choice for the same object and
+  permissions, or recheck the permissions after changing them.
+- Remove the PowerShell repair script and its startup copy action.
+
+This diagnostic release uses Veil 0.11.59.
+
 ## [0.13.108] - 2026-11-24
 
 ### Changed

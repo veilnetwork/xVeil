@@ -35,32 +35,52 @@ typedef ManagedAncestorRefusal = ({
   ManagedAncestorRefusalCause? cause,
 });
 
+enum ManagedAclRight {
+  read,
+  write,
+  execute,
+  delete,
+  deleteChildren,
+  changePermissions,
+  changeOwner,
+  fullControl,
+  other,
+}
+
+typedef ManagedAclGrant = ({String account, Set<ManagedAclRight> rights});
+
 /// Local UI evidence. Keep this out of reports, logs and app preferences.
-final class ManagedWindowsDeleteWarning {
-  ManagedWindowsDeleteWarning({
+final class ManagedStorageAclWarning {
+  ManagedStorageAclWarning({
     required this.path,
     required this.fingerprint,
-    required Iterable<({String account, bool canList})> grants,
+    required Iterable<ManagedAclGrant> grants,
+    this.directory = true,
+    this.owner,
+    this.extendedAcl,
   }) : grants = List.unmodifiable(grants);
 
   final String path;
   final String fingerprint;
-  final List<({String account, bool canList})> grants;
+  final List<ManagedAclGrant> grants;
+  final bool directory;
+  final String? owner;
+  final String? extendedAcl;
 }
 
-/// The exception text is safe to log. Windows warning details are local to
+/// The exception text is safe to log. Permission details are local to
 /// the startup UI and must never be serialized with the exception.
 final class ManagedFsFailure implements Exception {
   const ManagedFsFailure(
     this.kind, {
     this.unsafeReason,
     this.ancestorRefusal,
-    this.windowsDeleteWarning,
+    this.aclWarning,
   });
   final ManagedFsFailureKind kind;
   final ManagedFsUnsafeReason? unsafeReason;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
+  final ManagedStorageAclWarning? aclWarning;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';
 }
@@ -68,8 +88,8 @@ final class ManagedFsFailure implements Exception {
 /// A witness for the object inspected, not a claim of descriptor-relative I/O.
 /// Private roots exclude other-user mutation; repeated checks detect ordinary
 /// path replacement, but do not defend against hostile same-user ABA races.
-/// A Windows ancestor can also be admitted by explicit user consent for its
-/// exact DELETE grant. That consent accepts the risk of replacement.
+/// Consent is kept apart from the observed facts so strict callers can still
+/// require a private object. Approval applies only to the observed ACL.
 final class ManagedPathWitness {
   const ManagedPathWitness({
     required this.identity,
@@ -78,7 +98,8 @@ final class ManagedPathWitness {
     required this.ownedByCurrentUser,
     required this.safeAncestor,
     this.unsafeAncestorCause,
-    this.windowsDeleteWarning,
+    this.aclWarning,
+    this.aclApproved = false,
     this.ownedByWindowsAdministrators = false,
     this.otherUsersHaveReadOnlyAccess = false,
   });
@@ -88,7 +109,9 @@ final class ManagedPathWitness {
   final bool ownedByCurrentUser;
   final bool safeAncestor;
   final ManagedAncestorRefusalCause? unsafeAncestorCause;
-  final ManagedWindowsDeleteWarning? windowsDeleteWarning;
+  final ManagedStorageAclWarning? aclWarning;
+  final bool aclApproved;
+  bool get admitsAncestor => safeAncestor || aclApproved;
   final bool ownedByWindowsAdministrators;
   final bool otherUsersHaveReadOnlyAccess;
 

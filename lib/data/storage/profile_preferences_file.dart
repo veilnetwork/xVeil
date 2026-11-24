@@ -71,9 +71,16 @@ bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 /// Best effort on purpose: the file mode below is the check that decides, and
 /// for the default profile this directory is the app-support directory itself,
 /// which the platform already places inside the app's own tree.
-Future<void> _ensurePrivateDir(Directory dir) async {
+Future<void> _ensurePrivateDir(
+  Directory dir, {
+  bool acceptExistingAcl = false,
+}) async {
   await dir.create(recursive: true);
   if (Platform.isWindows) return;
+  if (acceptExistingAcl &&
+      const ManagedFsPlatform().inspect(dir.path).aclApproved) {
+    return;
+  }
   final rc = posixChmod(dir.path, _ownerOnlyDir);
   if (rc != null && rc != 0) {
     devLog(() => 'xVeil[prefs]: could not restrict ${dir.path} to 0700');
@@ -152,7 +159,10 @@ bool _prepareWindowsTemporary(File temp) {
 /// Read a valid installation-wide choice. A read failure on an existing entry
 /// propagates so a migration cannot replace a choice it was unable to read.
 /// Use [requireValid] when an unreadable choice must stop startup or migration.
-Future<String?> readProfileChoice(File file, {bool requireValid = false}) async {
+Future<String?> readProfileChoice(
+  File file, {
+  bool requireValid = false,
+}) async {
   try {
     final name = utf8
         .decode(await file.readAsBytes(), allowMalformed: true)
@@ -195,17 +205,18 @@ Future<Map<String, Object>> readDesktopLegacyPreferences(File file) async {
 /// A saved profile choice could not be read. The cause is safe for diagnostics.
 final class ProfileChoiceReadFailure implements Exception {
   const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false})
-    : _malformed = false;
+    : malformed = false;
   const ProfileChoiceReadFailure.malformed({this.fromLegacy = false})
     : busy = false,
-      _malformed = true;
+      malformed = true;
 
   final bool busy;
   final bool fromLegacy;
-  final bool _malformed;
+  final bool malformed;
 
   // Preserve the original 0–3 codes for read failures.
-  int get diagnosticCode => _malformed ? 4 : (fromLegacy ? 2 : 0) + (busy ? 1 : 0);
+  int get diagnosticCode =>
+      malformed ? 4 : (fromLegacy ? 2 : 0) + (busy ? 1 : 0);
 }
 
 bool isWindowsFileSharingViolation(Object error) =>
@@ -307,7 +318,8 @@ Future<bool> writeProfileChoiceAtomically(
     }
     // Migration may have resolved the old choice before another process saved
     // a new one. Read again while holding the same lock used by manual saves.
-    if (onlyIfUnset && await readProfileChoice(file, requireValid: true) != null) {
+    if (onlyIfUnset &&
+        await readProfileChoice(file, requireValid: true) != null) {
       return true;
     }
     return await writePrivateFileAtomically(file, contents);
@@ -331,7 +343,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
   File file,
   FutureOr<T> Function() work,
 ) async {
-  await _ensurePrivateDir(file.parent);
+  await _ensurePrivateDir(file.parent, acceptExistingAcl: true);
   final sidecar = File('${file.path}.lock');
   if (FileSystemEntity.typeSync(sidecar.path, followLinks: false) ==
       FileSystemEntityType.notFound) {
@@ -490,7 +502,10 @@ bool writePrivateFileAtomicallySync(File file, String contents) {
   final temp = File('${file.path}.tmp');
   try {
     file.parent.createSync(recursive: true);
-    if (!Platform.isWindows) posixChmod(file.parent.path, _ownerOnlyDir);
+    if (!Platform.isWindows &&
+        !const ManagedFsPlatform().inspect(file.parent.path).aclApproved) {
+      posixChmod(file.parent.path, _ownerOnlyDir);
+    }
     final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
     if (planted == FileSystemEntityType.link) {
       Link(temp.path).deleteSync();

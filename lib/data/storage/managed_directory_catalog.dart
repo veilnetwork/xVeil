@@ -437,6 +437,7 @@ final class ManagedDirectoryCatalog {
     // files still require current-user ownership. Ancestor checks still apply.
     final owned =
         witness.ownedByCurrentUser ||
+        witness.aclApproved ||
         (preferencesBase &&
             Platform.isWindows &&
             witness.ownedByWindowsAdministrators);
@@ -446,6 +447,7 @@ final class ManagedDirectoryCatalog {
         unsafeReason: witness.directory
             ? ManagedFsUnsafeReason.profileOwner
             : ManagedFsUnsafeReason.profileNotDirectory,
+        aclWarning: witness.directory ? witness.aclWarning : null,
       );
     }
     _assertProfile(path, witness, fs);
@@ -461,7 +463,7 @@ final class ManagedDirectoryCatalog {
     var current = Directory(path);
     for (var depth = 0; depth < 256; depth++) {
       final facts = fs.inspect(current.path);
-      if (!facts.directory || !facts.safeAncestor) {
+      if (!facts.directory || !facts.admitsAncestor) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: ManagedFsUnsafeReason.unsafeAncestor,
@@ -471,7 +473,7 @@ final class ManagedDirectoryCatalog {
                 ? facts.unsafeAncestorCause
                 : ManagedAncestorRefusalCause.notDirectory,
           ),
-          windowsDeleteWarning: facts.windowsDeleteWarning,
+          aclWarning: facts.aclWarning,
         );
       }
       final parent = current.parent;
@@ -483,15 +485,19 @@ final class ManagedDirectoryCatalog {
 
   static ManagedPathWitness _privateDirectory(
     String path,
-    ManagedFsPlatform fs,
-  ) {
+    ManagedFsPlatform fs, {
+    bool allowAclApproval = false,
+  }) {
     final witness = fs.inspect(path);
     if (!witness.directory ||
-        !witness.ownerOnly ||
-        !witness.ownedByCurrentUser) {
-      throw const ManagedFsFailure(
+        (!(allowAclApproval && witness.aclApproved) &&
+            (!witness.ownerOnly || !witness.ownedByCurrentUser))) {
+      throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateDirectory,
+        aclWarning: allowAclApproval && witness.directory
+            ? witness.aclWarning
+            : null,
       );
     }
     return witness;
@@ -507,14 +513,18 @@ final class ManagedDirectoryCatalog {
     }
   }
 
-  static void _checkSqliteSidecars(String database, ManagedFsPlatform fs) {
+  static void _checkSqliteSidecars(
+    String database,
+    ManagedFsPlatform fs, {
+    bool allowAclApproval = false,
+  }) {
     // SQLite opens these itself during recovery. Checking only the database
     // leaf would still allow a planted journal/WAL link to escape the root.
     for (final suffix in ['-journal', '-wal', '-shm']) {
       final path = '$database$suffix';
       if (FileSystemEntity.typeSync(path, followLinks: false) !=
           FileSystemEntityType.notFound) {
-        fs.requirePrivateFile(path);
+        fs.requirePrivateFile(path, allowAclApproval: allowAclApproval);
       }
     }
   }

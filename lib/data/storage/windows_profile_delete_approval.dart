@@ -27,7 +27,7 @@ final _addAtom = _kernel
 String _atomName(String fingerprint) =>
     'xVeil.ProfileDeleteApproval.v1.$fingerprint';
 
-bool hasWindowsProfileDeleteApproval(String fingerprint) {
+bool hasWindowsProfileAclApproval(String fingerprint) {
   if (!Platform.isWindows || !_fingerprintPattern.hasMatch(fingerprint)) {
     return false;
   }
@@ -54,8 +54,8 @@ bool hasWindowsProfileDeleteApproval(String fingerprint) {
 
 /// Called only after the startup warning's explicit UI action. Keep persistent
 /// consent in HKCU, outside the very directory whose ACL is being waived.
-bool recordWindowsProfileDeleteApproval(
-  ManagedWindowsDeleteWarning warning, {
+bool recordWindowsProfileAclApproval(
+  ManagedStorageAclWarning warning, {
   required bool remember,
 }) {
   final fingerprint = warning.fingerprint;

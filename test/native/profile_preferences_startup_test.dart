@@ -22,6 +22,7 @@ import 'package:xveil/data/storage/managed_sqlite_connection.dart';
 import 'package:xveil/data/storage/profile_preferences_bootstrap.dart';
 import 'package:xveil/data/storage/profile_preferences.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
+import 'package:xveil/data/storage/storage_acl_approval.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -116,7 +117,9 @@ void main() {
       legacy = source;
       SharedPreferencesStorePlatform.instance = source;
       Directory(base('older')).createSync(recursive: true);
-      final args = choice == 'explicit' ? ['--profile', 'selected'] : <String>[];
+      final args = choice == 'explicit'
+          ? ['--profile', 'selected']
+          : <String>[];
       if (choice == 'saved') {
         expect(await writeRememberedProfile(support.path, 'selected'), isTrue);
       }
@@ -191,7 +194,9 @@ void main() {
       const old = {key: 'bad/profile', 'flutter.locale.selected': 'de'};
       legacy = InMemorySharedPreferencesStore.withData(old);
       SharedPreferencesStorePlatform.instance = legacy;
-      final args = choice == 'explicit' ? ['--profile', 'selected'] : <String>[];
+      final args = choice == 'explicit'
+          ? ['--profile', 'selected']
+          : <String>[];
       if (choice == 'saved') {
         expect(await writeRememberedProfile(support.path, 'selected'), isTrue);
       }
@@ -270,8 +275,9 @@ void main() {
       () async {
         // Use the same local data directory as the installed Windows app.
         support.deleteSync();
-        support = Directory(Platform.environment['LOCALAPPDATA']!)
-            .createTempSync('xveil-prefs-contention-');
+        support = Directory(
+          Platform.environment['LOCALAPPDATA']!,
+        ).createTempSync('xveil-prefs-contention-');
         const stored = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"es"}}}';
         final writer = await open(prefs());
         expect(await writer.write(stored), isTrue);
@@ -609,6 +615,8 @@ void main() {
   test(
     'the worker reports a writable parent before opening preferences',
     () async {
+      addTearDown(() => restoreStorageAclApprovals({}));
+      ManagedStorageAclWarning? warning;
       final parent = Directory('${support.path}/shared-fixture');
       final profile = Directory('${parent.path}/profile')
         ..createSync(recursive: true);
@@ -630,7 +638,15 @@ void main() {
               .having((error) => error.ancestorRefusal, 'ancestor refusal', (
                 depth: 1,
                 cause: ManagedAncestorRefusalCause.unsafePermissions,
-              )),
+              ))
+              .having(
+                (error) {
+                  warning = error.aclWarning;
+                  return warning?.path;
+                },
+                'affected path',
+                parent.path,
+              ),
         ),
       );
       expect(marker.readAsStringSync(), 'fixture');
@@ -638,6 +654,24 @@ void main() {
       expect(
         Directory('${profile.path}/visible-storage').existsSync(),
         isFalse,
+      );
+
+      approveStorageAcl(warning!.fingerprint);
+      final opened = await ManagedProfilePreferencesFile.open(path);
+      await opened.close();
+      expect(parent.statSync().mode & 0x10, isNot(0));
+      expect(marker.readAsStringSync(), 'fixture');
+
+      expect((await Process.run('chmod', ['o+w', parent.path])).exitCode, 0);
+      await expectLater(
+        ManagedProfilePreferencesFile.open(path),
+        throwsA(
+          isA<ManagedWorkerFailure>().having(
+            (error) => error.aclWarning?.fingerprint,
+            'changed ACL',
+            isNot(anyOf(isNull, warning!.fingerprint)),
+          ),
+        ),
       );
     },
     skip: !Platform.isMacOS && !Platform.isLinux,

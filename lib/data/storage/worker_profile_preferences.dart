@@ -28,6 +28,9 @@ enum ManagedPreferencesFailureReason {
   privateDirectory,
   privateFile,
   invalidLifetimeLock,
+  filesystemAccessDenied,
+  profileChoiceUnreadable,
+  profileChoiceInvalid,
 }
 
 ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
@@ -79,6 +82,11 @@ ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
       ManagedSqliteFailure() => ManagedPreferencesFailureReason.sqlite,
       FileSystemException() when isWindowsFileSharingViolation(error) =>
         ManagedPreferencesFailureReason.busy,
+      FileSystemException(:final osError?)
+          when Platform.isWindows
+              ? osError.errorCode == 5
+              : osError.errorCode == 1 || osError.errorCode == 13 =>
+        ManagedPreferencesFailureReason.filesystemAccessDenied,
       FileSystemException() => ManagedPreferencesFailureReason.filesystemIo,
       _ => ManagedPreferencesFailureReason.other,
     };
@@ -359,7 +367,7 @@ void _profilePreferencesEntry(
           _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
           ancestorRefusal: filesystem?.ancestorRefusal,
-          windowsDeleteWarning: filesystem?.windowsDeleteWarning,
+          aclWarning: filesystem?.aclWarning,
         ),
       );
       return;
@@ -369,7 +377,7 @@ void _profilePreferencesEntry(
         _managedFailureKind(error),
         preferencesOpenReason: reason,
         ancestorRefusal: filesystem?.ancestorRefusal,
-        windowsDeleteWarning: filesystem?.windowsDeleteWarning,
+        aclWarning: filesystem?.aclWarning,
       ),
     );
     return;
@@ -402,6 +410,7 @@ void _profilePreferencesEntry(
   ManagedPreferencesFailureReason? fileFailure(ManagedPathWitness? witness) {
     if (witness == null) return null;
     if (witness.directory) return ManagedPreferencesFailureReason.fileType;
+    if (witness.aclApproved) return null;
     if (!witness.ownedByCurrentUser) {
       return ManagedPreferencesFailureReason.fileOwner;
     }
@@ -459,15 +468,31 @@ void _profilePreferencesEntry(
               var witness = inspectFile();
               if (Platform.isWindows &&
                   witness != null &&
+                  !witness.aclApproved &&
                   !witness.directory &&
                   (witness.ownedByWindowsAdministrators ||
                       witness.ownedByCurrentUser && !witness.ownerOnly) &&
                   (witness.ownerOnly || witness.otherUsersHaveReadOnlyAccess)) {
-                witness = windows.normalizePrivateFileAccess(
-                  file.path,
-                  witness,
-                  allowLegacyReadAccess: true,
-                );
+                final initial = witness;
+                try {
+                  witness = windows.normalizePrivateFileAccess(
+                    file.path,
+                    initial,
+                    allowLegacyReadAccess: true,
+                  );
+                } on ManagedFsFailure catch (error) {
+                  if (error.kind != ManagedFsFailureKind.unsafe &&
+                      error.kind != ManagedFsFailureKind.io) {
+                    rethrow;
+                  }
+                  final current = inspectFile();
+                  if (current == null ||
+                      !initial.sameObject(current) ||
+                      current.aclWarning == null) {
+                    rethrow;
+                  }
+                  witness = current;
+                }
                 requireHeld();
               }
               final failure = fileFailure(witness);
@@ -476,6 +501,10 @@ void _profilePreferencesEntry(
                   _ManagedWorkerErr(
                     ManagedWorkerFailureKind.invalid,
                     preferencesReadReason: failure,
+                    aclWarning:
+                        failure == ManagedPreferencesFailureReason.fileType
+                        ? null
+                        : witness?.aclWarning,
                   ),
                 );
                 break;
@@ -545,7 +574,7 @@ void _profilePreferencesEntry(
                       : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
-                  windowsDeleteWarning: filesystem?.windowsDeleteWarning,
+                  aclWarning: filesystem?.aclWarning,
                 )
               : _workerErrorReply(error, managed: true),
         );

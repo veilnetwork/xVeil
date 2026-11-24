@@ -5,6 +5,8 @@ import 'package:ffi/ffi.dart';
 
 import '../../core/posix_file_facts.dart';
 import 'managed_fs_contract.dart';
+import 'managed_fs_posix_acl.dart';
+import 'storage_acl_approval.dart';
 import 'managed_linux_rename.dart';
 import 'managed_fs_windows.dart' as windows;
 
@@ -78,16 +80,22 @@ class ManagedFsPlatform {
       if (!facts.isDirectory && !facts.isRegularFile) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
       }
-      if (darwin && !_darwinAclSafe(path, facts)) {
+      var appleAcl = darwin
+          ? _readDarwinAcl(path, facts)
+          : (safe: true, text: '');
+      if (appleAcl == null) {
         final refreshed = posixLstat(path);
         if (refreshed == null ||
             !facts.sameObjectAs(refreshed) ||
             facts.uid != refreshed.uid ||
-            facts.mode == refreshed.mode ||
-            !_darwinAclSafe(path, refreshed)) {
+            facts.mode == refreshed.mode) {
           throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
         }
         facts = refreshed;
+        appleAcl = _readDarwinAcl(path, refreshed);
+        if (appleAcl == null) {
+          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+        }
       }
       final android = Platform.isAndroid;
       final policy = managedPosixPathPolicy(
@@ -95,13 +103,38 @@ class ManagedFsPlatform {
         currentUid: current,
         android: android,
       );
+      final safeAncestor = policy.safeAncestor && appleAcl.safe;
+      final ownerOnly = policy.ownerOnly && appleAcl.safe;
+      final warning = safeAncestor && ownerOnly && policy.ownedByCurrentUser
+          ? null
+          : managedPosixAclWarning(
+              path,
+              facts,
+              currentUid: current,
+              darwinAcl: appleAcl.text,
+            );
+      final approved =
+          warning != null && hasStorageAclApproval(warning.fingerprint);
+      // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
+      // that property even for callers that use a witness only for identity.
+      if (!appleAcl.safe && !approved) {
+        throw ManagedFsFailure(
+          ManagedFsFailureKind.unsafe,
+          unsafeReason: facts.isDirectory
+              ? ManagedFsUnsafeReason.unsafeAncestor
+              : ManagedFsUnsafeReason.privateFile,
+          aclWarning: warning,
+        );
+      }
       return ManagedPathWitness(
         identity: '${facts.deviceId}:${facts.inode}:${facts.uid}',
         directory: facts.isDirectory,
-        ownerOnly: policy.ownerOnly,
+        ownerOnly: ownerOnly,
         ownedByCurrentUser: policy.ownedByCurrentUser,
-        safeAncestor: policy.safeAncestor,
-        unsafeAncestorCause: policy.safeAncestor
+        safeAncestor: safeAncestor,
+        aclWarning: approved ? null : warning,
+        aclApproved: approved,
+        unsafeAncestorCause: safeAncestor
             ? null
             : _isTrustedPosixOwner(facts.uid, current, android)
             ? ManagedAncestorRefusalCause.unsafePermissions
@@ -149,12 +182,20 @@ class ManagedFsPlatform {
     requirePrivateFile(path);
   }
 
-  ManagedPathWitness requirePrivateFile(String path) {
+  ManagedPathWitness requirePrivateFile(
+    String path, {
+    bool allowAclApproval = false,
+  }) {
     final facts = inspect(path);
-    if (facts.directory || !facts.ownerOnly || !facts.ownedByCurrentUser) {
-      throw const ManagedFsFailure(
+    if (facts.directory ||
+        (!(allowAclApproval && facts.aclApproved) &&
+            (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
+      throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateFile,
+        aclWarning: allowAclApproval && !facts.directory
+            ? facts.aclWarning
+            : null,
       );
     }
     return facts;
@@ -270,12 +311,14 @@ class ManagedFsPlatform {
 /// independent of those bits. Conservatively accept only empty/deny-only ACLs,
 /// including the standard home-directory deny-delete entry; never ignore an
 /// allow just because chmod reports 0700. No owner UUID/name is logged.
-bool _darwinAclSafe(String path, PosixFileFacts before) {
+({bool safe, String text})? _readDarwinAcl(String path, PosixFileFacts before) {
   final lib = DynamicLibrary.process();
   final name = path.toNativeUtf8();
   Pointer<Void> acl = nullptr;
   final entry = calloc<Pointer<Void>>();
   final tag = calloc<Int32>();
+  final length = calloc<IntPtr>();
+  Pointer<Utf8> text = nullptr;
   try {
     final get = lib
         .lookupFunction<
@@ -301,30 +344,54 @@ bool _darwinAclSafe(String path, PosixFileFacts before) {
       final error = errno().value;
       // Darwin reports ENOENT for an absent extended ACL as well as an absent
       // path. Accept only if the same previously inspected object still exists.
-      if (error != 2 && error != 45) return false;
+      if (error != 2 && error != 45) return null;
       final after = posixLstat(path);
       return after != null &&
-          before.sameObjectAs(after) &&
-          before.uid == after.uid &&
-          before.mode == after.mode;
+              before.sameObjectAs(after) &&
+              before.uid == after.uid &&
+              before.gid == after.gid &&
+              before.mode == after.mode
+          ? (safe: true, text: '')
+          : null;
     }
     final valid = lib
         .lookupFunction<
           Int32 Function(Pointer<Void>),
           int Function(Pointer<Void>)
         >('acl_valid');
-    if (valid(acl) != 0) return false;
+    if (valid(acl) != 0) return null;
+    var hasAllow = false;
     for (var index = 0; index <= 1024; index++) {
       final rc = next(acl, index == 0 ? 0 : -1, entry);
-      // Darwin's documented end-of-list is EINVAL, not Linux's return 0.
-      // The ACL was validated above; other errors and allow/unknown tags refuse.
-      if (rc != 0) return rc == -1 && errno().value == 22;
-      if (readTag(entry.value, tag) != 0 || tag.value != 2) return false;
+      // Darwin's end-of-list is EINVAL. Unreadable or unknown entries cannot
+      // participate in a consent fingerprint.
+      if (rc != 0) {
+        if (rc != -1 || errno().value != 22) return null;
+        text = lib
+            .lookupFunction<
+              Pointer<Utf8> Function(Pointer<Void>, Pointer<IntPtr>),
+              Pointer<Utf8> Function(Pointer<Void>, Pointer<IntPtr>)
+            >('acl_to_text')(acl, length);
+        if (text == nullptr || length.value < 0) return null;
+        return (safe: !hasAllow, text: text.toDartString(length: length.value));
+      }
+      if (readTag(entry.value, tag) != 0 ||
+          (tag.value != 1 && tag.value != 2)) {
+        return null;
+      }
+      if (tag.value == 1) hasAllow = true;
     }
-    return false;
+    return null;
   } catch (_) {
-    return false;
+    return null;
   } finally {
+    if (text != nullptr) {
+      lib.lookupFunction<
+        Int32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)
+      >('acl_free')(text.cast<Void>());
+    }
+    calloc.free(length);
     if (acl != nullptr) {
       lib.lookupFunction<
         Int32 Function(Pointer<Void>),

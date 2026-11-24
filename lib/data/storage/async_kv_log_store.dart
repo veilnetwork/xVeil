@@ -18,6 +18,7 @@ import 'managed_catalog_store.dart';
 import 'managed_directory_catalog.dart';
 import 'managed_fs_contract.dart';
 import 'managed_fs_platform.dart' show ManagedFsPlatform;
+import 'storage_acl_approval.dart';
 import 'managed_fs_windows.dart' as windows;
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
@@ -545,8 +546,9 @@ final class _WorkerBindingUnavailable extends hv.HvException {
     : super('Internal', error.toString());
 }
 
-Future<void> _workerEntry((Isolate, _OpenConfig) launch) async {
-  final (owner, config) = launch;
+Future<void> _workerEntry((Isolate, _OpenConfig, Set<String>) launch) async {
+  final (owner, config, approvals) = launch;
+  restoreStorageAclApprovals(approvals);
   final inbox = StorageWorkerInbox(owner);
   try {
     if (!await inbox.confirmOwner()) {
@@ -1010,9 +1012,10 @@ class WorkerKvLogStore
       isolate: isolate,
       watch: death,
       reply: first,
-    ) = await WorkerDeath.spawn<(Isolate, _OpenConfig)>(
+    ) = await WorkerDeath.spawn<(Isolate, _OpenConfig, Set<String>)>(
       _workerEntry,
-      (reply) => (Isolate.current, build(reply)),
+      (reply) =>
+          (Isolate.current, build(reply), storageAclApprovalsForWorker()),
       worker: 'storage worker',
     );
     void abandon() {
@@ -1036,21 +1039,21 @@ class WorkerKvLogStore
         :final kind,
         :final preferencesOpenReason,
         :final ancestorRefusal,
-        :final windowsDeleteWarning,
+        :final aclWarning,
       ):
         death.dispose();
         throw ManagedWorkerFailure(
           kind,
           preferencesOpenReason: preferencesOpenReason,
           ancestorRefusal: ancestorRefusal,
-          windowsDeleteWarning: windowsDeleteWarning,
+          aclWarning: aclWarning,
         );
       case _ManagedOpenFailed(
         :final kind,
         :final cleanup,
         :final preferencesOpenReason,
         :final ancestorRefusal,
-        :final windowsDeleteWarning,
+        :final aclWarning,
       ):
         // This worker still owns a failed open's native resources. Transfer
         // its close capability instead of abandoning/killing the owner.
@@ -1059,7 +1062,7 @@ class WorkerKvLogStore
             kind,
             preferencesOpenReason: preferencesOpenReason,
             ancestorRefusal: ancestorRefusal,
-            windowsDeleteWarning: windowsDeleteWarning,
+            aclWarning: aclWarning,
           ),
           WorkerKvLogStore._(isolate, cleanup, death),
         );
@@ -1110,7 +1113,7 @@ class WorkerKvLogStore
           r.kind,
           preferencesReadReason: r.preferencesReadReason,
           ancestorRefusal: r.ancestorRefusal,
-          windowsDeleteWarning: r.windowsDeleteWarning,
+          aclWarning: r.aclWarning,
         );
       }
       if (r is _LegacyCompactionErr) {
