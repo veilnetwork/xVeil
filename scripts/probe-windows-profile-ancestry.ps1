@@ -88,6 +88,7 @@ try {
             return
         }
         $rights = 0
+        $deleteSources = [ordered]@{ explicit = $false; inherited = $false }
         foreach ($ace in $descriptor.DiscretionaryAcl) {
             if ($ace.AceType -eq [Security.AccessControl.AceType]::AccessDenied) { continue }
             if ($ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed) {
@@ -97,11 +98,18 @@ try {
             if (([int]$ace.AceFlags -band [int][Security.AccessControl.AceFlags]::InheritOnly) -or
                 $ace.SecurityIdentifier.Value -in $trusted) { continue }
             $rights = $rights -bor $ace.AccessMask
+            if ($ace.AccessMask -band $risk.delete) {
+                $source = if ($ace.IsInherited) { 'inherited' } else { 'explicit' }
+                $deleteSources[$source] = $true
+            }
         }
         $blocked = @($risk.Keys | Where-Object { $rights -band $risk[$_] })
         if ($blocked.Count -gt 0) {
             $report.result = 'unsafe-grant'
             $report.rights = $blocked
+            if ($rights -band $risk.delete) {
+                $report.deleteSources = @($deleteSources.Keys | Where-Object { $deleteSources[$_] })
+            }
             return
         }
     }
