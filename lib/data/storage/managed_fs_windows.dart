@@ -65,6 +65,15 @@ String _currentSid() {
   }
 }
 
+/// A dedicated runtime base outside the profile tree. The name separates
+/// accounts, and callers must verify the owner and ACL before writing to it.
+String? programDataRuntimeBase() {
+  final folder = windowsKnownFolderPath(win.FOLDERID_ProgramData);
+  if (folder == null) return null;
+  final user = sha256.convert(utf8.encode(_currentSid()));
+  return '$folder\\xveil-runtime-$user';
+}
+
 /// Pure policy over the existing handle-bound native ACL probe. Ignoring deny
 /// rules can only refuse more often. Unknown/malformed grants fail closed.
 ({

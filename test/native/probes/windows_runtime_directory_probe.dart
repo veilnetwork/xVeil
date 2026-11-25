@@ -9,7 +9,7 @@ import 'package:xveil/data/storage/managed_fs_windows.dart' as windows;
 import 'package:xveil/data/veil_stack.dart';
 
 Future<void> main(List<String> args) async {
-  if (!Platform.isWindows || args.length != 2) {
+  if (!Platform.isWindows || args.length < 2 || args.length > 3) {
     throw ArgumentError('expected Windows mode and disposable parent');
   }
   final mode = args[0];
@@ -23,10 +23,13 @@ Future<void> main(List<String> args) async {
     'nested-lease',
     'unsafe-parent-claim',
     'unsafe-parent-lease',
+    'unsafe-parents-with-private-fallback',
+    'unsafe-parents-with-shared-fallback',
   ].contains(mode)) {
     throw ArgumentError('unexpected probe mode');
   }
   final base = Directory(args[1]);
+  final fallback = args.length == 3 ? args[2] : null;
   final sentinel = File('${base.path}/precious.txt')
     ..writeAsStringSync('synthetic unrelated data');
   final occupied = Directory('${base.path}/xveil-rt-17')..createSync();
@@ -41,12 +44,18 @@ Future<void> main(List<String> args) async {
   }
 
   try {
-    final unsafe = mode.startsWith('unsafe-');
+    final privateFallback = mode == 'unsafe-parents-with-private-fallback';
+    final sharedFallback = mode == 'unsafe-parents-with-shared-fallback';
+    final unsafe = mode.startsWith('unsafe-') && !privateFallback;
     final verifyShared = mode == 'verify-shared';
     final nested =
-        mode.startsWith('nested-') || mode.startsWith('unsafe-parent-');
+        mode.startsWith('nested-') ||
+        mode.startsWith('unsafe-parent-') ||
+        privateFallback ||
+        sharedFallback;
     final supplied = nested ? '${base.path}/nested/missing' : base.path;
     var refused = false;
+    final attempts = <(int, bool)>[];
     try {
       if (verifyShared) {
         await restrictRuntimeDir(base.path);
@@ -54,10 +63,47 @@ Future<void> main(List<String> args) async {
         lease = await RuntimeDirLease.acquire(supplied);
         claimed = lease.path;
       } else {
-        claimed = await claimRuntimeDirUnder(supplied, uniqueSuffix: '17');
+        claimed = await claimRuntimeDirUnder(
+          supplied,
+          uniqueSuffix: '17',
+          windowsFallbackBase: fallback == null ? null : '${base.path}/local',
+          windowsPrivateFallbackBase: fallback == null ? null : () => fallback,
+          onWindowsRuntimeAttempt: (candidate, success) =>
+              attempts.add((candidate, success)),
+        );
       }
     } on RuntimeDirNotPrivate {
       refused = true;
+    }
+    if (fallback != null) {
+      check(
+        'profile_and_local_rejected',
+        attempts.length == 3 &&
+            attempts[0] == (0, false) &&
+            attempts[1] == (1, false),
+      );
+      check(
+        'safe_fallback_selected_only',
+        attempts.last == (2, privateFallback),
+      );
+      check(
+        'unsafe_ancestors_untouched',
+        !Directory('${base.path}/nested').existsSync() &&
+            !Directory('${base.path}/local').existsSync(),
+      );
+      if (privateFallback) {
+        final facts = windows.inspect(fallback);
+        check(
+          'fallback_base_private',
+          facts.ownerOnly && facts.ownedByCurrentUser,
+        );
+      } else {
+        check(
+          'shared_fallback_not_modified',
+          !windows.inspect(fallback).ownerOnly &&
+              !Directory('$fallback/xveil-rt-17').existsSync(),
+        );
+      }
     }
     if (unsafe || verifyShared) {
       check(

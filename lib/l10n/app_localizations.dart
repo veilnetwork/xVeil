@@ -456,7 +456,7 @@ abstract class AppL10n {
   /// No description provided for @startupRuntimeDirectoryFailed.
   ///
   /// In en, this message translates to:
-  /// **'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then restart xVeil.'**
+  /// **'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then try starting xVeil again.'**
   String get startupRuntimeDirectoryFailed;
 
   /// No description provided for @startupAclCorrectionHint.

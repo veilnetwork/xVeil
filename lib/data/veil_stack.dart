@@ -43,7 +43,8 @@ import 'node/ratchet_ffi.dart'
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
-import 'storage/managed_fs_contract.dart' show ManagedStorageAclWarning;
+import 'storage/managed_fs_contract.dart'
+    show ManagedFsFailure, ManagedStorageAclWarning;
 import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
@@ -91,11 +92,17 @@ Future<List<String>?> _meetingPointsForBoot(Storage storage) async {
 /// than as a generic I/O failure — the distinction the operator needs is
 /// "we declined to start" versus "the disk is broken".
 class RuntimeDirNotPrivate implements Exception {
-  RuntimeDirNotPrivate(this.dir, this.reason, {this.aclWarning});
+  RuntimeDirNotPrivate(
+    this.dir,
+    this.reason, {
+    this.aclWarning,
+    this.retryable = false,
+  });
 
   final String dir;
   final String reason;
   final ManagedStorageAclWarning? aclWarning;
+  final bool retryable;
 
   @override
   String toString() =>
@@ -350,7 +357,7 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
 /// Resolve aliases once and use only the verified canonical path thereafter.
 /// Validate the nearest existing ancestor BEFORE creating missing parents;
 /// recursive Directory.create would follow mutable ancestors before admission.
-String _prepareWindowsRuntimeBase(String supplied) {
+String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
   try {
     if (supplied.trim().isEmpty || supplied.contains('\x00')) {
       throw RuntimeDirNotPrivate(supplied, 'invalid Windows runtime base');
@@ -374,13 +381,20 @@ String _prepareWindowsRuntimeBase(String supplied) {
       existing = existing.parent;
     }
     var canonical = existing.resolveSymbolicLinksSync();
-    _assertWindowsRuntimePath(canonical);
-    for (final name in missing.reversed) {
-      canonical = p.join(canonical, name);
+    if (private &&
+        !windows.managedWindowsFinalPathMatches(existing.path, canonical)) {
+      throw RuntimeDirNotPrivate(
+        supplied,
+        'redirected private Windows runtime base',
+      );
+    }
+    _assertWindowsRuntimePath(canonical, private: private && missing.isEmpty);
+    for (var index = missing.length - 1; index >= 0; index--) {
+      canonical = p.join(canonical, missing[index]);
       // A racing trusted caller may create the same base. It still has to
       // satisfy the full directory policy; it is never claimed as our child.
       windows.createPrivateDirectory(canonical);
-      _assertWindowsRuntimePath(canonical);
+      _assertWindowsRuntimePath(canonical, private: private && index == 0);
     }
     return canonical;
   } on RuntimeDirNotPrivate {
@@ -594,25 +608,60 @@ Future<String> claimRuntimeDirUnder(
   String base, {
   required String uniqueSuffix,
   String? windowsFallbackBase,
+  String? Function()? windowsPrivateFallbackBase,
+  void Function(int candidate, bool success)? onWindowsRuntimeAttempt,
 }) async {
   // The BASE may legitimately already exist (it is usually the system temp dir
   // or the app-support dir). It must not be a symlink: `Directory.create`
   // follows one, and a link planted here would relocate everything below.
   if (Platform.isWindows) {
-    try {
-      base = _prepareWindowsRuntimeBase(base);
-    } on RuntimeDirNotPrivate {
-      if (windowsFallbackBase == null) rethrow;
-      base = _prepareWindowsRuntimeBase(windowsFallbackBase);
+    late RuntimeDirNotPrivate failure;
+    for (var candidate = 0; candidate < 3; candidate++) {
+      String? path;
+      try {
+        path = switch (candidate) {
+          0 => base,
+          1 => windowsFallbackBase,
+          _ => windowsPrivateFallbackBase?.call(),
+        };
+        if (path == null) continue;
+        final verified = _prepareWindowsRuntimeBase(
+          path,
+          private: candidate == 2,
+        );
+        final child = await _claimRuntimeChild(verified, uniqueSuffix);
+        onWindowsRuntimeAttempt?.call(candidate, true);
+        return child;
+      } on RuntimeDirNotPrivate catch (error) {
+        failure = error;
+      } on ManagedFsFailure {
+        if (path != null) {
+          failure = RuntimeDirNotPrivate(
+            path,
+            'Windows directory creation failed',
+          );
+        }
+      } on FileSystemException {
+        if (path != null) {
+          failure = RuntimeDirNotPrivate(
+            path,
+            'Windows directory write failed',
+          );
+        }
+      }
+      onWindowsRuntimeAttempt?.call(candidate, false);
     }
-  } else {
-    if (FileSystemEntity.typeSync(base, followLinks: false) ==
-        FileSystemEntityType.link) {
-      throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
-    }
-    await Directory(base).create(recursive: true);
+    throw failure;
   }
+  if (FileSystemEntity.typeSync(base, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
+  }
+  await Directory(base).create(recursive: true);
+  return _claimRuntimeChild(base, uniqueSuffix);
+}
 
+Future<String> _claimRuntimeChild(String base, String uniqueSuffix) async {
   // Created EXCLUSIVELY: an existing name is somebody else's — a live sibling,
   // a dead run's leftovers, or something planted — and is never adopted. The
   // name keeps the pid because the launch sweeper reaps by it.

@@ -40,6 +40,7 @@ import 'core/quick_unlock_vault.dart';
 import 'core/storage_features.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
+import 'data/storage/managed_fs_windows.dart' show programDataRuntimeBase;
 import 'data/storage/windows_profile_delete_approval.dart'
     show windowsLocalRuntimeBase;
 import 'core/storage_acl_vault.dart';
@@ -116,6 +117,7 @@ Future<void> runStartup({
       restoreRememberedStorageAcl,
 }) async {
   var loadingPreferences = false;
+  var resumeBoot = boot;
   try {
     if (boot != null) {
       await boot();
@@ -125,13 +127,15 @@ Future<void> runStartup({
     loadingPreferences = true;
     final preferences = await loadPreferences();
     loadingPreferences = false;
-    await _bootAndRunApp(preferences, present);
+    resumeBoot = () => _bootAndRunApp(preferences, present);
+    await resumeBoot();
   } catch (e, st) {
     final aclWarnings = loadingPreferences && e is ManagedWorkerFailure
         ? e.aclWarnings
         : const <ManagedStorageAclWarning>[];
     final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
     Future<void> retryStartup() => runStartup(
+      boot: resumeBoot,
       loadPreferences: loadPreferences,
       present: present,
       recordAclApproval: recordAclApproval,
@@ -240,7 +244,10 @@ Future<void> runStartup({
             : null,
         runtimeDirectory: runtimeFailure?.dir,
         runtimeAclWarning: runtimeFailure?.aclWarning,
-        retryPreferences: canRetry || unapproved.isNotEmpty
+        retryPreferences:
+            canRetry ||
+                unapproved.isNotEmpty ||
+                runtimeFailure?.retryable == true
             ? retryStartup
             : null,
         aclWarnings: unapproved,
@@ -426,6 +433,29 @@ Future<void> _runBootstrappedApplication({
     devLog(() => 'xVeil[init]: native sha256 unavailable, Dart fallback');
   }
 
+  final cli = Platform.environment['XVEIL_VEIL_CLI'];
+  final config = Platform.environment['XVEIL_VEIL_CONFIG'];
+  final devConfig =
+      configFileDevBootAllowed(
+            isMacOS: Platform.isMacOS,
+            isLinux: Platform.isLinux,
+            isWindows: Platform.isWindows,
+          ) &&
+          cli != null &&
+          cli.isNotEmpty &&
+          config != null &&
+          config.isNotEmpty
+      ? (cli: cli, config: config)
+      : null;
+  // Check Windows runtime permissions before opening another managed owner or
+  // installing global handlers, so a retry can reuse the admitted preferences.
+  final windowsRuntime =
+      Platform.isWindows &&
+          devConfig == null &&
+          ensureVeilClientLoaded() &&
+          embeddedNodeAvailable()
+      ? await _claimWindowsStartupRuntime(supportDirectory)
+      : null;
   final priorFlutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
     devLog(
@@ -464,8 +494,82 @@ Future<void> _runBootstrappedApplication({
     ErrorWidget.builder = (details) => const SizedBox.shrink();
   }
 
-  final boot = await _bootstrapOverrides(supportDirectory: supportDirectory);
+  final BootstrapResult boot;
+  try {
+    boot = await _bootstrapOverrides(
+      supportDirectory: supportDirectory,
+      devConfig: devConfig,
+      windowsRuntime: windowsRuntime,
+    );
+  } catch (_) {
+    await _discardStartupRuntime(windowsRuntime);
+    rethrow;
+  }
+  if (boot.managedErasurePending ||
+      mustRefuseInsecureStorage(
+        shipped: kReleaseMode || kProfileMode,
+        secureStorageReady: boot.secureStorageReady,
+        managedStorage: managedStorageEnabled,
+      )) {
+    await _discardStartupRuntime(windowsRuntime);
+  }
+
   present(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
+}
+
+Future<void> _discardStartupRuntime(String? path) async {
+  if (path == null) return;
+  try {
+    await restrictRuntimeDir(path);
+    if (runtimeDirIsOurs(path)) {
+      await File('$path/$kRuntimeDirMarker').delete();
+      await Directory(path).delete();
+    }
+  } catch (_) {
+    // Startup already has its own outcome. This cleanup is best effort.
+  }
+}
+
+Future<String> _claimWindowsStartupRuntime(String? supportDirectory) async {
+  try {
+    return await _claimStartupRuntime(supportDirectory);
+  } on RuntimeDirNotPrivate catch (error) {
+    throw RuntimeDirNotPrivate(
+      error.dir,
+      error.reason,
+      aclWarning: error.aclWarning,
+      retryable: true,
+    );
+  }
+}
+
+Future<String> _claimStartupRuntime(String? supportDirectory) async {
+  // Mobile sandbox policies can refuse sockets in the system temporary area.
+  // Windows loopback control files also need stable directory ancestry.
+  final override = Platform.environment['XVEIL_RUNTIME_DIR'];
+  final base =
+      override ??
+      (Platform.isWindows
+          ? supportDirectory ?? (await getApplicationSupportDirectory()).path
+          : Platform.isAndroid || Platform.isIOS
+          ? (await getApplicationSupportDirectory()).path
+          : Directory.systemTemp.path);
+  final windowsDefaults = Platform.isWindows && override == null;
+  return claimRuntimeDirUnder(
+    base,
+    uniqueSuffix: '$pid',
+    windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
+    windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
+    onWindowsRuntimeAttempt: (candidate, success) => diagnosticJournal.record(
+      switch (candidate) {
+        0 when override != null => DiagnosticEvent.windowsRuntimeOverride,
+        0 => DiagnosticEvent.windowsRuntimeProfile,
+        1 => DiagnosticEvent.windowsRuntimeLocalAppData,
+        _ => DiagnosticEvent.windowsRuntimeProgramData,
+      },
+      values: {DiagnosticMetric.success: success ? 1 : 0},
+    ),
+  );
 }
 
 /// Select the startup boundary before constructing ordinary application
@@ -540,7 +644,11 @@ typedef BootstrapResult = ({
 ///   entirely untouched. A veil-side failure still degrades to the loopback
 ///   fakes rather than blocking launch — an app that cannot reach the network
 ///   is honest about it on screen, unlike one that cannot protect a password.
-Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
+Future<BootstrapResult> _bootstrapOverrides({
+  required String? supportDirectory,
+  required ({String cli, String config})? devConfig,
+  required String? windowsRuntime,
+}) async {
   final overrides = <Override>[];
   var secureStorageReady = false;
   String? storePath; // the deniable container path, shared with the boot config
@@ -691,27 +799,17 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
     );
   }
 
-  final cli = Platform.environment['XVEIL_VEIL_CLI'];
-  final config = Platform.environment['XVEIL_VEIL_CONFIG'];
-  if (configFileDevBootAllowed(
-        isMacOS: Platform.isMacOS,
-        isLinux: Platform.isLinux,
-        isWindows: Platform.isWindows,
-      ) &&
-      cli != null &&
-      cli.isNotEmpty &&
-      config != null &&
-      config.isNotEmpty) {
+  if (devConfig != null) {
     // Config-file dev path: boot from a pre-made config.toml at launch.
     try {
       if (ensureVeilClientLoaded()) {
-        final sock = '${File(config).parent.path}/app.sock';
+        final sock = '${File(devConfig.config).parent.path}/app.sock';
         // XVEIL_NODE_MODE=embedded runs the node in-process (no subprocess) —
         // requires a node-embedded dylib. Default spawns veil-cli.
         final embedded = Platform.environment['XVEIL_NODE_MODE'] == 'embedded';
         final stack = await RealVeilStack.start(
-          veilCliPath: cli,
-          configPath: config,
+          veilCliPath: devConfig.cli,
+          configPath: devConfig.config,
           appSocketPath: sock,
           embedded: embedded,
         );
@@ -731,40 +829,8 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
     // stored inside the unlocked container (AppController._ensureRealStack),
     // so nothing identity-bearing is ever written to a config.toml. Each
     // instance needs its own listener port (XVEIL_LISTEN_PORT) + sockets dir.
-    // Runtime sockets dir (admin/ipc unix sockets + the public PSK). On mobile,
-    // Directory.systemTemp is the app's code_cache, where some devices' SELinux
-    // policy DENIES creating unix socket files (`sock_file create`) — the
-    // embedded node then can't bind its admin socket and apply-config fails with
-    // ENOENT (observed on a MediaTek Android 11). The app's PRIMARY data dir
-    // (getApplicationSupportDirectory — where the container already lives,
-    // proven writable) is where apps are expected to place unix sockets. Desktop
-    // POSIX desktop keeps systemTemp (/tmp) for short Unix socket paths.
-    // Windows uses authenticated loopback TCP and needs stable application-data
-    // ancestry: its Temp directory can grant other accounts replacement rights.
-    final String runtimeBase;
-    if (Platform.isWindows) {
-      runtimeBase =
-          supportDirectory ?? (await getApplicationSupportDirectory()).path;
-    } else if (Platform.isAndroid || Platform.isIOS) {
-      runtimeBase = (await getApplicationSupportDirectory()).path;
-    } else {
-      runtimeBase = Directory.systemTemp.path;
-    }
-    // `XVEIL_RUNTIME_DIR` names a BASE we may create under — never a directory
-    // we may own. Teardown removes the claimed directory RECURSIVELY, and the
-    // first version of this claimed the operator's path itself: aimed at a
-    // directory that already held data, the marker we wrote became the evidence
-    // that it was ours to delete (audit XV-09). We now create a fresh child and
-    // own only that, so a recursive delete can never reach anything that was
-    // there before us.
-    final runtimeOverride = Platform.environment['XVEIL_RUNTIME_DIR'];
-    final runtimeDir = await claimRuntimeDirUnder(
-      runtimeOverride ?? runtimeBase,
-      uniqueSuffix: '$pid',
-      windowsFallbackBase: Platform.isWindows && runtimeOverride == null
-          ? windowsLocalRuntimeBase()
-          : null,
-    );
+    final runtimeDir =
+        windowsRuntime ?? await _claimStartupRuntime(supportDirectory);
     // The soak hook is default-OFF now; say so once, or a stand polling a port
     // that answers nothing reads as a node that failed to bootstrap.
     final hookNote = debugHookDisabledExplanation();

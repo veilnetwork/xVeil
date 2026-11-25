@@ -7,8 +7,9 @@ if($env:OS -ne 'Windows_NT'){throw 'This runtime ACL regression runs on Windows'
 $exe=(Resolve-Path -LiteralPath $ProbeExecutable).Path
 if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $Sha256){throw 'Selected probe differs from the reviewed build'}
 $failures=0
-foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared')){
+foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared','unsafe-parents-with-private-fallback','unsafe-parents-with-shared-fallback')){
   $base=Join-Path ([Environment]::GetFolderPath('ApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
+  $fallback=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $base|Out-Null
   try {
     $acl=Get-Acl -LiteralPath $base;$acl.SetAccessRuleProtection($true,$false)
@@ -22,10 +23,21 @@ foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim',
     $rights=if($mode.StartsWith('unsafe-')){[Security.AccessControl.FileSystemRights]::FullControl}else{[Security.AccessControl.FileSystemRights]::ReadAndExecute}
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),$rights,$inherit,$propagation,$allow))
     Set-Acl -LiteralPath $base -AclObject $acl
-    $result=& $exe $mode $base|ConvertFrom-Json
+    if($mode.EndsWith('-fallback')){
+      if($mode -eq 'unsafe-parents-with-shared-fallback'){
+        New-Item -ItemType Directory -Path $fallback|Out-Null
+        $shared=Get-Acl -LiteralPath $fallback
+        $shared.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),[Security.AccessControl.FileSystemRights]::ReadAndExecute,$inherit,$propagation,$allow))
+        Set-Acl -LiteralPath $fallback -AclObject $shared
+      }
+      $result=& $exe $mode $base $fallback|ConvertFrom-Json
+    } else {
+      $result=& $exe $mode $base|ConvertFrom-Json
+    }
     $result|ConvertTo-Json -Compress
     if($LASTEXITCODE -ne 0 -or !$result.ok){$failures++}
   } finally {
+    if(Test-Path -LiteralPath $fallback){Remove-Item -LiteralPath $fallback -Recurse -Force}
     Remove-Item -LiteralPath $base -Recurse -Force
   }
 }

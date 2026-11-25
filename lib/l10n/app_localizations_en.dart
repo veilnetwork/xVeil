@@ -219,7 +219,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then restart xVeil.';
+      'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then try starting xVeil again.';
 
   @override
   String get startupAclCorrectionHint =>

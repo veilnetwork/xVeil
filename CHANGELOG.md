@@ -8,6 +8,16 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.111] - 2026-11-25
+
+### Fixed
+
+- On Windows, try a private per-user directory under ProgramData for network
+  control files when Roaming and LocalAppData fail their permission checks.
+- Provide a retry on the startup screen after a runtime-directory refusal.
+- Record the outcome of each runtime location in diagnostic reports without
+  including paths or account details.
+
 ## [0.13.110] - 2026-11-25
 
 ### Fixed

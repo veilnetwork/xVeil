@@ -103,7 +103,7 @@ final String? windowsProfileSupportPath = _windowsProfileSupportPath();
 
 String? _windowsProfileSupportPath() {
   if (!Platform.isWindows) return null;
-  final folder = _knownFolderPath(win.FOLDERID_RoamingAppData);
+  final folder = windowsKnownFolderPath(win.FOLDERID_RoamingAppData);
   // Matches the company and product values in windows/runner/Runner.rc.
   return folder == null ? null : '$folder\\network.veil\\xveil';
 }
@@ -111,11 +111,11 @@ String? _windowsProfileSupportPath() {
 /// Keep per-process control files under LocalAppData when the roaming profile
 /// cannot provide safe ancestry. Return a path without creating anything.
 String? windowsLocalRuntimeBase() {
-  final folder = _knownFolderPath(win.FOLDERID_LocalAppData);
+  final folder = windowsKnownFolderPath(win.FOLDERID_LocalAppData);
   return folder == null ? null : '$folder\\network.veil\\xveil-runtime';
 }
 
-String? _knownFolderPath(String id) => using((arena) {
+String? windowsKnownFolderPath(String id) => using((arena) {
   final folder = arena<Pointer<Utf16>>();
   try {
     if (win.SHGetKnownFolderPath(

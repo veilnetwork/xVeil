@@ -220,7 +220,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego reinicia xVeil.';
+      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego vuelve a intentar iniciar xVeil.';
 
   @override
   String get startupAclCorrectionHint =>

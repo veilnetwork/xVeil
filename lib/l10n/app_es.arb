@@ -59,7 +59,7 @@
   "startupAclChangeOwner": "cambiar propietario",
   "startupAclFullControl": "control total",
   "startupAclOther": "otros permisos",
-  "startupRuntimeDirectoryFailed": "xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego reinicia xVeil.",
+  "startupRuntimeDirectoryFailed": "xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego vuelve a intentar iniciar xVeil.",
   "startupAclCorrectionHint": "Revisa el acceso en las propiedades de los archivos o carpetas o consulta al administrador del sistema. Tu elección se aplica a cada elemento de la lista y a sus permisos actuales.",
   "startupAclInvalidPath": "La ruta del perfil no es válida o está fuera de una unidad local. Comprueba la ubicación configurada.",
   "startupAclAccessDenied": "El sistema operativo denegó el acceso a una parte de la ruta del perfil. Comprueba los permisos de tu cuenta o consulta con tu administrador.",

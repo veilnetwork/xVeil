@@ -65,6 +65,10 @@ enum DiagnosticEvent {
   // code: unreadable=0, busy=1.
   profileChoiceReadFailed,
   profilePreferencesFormatFailed,
+  windowsRuntimeProfile,
+  windowsRuntimeLocalAppData,
+  windowsRuntimeProgramData,
+  windowsRuntimeOverride,
 }
 
 enum SpaceDiscoveryFailureStage {
@@ -665,6 +669,10 @@ class DiagnosticJournal {
     DiagnosticEvent.profilePreferencesReadFailed,
     DiagnosticEvent.profileChoiceReadFailed,
     DiagnosticEvent.profilePreferencesFormatFailed,
+    DiagnosticEvent.windowsRuntimeProfile,
+    DiagnosticEvent.windowsRuntimeLocalAppData,
+    DiagnosticEvent.windowsRuntimeProgramData,
+    DiagnosticEvent.windowsRuntimeOverride,
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
     DiagnosticEvent.notificationPermission,

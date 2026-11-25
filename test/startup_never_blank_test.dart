@@ -322,12 +322,17 @@ void main() {
       ],
     );
     Widget? presented;
+    var boots = 0;
     await runStartup(
-      boot: () async => throw RuntimeDirNotPrivate(
-        folder,
-        'unsafe Windows directory permissions',
-        aclWarning: warning,
-      ),
+      boot: () async {
+        boots++;
+        throw RuntimeDirNotPrivate(
+          folder,
+          'unsafe Windows directory permissions',
+          aclWarning: warning,
+          retryable: true,
+        );
+      },
       present: (widget) => presented = widget,
     );
     await tester.pumpWidget(presented!);
@@ -336,6 +341,10 @@ void main() {
     expect(find.textContaining(account), findsOneWidget);
     expect(find.text('Start once'), findsNothing);
     expect(find.byType(CopyErrorReportTile), findsOneWidget);
+    await tester.ensureVisible(find.text('Try again'));
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(boots, 2);
 
     final report = buildErrorReport(phase: 'startup-failed');
     expect(report, contains('RuntimeDirNotPrivate'));

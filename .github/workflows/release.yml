@@ -1214,6 +1214,16 @@ jobs:
           # imported by nothing and the redist ships an x64 copy of it anyway.
           python scripts/check-windows-bundle.py "$root" "${{ matrix.arch }}"
 
+      - name: Windows runtime directory permissions
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'xveil-runtime-directory-probe.exe'
+          $env:VEIL_FFI_DYLIB = (Resolve-Path 'build/windows/x64/runner/Release/veilclient_ffi.dll').Path
+          dart compile exe --packages=.dart_tool/package_config.json test/native/probes/windows_runtime_directory_probe.dart -o $probe
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime directory probe compile failed' }
+          ./scripts/test-windows-runtime-directories.ps1 -ProbeExecutable $probe -Sha256 (Get-FileHash -LiteralPath $probe -Algorithm SHA256).Hash
+
       # And it has to LOAD, which the check above cannot tell you.
       #
       # The musl leg starts its bundle and fails on an unresolved symbol; the
