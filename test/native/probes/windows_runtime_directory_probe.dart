@@ -1,16 +1,20 @@
 // Flutter-free probe for the Windows runtime directory boundary. Build as a
-// Dart CLI bundle with the reviewed Veil DLL in lib/. The PowerShell fixture
+// Dart executable with VEIL_FFI_DYLIB set to the reviewed Veil DLL. The fixture
 // sets its parent ACL independently of this implementation.
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/managed_fs_windows.dart' as windows;
+import 'package:xveil/data/transport/veil_native.dart';
 import 'package:xveil/data/veil_stack.dart';
 
 Future<void> main(List<String> args) async {
   if (!Platform.isWindows || args.length < 2 || args.length > 3) {
     throw ArgumentError('expected Windows mode and disposable parent');
+  }
+  if (!ensureVeilClientLoaded()) {
+    throw StateError('reviewed Veil DLL did not load');
   }
   final mode = args[0];
   if (![
