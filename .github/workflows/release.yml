@@ -1088,7 +1088,12 @@ jobs:
         shell: pwsh
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'nasm-2.16.03-win64.zip'
-          Invoke-WebRequest -Uri 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' -OutFile $archive
+          try {
+            Invoke-WebRequest -Uri 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip' -TimeoutSec 30 -OutFile $archive -ErrorAction Stop
+          } catch {
+            Write-Warning 'NASM download failed; trying the KDE Craft mirror.'
+            Invoke-WebRequest -Uri 'https://files.kde.org/craft/3rdparty/nasm/2.16.03/nasm-2.16.03-win64.zip' -TimeoutSec 30 -OutFile $archive -ErrorAction Stop
+          }
           if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6') {
             throw 'NASM archive checksum mismatch'
           }
