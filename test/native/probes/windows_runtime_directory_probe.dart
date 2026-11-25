@@ -135,6 +135,9 @@ Future<void> main(List<String> args) async {
         directory.ownerOnly && directory.ownedByCurrentUser,
       );
       final capability = File('$claimed/synthetic.token');
+      // Veil creates loopback credentials with an explicit private ACL. The
+      // Windows token's default owner on CI may be the Administrators group.
+      check('capability_created', windows.createPrivateFile(capability.path));
       await capability.writeAsString('synthetic local capability', flush: true);
       final leaf = windows.inspect(capability.path);
       check('capability_private', leaf.ownerOnly && leaf.ownedByCurrentUser);
