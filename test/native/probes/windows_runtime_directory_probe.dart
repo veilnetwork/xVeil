@@ -19,6 +19,9 @@ Future<void> main(List<String> args) async {
   final mode = args[0];
   if (![
     'verify-shared',
+    'manual-private',
+    'manual-shared',
+    'manual-unsafe-name',
     'claim',
     'lease',
     'unsafe-claim',
@@ -50,15 +53,23 @@ Future<void> main(List<String> args) async {
   try {
     final privateFallback = mode == 'unsafe-parents-with-private-fallback';
     final sharedFallback = mode == 'unsafe-parents-with-shared-fallback';
-    final unsafe = mode.startsWith('unsafe-') && !privateFallback;
+    final manual = mode.startsWith('manual-');
+    final unsafe =
+        mode.startsWith('unsafe-') && !privateFallback ||
+        mode == 'manual-shared' ||
+        mode == 'manual-unsafe-name';
     final verifyShared = mode == 'verify-shared';
     final nested =
         mode.startsWith('nested-') ||
         mode.startsWith('unsafe-parent-') ||
         privateFallback ||
         sharedFallback;
-    final supplied = nested ? '${base.path}/nested/missing' : base.path;
-    var refused = false;
+    final supplied = mode == 'manual-unsafe-name'
+        ? '${base.path}/not&supported'
+        : nested
+        ? '${base.path}/nested/missing'
+        : base.path;
+    RuntimeDirNotPrivate? refusal;
     final attempts = <(int, bool)>[];
     try {
       if (verifyShared) {
@@ -70,14 +81,28 @@ Future<void> main(List<String> args) async {
         claimed = await claimRuntimeDirUnder(
           supplied,
           uniqueSuffix: '17',
+          windowsBaseMustBePrivate: manual,
           windowsFallbackBase: fallback == null ? null : '${base.path}/local',
           windowsPrivateFallbackBase: fallback == null ? null : () => fallback,
-          onWindowsRuntimeAttempt: (candidate, success) =>
-              attempts.add((candidate, success)),
+          onWindowsRuntimeAttempt: (candidate, failure) =>
+              attempts.add((candidate, failure == null)),
         );
       }
-    } on RuntimeDirNotPrivate {
-      refused = true;
+    } on RuntimeDirNotPrivate catch (error) {
+      refusal = error;
+    }
+    if (manual && unsafe) {
+      final expected = mode == 'manual-shared'
+          ? WindowsRuntimeRefusal.insufficientPrivacy
+          : WindowsRuntimeRefusal.invalidPath;
+      check(
+        'manual_base_refusal_reason',
+        refusal?.windowsAttempts.single.$2.windowsRefusal == expected,
+      );
+      check(
+        'manual_base_not_written',
+        !Directory('${base.path}/not&supported').existsSync(),
+      );
     }
     if (fallback != null) {
       check(
@@ -112,7 +137,7 @@ Future<void> main(List<String> args) async {
     if (unsafe || verifyShared) {
       check(
         verifyShared ? 'shared_runtime_refused' : 'unsafe_base_refused',
-        refused,
+        refusal != null,
       );
       if (verifyShared) {
         check(
@@ -127,7 +152,10 @@ Future<void> main(List<String> args) async {
         );
       }
     } else {
-      check('stable_nonempty_base_accepted', !refused && claimed != null);
+      check(
+        'stable_nonempty_base_accepted',
+        refusal == null && claimed != null,
+      );
       check('occupied_child_not_adopted', claimed != occupied.path);
       final directory = windows.inspect(claimed!);
       check(

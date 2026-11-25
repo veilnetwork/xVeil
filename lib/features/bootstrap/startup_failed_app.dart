@@ -1,10 +1,13 @@
 import 'dart:io' show exit;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/storage/managed_fs_contract.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show ManagedPreferencesFailureReason;
+import '../../data/veil_stack.dart'
+    show RuntimeDirNotPrivate, WindowsRuntimeRefusal;
 import '../../l10n/app_localizations.dart';
 import '../settings/error_report.dart';
 
@@ -28,8 +31,9 @@ class StartupFailedApp extends StatelessWidget {
     this.ancestorRefusal,
     this.preferencesReason,
     this.aclWarnings = const [],
-    this.runtimeDirectory,
-    this.runtimeAclWarning,
+    this.runtimeFailure,
+    this.retryWithRuntimeBase,
+    this.pickRuntimeDirectory = FilePicker.getDirectoryPath,
     this.acceptAclWarning,
   });
 
@@ -39,8 +43,9 @@ class StartupFailedApp extends StatelessWidget {
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
   final List<ManagedStorageAclWarning> aclWarnings;
-  final String? runtimeDirectory;
-  final ManagedStorageAclWarning? runtimeAclWarning;
+  final RuntimeDirNotPrivate? runtimeFailure;
+  final Future<void> Function(String path)? retryWithRuntimeBase;
+  final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
@@ -63,8 +68,9 @@ class StartupFailedApp extends StatelessWidget {
         ancestorRefusal: ancestorRefusal,
         preferencesReason: preferencesReason,
         aclWarnings: aclWarnings,
-        runtimeDirectory: runtimeDirectory,
-        runtimeAclWarning: runtimeAclWarning,
+        runtimeFailure: runtimeFailure,
+        retryWithRuntimeBase: retryWithRuntimeBase,
+        pickRuntimeDirectory: pickRuntimeDirectory,
         acceptAclWarning: acceptAclWarning,
       ),
     );
@@ -79,8 +85,9 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.ancestorRefusal,
     required this.preferencesReason,
     required this.aclWarnings,
-    required this.runtimeDirectory,
-    required this.runtimeAclWarning,
+    required this.runtimeFailure,
+    required this.retryWithRuntimeBase,
+    required this.pickRuntimeDirectory,
     required this.acceptAclWarning,
   });
 
@@ -90,8 +97,9 @@ class _StartupFailedScreen extends StatefulWidget {
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
   final List<ManagedStorageAclWarning> aclWarnings;
-  final String? runtimeDirectory;
-  final ManagedStorageAclWarning? runtimeAclWarning;
+  final RuntimeDirNotPrivate? runtimeFailure;
+  final Future<void> Function(String path)? retryWithRuntimeBase;
+  final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
@@ -100,16 +108,46 @@ class _StartupFailedScreen extends StatefulWidget {
 
 class _StartupFailedScreenState extends State<_StartupFailedScreen> {
   bool _retrying = false;
+  bool _selectingRuntimeBase = false;
+  bool _runtimeRechecked = false;
+  bool _pickerFailed = false;
   bool _approvalFailed = false;
 
+  bool get _busy => _retrying || _selectingRuntimeBase;
+
   Future<void> _retry(Future<void> Function() retryPreferences) async {
-    if (_retrying) return;
-    setState(() => _retrying = true);
+    if (_busy) return;
+    final checkingRuntime = widget.runtimeFailure != null;
+    setState(() {
+      _retrying = true;
+      _runtimeRechecked = false;
+      _pickerFailed = false;
+    });
     try {
+      if (checkingRuntime) await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
       await retryPreferences();
+      if (mounted && checkingRuntime) setState(() => _runtimeRechecked = true);
     } finally {
       if (mounted) setState(() => _retrying = false);
     }
+  }
+
+  Future<void> _selectRuntimeBase(Future<void> Function(String) check) async {
+    if (_busy) return;
+    setState(() {
+      _selectingRuntimeBase = true;
+      _pickerFailed = false;
+    });
+    String? folder;
+    try {
+      folder = await widget.pickRuntimeDirectory();
+    } catch (_) {
+      if (mounted) setState(() => _pickerFailed = true);
+    } finally {
+      if (mounted) setState(() => _selectingRuntimeBase = false);
+    }
+    if (mounted && folder != null) await _retry(() => check(folder!));
   }
 
   Future<void> _accept(
@@ -128,13 +166,13 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     final retryPreferences = widget.retryPreferences;
     final ancestor = widget.ancestorRefusal;
     final warnings = widget.aclWarnings;
-    final runtimeDirectory = widget.runtimeDirectory;
-    final runtimeAclWarning = widget.runtimeAclWarning;
+    final runtime = widget.runtimeFailure;
+    final selectRuntime = widget.retryWithRuntimeBase;
     final accept = widget.acceptAclWarning;
     final actionStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant);
-    final explanation = runtimeDirectory != null
+    final explanation = runtime != null
         ? l.startupRuntimeDirectoryFailed
         : switch (widget.preferencesUnsafeAncestor) {
             true => switch (ancestor?.cause) {
@@ -199,31 +237,31 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                     runSpacing: 8,
                     children: [
                       FilledButton(
-                        onPressed: _retrying ? null : () => exit(0),
+                        onPressed: _busy ? null : () => exit(0),
                         child: Text(l.startupAclClose),
                       ),
                       OutlinedButton(
-                        onPressed: _retrying
-                            ? null
-                            : () => _accept(accept, false),
+                        onPressed: _busy ? null : () => _accept(accept, false),
                         child: Text(l.startupAclContinueOnce),
                       ),
                       OutlinedButton(
-                        onPressed: _retrying
-                            ? null
-                            : () => _accept(accept, true),
+                        onPressed: _busy ? null : () => _accept(accept, true),
                         child: Text(l.startupAclRemember),
                       ),
                     ],
                   ),
                 ] else ...[
                   Text(explanation, style: actionStyle),
-                  if (runtimeDirectory != null) ...[
+                  if (runtime != null) ...[
                     const SizedBox(height: 8),
-                    if (runtimeAclWarning != null)
-                      _AclDetails(runtimeAclWarning)
+                    if (runtime.windowsAttempts.isEmpty)
+                      _RuntimeRefusalDetails(runtime)
                     else
-                      SelectableText(runtimeDirectory),
+                      for (final (_, failure) in runtime.windowsAttempts)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _RuntimeRefusalDetails(failure),
+                        ),
                   ],
                   if (widget.preferencesUnsafeAncestor && ancestor != null) ...[
                     const SizedBox(height: 8),
@@ -233,20 +271,53 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                     ),
                   ],
                 ],
+                if (runtime != null && (_retrying || _runtimeRechecked)) ...[
+                  const SizedBox(height: 16),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _retrying
+                          ? l.startupRuntimeChecking
+                          : l.startupRuntimeStillBlocked,
+                      style: actionStyle,
+                    ),
+                  ),
+                ],
+                if (_pickerFailed)
+                  Text(
+                    l.startupRuntimePickerFailed,
+                    style: TextStyle(color: scheme.error),
+                  ),
                 if (_retrying) ...[
                   const SizedBox(height: 16),
                   const LinearProgressIndicator(),
                 ],
                 const CopyErrorReportTile(phase: 'startup-failed'),
-                if (retryPreferences != null) ...[
+                if (retryPreferences != null || selectRuntime != null) ...[
                   const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: _retrying
-                        ? null
-                        : () => _retry(retryPreferences),
-                    child: Text(
-                      warnings.isEmpty ? l.startupRetry : l.startupAclRecheck,
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (retryPreferences != null)
+                        FilledButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _retry(retryPreferences),
+                          child: Text(
+                            warnings.isEmpty
+                                ? l.startupRetry
+                                : l.startupAclRecheck,
+                          ),
+                        ),
+                      if (selectRuntime != null)
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _selectRuntimeBase(selectRuntime),
+                          child: Text(l.startupRuntimeChooseFolder),
+                        ),
+                    ],
                   ),
                 ],
               ],
@@ -254,6 +325,38 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RuntimeRefusalDetails extends StatelessWidget {
+  const _RuntimeRefusalDetails(this.failure);
+
+  final RuntimeDirNotPrivate failure;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final reason = switch (failure.windowsRefusal) {
+      WindowsRuntimeRefusal.invalidPath ||
+      WindowsRuntimeRefusal.notDirectory => l.startupRuntimeInvalidPath,
+      WindowsRuntimeRefusal.unsafeAncestor => l.startupRuntimeUnsafeAncestor,
+      WindowsRuntimeRefusal.insufficientPrivacy =>
+        l.startupRuntimeInsufficientPrivacy,
+      WindowsRuntimeRefusal.cannotCreate ||
+      WindowsRuntimeRefusal.cannotWrite => l.startupRuntimeCannotWrite,
+      WindowsRuntimeRefusal.cannotVerify => l.startupRuntimeCannotVerify,
+      null => null,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (reason != null) Text(reason),
+        if (failure.aclWarning case final warning?)
+          _AclDetails(warning)
+        else
+          SelectableText(failure.dir),
+      ],
     );
   }
 }

@@ -219,7 +219,42 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then try starting xVeil again.';
+      'xVeil could not verify a private folder for the files that control its network connection. Select a folder on a local drive that belongs to your account, or ask your administrator to create one. Other users must not be able to replace any folder along its path.';
+
+  @override
+  String get startupRuntimeChecking =>
+      'Checking access to the network control folders…';
+
+  @override
+  String get startupRuntimeStillBlocked =>
+      'Check complete. xVeil still needs a protected folder to start.';
+
+  @override
+  String get startupRuntimeChooseFolder => 'Choose a different folder';
+
+  @override
+  String get startupRuntimePickerFailed =>
+      'Could not open the folder chooser. Try again.';
+
+  @override
+  String get startupRuntimeInvalidPath =>
+      'This path does not identify a supported local folder.';
+
+  @override
+  String get startupRuntimeUnsafeAncestor =>
+      'The owner or access rights allow changes to this folder or its contents by another account.';
+
+  @override
+  String get startupRuntimeInsufficientPrivacy =>
+      'xVeil needs a folder owned by your account with private access.';
+
+  @override
+  String get startupRuntimeCannotWrite =>
+      'xVeil could not create or write its private subfolder here. Check your account’s write access and available disk space.';
+
+  @override
+  String get startupRuntimeCannotVerify =>
+      'Windows could not provide the folder information xVeil needs to verify access.';
 
   @override
   String get startupAclCorrectionHint =>

@@ -456,8 +456,62 @@ abstract class AppL10n {
   /// No description provided for @startupRuntimeDirectoryFailed.
   ///
   /// In en, this message translates to:
-  /// **'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then try starting xVeil again.'**
+  /// **'xVeil could not verify a private folder for the files that control its network connection. Select a folder on a local drive that belongs to your account, or ask your administrator to create one. Other users must not be able to replace any folder along its path.'**
   String get startupRuntimeDirectoryFailed;
+
+  /// No description provided for @startupRuntimeChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking access to the network control folders…'**
+  String get startupRuntimeChecking;
+
+  /// No description provided for @startupRuntimeStillBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Check complete. xVeil still needs a protected folder to start.'**
+  String get startupRuntimeStillBlocked;
+
+  /// No description provided for @startupRuntimeChooseFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a different folder'**
+  String get startupRuntimeChooseFolder;
+
+  /// No description provided for @startupRuntimePickerFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the folder chooser. Try again.'**
+  String get startupRuntimePickerFailed;
+
+  /// No description provided for @startupRuntimeInvalidPath.
+  ///
+  /// In en, this message translates to:
+  /// **'This path does not identify a supported local folder.'**
+  String get startupRuntimeInvalidPath;
+
+  /// No description provided for @startupRuntimeUnsafeAncestor.
+  ///
+  /// In en, this message translates to:
+  /// **'The owner or access rights allow changes to this folder or its contents by another account.'**
+  String get startupRuntimeUnsafeAncestor;
+
+  /// No description provided for @startupRuntimeInsufficientPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil needs a folder owned by your account with private access.'**
+  String get startupRuntimeInsufficientPrivacy;
+
+  /// No description provided for @startupRuntimeCannotWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not create or write its private subfolder here. Check your account’s write access and available disk space.'**
+  String get startupRuntimeCannotWrite;
+
+  /// No description provided for @startupRuntimeCannotVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows could not provide the folder information xVeil needs to verify access.'**
+  String get startupRuntimeCannotVerify;
 
   /// No description provided for @startupAclCorrectionHint.
   ///

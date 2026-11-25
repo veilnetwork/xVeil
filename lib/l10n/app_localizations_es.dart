@@ -220,7 +220,42 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego vuelve a intentar iniciar xVeil.';
+      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Elige una carpeta en un disco local que pertenezca a tu cuenta o pide al administrador que cree una. Otros usuarios no deben poder sustituir ninguna carpeta de la ruta.';
+
+  @override
+  String get startupRuntimeChecking =>
+      'Comprobando el acceso a las carpetas de control de red…';
+
+  @override
+  String get startupRuntimeStillBlocked =>
+      'Comprobación terminada. xVeil aún necesita una carpeta protegida para iniciarse.';
+
+  @override
+  String get startupRuntimeChooseFolder => 'Elegir otra carpeta';
+
+  @override
+  String get startupRuntimePickerFailed =>
+      'No se pudo abrir el selector de carpetas. Inténtalo de nuevo.';
+
+  @override
+  String get startupRuntimeInvalidPath =>
+      'Esta ruta no corresponde a una carpeta local compatible.';
+
+  @override
+  String get startupRuntimeUnsafeAncestor =>
+      'El propietario o los permisos permiten a otra cuenta modificar esta carpeta o su contenido.';
+
+  @override
+  String get startupRuntimeInsufficientPrivacy =>
+      'xVeil necesita una carpeta privada que pertenezca a tu cuenta.';
+
+  @override
+  String get startupRuntimeCannotWrite =>
+      'xVeil no pudo crear su subcarpeta privada ni escribir en ella. Comprueba los permisos de escritura y el espacio disponible en el disco.';
+
+  @override
+  String get startupRuntimeCannotVerify =>
+      'Windows no proporcionó la información necesaria para verificar el acceso a la carpeta.';
 
   @override
   String get startupAclCorrectionHint =>

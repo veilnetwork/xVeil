@@ -7,7 +7,7 @@ if($env:OS -ne 'Windows_NT'){throw 'This runtime ACL regression runs on Windows'
 $exe=(Resolve-Path -LiteralPath $ProbeExecutable).Path
 if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $Sha256){throw 'Selected probe differs from the reviewed build'}
 $failures=0
-foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared','unsafe-parents-with-private-fallback','unsafe-parents-with-shared-fallback')){
+foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared','manual-private','manual-shared','manual-unsafe-name','unsafe-parents-with-private-fallback','unsafe-parents-with-shared-fallback')){
   $base=Join-Path ([Environment]::GetFolderPath('ApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
   $fallback=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $base|Out-Null
@@ -21,7 +21,9 @@ foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim',
       $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::FullControl,$inherit,$propagation,$allow))
     }
     $rights=if($mode.StartsWith('unsafe-')){[Security.AccessControl.FileSystemRights]::FullControl}else{[Security.AccessControl.FileSystemRights]::ReadAndExecute}
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),$rights,$inherit,$propagation,$allow))
+    if($mode -ne 'manual-private'){
+      $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),$rights,$inherit,$propagation,$allow))
+    }
     Set-Acl -LiteralPath $base -AclObject $acl
     if($mode.EndsWith('-fallback')){
       if($mode -eq 'unsafe-parents-with-shared-fallback'){

@@ -220,7 +220,42 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil не нашёл защищённую папку для служебных файлов управления подключением. Проверьте права доступа к указанной папке или обратитесь к администратору, затем повторите запуск.';
+      'xVeil не нашёл защищённую папку для служебных файлов управления подключением. Выберите принадлежащую вашей учётной записи папку на локальном диске или попросите администратора создать её. Другие пользователи не должны иметь возможности подменить папку или любой каталог на пути к ней.';
+
+  @override
+  String get startupRuntimeChecking =>
+      'Проверяем доступ к папкам для служебных файлов…';
+
+  @override
+  String get startupRuntimeStillBlocked =>
+      'Проверка завершена. Для запуска xVeil всё ещё нужна защищённая папка.';
+
+  @override
+  String get startupRuntimeChooseFolder => 'Выбрать другую папку';
+
+  @override
+  String get startupRuntimePickerFailed =>
+      'Не удалось открыть окно выбора папки. Попробуйте ещё раз.';
+
+  @override
+  String get startupRuntimeInvalidPath =>
+      'Этот путь не ведёт к поддерживаемой папке на локальном диске.';
+
+  @override
+  String get startupRuntimeUnsafeAncestor =>
+      'Владелец или права доступа позволяют другой учётной записи изменить эту папку или её содержимое.';
+
+  @override
+  String get startupRuntimeInsufficientPrivacy =>
+      'Нужна папка с закрытым доступом, принадлежащая вашей учётной записи.';
+
+  @override
+  String get startupRuntimeCannotWrite =>
+      'Не удалось создать служебную папку или записать в неё данные. Проверьте права записи и свободное место на диске.';
+
+  @override
+  String get startupRuntimeCannotVerify =>
+      'Windows не предоставила сведения, необходимые для проверки прав на папку.';
 
   @override
   String get startupAclCorrectionHint =>

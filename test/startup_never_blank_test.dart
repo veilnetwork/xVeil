@@ -9,7 +9,8 @@ import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
-import 'package:xveil/data/veil_stack.dart' show RuntimeDirNotPrivate;
+import 'package:xveil/data/veil_stack.dart'
+    show RuntimeDirNotPrivate, WindowsRuntimeRefusal;
 import 'package:xveil/desktop/desktop_tray.dart'
     show initDesktopWindow, isDesktopTrayPlatform;
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
@@ -321,16 +322,29 @@ void main() {
         (account: account, rights: {ManagedAclRight.deleteChildren}),
       ],
     );
+    const otherFolder = r'C:\other-runtime';
     Widget? presented;
     var boots = 0;
+    final recheck = Completer<void>();
+    final first = RuntimeDirNotPrivate(
+      otherFolder,
+      'Windows directory write failed',
+      windowsRefusal: WindowsRuntimeRefusal.cannotWrite,
+    );
+    final last = RuntimeDirNotPrivate(
+      folder,
+      'unsafe Windows directory permissions',
+      aclWarning: warning,
+      windowsRefusal: WindowsRuntimeRefusal.unsafeAncestor,
+    );
     await runStartup(
       boot: () async {
-        boots++;
+        if (++boots > 1) await recheck.future;
         throw RuntimeDirNotPrivate(
           folder,
-          'unsafe Windows directory permissions',
-          aclWarning: warning,
+          last.reason,
           retryable: true,
+          windowsAttempts: [(0, first), (2, last)],
         );
       },
       present: (widget) => presented = widget,
@@ -338,18 +352,72 @@ void main() {
     await tester.pumpWidget(presented!);
     expect(find.textContaining('files that control'), findsOneWidget);
     expect(find.text(folder), findsOneWidget);
+    expect(find.text(otherFolder), findsOneWidget);
     expect(find.textContaining(account), findsOneWidget);
+    expect(find.textContaining('Check your account'), findsOneWidget);
     expect(find.text('Start once'), findsNothing);
     expect(find.byType(CopyErrorReportTile), findsOneWidget);
     await tester.ensureVisible(find.text('Try again'));
     await tester.tap(find.text('Try again'));
+    await tester.pump();
+    expect(find.textContaining('Checking access'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Try again'))
+          .onPressed,
+      isNull,
+    );
+    recheck.complete();
     await tester.pumpAndSettle();
+    expect(find.textContaining('Check complete'), findsOneWidget);
     expect(boots, 2);
 
     final report = buildErrorReport(phase: 'startup-failed');
     expect(report, contains('RuntimeDirNotPrivate'));
     expect(report, isNot(contains(folder)));
+    expect(report, isNot(contains(otherFolder)));
     expect(report, isNot(contains(account)));
+  });
+
+  testWidgets('the folder chooser retries the same boot with the chosen base', (
+    tester,
+  ) async {
+    const selected = r'D:\private folder';
+    final bases = <String?>[];
+    Widget? presented;
+    await runStartup(
+      bootWithRuntimeBase: (base) async {
+        bases.add(base);
+        if (base == null) {
+          throw RuntimeDirNotPrivate(
+            r'C:\unavailable',
+            'unsafe Windows directory permissions',
+            retryable: true,
+          );
+        }
+        presented = const ProfileErasurePendingApp();
+      },
+      present: (widget) => presented = widget,
+    );
+    final refusal = presented! as StartupFailedApp;
+    var choice = 0;
+    await tester.pumpWidget(
+      StartupFailedApp(
+        runtimeFailure: refusal.runtimeFailure,
+        retryWithRuntimeBase: refusal.retryWithRuntimeBase,
+        pickRuntimeDirectory: () async => ++choice == 1 ? null : selected,
+      ),
+    );
+    final choose = find.text('Choose a different folder');
+    await tester.ensureVisible(choose);
+    await tester.tap(choose);
+    await tester.pumpAndSettle();
+    expect(bases, [null]);
+    await tester.tap(choose);
+    await tester.pumpAndSettle();
+    expect(bases, [null, selected]);
+    await tester.pumpWidget(presented!);
+    expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
   });
 
   testWidgets('an OS access refusal shows what to check', (tester) async {

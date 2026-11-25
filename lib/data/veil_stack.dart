@@ -86,6 +86,19 @@ Future<List<String>?> _meetingPointsForBoot(Storage storage) async {
   return meetingPointsForBoot(answer);
 }
 
+// These codes are exported in diagnostic builds.
+enum WindowsRuntimeRefusal {
+  invalidPath,
+  notDirectory,
+  unsafeAncestor,
+  insufficientPrivacy,
+  cannotVerify,
+  cannotCreate,
+  cannotWrite,
+}
+
+typedef WindowsRuntimeAttempt = (int candidate, RuntimeDirNotPrivate failure);
+
 /// Thrown when the runtime directory cannot be made owner-only.
 ///
 /// Carried as its own type so the boot path can report it as a refusal rather
@@ -97,12 +110,16 @@ class RuntimeDirNotPrivate implements Exception {
     this.reason, {
     this.aclWarning,
     this.retryable = false,
+    this.windowsRefusal,
+    this.windowsAttempts = const [],
   });
 
   final String dir;
   final String reason;
   final ManagedStorageAclWarning? aclWarning;
   final bool retryable;
+  final WindowsRuntimeRefusal? windowsRefusal;
+  final List<WindowsRuntimeAttempt> windowsAttempts;
 
   @override
   String toString() =>
@@ -337,6 +354,11 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
           current.path,
           'unsafe Windows directory permissions',
           aclWarning: facts.directory ? facts.aclWarning : null,
+          windowsRefusal: !facts.directory
+              ? WindowsRuntimeRefusal.notDirectory
+              : !facts.safeAncestor
+              ? WindowsRuntimeRefusal.unsafeAncestor
+              : WindowsRuntimeRefusal.insufficientPrivacy,
         );
       }
       final parent = current.parent;
@@ -349,9 +371,14 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
     throw RuntimeDirNotPrivate(
       current.path,
       'Windows directory verification failed',
+      windowsRefusal: WindowsRuntimeRefusal.cannotVerify,
     );
   }
-  throw RuntimeDirNotPrivate(path, 'Windows directory ancestry is too deep');
+  throw RuntimeDirNotPrivate(
+    path,
+    'Windows directory ancestry is too deep',
+    windowsRefusal: WindowsRuntimeRefusal.cannotVerify,
+  );
 }
 
 /// Resolve aliases once and use only the verified canonical path thereafter.
@@ -359,14 +386,26 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
 /// recursive Directory.create would follow mutable ancestors before admission.
 String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
   try {
-    if (supplied.trim().isEmpty || supplied.contains('\x00')) {
-      throw RuntimeDirNotPrivate(supplied, 'invalid Windows runtime base');
+    // The embedded Windows endpoint carries the directory in a query
+    // parameter. Its parser treats '&' as a separator and does not unescape.
+    if (supplied.trim().isEmpty ||
+        supplied.contains('\x00') ||
+        supplied.contains('&')) {
+      throw RuntimeDirNotPrivate(
+        supplied,
+        'invalid Windows runtime base',
+        windowsRefusal: WindowsRuntimeRefusal.invalidPath,
+      );
     }
     final absolute = p.normalize(p.absolute(supplied));
     if (!RegExp(r'^[A-Za-z]:[\\/]').hasMatch(absolute) ||
         FileSystemEntity.typeSync(absolute, followLinks: false) ==
             FileSystemEntityType.link) {
-      throw RuntimeDirNotPrivate(supplied, 'unsupported Windows runtime base');
+      throw RuntimeDirNotPrivate(
+        supplied,
+        'unsupported Windows runtime base',
+        windowsRefusal: WindowsRuntimeRefusal.invalidPath,
+      );
     }
     var existing = Directory(absolute);
     final missing = <String>[];
@@ -375,6 +414,7 @@ String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
         throw RuntimeDirNotPrivate(
           supplied,
           'no stable Windows runtime parent',
+          windowsRefusal: WindowsRuntimeRefusal.invalidPath,
         );
       }
       missing.add(p.basename(existing.path));
@@ -386,6 +426,7 @@ String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
       throw RuntimeDirNotPrivate(
         supplied,
         'redirected private Windows runtime base',
+        windowsRefusal: WindowsRuntimeRefusal.invalidPath,
       );
     }
     _assertWindowsRuntimePath(canonical, private: private && missing.isEmpty);
@@ -403,6 +444,7 @@ String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
     throw RuntimeDirNotPrivate(
       supplied,
       'Windows runtime base could not be verified',
+      windowsRefusal: WindowsRuntimeRefusal.cannotVerify,
     );
   }
 }
@@ -609,15 +651,18 @@ Future<String> claimRuntimeDirUnder(
   required String uniqueSuffix,
   String? windowsFallbackBase,
   String? Function()? windowsPrivateFallbackBase,
-  void Function(int candidate, bool success)? onWindowsRuntimeAttempt,
+  bool windowsBaseMustBePrivate = false,
+  void Function(int candidate, RuntimeDirNotPrivate? failure)?
+  onWindowsRuntimeAttempt,
 }) async {
   // The BASE may legitimately already exist (it is usually the system temp dir
   // or the app-support dir). It must not be a symlink: `Directory.create`
   // follows one, and a link planted here would relocate everything below.
   if (Platform.isWindows) {
-    late RuntimeDirNotPrivate failure;
+    final attempts = <WindowsRuntimeAttempt>[];
     for (var candidate = 0; candidate < 3; candidate++) {
       String? path;
+      late RuntimeDirNotPrivate failure;
       try {
         path = switch (candidate) {
           0 => base,
@@ -627,31 +672,39 @@ Future<String> claimRuntimeDirUnder(
         if (path == null) continue;
         final verified = _prepareWindowsRuntimeBase(
           path,
-          private: candidate == 2,
+          private:
+              candidate == 2 || (candidate == 0 && windowsBaseMustBePrivate),
         );
         final child = await _claimRuntimeChild(verified, uniqueSuffix);
-        onWindowsRuntimeAttempt?.call(candidate, true);
+        onWindowsRuntimeAttempt?.call(candidate, null);
         return child;
       } on RuntimeDirNotPrivate catch (error) {
         failure = error;
       } on ManagedFsFailure {
-        if (path != null) {
-          failure = RuntimeDirNotPrivate(
-            path,
-            'Windows directory creation failed',
-          );
-        }
+        failure = RuntimeDirNotPrivate(
+          path ?? base,
+          'Windows directory creation failed',
+          windowsRefusal: WindowsRuntimeRefusal.cannotCreate,
+        );
       } on FileSystemException {
-        if (path != null) {
-          failure = RuntimeDirNotPrivate(
-            path,
-            'Windows directory write failed',
-          );
-        }
+        failure = RuntimeDirNotPrivate(
+          path ?? base,
+          'Windows directory write failed',
+          windowsRefusal: WindowsRuntimeRefusal.cannotWrite,
+        );
       }
-      onWindowsRuntimeAttempt?.call(candidate, false);
+      attempts.add((candidate, failure));
+      onWindowsRuntimeAttempt?.call(candidate, failure);
     }
-    throw failure;
+    final last = attempts.last.$2;
+    throw RuntimeDirNotPrivate(
+      last.dir,
+      last.reason,
+      aclWarning: last.aclWarning,
+      retryable: true,
+      windowsRefusal: last.windowsRefusal,
+      windowsAttempts: List.unmodifiable(attempts),
+    );
   }
   if (FileSystemEntity.typeSync(base, followLinks: false) ==
       FileSystemEntityType.link) {
@@ -672,7 +725,13 @@ Future<String> _claimRuntimeChild(String base, String uniqueSuffix) async {
     if (!_createExclusiveDir(child)) {
       attempt++;
       if (attempt > 64) {
-        throw RuntimeDirNotPrivate(base, 'no free runtime directory name');
+        throw RuntimeDirNotPrivate(
+          base,
+          'no free runtime directory name',
+          windowsRefusal: Platform.isWindows
+              ? WindowsRuntimeRefusal.cannotCreate
+              : null,
+        );
       }
       continue;
     }

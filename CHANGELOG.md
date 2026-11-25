@@ -8,6 +8,16 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.112] - 2026-11-25
+
+### Fixed
+
+- Show whether a Windows startup recheck is running or has completed, and
+  explain why each tested network control folder was refused.
+- Allow selection of a private Windows runtime folder from the error screen.
+  Validate its access and parent folders before creating the runtime.
+- Include refusal codes per tested location in manual diagnostics.
+
 ## [0.13.111] - 2026-11-25
 
 ### Fixed

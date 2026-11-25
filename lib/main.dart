@@ -102,11 +102,14 @@ Future<void> main([List<String> args = const []]) async {
 /// as an empty window: the process alive, a log written where nobody looks, and
 /// a user with no way to tell whether their data had been touched.
 ///
-/// [boot] resumes startup after preferences are already installed. The
+/// [boot] and [bootWithRuntimeBase] resume startup once preferences are
+/// installed. The latter accepts a different Windows runtime folder. The
 /// initial preference load is separate so only that stage can be retried.
 @visibleForTesting
 Future<void> runStartup({
   Future<void> Function()? boot,
+  Future<void> Function(String? windowsRuntimeBase)? bootWithRuntimeBase,
+  String? windowsRuntimeBase,
   Future<ProfilePreferencesBootstrap> Function() loadPreferences =
       _loadStartupPreferences,
   void Function(Widget) present = runApp,
@@ -116,26 +119,29 @@ Future<void> runStartup({
   Future<bool> Function(ManagedStorageAclWarning) restoreAclApproval =
       restoreRememberedStorageAcl,
 }) async {
+  assert(boot == null || bootWithRuntimeBase == null);
   var loadingPreferences = false;
-  var resumeBoot = boot;
+  var resumeBoot =
+      bootWithRuntimeBase ?? (boot == null ? null : (String? _) => boot());
   try {
-    if (boot != null) {
-      await boot();
+    if (resumeBoot != null) {
+      await resumeBoot(windowsRuntimeBase);
       return;
     }
     WidgetsFlutterBinding.ensureInitialized();
     loadingPreferences = true;
     final preferences = await loadPreferences();
     loadingPreferences = false;
-    resumeBoot = () => _bootAndRunApp(preferences, present);
-    await resumeBoot();
+    resumeBoot = (base) => _bootAndRunApp(preferences, present, base);
+    await resumeBoot(windowsRuntimeBase);
   } catch (e, st) {
     final aclWarnings = loadingPreferences && e is ManagedWorkerFailure
         ? e.aclWarnings
         : const <ManagedStorageAclWarning>[];
     final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
-    Future<void> retryStartup() => runStartup(
-      boot: resumeBoot,
+    Future<void> retryStartup({String? selectedBase}) => runStartup(
+      bootWithRuntimeBase: resumeBoot,
+      windowsRuntimeBase: selectedBase ?? windowsRuntimeBase,
       loadPreferences: loadPreferences,
       present: present,
       recordAclApproval: recordAclApproval,
@@ -242,8 +248,10 @@ Future<void> runStartup({
         ancestorRefusal: unsafeAncestor
             ? preferenceFailure?.ancestorRefusal
             : null,
-        runtimeDirectory: runtimeFailure?.dir,
-        runtimeAclWarning: runtimeFailure?.aclWarning,
+        runtimeFailure: runtimeFailure,
+        retryWithRuntimeBase: runtimeFailure?.retryable == true && boot == null
+            ? (selectedBase) => retryStartup(selectedBase: selectedBase)
+            : null,
         retryPreferences:
             canRetry ||
                 unapproved.isNotEmpty ||
@@ -330,6 +338,7 @@ Future<ProfilePreferencesBootstrap> _loadStartupPreferences() {
 Future<void> _bootAndRunApp(
   ProfilePreferencesBootstrap preferences,
   void Function(Widget) present,
+  String? windowsRuntimeBase,
 ) async {
   if (preferences.erasurePending) {
     final source = preferences.legacyPreferences;
@@ -360,8 +369,9 @@ Future<void> _bootAndRunApp(
           }
         },
         onRecovered: () => runStartup(
-          boot: () => _runBootstrappedApplication(
+          bootWithRuntimeBase: (base) => _runBootstrappedApplication(
             profile: source.profile,
+            windowsRuntimeBase: base,
             supportDirectory: source.supportDirectory,
             present: present,
           ),
@@ -374,6 +384,7 @@ Future<void> _bootAndRunApp(
   }
   await _runBootstrappedApplication(
     profile: preferences.profile!,
+    windowsRuntimeBase: windowsRuntimeBase,
     supportDirectory: preferences.supportDirectory,
     present: present,
   );
@@ -382,6 +393,7 @@ Future<void> _bootAndRunApp(
 Future<void> _runBootstrappedApplication({
   required String profile,
   required String? supportDirectory,
+  required String? windowsRuntimeBase,
   required void Function(Widget) present,
 }) async {
   activeProfile = profile;
@@ -454,7 +466,10 @@ Future<void> _runBootstrappedApplication({
           devConfig == null &&
           ensureVeilClientLoaded() &&
           embeddedNodeAvailable()
-      ? await _claimWindowsStartupRuntime(supportDirectory)
+      ? await _claimStartupRuntime(
+          supportDirectory,
+          windowsRuntimeBase: windowsRuntimeBase,
+        )
       : null;
   final priorFlutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
@@ -530,23 +545,14 @@ Future<void> _discardStartupRuntime(String? path) async {
   }
 }
 
-Future<String> _claimWindowsStartupRuntime(String? supportDirectory) async {
-  try {
-    return await _claimStartupRuntime(supportDirectory);
-  } on RuntimeDirNotPrivate catch (error) {
-    throw RuntimeDirNotPrivate(
-      error.dir,
-      error.reason,
-      aclWarning: error.aclWarning,
-      retryable: true,
-    );
-  }
-}
-
-Future<String> _claimStartupRuntime(String? supportDirectory) async {
+Future<String> _claimStartupRuntime(
+  String? supportDirectory, {
+  String? windowsRuntimeBase,
+}) async {
   // Mobile sandbox policies can refuse sockets in the system temporary area.
   // Windows loopback control files also need stable directory ancestry.
-  final override = Platform.environment['XVEIL_RUNTIME_DIR'];
+  final override =
+      windowsRuntimeBase ?? Platform.environment['XVEIL_RUNTIME_DIR'];
   final base =
       override ??
       (Platform.isWindows
@@ -560,14 +566,19 @@ Future<String> _claimStartupRuntime(String? supportDirectory) async {
     uniqueSuffix: '$pid',
     windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
     windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
-    onWindowsRuntimeAttempt: (candidate, success) => diagnosticJournal.record(
+    windowsBaseMustBePrivate: windowsRuntimeBase != null,
+    onWindowsRuntimeAttempt: (candidate, failure) => diagnosticJournal.record(
       switch (candidate) {
         0 when override != null => DiagnosticEvent.windowsRuntimeOverride,
         0 => DiagnosticEvent.windowsRuntimeProfile,
         1 => DiagnosticEvent.windowsRuntimeLocalAppData,
         _ => DiagnosticEvent.windowsRuntimeProgramData,
       },
-      values: {DiagnosticMetric.success: success ? 1 : 0},
+      values: {
+        DiagnosticMetric.success: failure == null ? 1 : 0,
+        if (failure?.windowsRefusal case final reason?)
+          DiagnosticMetric.runtimeDirectoryRefusal: reason.index,
+      },
     ),
   );
 }
