@@ -21,13 +21,13 @@ final class ManagedWorkerFailure implements Exception {
     this.preferencesOpenReason,
     this.preferencesReadReason,
     this.ancestorRefusal,
-    this.aclWarning,
+    this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
 }
@@ -55,13 +55,13 @@ final class _ManagedWorkerErr extends _Reply {
     this.preferencesOpenReason,
     this.preferencesReadReason,
     this.ancestorRefusal,
-    this.aclWarning,
+    this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
 }
 
 final class _ManagedReclaimReq extends _Req {
@@ -75,13 +75,13 @@ final class _ManagedOpenFailed extends _Reply {
     this.cleanup, {
     this.preferencesOpenReason,
     this.ancestorRefusal,
-    this.aclWarning,
+    this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
 }
 
 final class _ManagedBootstrapCleanup implements Exception {

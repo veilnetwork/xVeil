@@ -169,7 +169,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupAclWarningRisk =>
-      'Otras cuentas tienen permisos en esta carpeta. El permiso de escritura o eliminación puede permitirles modificar o sustituir los datos guardados. El acceso a cada archivo depende también de sus permisos.';
+      'Otras cuentas tienen permisos sobre las carpetas de la lista. Con permisos de escritura o eliminación pueden modificar o reemplazar datos. El acceso a cada archivo también depende de sus propios permisos.';
 
   @override
   String get startupAclFileWarningRisk =>
@@ -219,8 +219,12 @@ class AppL10nEs extends AppL10n {
   String get startupAclOther => 'otros permisos';
 
   @override
+  String get startupRuntimeDirectoryFailed =>
+      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Revisa el acceso en las propiedades de la carpeta indicada o pide ayuda al administrador del sistema. Luego reinicia xVeil.';
+
+  @override
   String get startupAclCorrectionHint =>
-      'Revisa los permisos en las propiedades del archivo o de la carpeta, o consulta con tu administrador. La elección guardada solo se aplica a este objeto y sus permisos actuales.';
+      'Revisa el acceso en las propiedades de los archivos o carpetas o consulta al administrador del sistema. Tu elección se aplica a cada elemento de la lista y a sus permisos actuales.';
 
   @override
   String get startupAclInvalidPath =>

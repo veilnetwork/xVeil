@@ -168,7 +168,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupAclWarningRisk =>
-      'Other accounts have permissions on this folder. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.';
+      'Other accounts have permissions on the folders listed below. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.';
 
   @override
   String get startupAclFileWarningRisk =>
@@ -218,8 +218,12 @@ class AppL10nEn extends AppL10n {
   String get startupAclOther => 'other access';
 
   @override
+  String get startupRuntimeDirectoryFailed =>
+      'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then restart xVeil.';
+
+  @override
   String get startupAclCorrectionHint =>
-      'Review the permissions in the file or folder properties, or ask your administrator. A saved choice applies only to this object and its current permissions.';
+      'Check access in the properties of the files or folders or ask your system administrator. Your choice applies to each listed item and its current permissions.';
 
   @override
   String get startupAclInvalidPath =>

@@ -613,16 +613,21 @@ void main() {
   });
 
   test(
-    'the worker reports a writable parent before opening preferences',
+    'the worker reports writable parents together before opening preferences',
     () async {
       addTearDown(() => restoreStorageAclApprovals({}));
-      ManagedStorageAclWarning? warning;
-      final parent = Directory('${support.path}/shared-fixture');
+      late List<ManagedStorageAclWarning> warnings;
+      final ancestor = Directory('${support.path}/shared-fixture');
+      final parent = Directory('${ancestor.path}/parent');
       final profile = Directory('${parent.path}/profile')
         ..createSync(recursive: true);
       final marker = File('${profile.path}/marker')
         ..writeAsStringSync('fixture');
-      final chmod = await Process.run('chmod', ['g+w', parent.path]);
+      final chmod = await Process.run('chmod', [
+        'g+w',
+        parent.path,
+        ancestor.path,
+      ]);
       expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
 
       final path = profilePrefsPath(profile.path, AppProfiles.defaultName);
@@ -641,11 +646,11 @@ void main() {
               ))
               .having(
                 (error) {
-                  warning = error.aclWarning;
-                  return warning?.path;
+                  warnings = error.aclWarnings;
+                  return warnings.map((warning) => warning.path);
                 },
-                'affected path',
-                parent.path,
+                'affected paths',
+                [parent.path, ancestor.path],
               ),
         ),
       );
@@ -656,7 +661,9 @@ void main() {
         isFalse,
       );
 
-      approveStorageAcl(warning!.fingerprint);
+      for (final warning in warnings) {
+        approveStorageAcl(warning.fingerprint);
+      }
       final opened = await ManagedProfilePreferencesFile.open(path);
       await opened.close();
       expect(parent.statSync().mode & 0x10, isNot(0));
@@ -667,9 +674,9 @@ void main() {
         ManagedProfilePreferencesFile.open(path),
         throwsA(
           isA<ManagedWorkerFailure>().having(
-            (error) => error.aclWarning?.fingerprint,
+            (error) => error.aclWarnings.single.fingerprint,
             'changed ACL',
-            isNot(anyOf(isNull, warning!.fingerprint)),
+            isNot(warnings.first.fingerprint),
           ),
         ),
       );

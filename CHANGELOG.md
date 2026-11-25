@@ -8,6 +8,16 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Fixed
+
+- Show affected profile ancestor folders together so one startup choice
+  covers the permissions shown for each folder.
+- Let the operating system close the window during startup and on error
+  screens. Enable close-to-tray once the tray menu is ready.
+- On Windows, try a verified local application-data folder when the default
+  location for network control files fails its permission checks. If startup
+  still stops, show the affected folder and available access details locally.
+
 ## [0.13.109] - 2026-11-24
 
 ### Changed

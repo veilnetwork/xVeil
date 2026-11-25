@@ -447,7 +447,7 @@ final class ManagedDirectoryCatalog {
         unsafeReason: witness.directory
             ? ManagedFsUnsafeReason.profileOwner
             : ManagedFsUnsafeReason.profileNotDirectory,
-        aclWarning: witness.directory ? witness.aclWarning : null,
+        aclWarnings: [if (witness.directory) ?witness.aclWarning],
       );
     }
     _assertProfile(path, witness, fs);
@@ -461,23 +461,38 @@ final class ManagedDirectoryCatalog {
   ) {
     _assertSame(path, expected, fs);
     var current = Directory(path);
+    final warnings = <ManagedStorageAclWarning>[];
+    ManagedAncestorRefusal? firstRefusal;
     for (var depth = 0; depth < 256; depth++) {
       final facts = fs.inspect(current.path);
       if (!facts.directory || !facts.admitsAncestor) {
+        final refusal = (
+          depth: depth,
+          cause: facts.directory
+              ? facts.unsafeAncestorCause
+              : ManagedAncestorRefusalCause.notDirectory,
+        );
+        final warning = facts.directory ? facts.aclWarning : null;
+        if (warning == null) {
+          throw ManagedFsFailure(
+            ManagedFsFailureKind.unsafe,
+            unsafeReason: ManagedFsUnsafeReason.unsafeAncestor,
+            ancestorRefusal: refusal,
+          );
+        }
+        firstRefusal ??= refusal;
+        warnings.add(warning);
+      }
+      final parent = current.parent;
+      if (parent.path == current.path) {
+        if (firstRefusal == null) return;
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: ManagedFsUnsafeReason.unsafeAncestor,
-          ancestorRefusal: (
-            depth: depth,
-            cause: facts.directory
-                ? facts.unsafeAncestorCause
-                : ManagedAncestorRefusalCause.notDirectory,
-          ),
-          aclWarning: facts.aclWarning,
+          ancestorRefusal: firstRefusal,
+          aclWarnings: List.unmodifiable(warnings),
         );
       }
-      final parent = current.parent;
-      if (parent.path == current.path) return;
       current = parent;
     }
     throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
@@ -495,9 +510,9 @@ final class ManagedDirectoryCatalog {
       throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateDirectory,
-        aclWarning: allowAclApproval && witness.directory
-            ? witness.aclWarning
-            : null,
+        aclWarnings: [
+          if (allowAclApproval && witness.directory) ?witness.aclWarning,
+        ],
       );
     }
     return witness;

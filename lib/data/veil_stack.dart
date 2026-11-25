@@ -43,6 +43,7 @@ import 'node/ratchet_ffi.dart'
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
+import 'storage/managed_fs_contract.dart' show ManagedStorageAclWarning;
 import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
@@ -90,10 +91,11 @@ Future<List<String>?> _meetingPointsForBoot(Storage storage) async {
 /// than as a generic I/O failure — the distinction the operator needs is
 /// "we declined to start" versus "the disk is broken".
 class RuntimeDirNotPrivate implements Exception {
-  RuntimeDirNotPrivate(this.dir, this.reason);
+  RuntimeDirNotPrivate(this.dir, this.reason, {this.aclWarning});
 
   final String dir;
   final String reason;
+  final ManagedStorageAclWarning? aclWarning;
 
   @override
   String toString() =>
@@ -315,18 +317,19 @@ bool _createExclusiveDir(String path) {
 /// by an untrusted account; read-only shared bases remain valid. The child
 /// itself additionally needs current-user ownership and a private DACL.
 void _assertWindowsRuntimePath(String path, {bool private = false}) {
+  var current = Directory(path);
   try {
-    var current = Directory(path);
     for (var depth = 0; depth < 256; depth++) {
-      final facts = windows.inspect(current.path);
+      final facts = windows.inspect(current.path, includeApprovedAcl: true);
       if (!facts.directory ||
           !facts.safeAncestor ||
           (depth == 0 &&
               private &&
               (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
         throw RuntimeDirNotPrivate(
-          path,
+          current.path,
           'unsafe Windows directory permissions',
+          aclWarning: facts.directory ? facts.aclWarning : null,
         );
       }
       final parent = current.parent;
@@ -336,7 +339,10 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
   } on RuntimeDirNotPrivate {
     rethrow;
   } catch (_) {
-    throw RuntimeDirNotPrivate(path, 'Windows directory verification failed');
+    throw RuntimeDirNotPrivate(
+      current.path,
+      'Windows directory verification failed',
+    );
   }
   throw RuntimeDirNotPrivate(path, 'Windows directory ancestry is too deep');
 }
@@ -587,17 +593,23 @@ List<String> _runtimeDirEntries(String runtimeDir) {
 Future<String> claimRuntimeDirUnder(
   String base, {
   required String uniqueSuffix,
+  String? windowsFallbackBase,
 }) async {
   // The BASE may legitimately already exist (it is usually the system temp dir
   // or the app-support dir). It must not be a symlink: `Directory.create`
   // follows one, and a link planted here would relocate everything below.
-  if (FileSystemEntity.typeSync(base, followLinks: false) ==
-      FileSystemEntityType.link) {
-    throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
-  }
   if (Platform.isWindows) {
-    base = _prepareWindowsRuntimeBase(base);
+    try {
+      base = _prepareWindowsRuntimeBase(base);
+    } on RuntimeDirNotPrivate {
+      if (windowsFallbackBase == null) rethrow;
+      base = _prepareWindowsRuntimeBase(windowsFallbackBase);
+    }
   } else {
+    if (FileSystemEntity.typeSync(base, followLinks: false) ==
+        FileSystemEntityType.link) {
+      throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
+    }
     await Directory(base).create(recursive: true);
   }
 

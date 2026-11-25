@@ -40,6 +40,8 @@ import 'core/quick_unlock_vault.dart';
 import 'core/storage_features.dart';
 import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
+import 'data/storage/windows_profile_delete_approval.dart'
+    show windowsLocalRuntimeBase;
 import 'core/storage_acl_vault.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
@@ -125,16 +127,21 @@ Future<void> runStartup({
     loadingPreferences = false;
     await _bootAndRunApp(preferences, present);
   } catch (e, st) {
-    final aclWarning = loadingPreferences && e is ManagedWorkerFailure
-        ? e.aclWarning
-        : null;
+    final aclWarnings = loadingPreferences && e is ManagedWorkerFailure
+        ? e.aclWarnings
+        : const <ManagedStorageAclWarning>[];
+    final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
     Future<void> retryStartup() => runStartup(
       loadPreferences: loadPreferences,
       present: present,
       recordAclApproval: recordAclApproval,
       restoreAclApproval: restoreAclApproval,
     );
-    if (aclWarning != null && await restoreAclApproval(aclWarning)) {
+    final unapproved = <ManagedStorageAclWarning>[];
+    for (final warning in aclWarnings) {
+      if (!await restoreAclApproval(warning)) unapproved.add(warning);
+    }
+    if (aclWarnings.isNotEmpty && unapproved.isEmpty) {
       await retryStartup();
       return;
     }
@@ -231,13 +238,19 @@ Future<void> runStartup({
         ancestorRefusal: unsafeAncestor
             ? preferenceFailure?.ancestorRefusal
             : null,
-        retryPreferences: canRetry || aclWarning != null ? retryStartup : null,
-        aclWarning: aclWarning,
-        acceptAclWarning: aclWarning == null
+        runtimeDirectory: runtimeFailure?.dir,
+        runtimeAclWarning: runtimeFailure?.aclWarning,
+        retryPreferences: canRetry || unapproved.isNotEmpty
+            ? retryStartup
+            : null,
+        aclWarnings: unapproved,
+        acceptAclWarning: unapproved.isEmpty
             ? null
             : (remember) async {
-                if (!await recordAclApproval(aclWarning, remember: remember)) {
-                  return false;
+                for (final warning in unapproved) {
+                  if (!await recordAclApproval(warning, remember: remember)) {
+                    return false;
+                  }
                 }
                 await retryStartup();
                 return true;
@@ -386,8 +399,8 @@ Future<void> _runBootstrappedApplication({
               '${kRequiredSymbols.length} entry points';
   });
 
-  // Desktop: arm window_manager so the close button can hide to tray
-  // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
+  // Initialize window_manager. DesktopTrayHost takes over the close button
+  // once its tray menu is ready.
   //
   // Guarded because this runs BEFORE `runApp` (audit X-16). The zone
   // handler below catches the error and logs it, but there is no UI yet to
@@ -744,9 +757,13 @@ Future<BootstrapResult> _bootstrapOverrides({String? supportDirectory}) async {
     // that it was ours to delete (audit XV-09). We now create a fresh child and
     // own only that, so a recursive delete can never reach anything that was
     // there before us.
+    final runtimeOverride = Platform.environment['XVEIL_RUNTIME_DIR'];
     final runtimeDir = await claimRuntimeDirUnder(
-      Platform.environment['XVEIL_RUNTIME_DIR'] ?? runtimeBase,
+      runtimeOverride ?? runtimeBase,
       uniqueSuffix: '$pid',
+      windowsFallbackBase: Platform.isWindows && runtimeOverride == null
+          ? windowsLocalRuntimeBase()
+          : null,
     );
     // The soak hook is default-OFF now; say so once, or a stand polling a port
     // that answers nothing reads as a node that failed to bootstrap.

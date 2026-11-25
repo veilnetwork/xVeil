@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
+import 'package:xveil/data/veil_stack.dart' show RuntimeDirNotPrivate;
+import 'package:xveil/desktop/desktop_tray.dart'
+    show initDesktopWindow, isDesktopTrayPlatform;
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
 import 'package:xveil/features/settings/error_report.dart';
@@ -225,7 +229,14 @@ void main() {
           ),
         ],
       );
-      final choices = <bool>[];
+      final parentWarning = ManagedStorageAclWarning(
+        path: r'C:\fixture-private',
+        fingerprint: 'b' * 64,
+        grants: const [
+          (account: 'another-local-account', rights: {ManagedAclRight.write}),
+        ],
+      );
+      final choices = <(ManagedStorageAclWarning, bool)>[];
       var attempts = 0;
       Widget? presented;
       await runStartup(
@@ -236,7 +247,7 @@ void main() {
               ManagedWorkerFailureKind.invalid,
               preferencesOpenReason:
                   ManagedPreferencesFailureReason.unsafeAncestor,
-              aclWarning: warning,
+              aclWarnings: [warning, parentWarning],
             );
           }
           return (
@@ -248,8 +259,7 @@ void main() {
         },
         restoreAclApproval: (_) async => false,
         recordAclApproval: (candidate, {required remember}) {
-          expect(candidate, same(warning));
-          choices.add(remember);
+          choices.add((candidate, remember));
           return true;
         },
         present: (widget) => presented = widget,
@@ -257,6 +267,8 @@ void main() {
       await tester.pumpWidget(presented!);
       expect(find.text('Review access permissions'), findsOneWidget);
       expect(find.text(localPath), findsOneWidget);
+      expect(find.text(parentWarning.path), findsOneWidget);
+      expect(find.textContaining('another-local-account'), findsOneWidget);
       expect(find.textContaining(localAccount), findsOneWidget);
       expect(find.text('Do not start'), findsOneWidget);
       expect(choices, isEmpty);
@@ -274,12 +286,62 @@ void main() {
       await tester.ensureVisible(action);
       await tester.tap(action);
       await tester.pump();
-      expect(choices, [remember]);
+      expect(choices, [(warning, remember), (parentWarning, remember)]);
       expect(attempts, 2);
       await tester.pumpWidget(presented!);
       expect(find.byType(ProfileErasurePendingApp), findsOneWidget);
     });
   }
+
+  testWidgets('bootstrap leaves the native close button enabled', (
+    tester,
+  ) async {
+    const channel = MethodChannel('window_manager');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await initDesktopWindow();
+    expect(calls, isDesktopTrayPlatform ? ['ensureInitialized'] : isEmpty);
+  });
+
+  testWidgets('a runtime refusal explains the affected folder locally', (
+    tester,
+  ) async {
+    const folder = r'C:\fixture-runtime';
+    const account = 'runtime-fixture-account';
+    final warning = ManagedStorageAclWarning(
+      path: folder,
+      fingerprint: 'f' * 64,
+      grants: const [
+        (account: account, rights: {ManagedAclRight.deleteChildren}),
+      ],
+    );
+    Widget? presented;
+    await runStartup(
+      boot: () async => throw RuntimeDirNotPrivate(
+        folder,
+        'unsafe Windows directory permissions',
+        aclWarning: warning,
+      ),
+      present: (widget) => presented = widget,
+    );
+    await tester.pumpWidget(presented!);
+    expect(find.textContaining('files that control'), findsOneWidget);
+    expect(find.text(folder), findsOneWidget);
+    expect(find.textContaining(account), findsOneWidget);
+    expect(find.text('Start once'), findsNothing);
+    expect(find.byType(CopyErrorReportTile), findsOneWidget);
+
+    final report = buildErrorReport(phase: 'startup-failed');
+    expect(report, contains('RuntimeDirNotPrivate'));
+    expect(report, isNot(contains(folder)));
+    expect(report, isNot(contains(account)));
+  });
 
   testWidgets('an OS access refusal shows what to check', (tester) async {
     Widget? presented;

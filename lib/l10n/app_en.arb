@@ -51,7 +51,7 @@
     }
   },
   "startupAclWarningTitle": "Review access permissions",
-  "startupAclWarningRisk": "Other accounts have permissions on this folder. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.",
+  "startupAclWarningRisk": "Other accounts have permissions on the folders listed below. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.",
   "startupAclFileWarningRisk": "Other accounts may have access to this file under the permissions shown below.",
   "startupAclGrant": "{account} — {rights}",
   "startupAclOwner": "Owner {account} can change permissions",
@@ -66,7 +66,8 @@
   "startupAclChangeOwner": "change owner",
   "startupAclFullControl": "full control",
   "startupAclOther": "other access",
-  "startupAclCorrectionHint": "Review the permissions in the file or folder properties, or ask your administrator. A saved choice applies only to this object and its current permissions.",
+  "startupRuntimeDirectoryFailed": "xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then restart xVeil.",
+  "startupAclCorrectionHint": "Check access in the properties of the files or folders or ask your system administrator. Your choice applies to each listed item and its current permissions.",
   "startupAclInvalidPath": "The profile path is invalid or points outside a local drive. Check the configured profile location.",
   "startupAclAccessDenied": "The operating system denied access to part of the profile path. Check whether your account has access or ask your administrator.",
   "startupAclLinkedPath": "The profile path passes through a link or a Windows junction. Check the configured profile location.",

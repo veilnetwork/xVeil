@@ -123,7 +123,7 @@ class ManagedFsPlatform {
           unsafeReason: facts.isDirectory
               ? ManagedFsUnsafeReason.unsafeAncestor
               : ManagedFsUnsafeReason.privateFile,
-          aclWarning: warning,
+          aclWarnings: [?warning],
         );
       }
       return ManagedPathWitness(
@@ -193,9 +193,9 @@ class ManagedFsPlatform {
       throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateFile,
-        aclWarning: allowAclApproval && !facts.directory
-            ? facts.aclWarning
-            : null,
+        aclWarnings: [
+          if (allowAclApproval && !facts.directory) ?facts.aclWarning,
+        ],
       );
     }
     return facts;

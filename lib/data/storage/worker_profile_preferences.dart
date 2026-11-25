@@ -367,7 +367,7 @@ void _profilePreferencesEntry(
           _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
           ancestorRefusal: filesystem?.ancestorRefusal,
-          aclWarning: filesystem?.aclWarning,
+          aclWarnings: filesystem?.aclWarnings ?? const [],
         ),
       );
       return;
@@ -377,7 +377,7 @@ void _profilePreferencesEntry(
         _managedFailureKind(error),
         preferencesOpenReason: reason,
         ancestorRefusal: filesystem?.ancestorRefusal,
-        aclWarning: filesystem?.aclWarning,
+        aclWarnings: filesystem?.aclWarnings ?? const [],
       ),
     );
     return;
@@ -501,10 +501,10 @@ void _profilePreferencesEntry(
                   _ManagedWorkerErr(
                     ManagedWorkerFailureKind.invalid,
                     preferencesReadReason: failure,
-                    aclWarning:
-                        failure == ManagedPreferencesFailureReason.fileType
-                        ? null
-                        : witness?.aclWarning,
+                    aclWarnings: [
+                      if (failure != ManagedPreferencesFailureReason.fileType)
+                        ?witness?.aclWarning,
+                    ],
                   ),
                 );
                 break;
@@ -574,7 +574,7 @@ void _profilePreferencesEntry(
                       : _managedFailureKind(error),
                   preferencesReadReason: _preferencesFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
-                  aclWarning: filesystem?.aclWarning,
+                  aclWarnings: filesystem?.aclWarnings ?? const [],
                 )
               : _workerErrorReply(error, managed: true),
         );

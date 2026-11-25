@@ -207,7 +207,7 @@ Set<ManagedAclRight> _displayRights(int mask) {
   return rights.isEmpty ? {ManagedAclRight.other} : rights;
 }
 
-ManagedPathWitness inspect(String path) {
+ManagedPathWitness inspect(String path, {bool includeApprovedAcl = false}) {
   final name = path.toNativeUtf16();
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
   var handle = win.INVALID_HANDLE_VALUE;
@@ -280,7 +280,7 @@ ManagedPathWitness inspect(String path) {
           ? ManagedAncestorRefusalCause.unsafePermissions
           : ManagedAncestorRefusalCause.untrustedOwner,
       aclApproved: approved,
-      aclWarning: grant == null || approved
+      aclWarning: grant == null || (approved && !includeApprovedAcl)
           ? null
           : ManagedStorageAclWarning(
               path: stripExtendedLengthPrefix(finalPath),

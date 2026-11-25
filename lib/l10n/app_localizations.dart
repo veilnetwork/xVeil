@@ -366,7 +366,7 @@ abstract class AppL10n {
   /// No description provided for @startupAclWarningRisk.
   ///
   /// In en, this message translates to:
-  /// **'Other accounts have permissions on this folder. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.'**
+  /// **'Other accounts have permissions on the folders listed below. Write or delete access can let them alter or replace stored data. Access to each file also depends on its own permissions.'**
   String get startupAclWarningRisk;
 
   /// No description provided for @startupAclFileWarningRisk.
@@ -453,10 +453,16 @@ abstract class AppL10n {
   /// **'other access'**
   String get startupAclOther;
 
+  /// No description provided for @startupRuntimeDirectoryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not verify a private folder for the files that control its network connection. Check access in the properties of the folder below or ask your system administrator, then restart xVeil.'**
+  String get startupRuntimeDirectoryFailed;
+
   /// No description provided for @startupAclCorrectionHint.
   ///
   /// In en, this message translates to:
-  /// **'Review the permissions in the file or folder properties, or ask your administrator. A saved choice applies only to this object and its current permissions.'**
+  /// **'Check access in the properties of the files or folders or ask your system administrator. Your choice applies to each listed item and its current permissions.'**
   String get startupAclCorrectionHint;
 
   /// No description provided for @startupAclInvalidPath.

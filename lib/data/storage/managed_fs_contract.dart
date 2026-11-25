@@ -75,12 +75,12 @@ final class ManagedFsFailure implements Exception {
     this.kind, {
     this.unsafeReason,
     this.ancestorRefusal,
-    this.aclWarning,
+    this.aclWarnings = const [],
   });
   final ManagedFsFailureKind kind;
   final ManagedFsUnsafeReason? unsafeReason;
   final ManagedAncestorRefusal? ancestorRefusal;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';
 }

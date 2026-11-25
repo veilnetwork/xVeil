@@ -27,7 +27,9 @@ class StartupFailedApp extends StatelessWidget {
     this.preferencesUnsafeAncestor = false,
     this.ancestorRefusal,
     this.preferencesReason,
-    this.aclWarning,
+    this.aclWarnings = const [],
+    this.runtimeDirectory,
+    this.runtimeAclWarning,
     this.acceptAclWarning,
   });
 
@@ -36,7 +38,9 @@ class StartupFailedApp extends StatelessWidget {
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
+  final String? runtimeDirectory;
+  final ManagedStorageAclWarning? runtimeAclWarning;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
@@ -58,7 +62,9 @@ class StartupFailedApp extends StatelessWidget {
         preferencesUnsafeAncestor: preferencesUnsafeAncestor,
         ancestorRefusal: ancestorRefusal,
         preferencesReason: preferencesReason,
-        aclWarning: aclWarning,
+        aclWarnings: aclWarnings,
+        runtimeDirectory: runtimeDirectory,
+        runtimeAclWarning: runtimeAclWarning,
         acceptAclWarning: acceptAclWarning,
       ),
     );
@@ -72,7 +78,9 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.preferencesUnsafeAncestor,
     required this.ancestorRefusal,
     required this.preferencesReason,
-    required this.aclWarning,
+    required this.aclWarnings,
+    required this.runtimeDirectory,
+    required this.runtimeAclWarning,
     required this.acceptAclWarning,
   });
 
@@ -81,7 +89,9 @@ class _StartupFailedScreen extends StatefulWidget {
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
-  final ManagedStorageAclWarning? aclWarning;
+  final List<ManagedStorageAclWarning> aclWarnings;
+  final String? runtimeDirectory;
+  final ManagedStorageAclWarning? runtimeAclWarning;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
   @override
@@ -117,28 +127,32 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     final scheme = Theme.of(context).colorScheme;
     final retryPreferences = widget.retryPreferences;
     final ancestor = widget.ancestorRefusal;
-    final warning = widget.aclWarning;
+    final warnings = widget.aclWarnings;
+    final runtimeDirectory = widget.runtimeDirectory;
+    final runtimeAclWarning = widget.runtimeAclWarning;
     final accept = widget.acceptAclWarning;
     final actionStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant);
-    final explanation = switch (widget.preferencesUnsafeAncestor) {
-      true => switch (ancestor?.cause) {
-        ManagedAncestorRefusalCause.notDirectory =>
-          l.startupPreferencesAncestorNotDirectory,
-        ManagedAncestorRefusalCause.untrustedOwner =>
-          l.startupPreferencesAncestorOwner,
-        ManagedAncestorRefusalCause.unsafePermissions =>
-          l.startupPreferencesAncestorPermissions,
-        null => l.startupPreferencesUnsafeAncestor,
-      },
-      false when widget.preferencesFormatFailed =>
-        l.startupPreferencesFormatFailed,
-      false when retryPreferences != null => l.startupPreferencesBusy,
-      false =>
-        _preferencesExplanation(l, widget.preferencesReason) ??
-            l.startupFailedAction,
-    };
+    final explanation = runtimeDirectory != null
+        ? l.startupRuntimeDirectoryFailed
+        : switch (widget.preferencesUnsafeAncestor) {
+            true => switch (ancestor?.cause) {
+              ManagedAncestorRefusalCause.notDirectory =>
+                l.startupPreferencesAncestorNotDirectory,
+              ManagedAncestorRefusalCause.untrustedOwner =>
+                l.startupPreferencesAncestorOwner,
+              ManagedAncestorRefusalCause.unsafePermissions =>
+                l.startupPreferencesAncestorPermissions,
+              null => l.startupPreferencesUnsafeAncestor,
+            },
+            false when widget.preferencesFormatFailed =>
+              l.startupPreferencesFormatFailed,
+            false when retryPreferences != null => l.startupPreferencesBusy,
+            false =>
+              _preferencesExplanation(l, widget.preferencesReason) ??
+                  l.startupFailedAction,
+          };
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -149,48 +163,30 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  warning == null ? Icons.error_outline : Icons.warning_amber,
+                  warnings.isEmpty ? Icons.error_outline : Icons.warning_amber,
                   size: 56,
                   color: scheme.error,
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  warning == null
+                  warnings.isEmpty
                       ? l.startupFailedTitle
                       : l.startupAclWarningTitle,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 16),
-                if (warning != null && accept != null) ...[
+                if (warnings.isNotEmpty && accept != null) ...[
                   Text(
-                    warning.directory
+                    warnings.first.directory
                         ? l.startupAclWarningRisk
                         : l.startupAclFileWarningRisk,
                     style: actionStyle,
                   ),
                   const SizedBox(height: 8),
-                  SelectableText(warning.path),
-                  const SizedBox(height: 8),
-                  if (warning.owner case final owner?)
-                    Text(l.startupAclOwner(owner)),
-                  for (final grant in warning.grants)
-                    Text(
-                      l.startupAclGrant(
-                        grant.account.isEmpty
-                            ? l.startupAclEveryone
-                            : grant.account,
-                        grant.rights
-                            .map((right) => _rightLabel(l, right))
-                            .join(', '),
-                      ),
-                    ),
-                  if (warning.extendedAcl case final acl?)
-                    ExpansionTile(
-                      title: Text(l.startupAclDetails),
-                      initiallyExpanded: warning.grants.isEmpty,
-                      children: [SelectableText(acl)],
-                    ),
-                  const SizedBox(height: 8),
+                  for (final warning in warnings) ...[
+                    _AclDetails(warning),
+                    const SizedBox(height: 16),
+                  ],
                   Text(l.startupAclCorrectionHint, style: actionStyle),
                   if (_approvalFailed)
                     Text(
@@ -222,6 +218,13 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   ),
                 ] else ...[
                   Text(explanation, style: actionStyle),
+                  if (runtimeDirectory != null) ...[
+                    const SizedBox(height: 8),
+                    if (runtimeAclWarning != null)
+                      _AclDetails(runtimeAclWarning)
+                    else
+                      SelectableText(runtimeDirectory),
+                  ],
                   if (widget.preferencesUnsafeAncestor && ancestor != null) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -229,6 +232,10 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                       style: actionStyle,
                     ),
                   ],
+                ],
+                if (_retrying) ...[
+                  const SizedBox(height: 16),
+                  const LinearProgressIndicator(),
                 ],
                 const CopyErrorReportTile(phase: 'startup-failed'),
                 if (retryPreferences != null) ...[
@@ -238,7 +245,7 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                         ? null
                         : () => _retry(retryPreferences),
                     child: Text(
-                      warning == null ? l.startupRetry : l.startupAclRecheck,
+                      warnings.isEmpty ? l.startupRetry : l.startupAclRecheck,
                     ),
                   ),
                 ],
@@ -247,6 +254,38 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AclDetails extends StatelessWidget {
+  const _AclDetails(this.warning);
+
+  final ManagedStorageAclWarning warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SelectableText(warning.path),
+        const SizedBox(height: 8),
+        if (warning.owner case final owner?) Text(l.startupAclOwner(owner)),
+        for (final grant in warning.grants)
+          Text(
+            l.startupAclGrant(
+              grant.account.isEmpty ? l.startupAclEveryone : grant.account,
+              grant.rights.map((right) => _rightLabel(l, right)).join(', '),
+            ),
+          ),
+        if (warning.extendedAcl case final acl?)
+          ExpansionTile(
+            title: Text(l.startupAclDetails),
+            initiallyExpanded: warning.grants.isEmpty,
+            children: [SelectableText(acl)],
+          ),
+      ],
     );
   }
 }

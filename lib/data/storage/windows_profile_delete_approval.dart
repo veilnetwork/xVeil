@@ -99,31 +99,40 @@ bool recordWindowsProfileAclApproval(
   });
 }
 
-final String? windowsProfileSupportPath = Platform.isWindows
-    ? using((arena) {
-        final folder = arena<Pointer<Utf16>>();
-        try {
-          if (win.SHGetKnownFolderPath(
-                    win.GUIDFromString(
-                      win.FOLDERID_RoamingAppData,
-                      allocator: arena,
-                    ),
-                    win.KF_FLAG_DONT_VERIFY,
-                    0,
-                    folder,
-                  ) !=
-                  0 ||
-              folder.value == nullptr) {
-            return null;
-          }
-          // Matches the company and product values in windows/runner/Runner.rc
-          // used by path_provider.
-          return '${folder.value.toDartString()}\\network.veil\\xveil';
-        } finally {
-          if (folder.value != nullptr) win.CoTaskMemFree(folder.value);
-        }
-      })
-    : null;
+final String? windowsProfileSupportPath = _windowsProfileSupportPath();
+
+String? _windowsProfileSupportPath() {
+  if (!Platform.isWindows) return null;
+  final folder = _knownFolderPath(win.FOLDERID_RoamingAppData);
+  // Matches the company and product values in windows/runner/Runner.rc.
+  return folder == null ? null : '$folder\\network.veil\\xveil';
+}
+
+/// Keep per-process control files under LocalAppData when the roaming profile
+/// cannot provide safe ancestry. Return a path without creating anything.
+String? windowsLocalRuntimeBase() {
+  final folder = _knownFolderPath(win.FOLDERID_LocalAppData);
+  return folder == null ? null : '$folder\\network.veil\\xveil-runtime';
+}
+
+String? _knownFolderPath(String id) => using((arena) {
+  final folder = arena<Pointer<Utf16>>();
+  try {
+    if (win.SHGetKnownFolderPath(
+              win.GUIDFromString(id, allocator: arena),
+              win.KF_FLAG_DONT_VERIFY,
+              0,
+              folder,
+            ) !=
+            0 ||
+        folder.value == nullptr) {
+      return null;
+    }
+    return folder.value.toDartString();
+  } finally {
+    if (folder.value != nullptr) win.CoTaskMemFree(folder.value);
+  }
+});
 
 final _advapi = DynamicLibrary.open('advapi32.dll');
 final _parseSid = _advapi
