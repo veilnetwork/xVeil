@@ -8,6 +8,8 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.110] - 2026-11-25
+
 ### Fixed
 
 - Show affected profile ancestor folders together so one startup choice
