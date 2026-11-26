@@ -45,6 +45,7 @@ import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'storage/managed_fs_contract.dart'
     show ManagedFsFailure, ManagedStorageAclWarning;
+import 'storage/managed_fs_platform.dart' show ManagedFsPlatform;
 import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
@@ -746,6 +747,7 @@ Future<String> _claimRuntimeChild(String base, String uniqueSuffix) async {
     final suffix = attempt == 0 ? uniqueSuffix : '$uniqueSuffix-$attempt';
     final child = '$base/xveil-rt-$suffix';
     if (_createExclusiveDir(child)) {
+      if (!Platform.isWindows) verifyRuntimeDir(child);
       await _writeRuntimeDirMarker(child);
       return child;
     }
@@ -928,12 +930,9 @@ class RuntimeDirLease {
     for (var attempt = 0; attempt < 8; attempt++) {
       final path = '$base/${_randomName(prefix)}';
       if (!_createExclusiveDir(path)) continue;
+      await restrictRuntimeDir(path);
       final secret = _randomSecret();
       await _writeRuntimeDirMarker(path, secret: secret);
-      // Mode 0700 came from `mkdir` itself, but a filesystem that ignores it
-      // (some mounted shares do) must still be caught. Windows creation and
-      // verification use the protected DACL rather than POSIX mode bits.
-      await restrictRuntimeDir(path);
       return RuntimeDirLease._(
         path: path,
         base: base,
@@ -1049,32 +1048,43 @@ class RuntimeDirLease {
   }
 }
 
-/// Apply and VERIFY the owner-only mode on a directory we made.
-///
-/// It holds `admin.sock` — the node's CONTROL socket — next to `app.sock` and
-/// the obfs4 PSK. `Directory.create` leaves the mode at the process umask,
-/// which on a typical desktop is world-readable, so on a shared machine
-/// another local user could reach the admin endpoint of someone else's node.
-///
-/// Two things this does that the old best-effort `chmod` did not:
-///
-///   * **verifies the result** by reading the mode back, instead of trusting
-///     that `chmod` exiting zero means the filesystem honoured it. Mounted
-///     shares and some vendor mounts accept the call and keep the old mode.
-///   * **fails closed** where it matters ([runtimeDirMustBePrivate]) instead
-///     of logging and carrying on. A hardening step that only logs is a
-///     comment claiming something untrue.
-///
-/// The window this used to describe — the directory existing at the umask
-/// between `create` and `chmod` — is gone: [RuntimeDirLease] creates through
-/// `mkdir(2)` with the mode in the same call. This is now the verification
-/// half only, which is why it no longer creates anything.
-///
-/// [chmod] exists for tests only — null from it means "applied", a string means
-/// "not applied, and here is why". A filesystem that accepts the call and keeps
-/// the old mode is the case the read-back guards against, and there is no way
-/// to produce one on demand — so it is injected rather than described, and the
-/// verification stays covered.
+/// Check ownership and the actual ACL before putting node control files in
+/// the directory. A POSIX mode alone cannot describe Darwin ACLs.
+void verifyRuntimeDir(String dir) {
+  if (Platform.isWindows) {
+    _assertWindowsRuntimePath(dir, private: true);
+    return;
+  }
+  if (!runtimeDirMustBePrivate()) return;
+  try {
+    final witness = const ManagedFsPlatform().inspectAcl(dir);
+    if (witness.directory && witness.ownedByCurrentUser && witness.ownerOnly) {
+      return;
+    }
+    throw RuntimeDirNotPrivate(
+      dir,
+      'runtime directory permissions are not private',
+      retryable: true,
+      refusal: RuntimeDirectoryRefusal.insufficientPrivacy,
+      aclWarning: witness.aclWarning,
+    );
+  } on ManagedFsFailure catch (error) {
+    final warning = error.aclWarnings.firstOrNull;
+    throw RuntimeDirNotPrivate(
+      dir,
+      'could not verify a private runtime directory',
+      retryable: true,
+      refusal: warning == null
+          ? RuntimeDirectoryRefusal.cannotVerify
+          : RuntimeDirectoryRefusal.insufficientPrivacy,
+      aclWarning: warning,
+    );
+  }
+}
+
+/// Apply owner-only mode to a directory the caller created, then verify its
+/// mode and ACL. The optional [chmod] callback covers filesystem failures in
+/// tests.
 Future<void> restrictRuntimeDir(
   String dir, {
   Future<String?> Function(String dir)? chmod,
@@ -1110,7 +1120,10 @@ Future<void> restrictRuntimeDir(
     failure = 'could not stat the directory back: $e';
   }
 
-  if (failure == null) return;
+  if (failure == null) {
+    verifyRuntimeDir(dir);
+    return;
+  }
   if (runtimeDirMustBePrivate()) {
     throw RuntimeDirNotPrivate(dir, failure);
   }

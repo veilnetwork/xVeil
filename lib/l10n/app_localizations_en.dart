@@ -272,6 +272,12 @@ class AppL10nEn extends AppL10n {
       'xVeil could not save the settings while preserving the file’s owner or access permissions. Review the file’s access settings or ask your administrator.';
 
   @override
+  String get profileAclContinueOnce => 'Continue once';
+
+  @override
+  String get profileAclRememberChoice => 'Continue and remember my choice';
+
+  @override
   String get profileAclResetTitle => 'Forget saved permission decisions';
 
   @override

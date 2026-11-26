@@ -274,17 +274,59 @@ bool _prepareTemporary(File temp) {
   return true;
 }
 
-/// Read a valid installation-wide choice. A read failure on an existing entry
-/// propagates so a migration cannot replace a choice it was unable to read.
-/// Use [requireValid] when an unreadable choice must stop startup or migration.
+/// Inspect the installation-wide choice before using its contents to select
+/// storage. Only read-only ACLs on an owned regular file are reviewable.
+ManagedPathWitness? _profileChoiceAccess(File file) {
+  if (!Platform.isWindows && !prefsFilesMustBePrivate()) return null;
+  final type = FileSystemEntity.typeSync(file.path, followLinks: false);
+  if (type == FileSystemEntityType.notFound) return null;
+  if (type != FileSystemEntityType.file) {
+    throw ManagedFsFailure(
+      ManagedFsFailureKind.unsafe,
+      unsafeReason: ManagedFsUnsafeReason.privateFile,
+      path: file.path,
+    );
+  }
+  return const ManagedFsPlatform().requirePrivateFile(
+    file.path,
+    allowReadOnlyAclApproval: true,
+  );
+}
+
+/// A read failure on an existing entry propagates so migration cannot replace
+/// a choice it was unable to read.
 Future<String?> readProfileChoice(
   File file, {
   bool requireValid = false,
 }) async {
+  RandomAccessFile? reader;
   try {
-    final name = utf8
-        .decode(await file.readAsBytes(), allowMalformed: true)
-        .trim();
+    // On Windows keep the sharing-violation code from the actual file open.
+    // Merely opening for read does not consume the choice.
+    if (Platform.isWindows &&
+        FileSystemEntity.typeSync(file.path, followLinks: false) ==
+            FileSystemEntityType.file) {
+      reader = await file.open();
+    }
+    var before = _profileChoiceAccess(file);
+    if (before == null && (Platform.isWindows || prefsFilesMustBePrivate())) {
+      // Dart type queries can report notFound for a path whose parent denies
+      // traversal. Keep the system's actual open error in that case.
+      reader ??= await file.open();
+      before = _profileChoiceAccess(file);
+      if (before == null) {
+        throw ManagedFsFailure(ManagedFsFailureKind.changed, path: file.path);
+      }
+    }
+    final bytes = reader == null
+        ? await file.readAsBytes()
+        : await reader.read(await reader.length());
+    final after = _profileChoiceAccess(file);
+    if (before?.identity != after?.identity ||
+        before?.aclWarning?.fingerprint != after?.aclWarning?.fingerprint) {
+      throw ManagedFsFailure(ManagedFsFailureKind.changed, path: file.path);
+    }
+    final name = utf8.decode(bytes, allowMalformed: true).trim();
     if (AppProfiles.isValidName(name)) return name;
     if (requireValid) throw const ProfileChoiceReadFailure.malformed();
     return null;
@@ -294,6 +336,8 @@ Future<String?> readProfileChoice(
       rethrow;
     }
     return null;
+  } finally {
+    await reader?.close();
   }
 }
 
@@ -394,6 +438,7 @@ Future<bool> writeProfileChoiceAtomically(
   String contents, {
   bool onlyIfUnset = false,
   void Function(Object)? onFailure,
+  Future<void> Function(StorageAclReplacement)? onAclReplaced,
 }) async {
   RandomAccessFile? lock;
   try {
@@ -437,11 +482,18 @@ Future<bool> writeProfileChoiceAtomically(
         await readProfileChoice(file, requireValid: true) != null) {
       return true;
     }
-    return await writePrivateFileAtomically(
+    final expected = _profileChoiceAccess(file);
+    StorageAclReplacement? replacement;
+    final written = await writePrivateFileAtomically(
       file,
       contents,
       onFailure: onFailure,
+      expectedAccess: expected,
+      requireExpectedAccess: Platform.isWindows || prefsFilesMustBePrivate(),
+      onAclReplaced: (value) => replacement = value,
     );
+    if (written && replacement != null) await onAclReplaced?.call(replacement!);
+    return written;
   } catch (error) {
     onFailure?.call(error);
     devLog(() => 'xVeil[prefs]: could not save the profile choice: $error');
@@ -567,11 +619,20 @@ Future<bool> writePrivateFileAtomically(
   File file,
   String contents, {
   void Function(Object)? onFailure,
+  ManagedPathWitness? expectedAccess,
+  bool requireExpectedAccess = false,
+  void Function(StorageAclReplacement)? onAclReplaced,
 }) async {
   final temp = File('${file.path}.tmp');
   try {
     _ensurePrivateDir(file.parent);
     final access = _PreferenceFileAccess.capture(file);
+    if (requireExpectedAccess &&
+        (expectedAccess?.identity != access.witness?.identity ||
+            expectedAccess?.aclWarning?.fingerprint !=
+                access.witness?.aclWarning?.fingerprint)) {
+      throw ManagedFsFailure(ManagedFsFailureKind.changed, path: file.path);
+    }
     // Never write THROUGH a link someone else planted at the temporary name:
     // that is how a 0600 file ends up being somebody else's file, with our
     // posture in it. A directory in the way is not something to clear out.
@@ -608,7 +669,7 @@ Future<bool> writePrivateFileAtomically(
       devLog(() => 'xVeil[prefs]: ${file.path} did not read back as written');
       return false;
     }
-    return access.checkPublished(file, prepared, null);
+    return access.checkPublished(file, prepared, onAclReplaced);
   } catch (e) {
     onFailure?.call(e);
     devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');

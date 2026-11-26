@@ -113,6 +113,36 @@ void main() {
     );
   }, skip: skipReason);
 
+  test(
+    'a runtime directory with an inherited read ACL is refused before its marker',
+    () async {
+      final dir = Directory.systemTemp.createTempSync(
+        'xveil-rt-inherited-acl-',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final result = Process.runSync('/bin/chmod', [
+        '+a',
+        'everyone allow list,search,directory_inherit',
+        dir.path,
+      ]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      final failure = isA<RuntimeDirNotPrivate>()
+          .having((error) => error.retryable, 'recovery actions', isTrue)
+          .having(
+            (error) => error.aclWarning?.extendedAcl,
+            'grant',
+            contains('everyone'),
+          );
+      await expectLater(
+        claimRuntimeDirUnder(dir.path, uniqueSuffix: 'fixture'),
+        throwsA(failure),
+      );
+      await expectLater(RuntimeDirLease.acquire(dir.path), throwsA(failure));
+      expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
+    },
+    skip: !Platform.isMacOS,
+  );
+
   test('a leased runtime directory is created and secured in one call',
       () async {
     final root = Directory.systemTemp.createTempSync('xveil_rt_create');

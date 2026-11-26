@@ -273,6 +273,12 @@ class AppL10nEs extends AppL10n {
       'xVeil no pudo guardar los ajustes conservando el propietario o los permisos del archivo. Revisa los permisos o consulta a tu administrador.';
 
   @override
+  String get profileAclContinueOnce => 'Continuar una vez';
+
+  @override
+  String get profileAclRememberChoice => 'Continuar y recordar mi elección';
+
+  @override
   String get profileAclResetTitle =>
       'Borrar las decisiones guardadas sobre permisos';
 

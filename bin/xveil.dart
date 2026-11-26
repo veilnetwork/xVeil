@@ -71,12 +71,15 @@ Future<void> _run(List<String> args) async {
   final fileRoots = <String>[];
   var create = false;
   var acceptUnchecked = false;
+  var acceptReadable = false;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       // The operator asserting what this process could not check. Only
       // meaningful where a secret file cannot be verified at all — Windows.
       case kAcceptUncheckedSecretFilesFlag:
         acceptUnchecked = true;
+      case kAcceptReadableSecretFilesFlag:
+        acceptReadable = true;
       case '--config':
         configPath = _next(args, ++i, '--config');
       case '--password-file':
@@ -122,11 +125,15 @@ Future<void> _run(List<String> args) async {
   acceptUnchecked =
       acceptUnchecked ||
       Platform.environment[kAcceptUncheckedSecretFilesEnv] == '1';
+  acceptReadable =
+      acceptReadable ||
+      Platform.environment[kAcceptReadableSecretFilesEnv] == '1';
 
   Future<String> readSecret(String path, String label) => readSecretFile(
     path,
     label,
     acceptUnchecked: acceptUnchecked,
+    acceptReadable: acceptReadable,
     warn: stderr.writeln,
   );
 
@@ -278,17 +285,18 @@ xVeil headless daemon
             [--password-file PATH] [--identity-phrase-file PATH]
             [--identity-credential-file PATH]
             [--api-token-file PATH] [--api-file-root DIR]...
-            [--accept-unchecked-secret-files]
+            [--accept-unchecked-secret-files] [--accept-readable-secret-files]
 
 Secrets are never accepted in the JSON config or as literal command-line
 arguments. Preferred: run from a terminal with no --password-file and type the
 store password at the prompt — nothing is written down, so there is no file for
 another account to read.
 
-A credential file is the unattended fallback, and it is refused unless this
-process can show it is private: not a symlink, a regular file, and on POSIX no
-permission bit beyond the owner's. On WINDOWS none of that can be checked from
-Dart (no ACL, no owner), so a secret file is REFUSED there until you restrict it
+A credential file is the unattended fallback. On macOS and Linux, xVeil checks
+the owner, permissions and ACL of the file. To permit verified read-only access
+for other accounts, pass --accept-readable-secret-files (or set
+XVEIL_ACCEPT_READABLE_SECRET_FILES=1). xVeil reports the grant before reading.
+On Windows, xVeil cannot verify ownership and the ACL in this path. Restrict it
 yourself and pass --accept-unchecked-secret-files (or set
 XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1). That flag records your assertion; it
 verifies nothing.

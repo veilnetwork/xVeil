@@ -22,6 +22,7 @@ final class ManagedWorkerFailure implements Exception {
     this.preferencesReadReason,
     this.preferencesWriteReason,
     this.ancestorRefusal,
+    this.filesystemFailure,
     this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
@@ -29,6 +30,7 @@ final class ManagedWorkerFailure implements Exception {
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedPreferencesFailureReason? preferencesWriteReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedFsFailure? filesystemFailure;
   final List<ManagedStorageAclWarning> aclWarnings;
   @override
   String toString() => 'ManagedWorkerFailure(${kind.name})';
@@ -58,6 +60,7 @@ final class _ManagedWorkerErr extends _Reply {
     this.preferencesReadReason,
     this.preferencesWriteReason,
     this.ancestorRefusal,
+    this.filesystemFailure,
     this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
@@ -65,6 +68,7 @@ final class _ManagedWorkerErr extends _Reply {
   final ManagedPreferencesFailureReason? preferencesReadReason;
   final ManagedPreferencesFailureReason? preferencesWriteReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedFsFailure? filesystemFailure;
   final List<ManagedStorageAclWarning> aclWarnings;
 }
 
@@ -79,12 +83,14 @@ final class _ManagedOpenFailed extends _Reply {
     this.cleanup, {
     this.preferencesOpenReason,
     this.ancestorRefusal,
+    this.filesystemFailure,
     this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final SendPort cleanup;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedAncestorRefusal? ancestorRefusal;
+  final ManagedFsFailure? filesystemFailure;
   final List<ManagedStorageAclWarning> aclWarnings;
 }
 
@@ -479,7 +485,10 @@ _Reply _workerErrorReply(Object error, {required bool managed}) {
         ? _Err(error.kind, error.message)
         : _Err('Internal', error.toString());
   }
-  return _ManagedWorkerErr(_managedFailureKind(error));
+  return _ManagedWorkerErr(
+    _managedFailureKind(error),
+    filesystemFailure: error is ManagedFsFailure ? error : null,
+  );
 }
 
 ManagedWorkerFailureKind _managedFailureKind(Object error) => switch (error) {

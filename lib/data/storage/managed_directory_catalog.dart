@@ -300,7 +300,7 @@ final class ManagedDirectoryCatalog {
       catalogPath,
       allowReadOnlyAclApproval: !exclusive,
     );
-    _checkSqliteSidecars(catalogPath, fs);
+    _checkSqliteSidecars(catalogPath, fs, allowReadOnlyAclApproval: !exclusive);
     final rolePath = _child(root, ManagedProfileLease.fileName);
     final leaseWitnesses = <String, ManagedPathWitness>{
       ManagedProfileLease.fileName: fs.requirePrivateFile(rolePath),
@@ -386,7 +386,11 @@ final class ManagedDirectoryCatalog {
         0) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
-    _checkSqliteSidecars(_catalogPath, _fs);
+    _checkSqliteSidecars(
+      _catalogPath,
+      _fs,
+      allowReadOnlyAclApproval: !_coordinator.exclusive,
+    );
     _fs.requirePrivateFile(
       _catalogPath,
       allowReadOnlyAclApproval: !_coordinator.exclusive,
@@ -538,6 +542,7 @@ final class ManagedDirectoryCatalog {
     String database,
     ManagedFsPlatform fs, {
     bool allowAclApproval = false,
+    bool allowReadOnlyAclApproval = false,
   }) {
     // SQLite opens these itself during recovery. Checking only the database
     // leaf would still allow a planted journal/WAL link to escape the root.
@@ -545,7 +550,11 @@ final class ManagedDirectoryCatalog {
       final path = '$database$suffix';
       if (FileSystemEntity.typeSync(path, followLinks: false) !=
           FileSystemEntityType.notFound) {
-        fs.requirePrivateFile(path, allowAclApproval: allowAclApproval);
+        fs.requirePrivateFile(
+          path,
+          allowAclApproval: allowAclApproval,
+          allowReadOnlyAclApproval: allowReadOnlyAclApproval,
+        );
       }
     }
   }

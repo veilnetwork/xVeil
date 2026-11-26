@@ -10,9 +10,11 @@ import 'package:shared_preferences_platform_interface/types.dart';
 import 'package:shared_preferences_windows/shared_preferences_windows.dart';
 
 import '../../core/log.dart';
+import '../../core/storage_acl_vault.dart';
 import '../../domain/profile_preferences_layout.dart';
 import 'app_profile.dart';
 import 'async_kv_log_store.dart' show ManagedWorkerFailure;
+import 'managed_fs_contract.dart' show ManagedFsFailure;
 import 'profile_preferences_file.dart';
 import 'legacy_profile_preferences.dart';
 import 'profile_preferences_routing.dart';
@@ -424,6 +426,7 @@ Future<bool> writeRememberedProfile(
       profile,
       onlyIfUnset: onlyIfUnset,
       onFailure: onFailure,
+      onAclReplaced: rememberStorageAclReplacement,
     ),
   );
   _profileChoiceWrites = write.then<void>(
@@ -472,7 +475,10 @@ Future<String> installProfilePreferences({
   var pointerSafe = true;
   try {
     pointer = await readChoice();
-  } on ProfileChoiceReadFailure {
+  } catch (error) {
+    if (error is! ProfileChoiceReadFailure && error is! ManagedFsFailure) {
+      rethrow;
+    }
     final explicit = AppProfiles.resolveWithSource(
       args: args,
       environment: environment,
@@ -673,6 +679,7 @@ Future<String> installProfilePreferencesOrFallback({
     );
   } catch (e, st) {
     if (openOwnedFile != null ||
+        e is ManagedFsFailure ||
         e is ProfileChoiceReadFailure ||
         e is ProfilePreferencesFormatFailure) {
       rethrow;
@@ -716,11 +723,9 @@ Future<Map<String, Object>> _readLegacyPreferences(
       }
       return _freshLegacyReader(legacy).getAll();
     }
+
     final snapshot = requiredForChoice
-        ? await retryProfileChoiceRead(
-            read,
-            isAbsent: (data) => data.isEmpty,
-          )
+        ? await retryProfileChoiceRead(read, isAbsent: (data) => data.isEmpty)
         : await read();
     return {
       for (final entry in snapshot.entries)

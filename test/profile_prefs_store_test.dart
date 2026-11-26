@@ -6,6 +6,8 @@ import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
+import 'package:xveil/data/storage/managed_fs_platform.dart' show ManagedFsPlatform;
+import 'package:xveil/data/storage/storage_acl_approval.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
@@ -1017,6 +1019,9 @@ Future<void> main(List<String> args) async {
       expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
       final path = activeProfilePath(support.path);
       expect(posixChmod(path, 0x1a0), 0); // 0640
+      final previous = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(previous));
+      approveStorageAcl(const ManagedFsPlatform().inspectAcl(path).aclWarning!.fingerprint);
       expect(await writeRememberedProfile(support.path, 'default'), isTrue);
       expect(posixLstat(path)?.permissions, 0x1a0);
       expect(await readRememberedProfile(support.path), 'default');

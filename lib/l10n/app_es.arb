@@ -73,6 +73,8 @@
   "startupRuntimeCannotVerify": "Windows no proporcionó la información necesaria para verificar el acceso a la carpeta.",
   "preferencesStagingAccessRefused": "xVeil no pudo verificar el acceso privado al archivo temporal o de bloqueo. Revisa los permisos heredados de la carpeta e intenta guardar otra vez.",
   "preferencesAccessPolicyNotPreserved": "xVeil no pudo guardar los ajustes conservando el propietario o los permisos del archivo. Revisa los permisos o consulta a tu administrador.",
+  "profileAclContinueOnce": "Continuar una vez",
+  "profileAclRememberChoice": "Continuar y recordar mi elección",
   "profileAclResetTitle": "Borrar las decisiones guardadas sobre permisos",
   "profileAclResetHint": "Se aplica a todos los perfiles de xVeil de esta cuenta del sistema.",
   "profileAclResetConfirm": "¿Borrar las decisiones de todos los perfiles de esta cuenta? xVeil volverá a comprobar los permisos después de reiniciar.",

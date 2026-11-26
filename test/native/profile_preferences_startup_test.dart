@@ -485,7 +485,7 @@ void main() {
       await expectLater(
         install(),
         throwsA(
-          isA<ProfileChoiceReadFailure>().having((e) => e.busy, 'busy', false),
+          isA<ManagedFsFailure>().having((e) => e.path, 'path', pointer.path),
         ),
       );
       expect(files, isEmpty);
@@ -520,6 +520,7 @@ void main() {
     ('an invalid profile name', utf8.encode('../unusable')),
   ]) {
     test('a saved choice with $label requires an explicit profile', () async {
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
       final pointer = File(activeProfilePath(support.path))
         ..writeAsBytesSync(bytes, flush: true);
       final source = await legacy.getAll();
@@ -549,6 +550,42 @@ void main() {
       expect(pointer.readAsStringSync(), 'decoy');
     });
   }
+
+  test(
+    'the remembered profile asks for read-only ACL consent and carries it forward',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final saved = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(saved));
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      final pointer = File(activeProfilePath(support.path));
+      expect(Process.runSync('/bin/chmod', ['0640', pointer.path]).exitCode, 0);
+      const fs = ManagedFsPlatform();
+      final warning = fs.inspectAcl(pointer.path).aclWarning!;
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ManagedFsFailure>().having(
+            (error) => error.aclWarnings.single.fingerprint,
+            'warning',
+            warning.fingerprint,
+          ),
+        ),
+      );
+      expect(files, isEmpty);
+      expect(await writeRememberedProfile(support.path, 'changed'), isFalse);
+      expect(pointer.readAsStringSync(), 'decoy');
+
+      expect(await recordStorageAclApproval(warning, remember: true), isTrue);
+      expect(await writeRememberedProfile(support.path, 'changed'), isTrue);
+      final replacement = fs.inspectAcl(pointer.path).aclWarning!;
+      expect(replacement.fingerprint, isNot(warning.fingerprint));
+      restoreStorageAclApprovals({});
+      expect(await restoreRememberedStorageAcl(replacement), isTrue);
+      expect(await install(), 'changed');
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
 
   test('an automatic migration preserves a malformed saved choice', () async {
     final pointer = File(activeProfilePath(support.path))

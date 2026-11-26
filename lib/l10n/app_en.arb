@@ -80,6 +80,8 @@
   "startupRuntimeCannotVerify": "Windows could not provide the folder information xVeil needs to verify access.",
   "preferencesStagingAccessRefused": "xVeil could not verify private access to its temporary or lock file. Check the folder’s inherited permissions before saving again.",
   "preferencesAccessPolicyNotPreserved": "xVeil could not save the settings while preserving the file’s owner or access permissions. Review the file’s access settings or ask your administrator.",
+  "profileAclContinueOnce": "Continue once",
+  "profileAclRememberChoice": "Continue and remember my choice",
   "profileAclResetTitle": "Forget saved permission decisions",
   "profileAclResetHint": "Applies to all xVeil profiles for this system account.",
   "profileAclResetConfirm": "Remove remembered choices for all profiles in this system account? xVeil will check the permissions again after restart.",

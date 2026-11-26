@@ -5,6 +5,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:xveil/data/storage/profile_prefs_store.dart';
+import 'package:xveil/data/storage/storage_acl_approval.dart';
 import 'package:xveil/features/settings/profile_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
@@ -33,6 +36,44 @@ Future<void> _waitFor(WidgetTester tester, Finder widget) async {
 }
 
 void main() {
+  testWidgets(
+    'the profile picker explains a readable choice and accepts one-time consent',
+    (tester) async {
+      final support = Directory.systemTemp.createTempSync(
+        'xveil-profile-acl-ui-',
+      );
+      addTearDown(() => support.deleteSync(recursive: true));
+      final previous = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(previous));
+      FlutterSecureStorage.setMockInitialValues({});
+      Directory('${support.path}/profiles/known').createSync(recursive: true);
+      final pointer = File(activeProfilePath(support.path))
+        ..writeAsStringSync('known');
+      expect(Process.runSync('/bin/chmod', ['0640', pointer.path]).exitCode, 0);
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        _pathProvider,
+        (_) async => support.path,
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(_pathProvider, null),
+      );
+
+      await tester.runAsync(() async {
+        await _pumpScreen(tester, locale: const Locale('en'));
+        final continueOnce = find.text('Continue once');
+        await _waitFor(tester, continueOnce);
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text(pointer.path), findsOneWidget);
+        expect(find.textContaining('GID '), findsOneWidget);
+        await tester.tap(continueOnce);
+        await _waitFor(tester, find.text('known'));
+      });
+      expect(pointer.statSync().mode & 0x1ff, 0x1a0);
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
+
   for (final keyboard in [false, true]) {
     testWidgets('profile creation supports large text (keyboard=$keyboard)', (
       tester,
@@ -138,8 +179,10 @@ void main() {
       );
       addTearDown(() => support.deleteSync(recursive: true));
       Directory('${support.path}/profiles/known').createSync(recursive: true);
-      final pointer = File('${support.path}/xveil.profile')
-        ..writeAsStringSync('known');
+      await tester.runAsync(() async {
+        expect(await writeRememberedProfile(support.path, 'known'), isTrue);
+      });
+      final pointer = File('${support.path}/xveil.profile');
       final obstruction = File('${support.path}/profiles/secondary')
         ..writeAsStringSync('occupied');
       final messenger = tester.binding.defaultBinaryMessenger;

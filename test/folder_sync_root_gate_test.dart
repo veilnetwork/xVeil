@@ -171,6 +171,62 @@ void main() {
     );
   });
 
+  for (final legacy in [false, true]) {
+    test(
+      'sync refuses a replacement of a private folder (legacy=$legacy)',
+      () async {
+        final parent = tempRoot('xveil_gate_object');
+        final root = Directory('${parent.path}/mirror')..createSync();
+        _chmod(root, _mode0700);
+        late _CountingEngine engine;
+        final c = ProviderContainer(
+          overrides: [
+            storageProvider.overrideWith((ref) => _FileOnlyStorage()),
+            folderSyncEngineProvider.overrideWith((ref) {
+              engine = _CountingEngine(
+                _UnusedCloud(),
+                _UnusedDisk(),
+                ref.watch(folderSyncStoreProvider),
+                () => 0,
+              );
+              return engine;
+            }),
+          ],
+        );
+        addTearDown(c.dispose);
+        final ctrl = c.read(folderSyncControllerProvider.notifier);
+        final store = c.read(folderSyncStoreProvider);
+        if (legacy) {
+          await store.savePairs([
+            FolderSyncPair(id: 'private', localPath: root.path),
+          ]);
+          await ctrl.reload();
+        } else {
+          expect(
+            await ctrl.addPair(localPath: root.path, id: 'private'),
+            isNull,
+          );
+        }
+        final pair = (await store.pairs()).single;
+        expect(pair.rootApproval, isNull);
+        if (legacy) {
+          expect(pair.rootIdentity, isNull);
+          expect((await ctrl.runOnce(pair))?.isRefused, isFalse);
+        }
+        final bound = (await store.pairs()).single;
+        expect(bound.rootIdentity, isNotNull);
+        root.renameSync('${parent.path}/previous');
+        root.createSync();
+        _chmod(root, _mode0700);
+
+        final report = await ctrl.runOnce(pair);
+        expect(report?.refusedReason, FolderSyncRefusalCode.pathChanged.name);
+        expect(engine.runs, legacy ? 1 : 0);
+        expect((await store.pairs()).single.rootIdentity, bound.rootIdentity);
+      },
+    );
+  }
+
   group('a folder another account can reach is not accepted as a sync root',
       () {
     test('a private folder inside a world-writable PARENT is refused',

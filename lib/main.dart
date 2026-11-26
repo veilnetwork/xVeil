@@ -141,10 +141,15 @@ Future<void> runStartup({
     resumeBoot = bootProfile;
     await resumeBoot(runtimeBase);
   } catch (e, st) {
+    final storageFailure = switch (e) {
+      ManagedWorkerFailure(:final filesystemFailure) => filesystemFailure,
+      ManagedFsFailure() => e,
+      _ => null,
+    };
     final aclWarnings = switch (e) {
-      ManagedWorkerFailure(:final aclWarnings) ||
-      ManagedFsFailure(:final aclWarnings) => aclWarnings,
-      _ => const <ManagedStorageAclWarning>[],
+      ManagedWorkerFailure(:final aclWarnings) when aclWarnings.isNotEmpty =>
+        aclWarnings,
+      _ => storageFailure?.aclWarnings ?? const <ManagedStorageAclWarning>[],
     };
     final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
     Future<void> retryStartup({String? selectedBase}) => runStartup(
@@ -225,11 +230,13 @@ Future<void> runStartup({
       startupPreferenceFailure: preferenceFailure,
     );
     final storageFailureReason = switch (e) {
+      _ when storageFailure != null => managedStorageFailureReason(
+        storageFailure,
+      ),
       ManagedWorkerFailure(:final preferencesWriteReason?) =>
         preferencesWriteReason,
       ManagedWorkerFailure() when loadingPreferences =>
         e.preferencesOpenReason ?? e.preferencesReadReason,
-      ManagedFsFailure() => managedStorageFailureReason(e),
       ProfileChoiceReadFailure() when loadingPreferences =>
         e.malformed
             ? ManagedPreferencesFailureReason.profileChoiceInvalid
@@ -241,17 +248,18 @@ Future<void> runStartup({
     final canRetry =
         storageFailureReason == ManagedPreferencesFailureReason.busy ||
         e is ProfileChoiceReadFailure && e.busy ||
-        e is ManagedFsFailure && e.kind != ManagedFsFailureKind.erasurePending;
+        storageFailure != null &&
+            storageFailure.kind != ManagedFsFailureKind.erasurePending;
     present(
       StartupFailedApp(
         preferencesReason: storageFailureReason,
+        storageRefusalPath: storageFailure?.path,
         preferencesFormatFailed:
             loadingPreferences && e is ProfilePreferencesFormatFailure,
         preferencesUnsafeAncestor: unsafeAncestor,
         ancestorRefusal: unsafeAncestor
-            ? e is ManagedFsFailure
-                  ? e.ancestorRefusal
-                  : preferenceFailure?.ancestorRefusal
+            ? storageFailure?.ancestorRefusal ??
+                  preferenceFailure?.ancestorRefusal
             : null,
         runtimeFailure: runtimeFailure,
         openOffline: runtimeFailure?.retryable == true && openOffline != null
@@ -556,7 +564,7 @@ Future<void> _runBootstrappedApplication({
 Future<void> _discardStartupRuntime(String? path) async {
   if (path == null) return;
   try {
-    await restrictRuntimeDir(path);
+    verifyRuntimeDir(path);
     if (runtimeDirIsOurs(path)) {
       await File('$path/$kRuntimeDirMarker').delete();
       await Directory(path).delete();

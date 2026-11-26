@@ -10,11 +10,13 @@ import '../../core/storage_acl_vault.dart';
 import '../../data/storage/app_profile.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show managedStorageFailureReason;
+import '../../data/storage/managed_fs_contract.dart' show ManagedFsFailure;
 import '../../data/storage/profile_prefs_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../common/async_error_view.dart';
-import '../bootstrap/startup_failed_app.dart' show preferencesFailureText;
+import '../bootstrap/startup_failed_app.dart'
+    show preferencesFailureText, StorageAclDetails;
 
 /// The hidden profile switcher: which on-disk profile the app starts on.
 ///
@@ -72,8 +74,60 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       });
     } catch (error, stack) {
       if (!mounted) return;
+      if (error is ManagedFsFailure &&
+          error.aclWarnings.isNotEmpty &&
+          await _reviewAcl(error)) {
+        if (mounted) await _load();
+        return;
+      }
+      if (!mounted) return;
       setState(() => _loadError = (error: error, stack: stack));
     }
+  }
+
+  Future<bool> _reviewAcl(ManagedFsFailure failure) async {
+    final warning = failure.aclWarnings.single;
+    if (await restoreRememberedStorageAcl(warning)) return true;
+    if (!mounted) return false;
+    final l = AppL10n.of(context);
+    final remember = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        scrollable: true,
+        title: Text(l.startupAclWarningTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l.startupAclFileWarningRisk),
+            const SizedBox(height: 8),
+            StorageAclDetails(warning),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(l.actionCancel),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(l.profileAclContinueOnce),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(l.profileAclRememberChoice),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || remember == null) return false;
+    final saved = await recordStorageAclApproval(warning, remember: remember);
+    if (mounted && !saved) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+    }
+    return saved;
   }
 
   void _retry() {
@@ -125,6 +179,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       // taken when the next launch will not see it is how someone ends up in a
       // different identity than the one they picked.
       final error = failure;
+      if (error is ManagedFsFailure && error.aclWarnings.isNotEmpty) {
+        if (await _reviewAcl(error) && mounted) await _choose(name);
+        return;
+      }
       final explanation = error == null
           ? null
           : preferencesFailureText(l, managedStorageFailureReason(error));
@@ -188,6 +246,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final l = AppL10n.of(context);
     final profiles = _profiles;
     final failure = _loadError;
+    final filesystemError = failure?.error;
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
@@ -200,7 +259,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               icon: const Icon(Icons.add),
               label: Text(l.commonCreate),
             ),
-      body: failure != null
+      body: filesystemError is ManagedFsFailure
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      preferencesFailureText(
+                            l,
+                            managedStorageFailureReason(filesystemError),
+                          ) ??
+                          l.profileChoiceNotSaved,
+                    ),
+                    if (filesystemError.path case final path?)
+                      SelectableText(path),
+                    TextButton(onPressed: _retry, child: Text(l.startupRetry)),
+                  ],
+                ),
+              ),
+            )
+          : failure != null
           ? AsyncErrorView(
               key: ObjectKey(failure.error),
               error: failure.error,

@@ -124,8 +124,8 @@ class FolderSyncStore {
           'local': pair.localPath,
           if (pair.cloudFolderId != null) 'folder': pair.cloudFolderId,
           'del': pair.deletePropagates,
+          'rootIdentity': ?(pair.rootIdentity ?? pair.rootApproval?.identity),
           if (pair.rootApproval case final approval?) ...{
-            'rootIdentity': approval.identity,
             'rootAcl': approval.fingerprint,
             'rootAclWrite': approval.writeAccess,
           },
@@ -262,6 +262,7 @@ class FolderSyncStore {
       localPath: local,
       cloudFolderId: folder is String && folder.isNotEmpty ? folder : null,
       deletePropagates: row['del'] != false,
+      rootIdentity: identity is String && identity.isNotEmpty ? identity : null,
       rootApproval: approval,
     );
   }

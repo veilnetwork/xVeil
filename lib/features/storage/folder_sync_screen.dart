@@ -195,6 +195,8 @@ class _PairCard extends ConsumerWidget {
     final readIssue = view.readIssue;
     final refusal = rootRefusal != null
         ? folderSyncRefusalText(l, rootRefusal)
+        : lastRefusal == FolderSyncRefusalCode.pathChanged.name
+        ? l.folderSyncRefusedPathChanged
         : switch (FolderSyncScanRefusal.values
               .where((code) => code.name == lastRefusal)
               .firstOrNull) {
@@ -359,21 +361,27 @@ class _PairCard extends ConsumerWidget {
               runSpacing: 8,
               children: [
                 TextButton.icon(
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => FolderSavedVersionsDialog(
-                      root: view.pair.localPath,
-                      rootRefusal: () {
-                        final refusal = folderSyncRootRefusal(
-                          view.pair.localPath,
-                          approval: view.pair.rootApproval,
-                        );
-                        return refusal == null
-                            ? null
-                            : folderSyncRefusalText(l, refusal);
-                      },
-                    ),
-                  ),
+                  onPressed: () async {
+                    final pair = view.pair;
+                    var identity = pair.rootIdentity;
+                    await showDialog<void>(
+                      context: context,
+                      builder: (_) => FolderSavedVersionsDialog(
+                        root: pair.localPath,
+                        rootRefusal: () {
+                          final refusal = folderSyncRootRefusal(
+                            pair.localPath,
+                            approval: pair.rootApproval,
+                            expectedIdentity: identity,
+                            onVerifiedIdentity: (value) => identity = value,
+                          );
+                          return refusal == null
+                              ? null
+                              : folderSyncRefusalText(l, refusal);
+                        },
+                      ),
+                    );
+                  },
                   icon: const Icon(Icons.history),
                   label: Text(l.folderSyncSavedTitle),
                 ),

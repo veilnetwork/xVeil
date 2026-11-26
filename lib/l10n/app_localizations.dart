@@ -537,6 +537,18 @@ abstract class AppL10n {
   /// **'xVeil could not save the settings while preserving the file’s owner or access permissions. Review the file’s access settings or ask your administrator.'**
   String get preferencesAccessPolicyNotPreserved;
 
+  /// No description provided for @profileAclContinueOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue once'**
+  String get profileAclContinueOnce;
+
+  /// No description provided for @profileAclRememberChoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue and remember my choice'**
+  String get profileAclRememberChoice;
+
   /// No description provided for @profileAclResetTitle.
   ///
   /// In en, this message translates to:

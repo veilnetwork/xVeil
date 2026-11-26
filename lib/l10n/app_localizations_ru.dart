@@ -273,6 +273,12 @@ class AppL10nRu extends AppL10n {
       'xVeil не смог сохранить настройки с текущим владельцем или правами файла. Проверьте права в свойствах файла или обратитесь к администратору.';
 
   @override
+  String get profileAclContinueOnce => 'Продолжить один раз';
+
+  @override
+  String get profileAclRememberChoice => 'Продолжить и запомнить выбор';
+
+  @override
   String get profileAclResetTitle => 'Сбросить сохранённые решения о правах';
 
   @override

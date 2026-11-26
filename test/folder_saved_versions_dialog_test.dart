@@ -273,6 +273,45 @@ void main() {
   );
 
   testWidgets(
+    'saved versions reject a replacement of a private sync folder',
+    (tester) async {
+      final base = Directory.systemTemp.createTempSync(
+        'xveil-versions-private-',
+      );
+      addTearDown(() => base.deleteSync(recursive: true));
+      expect(posixChmod(base.path, 0x1c0), 0);
+      final root = Directory('${base.path}/root')..createSync();
+      expect(posixChmod(root.path, 0x1c0), 0);
+      String? rootIdentity;
+      expect(
+        folderSyncRootRefusal(
+          root.path,
+          onVerifiedIdentity: (value) => rootIdentity = value,
+        ),
+        isNull,
+      );
+      expect(rootIdentity, isNotNull);
+      root.renameSync('${base.path}/previous');
+      root.createSync();
+      expect(posixChmod(root.path, 0x1c0), 0);
+      await mount(
+        tester,
+        child: const FolderSyncScreen(),
+        pair: FolderSyncPair(
+          id: 'pair',
+          localPath: root.path,
+          rootIdentity: rootIdentity,
+        ),
+      );
+      await tester.tap(find.widgetWithText(TextButton, l.folderSyncSavedTitle));
+      await tester.pumpAndSettle();
+      expect(find.text(l.folderSyncRefusedPathChanged), findsOneWidget);
+      expect(access.cursors, isEmpty);
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
+
+  testWidgets(
     'removal is refused when folder access changes during confirmation',
     (tester) async {
       String? refusal;

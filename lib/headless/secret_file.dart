@@ -11,6 +11,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/posix_file_facts.dart';
+import '../data/storage/managed_fs_platform.dart';
 
 /// Ceiling on a SHARED deployment secret read from a file.
 ///
@@ -102,11 +103,15 @@ const String kAcceptUncheckedSecretFilesFlag =
 const String kAcceptUncheckedSecretFilesEnv =
     'XVEIL_ACCEPT_UNCHECKED_SECRET_FILES';
 
+/// Explicit acceptance of a verified read-only grant on an owned secret file.
+const String kAcceptReadableSecretFilesFlag = '--accept-readable-secret-files';
+const String kAcceptReadableSecretFilesEnv =
+    'XVEIL_ACCEPT_READABLE_SECRET_FILES';
+
 /// Why this platform cannot prove a secret file is private, or null when it
 /// can.
 ///
-/// POSIX can: the permission bits say exactly who may open it, and
-/// [FileStat.mode] carries them.
+/// On macOS and Linux, inspection checks the access ACL and mode.
 ///
 /// Windows cannot — not from Dart. Access there is an ACL, and nothing in
 /// `dart:io` reads one: [FileStat.mode] is synthesised from the read-only
@@ -138,7 +143,8 @@ String? unverifiableSecretFileReason({required bool isWindows}) => isWindows
 /// Checked, not assumed, and fail-closed. What is checked, exactly:
 ///
 ///  * it is not a symlink, and it is a regular file;
-///  * on POSIX, no permission bit is set beyond the owner's;
+///  * on macOS and Linux, a verified grant is private unless the operator
+///    accepts sharing with accounts that only have read or execute rights;
 ///  * on POSIX, it is OWNED by this process;
 ///  * on Windows, NOTHING can be checked, so the read is refused unless the
 ///    operator asserts otherwise ([acceptUnchecked]);
@@ -180,6 +186,7 @@ Future<String> readSecretFile(
   String path,
   String label, {
   bool acceptUnchecked = false,
+  bool acceptReadable = false,
   bool? isWindows,
   void Function(String warning)? warn,
 }) async {
@@ -240,23 +247,57 @@ Future<String> readSecretFile(
       'platform — the permission check still applies to $label file $path.',
     );
   }
+  ManagedPathWitness? acl;
+  const fs = ManagedFsPlatform();
   if (before != null) {
-    // Mode and owner out of the SAME lstat that will be compared after the
-    // read. No second lookup, so no window to swap into between deciding this
-    // file is acceptable and recording what it was.
-    if (before.mode & 0x3F != 0) {
-      throw StateError(
-        '$label file $path is mode ${(before.mode & 0x1FF).toRadixString(8)} — '
-        'readable beyond its owner. Run: chmod 600 $path',
-      );
-    }
     final euid = posixEuid();
     if (euid != null && before.uid != euid) {
       throw StateError(
         '$label file $path is owned by uid ${before.uid}, not by this process '
-        '(uid $euid). Mode 0600 on somebody else\'s file protects THEM, not '
-        'you — they can still rewrite it under you. Own the file, or type the '
-        'secret at the prompt instead.',
+        '(uid $euid). Use a file you own or type the secret at the prompt.',
+      );
+    }
+    if (Platform.isMacOS || Platform.isLinux) {
+      try {
+        acl = fs.inspectAcl(path);
+      } on ManagedFsFailure catch (error) {
+        final details = _secretAclDetails(error.aclWarnings.firstOrNull);
+        throw StateError('$label file $path cannot be safely opened.$details');
+      }
+      if (acl.identity != '${before.deviceId}:${before.inode}:${before.uid}' ||
+          !acl.ownedByCurrentUser ||
+          acl.directory) {
+        throw StateError(
+          '$label file $path changed during the permission check.',
+        );
+      }
+      if (!acl.safeAncestor || !acl.otherUsersHaveReadOnlyAccess) {
+        final details = _secretAclDetails(acl.aclWarning);
+        throw StateError(
+          '$label file $path can be modified by another account.$details',
+        );
+      }
+      if (!acl.ownerOnly) {
+        final details = _secretAclDetails(acl.aclWarning);
+        final description =
+            '$label file $path is mode '
+            '${(before.mode & 0x1FF).toRadixString(8)} '
+            'and may be readable beyond its owner.$details';
+        if (!acceptReadable || acl.aclWarning == null) {
+          throw StateError(
+            '$description Check the ACL and mode (chmod 600 for mode bits), '
+            'type the secret at the prompt, or pass '
+            '$kAcceptReadableSecretFilesFlag to accept verified read-only access.',
+          );
+        }
+        (warn ?? stderr.writeln)(
+          'xveil: WARNING: $description The operator accepted this access.',
+        );
+      }
+    } else if (before.mode & 0x3F != 0) {
+      throw StateError(
+        '$label file $path is mode ${(before.mode & 0x1FF).toRadixString(8)} — '
+        'readable beyond its owner. Run: chmod 600 $path',
       );
     }
   } else if (!windows) {
@@ -293,6 +334,20 @@ Future<String> readSecretFile(
         'its contents.',
       );
     }
+    if (acl != null) {
+      try {
+        final verified = fs.inspectAcl(path);
+        if (verified.identity != acl.identity ||
+            verified.ownerOnly != acl.ownerOnly ||
+            verified.aclWarning?.fingerprint != acl.aclWarning?.fingerprint) {
+          throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+        }
+      } on ManagedFsFailure {
+        throw StateError(
+          '$label file $path changed permissions while being read.',
+        );
+      }
+    }
     if (value.isEmpty) throw StateError('$label file is empty');
     return value;
   }
@@ -317,4 +372,14 @@ Future<String> readSecretFile(
   }
   if (value.isEmpty) throw StateError('$label file is empty');
   return value;
+}
+
+String _secretAclDetails(ManagedStorageAclWarning? warning) {
+  if (warning == null) return '';
+  return [
+    for (final grant in warning.grants)
+      '${grant.account.isEmpty ? 'other accounts' : grant.account}: '
+          '${grant.rights.map((right) => right.name).join(', ')}',
+    if (warning.extendedAcl case final acl?) acl.trim(),
+  ].map((detail) => '\n$detail').join();
 }

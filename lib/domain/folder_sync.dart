@@ -36,6 +36,7 @@ class FolderSyncPair {
     required this.localPath,
     this.cloudFolderId,
     this.deletePropagates = true,
+    this.rootIdentity,
     this.rootApproval,
   });
 
@@ -46,6 +47,10 @@ class FolderSyncPair {
   final String? cloudFolderId;
 
   final bool deletePropagates;
+
+  /// Identity of the local directory selected for this pair. Legacy pairs
+  /// without an identity acquire one at their first successful recheck.
+  final String? rootIdentity;
   final FolderSyncRootApproval? rootApproval;
 }
 

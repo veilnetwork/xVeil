@@ -30,6 +30,7 @@ class StartupFailedApp extends StatelessWidget {
     this.preferencesUnsafeAncestor = false,
     this.ancestorRefusal,
     this.preferencesReason,
+    this.storageRefusalPath,
     this.aclWarnings = const [],
     this.runtimeFailure,
     this.retryWithRuntimeBase,
@@ -43,6 +44,7 @@ class StartupFailedApp extends StatelessWidget {
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
+  final String? storageRefusalPath;
   final List<ManagedStorageAclWarning> aclWarnings;
   final RuntimeDirNotPrivate? runtimeFailure;
   final Future<void> Function(String path)? retryWithRuntimeBase;
@@ -69,6 +71,7 @@ class StartupFailedApp extends StatelessWidget {
         preferencesUnsafeAncestor: preferencesUnsafeAncestor,
         ancestorRefusal: ancestorRefusal,
         preferencesReason: preferencesReason,
+        storageRefusalPath: storageRefusalPath,
         aclWarnings: aclWarnings,
         runtimeFailure: runtimeFailure,
         retryWithRuntimeBase: retryWithRuntimeBase,
@@ -87,6 +90,7 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.preferencesUnsafeAncestor,
     required this.ancestorRefusal,
     required this.preferencesReason,
+    required this.storageRefusalPath,
     required this.aclWarnings,
     required this.runtimeFailure,
     required this.retryWithRuntimeBase,
@@ -100,6 +104,7 @@ class _StartupFailedScreen extends StatefulWidget {
   final bool preferencesUnsafeAncestor;
   final ManagedAncestorRefusal? ancestorRefusal;
   final ManagedPreferencesFailureReason? preferencesReason;
+  final String? storageRefusalPath;
   final List<ManagedStorageAclWarning> aclWarnings;
   final RuntimeDirNotPrivate? runtimeFailure;
   final Future<void> Function(String path)? retryWithRuntimeBase;
@@ -259,6 +264,10 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   ),
                 ] else ...[
                   Text(explanation, style: actionStyle),
+                  if (widget.storageRefusalPath case final path?) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(path),
+                  ],
                   if (runtime != null) ...[
                     const SizedBox(height: 8),
                     if (runtime.windowsAttempts.isEmpty)

@@ -3,6 +3,7 @@ library;
 
 import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/core/storage_unlock_scope.dart';
@@ -13,6 +14,9 @@ import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/profile_storage_bootstrap.dart';
 import 'package:xveil/data/storage/profile_storage_router_owner.dart';
 import 'package:xveil/data/storage/storage_acl_approval.dart';
+
+import 'package:xveil/features/bootstrap/startup_failed_app.dart';
+import 'package:xveil/main.dart' show runStartup;
 
 /// Publish after the hint computed false, before real native admission.
 class _PublishAfterInspection extends ManagedFsPlatform {
@@ -142,6 +146,40 @@ void main() {
     erasures.clear();
     fixture.deleteSync(recursive: true);
   });
+  for (final suffix in ['', '-journal']) {
+    test(
+      'startup exposes read-only ACL consent for the catalog$suffix',
+      () async {
+        ManagedDirectoryCatalog.createOrOpen(profile).close();
+        final file = File('$profile/identities/catalog.sqlite3$suffix');
+        if (suffix.isNotEmpty) file.createSync();
+        expect(posixChmod(file.path, 0x1a0), 0);
+        final previous = storageAclApprovalsForWorker();
+        addTearDown(() => restoreStorageAclApprovals(previous));
+        Widget? presented;
+        var opened = false;
+        await runStartup(
+          boot: () async {
+            final result = await boot();
+            opened = result.owner != null;
+          },
+          present: (screen) => presented = screen,
+          restoreAclApproval: (_) async => false,
+          recordAclApproval: (warning, {required remember}) {
+            approveStorageAcl(warning.fingerprint);
+            return true;
+          },
+        );
+        expect(opened, isFalse);
+        final failure = presented as StartupFailedApp;
+        expect(failure.aclWarnings.single.path, file.path);
+        expect(await failure.acceptAclWarning!(false), isTrue);
+        expect(opened, isTrue);
+      },
+      skip: !(Platform.isMacOS || Platform.isLinux),
+    );
+  }
+
   test('read-only hint creates no role, root or data facade', () {
     expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
     expect(Directory(profile).listSync(), isEmpty);

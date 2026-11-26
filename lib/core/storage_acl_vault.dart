@@ -38,10 +38,10 @@ Future<ManagedProfilePreferencesFile> openProfilePreferencesWithAclApprovals(
   String path,
 ) => ManagedProfilePreferencesFile.open(
   path,
-  onAclReplaced: _rememberReplacement,
+  onAclReplaced: rememberStorageAclReplacement,
 );
 
-Future<void> _rememberReplacement(StorageAclReplacement replacement) =>
+Future<void> rememberStorageAclReplacement(StorageAclReplacement replacement) =>
     _changeDecisions(() async {
       if (replacement.before == replacement.after) return;
       try {

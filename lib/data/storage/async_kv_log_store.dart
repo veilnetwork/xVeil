@@ -1038,6 +1038,7 @@ class WorkerKvLogStore
         :final kind,
         :final preferencesOpenReason,
         :final ancestorRefusal,
+        :final filesystemFailure,
         :final aclWarnings,
       ):
         death.dispose();
@@ -1045,6 +1046,7 @@ class WorkerKvLogStore
           kind,
           preferencesOpenReason: preferencesOpenReason,
           ancestorRefusal: ancestorRefusal,
+          filesystemFailure: filesystemFailure,
           aclWarnings: aclWarnings,
         );
       case _ManagedOpenFailed(
@@ -1052,6 +1054,7 @@ class WorkerKvLogStore
         :final cleanup,
         :final preferencesOpenReason,
         :final ancestorRefusal,
+        :final filesystemFailure,
         :final aclWarnings,
       ):
         // This worker still owns a failed open's native resources. Transfer
@@ -1061,6 +1064,7 @@ class WorkerKvLogStore
             kind,
             preferencesOpenReason: preferencesOpenReason,
             ancestorRefusal: ancestorRefusal,
+            filesystemFailure: filesystemFailure,
             aclWarnings: aclWarnings,
           ),
           WorkerKvLogStore._(isolate, cleanup, death),
@@ -1113,6 +1117,7 @@ class WorkerKvLogStore
           preferencesReadReason: r.preferencesReadReason,
           preferencesWriteReason: r.preferencesWriteReason,
           ancestorRefusal: r.ancestorRefusal,
+          filesystemFailure: r.filesystemFailure,
           aclWarnings: r.aclWarnings,
         );
       }

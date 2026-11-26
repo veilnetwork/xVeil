@@ -221,11 +221,17 @@ void _managedCatalogEntry(
         _ManagedOpenFailed(
           _managedFailureKind(error),
           _serveManagedCleanup(config, inbox, cleanup),
+          filesystemFailure: error is ManagedFsFailure ? error : null,
         ),
       );
       return;
     }
-    config.reply.send(_workerErrorReply(error, managed: true));
+    config.reply.send(
+      _ManagedWorkerErr(
+        _managedFailureKind(error),
+        filesystemFailure: error is ManagedFsFailure ? error : null,
+      ),
+    );
     return;
   }
   var closing = false;

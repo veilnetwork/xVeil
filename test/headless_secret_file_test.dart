@@ -135,6 +135,73 @@ void main() {
       );
     });
 
+    test(
+      'a known read grant can be accepted but a write grant stays refused',
+      () async {
+        final file = await writeSecret('readable', 'fixture-secret', '640');
+        final warnings = <String>[];
+        expect(
+          await readSecretFile(
+            file,
+            'password',
+            acceptReadable: true,
+            warn: warnings.add,
+          ),
+          'fixture-secret',
+        );
+        expect(warnings.single, contains('GID '));
+        expect(warnings.single, isNot(contains('fixture-secret')));
+        expect(Process.runSync('/bin/chmod', ['0660', file]).exitCode, 0);
+        await expectLater(
+          readSecretFile(file, 'password', acceptReadable: true),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'reason',
+              contains('modified by another account'),
+            ),
+          ),
+        );
+      },
+      skip: !(Platform.isMacOS || Platform.isLinux),
+    );
+
+    test(
+      'a macOS grant is reported even when the mode is 0600',
+      () async {
+        final file = await writeSecret('darwin-acl', 'fixture-secret', '600');
+        final acl = Process.runSync('/bin/chmod', [
+          '+a',
+          'everyone allow read',
+          file,
+        ]);
+        expect(acl.exitCode, 0, reason: acl.stderr.toString());
+        await expectLater(
+          readSecretFile(file, 'password'),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'ACL',
+              contains('everyone'),
+            ),
+          ),
+        );
+        final warnings = <String>[];
+        expect(
+          await readSecretFile(
+            file,
+            'password',
+            acceptReadable: true,
+            warn: warnings.add,
+          ),
+          'fixture-secret',
+        );
+        expect(warnings.single, contains('everyone'));
+        expect(warnings.single, isNot(contains('fixture-secret')));
+      },
+      skip: !Platform.isMacOS,
+    );
+
     test('a symlink is refused rather than followed', () async {
       final target = await writeSecret('real', 'secret', '600');
       final link = Link('${dir.path}/link');
