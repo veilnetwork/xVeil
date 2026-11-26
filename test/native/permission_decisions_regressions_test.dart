@@ -86,7 +86,8 @@ void main() {
       test(
         'whole-profile erasure binds the extra-file review to its permissions',
         () async {
-          final root = ManagedDirectoryCatalog.createOrOpen(tmp.path);
+          final profile = Directory('${tmp.path}/profile')..createSync();
+          final root = ManagedDirectoryCatalog.createOrOpen(profile.path);
           final id = ManagedIdentityId('e' * 32);
           ManagedIdentityFiles.createUnencrypted(root, id: id).close();
           final file = File('${root.layout.directory(id)}/notes.txt')
@@ -94,19 +95,23 @@ void main() {
           expect(posixChmod(file.path, 0x180), 0);
           root.close();
           final owner = ManagedDirectoryCatalog.openExclusiveMaintenance(
-            tmp.path,
+            profile.path,
           )!;
           final request = ManagedProfileErasureRequest();
           Future<void> prepare() => ManagedRootErasure.prepare(
             owner,
             unlockScopes: StorageUnlockScopes(['1' * 64]),
             applicationRequest: request,
+            auxiliary: ProfileErasureAuxiliaryTargets(
+              legacyPath: '${tmp.path}/store.hv',
+            ),
           );
           Future<ManagedErasureContentsReview> review() async {
             try {
               await prepare();
             } on ManagedFsFailure catch (error) {
-              return error.erasureReview!;
+              if (error.erasureReview case final details?) return details;
+              rethrow;
             }
             fail('expected a review of the additional file');
           }

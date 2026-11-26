@@ -838,8 +838,9 @@ final class _RootErasePlan {
     required bool strict,
     required bool permitApprovedRead,
     String? verifiedAccess,
+    ManagedPathWitness? observed,
   }) {
-    final existing = fs.inspectAcl(path);
+    final existing = observed ?? fs.inspectAcl(path);
     if (verifiedAccess != null &&
         existing.accessPolicy == verifiedAccess &&
         existing.ownedByCurrentUser &&
@@ -883,16 +884,18 @@ final class _RootErasePlan {
     final unknown = <_RootEraseEntry>[];
     Future<void> visit(String path, List<String> parts) async {
       owner.requireExclusiveMaintenance();
-      final witness = _inspection(
-        path,
-        owner._fs,
-        strict: parts.length <= 3,
-        permitApprovedRead: true,
-      );
-      final known = _allowed(parts, witness.directory, catalog);
+      final observed = owner._fs.inspectAcl(path);
+      final known = _allowed(parts, observed.directory, catalog);
       if (!known && !_reviewablePath(parts)) {
         throw ManagedFsFailure(ManagedFsFailureKind.unsafe, path: path);
       }
+      final witness = _inspection(
+        path,
+        owner._fs,
+        strict: known && parts.length <= 3,
+        permitApprovedRead: true,
+        observed: observed,
+      );
       final stat = File(path).statSync();
       final entry = _RootEraseEntry(
         parts,
@@ -1106,13 +1109,14 @@ final class _RootErasePlan {
           FileSystemEntityType.notFound) {
         return false;
       }
-      final actual = _inspection(
+      ManagedPathWitness inspect() => _inspection(
         path,
         gate._fs,
-        strict: i <= 3,
+        strict: i <= 3 && _allowed(expected.parts, expected.directory, catalog),
         permitApprovedRead: expected.accessPolicy != null,
         verifiedAccess: expected.accessPolicy,
       );
+      final actual = inspect();
       if (actual.identity != expected.identity ||
           actual.directory != expected.directory ||
           !actual.ownedByCurrentUser ||
@@ -1126,7 +1130,11 @@ final class _RootErasePlan {
             stat.modified.microsecondsSinceEpoch != expected.modified) {
           throw const ManagedFsFailure(ManagedFsFailureKind.changed);
         }
-        ManagedDirectoryCatalog._assertSame(path, actual, gate._fs);
+        final afterStat = inspect();
+        if (!actual.sameObject(afterStat) ||
+            actual.accessPolicy != afterStat.accessPolicy) {
+          throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
+        }
       }
     }
     return true;

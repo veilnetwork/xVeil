@@ -37,7 +37,7 @@ Future<void> _waitFor(WidgetTester tester, Finder widget) async {
 
 void main() {
   testWidgets(
-    'the profile picker explains a readable choice and accepts one-time consent',
+    'the profile picker explains a readable choice and accepts consent until restart',
     (tester) async {
       final support = Directory.systemTemp.createTempSync(
         'xveil-profile-acl-ui-',
@@ -61,12 +61,12 @@ void main() {
 
       await tester.runAsync(() async {
         await _pumpScreen(tester, locale: const Locale('en'));
-        final continueOnce = find.text('Continue once');
-        await _waitFor(tester, continueOnce);
+        final allowSession = find.text('Allow until restart');
+        await _waitFor(tester, allowSession);
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.text(pointer.path), findsOneWidget);
         expect(find.textContaining('GID '), findsOneWidget);
-        await tester.tap(continueOnce);
+        await tester.tap(allowSession);
         await _waitFor(tester, find.text('known'));
       });
       expect(pointer.statSync().mode & 0x1ff, 0x1a0);
