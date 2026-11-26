@@ -6,11 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/error_journal.dart';
+import '../../core/storage_acl_vault.dart';
 import '../../data/storage/app_profile.dart';
+import '../../data/storage/async_kv_log_store.dart'
+    show managedStorageFailureReason;
 import '../../data/storage/profile_prefs_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../common/async_error_view.dart';
+import '../bootstrap/startup_failed_app.dart' show preferencesFailureText;
 
 /// The hidden profile switcher: which on-disk profile the app starts on.
 ///
@@ -78,17 +82,55 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     unawaited(_load());
   }
 
+  Future<void> _forgetPermissionChoices() async {
+    final l = AppL10n.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.profileAclResetTitle),
+        content: Text(l.profileAclResetConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l.profileAclResetTitle),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirm != true) return;
+    final reset = await forgetRememberedStorageAclApprovals();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(reset ? l.profileAclResetDone : l.profileAclResetFailed),
+      ),
+    );
+  }
+
   Future<void> _choose(String name) async {
-    final recorded = await writeRememberedProfile(_supportPath, name);
+    Object? failure;
+    final recorded = await writeRememberedProfile(
+      _supportPath,
+      name,
+      onFailure: (error) => failure = error,
+    );
     if (!mounted) return;
     final l = AppL10n.of(context);
     if (!recorded) {
       // The write reports honestly now (audit X-02). Showing the choice as
       // taken when the next launch will not see it is how someone ends up in a
       // different identity than the one they picked.
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.profileChoiceNotSaved)));
+      final error = failure;
+      final explanation = error == null
+          ? null
+          : preferencesFailureText(l, managedStorageFailureReason(error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(explanation ?? l.profileChoiceNotSaved)),
+      );
       return;
     }
     setState(() => _selected = name);
@@ -176,6 +218,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     l.profileExplainer,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.lock_reset_outlined),
+                  title: Text(l.profileAclResetTitle),
+                  subtitle: Text(l.profileAclResetHint),
+                  onTap: _forgetPermissionChoices,
                 ),
                 for (final name in profiles)
                   ListTile(

@@ -16,6 +16,7 @@ class FolderSyncState {
     this.lastPassAtMs,
     this.lastRefusal,
     this.readIssue,
+    this.writeIssue,
   });
 
   static const empty = FolderSyncState(base: [], pendingConflicts: {});
@@ -44,7 +45,8 @@ class FolderSyncState {
   /// Why the last pass refused, if it did — kept so the reason can be shown
   /// instead of the folder just appearing to do nothing.
   final String? lastRefusal;
-  final FolderSyncReadIssue? readIssue;
+  final FolderSyncFileIssue? readIssue;
+  final FolderSyncFileIssue? writeIssue;
 }
 
 /// Persists sync pairs and their state inside the encrypted container.
@@ -144,10 +146,6 @@ class FolderSyncStore {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return FolderSyncState.empty;
       final rows = decoded['base'];
-      final issuePath = decoded['readIssuePath'];
-      final issueReason = FolderSyncReadRefusal.values
-          .where((reason) => reason.name == decoded['readIssueReason'])
-          .firstOrNull;
       return FolderSyncState(
         base: [
           if (rows is List)
@@ -172,9 +170,8 @@ class FolderSyncStore {
             if (entry.key is String && entry.value is int)
               entry.key as String: entry.value as int,
         },
-        readIssue: issuePath is String && issueReason != null
-            ? (path: issuePath, reason: issueReason)
-            : null,
+        readIssue: _fileIssue(decoded, 'read'),
+        writeIssue: _fileIssue(decoded, 'write'),
         lastPassAtMs: decoded['at'] is int ? decoded['at'] as int : null,
         lastRefusal: decoded['refused'] is String
             ? decoded['refused'] as String
@@ -183,6 +180,16 @@ class FolderSyncStore {
     } catch (_) {
       return FolderSyncState.empty;
     }
+  }
+
+  static FolderSyncFileIssue? _fileIssue(Map decoded, String direction) {
+    final path = decoded['${direction}IssuePath'];
+    final reason = FolderSyncAccessRefusal.values
+        .where((reason) => reason.name == decoded['${direction}IssueReason'])
+        .firstOrNull;
+    return path is String && reason != null
+        ? (path: path, reason: reason)
+        : null;
   }
 
   Future<void> saveState(String pairId, FolderSyncState state) =>
@@ -210,6 +217,10 @@ class FolderSyncStore {
       if (state.readIssue case final issue?) ...{
         'readIssuePath': issue.path,
         'readIssueReason': issue.reason.name,
+      },
+      if (state.writeIssue case final issue?) ...{
+        'writeIssuePath': issue.path,
+        'writeIssueReason': issue.reason.name,
       },
     }),
   );

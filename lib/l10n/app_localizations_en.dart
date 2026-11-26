@@ -260,6 +260,33 @@ class AppL10nEn extends AppL10n {
       'Windows could not provide the folder information xVeil needs to verify access.';
 
   @override
+  String get preferencesStagingAccessRefused =>
+      'xVeil could not verify private access to its temporary or lock file. Check the folder’s inherited permissions before saving again.';
+
+  @override
+  String get preferencesAccessPolicyNotPreserved =>
+      'xVeil could not save the settings while preserving the file’s owner or access permissions. Review the file’s access settings or ask your administrator.';
+
+  @override
+  String get profileAclResetTitle => 'Forget saved permission decisions';
+
+  @override
+  String get profileAclResetHint =>
+      'Applies to all xVeil profiles for this system account.';
+
+  @override
+  String get profileAclResetConfirm =>
+      'Remove remembered choices for all profiles in this system account? xVeil will check the permissions again after restart.';
+
+  @override
+  String get profileAclResetDone =>
+      'Saved permission decisions cleared. Restart xVeil to check permissions again.';
+
+  @override
+  String get profileAclResetFailed =>
+      'xVeil could not clear all saved permission decisions. Check access to your system account’s secure storage.';
+
+  @override
   String get startupAclCorrectionHint =>
       'Check access in the properties of the files or folders or ask your system administrator. Your choice applies to each listed item and its current permissions.';
 
@@ -7054,6 +7081,16 @@ class AppL10nEn extends AppL10n {
   @override
   String get folderSyncAclReadRisk =>
       'The accounts below have access to this folder. Review who may see files synced from the cloud.';
+
+  @override
+  String folderSyncWriteAccessDenied(String path) {
+    return 'The operating system denied writing or deleting $path. Check the folder and file permissions.';
+  }
+
+  @override
+  String folderSyncWriteCannotVerify(String path) {
+    return 'xVeil could not save or remove $path. Check that the folder is available and your account can write to it.';
+  }
 
   @override
   String folderSyncReadAccessDenied(String path) {

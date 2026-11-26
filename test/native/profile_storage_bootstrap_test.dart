@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -11,6 +12,7 @@ import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/profile_storage_bootstrap.dart';
 import 'package:xveil/data/storage/profile_storage_router_owner.dart';
+import 'package:xveil/data/storage/storage_acl_approval.dart';
 
 /// Publish after the hint computed false, before real native admission.
 class _PublishAfterInspection extends ManagedFsPlatform {
@@ -42,6 +44,51 @@ void main() {
       ({required password, required create}) => FakeKvLogStore(),
     );
   }
+
+  test('opening a group-readable catalog asks for the exact permission grant',
+      () {
+    ManagedDirectoryCatalog.createOrOpen(profile).close();
+    final file = File('$profile/identities/catalog.sqlite3');
+    expect(posixChmod(file.path, 0x1a0), 0);
+    final before = storageAclApprovalsForWorker();
+    addTearDown(() => restoreStorageAclApprovals(before));
+
+    expect(
+      () => ManagedDirectoryCatalog.openExisting(profile),
+      throwsA(isA<ManagedFsFailure>().having(
+        (error) => error.aclWarnings.single.path,
+        'catalog path',
+        endsWith('/identities/catalog.sqlite3'),
+      )),
+    );
+    final warning = fs.inspectAcl(file.path).aclWarning!;
+    approveStorageAcl(warning.fingerprint);
+    final opened = ManagedDirectoryCatalog.openExisting(profile);
+    expect(opened, isNotNull);
+    opened!.close();
+    expect(
+      () => ManagedDirectoryCatalog.openExclusiveMaintenance(profile),
+      throwsA(isA<ManagedFsFailure>()),
+    );
+  }, skip: !(Platform.isMacOS || Platform.isLinux));
+
+  test('approval cannot admit a catalog that other accounts can write', () {
+    ManagedDirectoryCatalog.createOrOpen(profile).close();
+    final file = File('$profile/identities/catalog.sqlite3');
+    expect(posixChmod(file.path, 0x1b0), 0); // 0660
+    final before = storageAclApprovalsForWorker();
+    addTearDown(() => restoreStorageAclApprovals(before));
+    final warning = fs.inspectAcl(file.path).aclWarning!;
+    approveStorageAcl(warning.fingerprint);
+    expect(
+      () => ManagedDirectoryCatalog.openExisting(profile),
+      throwsA(isA<ManagedFsFailure>().having(
+        (error) => error.aclWarnings,
+        'approvable grants',
+        isEmpty,
+      )),
+    );
+  }, skip: !(Platform.isMacOS || Platform.isLinux));
 
   Map<String, String> contents() => {
     for (final f

@@ -261,6 +261,34 @@ class AppL10nEs extends AppL10n {
       'Windows no proporcionó la información necesaria para verificar el acceso a la carpeta.';
 
   @override
+  String get preferencesStagingAccessRefused =>
+      'xVeil no pudo verificar el acceso privado al archivo temporal o de bloqueo. Revisa los permisos heredados de la carpeta e intenta guardar otra vez.';
+
+  @override
+  String get preferencesAccessPolicyNotPreserved =>
+      'xVeil no pudo guardar los ajustes conservando el propietario o los permisos del archivo. Revisa los permisos o consulta a tu administrador.';
+
+  @override
+  String get profileAclResetTitle =>
+      'Borrar las decisiones guardadas sobre permisos';
+
+  @override
+  String get profileAclResetHint =>
+      'Se aplica a todos los perfiles de xVeil de esta cuenta del sistema.';
+
+  @override
+  String get profileAclResetConfirm =>
+      '¿Borrar las decisiones de todos los perfiles de esta cuenta? xVeil volverá a comprobar los permisos después de reiniciar.';
+
+  @override
+  String get profileAclResetDone =>
+      'Decisiones sobre permisos eliminadas. Reinicia xVeil para comprobarlos de nuevo.';
+
+  @override
+  String get profileAclResetFailed =>
+      'xVeil no pudo borrar todas las decisiones. Comprueba el acceso al almacenamiento seguro de tu cuenta.';
+
+  @override
   String get startupAclCorrectionHint =>
       'Revisa el acceso en las propiedades de los archivos o carpetas o consulta al administrador del sistema. Tu elección se aplica a cada elemento de la lista y a sus permisos actuales.';
 
@@ -7141,6 +7169,16 @@ class AppL10nEs extends AppL10n {
   @override
   String get folderSyncAclReadRisk =>
       'Las cuentas indicadas tienen acceso a esta carpeta. Revisa quién puede ver los archivos sincronizados desde la nube.';
+
+  @override
+  String folderSyncWriteAccessDenied(String path) {
+    return 'El sistema operativo denegó la escritura o eliminación de $path. Revisa los permisos de la carpeta y del archivo.';
+  }
+
+  @override
+  String folderSyncWriteCannotVerify(String path) {
+    return 'xVeil no pudo guardar o eliminar $path. Comprueba que la carpeta esté disponible y que tu cuenta pueda escribir en ella.';
+  }
 
   @override
   String folderSyncReadAccessDenied(String path) {

@@ -20,6 +20,8 @@ enum ManagedFsUnsafeReason {
   privateDirectory,
   privateFile,
   invalidLifetimeLock,
+  preferencesAccessPolicy,
+  preferencesStagingAccess,
 }
 
 // Keep the ordinal values stable in exported diagnostics.

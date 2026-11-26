@@ -6,6 +6,8 @@ import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
 import 'app_profile.dart';
 import 'managed_fs_platform.dart';
+import 'managed_fs_posix_acl.dart' show readLinuxStorageAcl;
+import 'storage_acl_approval.dart' show approveStorageAcl;
 import 'managed_fs_windows.dart' as windows;
 import 'managed_identity_lease.dart'
     show ManagedLeaseFailure, ManagedLeaseFailureKind, PosixSidecarLock;
@@ -44,8 +46,8 @@ final class ProfilePreferencesErasurePending implements Exception {
   String toString() => 'ProfilePreferencesErasurePending';
 }
 
-/// Owner-only permissions for what this file writes: `0600` on the preference
-/// and pointer files, `0700` on the directory holding them.
+/// New preference files and directories start at 0600 and 0700 respectively.
+/// On replacement, preserve a verifiable access policy of the existing file.
 ///
 /// These files are the app's SECURITY POSTURE in the clear — which profile is
 /// active, the VPN routing policy with its app ids and subnets, whether the
@@ -87,17 +89,104 @@ void _ensurePrivateDir(Directory dir) {
 }
 
 bool _isPrivateFile(String path) {
-  if (Platform.isWindows) {
-    final facts = windows.inspect(path);
-    return !facts.directory && facts.ownedByCurrentUser && facts.ownerOnly;
+  if (!Platform.isWindows && !prefsFilesMustBePrivate()) return true;
+  final facts = const ManagedFsPlatform().inspectAcl(path);
+  return !facts.directory && facts.ownedByCurrentUser && facts.ownerOnly;
+}
+
+const _cannotPreservePolicy = ManagedFsFailure(
+  ManagedFsFailureKind.unsafe,
+  unsafeReason: ManagedFsUnsafeReason.preferencesAccessPolicy,
+);
+
+/// A portable mode can be carried across to the new inode. Refuse changes to
+/// other access policies until the platform can reproduce them exactly.
+class _PreferenceFileAccess {
+  _PreferenceFileAccess(this.witness, this.posix);
+  final ManagedPathWitness? witness;
+  final PosixFileFacts? posix;
+
+  static _PreferenceFileAccess capture(File file) {
+    final type = FileSystemEntity.typeSync(file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound ||
+        (!Platform.isWindows && !prefsFilesMustBePrivate())) {
+      return _PreferenceFileAccess(null, null);
+    }
+    if (type != FileSystemEntityType.file) throw _cannotPreservePolicy;
+    final facts = const ManagedFsPlatform().inspectAcl(file.path);
+    if (!facts.ownedByCurrentUser) throw _cannotPreservePolicy;
+    if (Platform.isWindows) {
+      if (!facts.ownerOnly) throw _cannotPreservePolicy;
+      return _PreferenceFileAccess(facts, null);
+    }
+    final posix = posixLstat(file.path);
+    if (posix == null ||
+        !posix.isRegularFile ||
+        !facts.otherUsersHaveReadOnlyAccess ||
+        posix.permissions & 0xe00 != 0) {
+      throw _cannotPreservePolicy;
+    }
+    final hasPortableAcl = Platform.isMacOS
+        ? readDarwinStorageAcl(file.path, posix)?.isEmpty == true
+        : readLinuxStorageAcl(file.path)?.isEmpty == true;
+    if (!hasPortableAcl) throw _cannotPreservePolicy;
+    return _PreferenceFileAccess(facts, posix);
   }
-  if (!prefsFilesMustBePrivate()) return true;
-  final facts = posixLstat(path);
-  final uid = posixEuid();
-  return facts != null &&
-      facts.isRegularFile &&
-      facts.permissions == _ownerOnlyFile &&
-      (uid == null || facts.uid == uid);
+
+  void prepareReplacement(File destination, File temp) {
+    final current = capture(destination);
+    if (current.witness?.identity != witness?.identity ||
+        current.witness?.aclWarning?.fingerprint !=
+            witness?.aclWarning?.fingerprint ||
+        current.posix?.mode != posix?.mode ||
+        current.posix?.gid != posix?.gid) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    final previous = posix;
+    if (previous == null || previous.permissions == _ownerOnlyFile) return;
+    final next = capture(temp).posix;
+    if (next == null ||
+        next.uid != previous.uid ||
+        (previous.permissions & 0x38 != 0 && next.gid != previous.gid) ||
+        !_isPrivateFile(temp.path) ||
+        !posixSetModeForFile(temp.path, next, previous.permissions)) {
+      throw _cannotPreservePolicy;
+    }
+  }
+
+  bool checkPublished(File file) {
+    final previous = posix;
+    if (previous == null || previous.permissions == _ownerOnlyFile) {
+      return _isPrivateFile(file.path);
+    }
+    final result = capture(file);
+    final actual = result.posix;
+    if (actual == null ||
+        actual.uid != previous.uid ||
+        actual.permissions != previous.permissions ||
+        (previous.permissions & 0x38 != 0 && actual.gid != previous.gid)) {
+      return false;
+    }
+    // The worker installed this replacement itself under the same permission
+    // policy. Keep its already-approved scope valid within this process.
+    if (result.witness?.aclWarning case final warning?
+        when witness?.aclApproved == true) {
+      approveStorageAcl(warning.fingerprint);
+    }
+    return true;
+  }
+}
+
+void _verifyPrivateTemporary(File file) {
+  try {
+    if (_isPrivateFile(file.path)) return;
+  } on ManagedFsFailure catch (error) {
+    if (error.aclWarnings.isEmpty) rethrow;
+  }
+  throw const ManagedFsFailure(
+    ManagedFsFailureKind.unsafe,
+    unsafeReason: ManagedFsUnsafeReason.preferencesStagingAccess,
+  );
 }
 
 /// Never reuse an inherited-read temporary on Windows. Tightening its DACL
@@ -115,7 +204,7 @@ bool _prepareTemporary(File temp) {
   }
   if (Platform.isWindows) return windows.createPrivateFile(temp.path);
   PosixSidecarLock.reservePrivate(temp.path);
-  return _isPrivateFile(temp.path);
+  return true;
 }
 
 /// Read a valid installation-wide choice. A read failure on an existing entry
@@ -237,6 +326,7 @@ Future<bool> writeProfileChoiceAtomically(
   File file,
   String contents, {
   bool onlyIfUnset = false,
+  void Function(Object)? onFailure,
 }) async {
   RandomAccessFile? lock;
   try {
@@ -252,10 +342,10 @@ Future<bool> writeProfileChoiceAtomically(
     }
     if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) !=
             FileSystemEntityType.file ||
-        !_isPrivateFile(lockFile.path) ||
         lockFile.lengthSync() != 0) {
       return false;
     }
+    _verifyPrivateTemporary(lockFile);
 
     lock = await lockFile.open(mode: FileMode.append);
     final elapsed = Stopwatch()..start();
@@ -280,8 +370,13 @@ Future<bool> writeProfileChoiceAtomically(
         await readProfileChoice(file, requireValid: true) != null) {
       return true;
     }
-    return await writePrivateFileAtomically(file, contents);
+    return await writePrivateFileAtomically(
+      file,
+      contents,
+      onFailure: onFailure,
+    );
   } catch (error) {
+    onFailure?.call(error);
     devLog(() => 'xVeil[prefs]: could not save the profile choice: $error');
     return false;
   } finally {
@@ -381,8 +476,8 @@ Future<bool?> compareAndWritePrivatePreferences(
   }
 }
 
-/// Write [contents] to [file] durably, privately and atomically — or return
-/// **false**, which is the entire point of the function.
+/// Stage [contents] privately and replace [file] atomically with the verified
+/// access policy. False means the save could not be confirmed.
 ///
 /// The version this replaces caught every exception, logged it, and let its
 /// callers report success (audit X-02); the migration then emptied the only
@@ -401,10 +496,15 @@ Future<bool?> compareAndWritePrivatePreferences(
 ///   * **actually there** — the file is read back and compared. A filesystem
 ///     that accepted every call is not the same thing as a filesystem that
 ///     kept the result.
-Future<bool> writePrivateFileAtomically(File file, String contents) async {
+Future<bool> writePrivateFileAtomically(
+  File file,
+  String contents, {
+  void Function(Object)? onFailure,
+}) async {
   final temp = File('${file.path}.tmp');
   try {
     _ensurePrivateDir(file.parent);
+    final access = _PreferenceFileAccess.capture(file);
     // Never write THROUGH a link someone else planted at the temporary name:
     // that is how a 0600 file ends up being somebody else's file, with our
     // posture in it. A directory in the way is not something to clear out.
@@ -416,24 +516,22 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
       return false;
     }
 
-    // Create empty, restrict, THEN fill. Reversing these two would put the
-    // values on disk at the umask for as long as the chmod takes to run, and
-    // [_restrictToOwner]'s lstat is also what catches a link that won the race
-    // between the type check above and this open.
     if (!_prepareTemporary(temp)) return false;
+    _verifyPrivateTemporary(temp);
     final handle = await temp.open(mode: FileMode.writeOnly);
     try {
-      if (!_isPrivateFile(temp.path)) return false;
+      _verifyPrivateTemporary(temp);
       await handle.writeString(contents);
       await handle.flush(); // fsync(2) on the file
     } finally {
       await handle.close();
     }
 
+    access.prepareReplacement(file, temp);
     await temp.rename(file.path);
     // The rename itself, made durable. Null just means no libc binding here.
     posixFsyncDir(file.parent.path);
-    if (!_isPrivateFile(file.path)) return false;
+    if (!access.checkPublished(file)) return false;
 
     // Read it back. This is the difference between "no call reported an error"
     // and "the bytes are there".
@@ -443,6 +541,7 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
     }
     return true;
   } catch (e) {
+    onFailure?.call(e);
     devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
     try {
       if (temp.existsSync()) await temp.delete();
@@ -464,6 +563,7 @@ bool writePrivateFileAtomicallySync(
   final temp = File('${file.path}.tmp');
   try {
     _ensurePrivateDir(file.parent);
+    final access = _PreferenceFileAccess.capture(file);
     final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
     if (planted == FileSystemEntityType.link) {
       Link(temp.path).deleteSync();
@@ -471,17 +571,19 @@ bool writePrivateFileAtomicallySync(
       return false;
     }
     if (!_prepareTemporary(temp)) return false;
+    _verifyPrivateTemporary(temp);
     final handle = temp.openSync(mode: FileMode.writeOnly);
     try {
-      if (!_isPrivateFile(temp.path)) return false;
+      _verifyPrivateTemporary(temp);
       handle.writeStringSync(contents);
       handle.flushSync();
     } finally {
       handle.closeSync();
     }
+    access.prepareReplacement(file, temp);
     temp.renameSync(file.path);
     posixFsyncDir(file.parent.path);
-    return _isPrivateFile(file.path) && file.readAsStringSync() == contents;
+    return access.checkPublished(file) && file.readAsStringSync() == contents;
   } catch (_) {
     try {
       if (temp.existsSync()) temp.deleteSync();

@@ -29,6 +29,7 @@ class FolderSyncPairView {
     required this.busy,
     this.rootRefusal,
     this.readIssue,
+    this.writeIssue,
   });
 
   final FolderSyncPair pair;
@@ -37,7 +38,8 @@ class FolderSyncPairView {
   final String? lastRefusal;
   final bool busy;
   final FolderSyncRefusal? rootRefusal;
-  final FolderSyncReadIssue? readIssue;
+  final FolderSyncFileIssue? readIssue;
+  final FolderSyncFileIssue? writeIssue;
 }
 
 /// Owns the configured pairs and runs their passes.
@@ -160,6 +162,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           busy: _running.contains(pair.id),
           rootRefusal: _rootRefusals[pair.id],
           readIssue: saved.readIssue,
+          writeIssue: saved.writeIssue,
         ),
       );
     }
@@ -401,7 +404,10 @@ FolderSyncRefusal? folderSyncRootRefusal(
               allowNetworkShare: true,
               protectFromReparseChanges: true,
             )
-          : const ManagedFsPlatform().inspectAcl(step);
+          : const ManagedFsPlatform().inspectAcl(
+              step,
+              allowDirectoryContentGrants: leaf,
+            );
       if (!facts.directory) {
         return FolderSyncRefusal(
           FolderSyncRefusalCode.unresolvable,
@@ -415,9 +421,7 @@ FolderSyncRefusal? folderSyncRootRefusal(
         return FolderSyncRefusal(FolderSyncRefusalCode.pathChanged, path: step);
       }
 
-      final writeAccess = windowsHost
-          ? !facts.otherUsersHaveReadOnlyAccess
-          : unix?.groupOrOtherWritable == true;
+      final writeAccess = !facts.otherUsersHaveReadOnlyAccess;
       final foreignAccess = leaf && !facts.ownerOnly;
       if (facts.safeAncestor && !foreignAccess) continue;
 

@@ -414,6 +414,7 @@ Future<bool> writeRememberedProfile(
   String supportDir,
   String profile, {
   bool onlyIfUnset = false,
+  void Function(Object)? onFailure,
 }) {
   // Each write for this file uses the same temporary name. Queue writes in
   // this isolate so the next one opens it only after the previous one settles.
@@ -422,6 +423,7 @@ Future<bool> writeRememberedProfile(
       File(activeProfilePath(supportDir)),
       profile,
       onlyIfUnset: onlyIfUnset,
+      onFailure: onFailure,
     ),
   );
   _profileChoiceWrites = write.then<void>(

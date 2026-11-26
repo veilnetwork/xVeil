@@ -49,16 +49,16 @@ class FolderSyncPair {
   final FolderSyncRootApproval? rootApproval;
 }
 
-enum FolderSyncReadRefusal { accessDenied, cannotVerify }
+enum FolderSyncAccessRefusal { accessDenied, cannotVerify }
 
 /// A bounded failure in the local filesystem. The engine attaches the file
 /// name from its own plan, never raw text from the native library.
 class FolderSyncReadFailure implements Exception {
   const FolderSyncReadFailure(this.reason);
-  final FolderSyncReadRefusal reason;
+  final FolderSyncAccessRefusal reason;
 }
 
-typedef FolderSyncReadIssue = ({String path, FolderSyncReadRefusal reason});
+typedef FolderSyncFileIssue = ({String path, FolderSyncAccessRefusal reason});
 
 /// One file as the local folder currently presents it.
 class LocalFile {

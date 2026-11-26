@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/core/storage_acl_vault.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
@@ -24,6 +27,18 @@ import 'package:xveil/main.dart' show runStartup;
 /// EMPTY WINDOW: process alive, log written where nobody looks, and a user with
 /// no way to tell whether their data had been touched.
 void main() {
+  test('forgetting durable ACL decisions preserves other secure entries', () async {
+    final fingerprint = 'a' * 64;
+    const unrelated = 'unrelated-entry';
+    const storage = FlutterSecureStorage();
+    FlutterSecureStorage.setMockInitialValues({
+      'xveil.storage.acl.v1.$fingerprint': '1',
+      unrelated: 'value',
+    });
+    expect(await forgetRememberedStorageAclApprovals(), isTrue);
+    expect(await storage.readAll(), {unrelated: 'value'});
+  }, skip: Platform.isWindows);
+
   setUp(errorJournal.clear);
 
   List<dynamic> startupErrors() =>

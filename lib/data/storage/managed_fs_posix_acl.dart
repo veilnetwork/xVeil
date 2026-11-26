@@ -16,7 +16,7 @@ ManagedStorageAclWarning? managedPosixAclWarning(
   String darwinAcl = '',
 }) {
   final linuxAcl = Platform.isLinux || Platform.isAndroid
-      ? _tryLinuxAccessAcl(path)
+      ? readLinuxStorageAcl(path)
       : Uint8List(0);
   if (linuxAcl == null) return null;
   final grants = _posixGrants(facts, linuxAcl);
@@ -101,7 +101,7 @@ List<ManagedAclGrant>? _posixGrants(PosixFileFacts facts, Uint8List acl) {
   return grants;
 }
 
-Uint8List? _tryLinuxAccessAcl(String path) {
+Uint8List? readLinuxStorageAcl(String path) {
   try {
     return _linuxAccessAcl(path);
   } on ArgumentError {

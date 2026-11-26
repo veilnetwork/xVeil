@@ -99,6 +99,18 @@ bool recordWindowsProfileAclApproval(
   });
 }
 
+/// Delete only persisted profile permission decisions for this Windows account.
+bool forgetWindowsProfileAclApprovals() {
+  if (!Platform.isWindows) return false;
+  return using((arena) {
+    final result = win.RegDeleteTree(
+      win.HKEY_CURRENT_USER,
+      _key.toNativeUtf16(allocator: arena),
+    );
+    return result == win.ERROR_SUCCESS || result == win.ERROR_FILE_NOT_FOUND;
+  });
+}
+
 final String? windowsProfileSupportPath = _windowsProfileSupportPath();
 
 String? _windowsProfileSupportPath() {

@@ -31,6 +31,8 @@ enum ManagedPreferencesFailureReason {
   filesystemAccessDenied,
   profileChoiceUnreadable,
   profileChoiceInvalid,
+  preferencesAccessPolicy,
+  preferencesStagingAccess,
 }
 
 ManagedPreferencesFailureReason managedStorageFailureReason(Object error) =>
@@ -63,6 +65,10 @@ ManagedPreferencesFailureReason managedStorageFailureReason(Object error) =>
             ManagedPreferencesFailureReason.privateFile,
           ManagedFsUnsafeReason.invalidLifetimeLock =>
             ManagedPreferencesFailureReason.invalidLifetimeLock,
+          ManagedFsUnsafeReason.preferencesAccessPolicy =>
+            ManagedPreferencesFailureReason.preferencesAccessPolicy,
+          ManagedFsUnsafeReason.preferencesStagingAccess =>
+            ManagedPreferencesFailureReason.preferencesStagingAccess,
           null => ManagedPreferencesFailureReason.filesystemUnsafe,
         },
         ManagedFsFailureKind.changed =>

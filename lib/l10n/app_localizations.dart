@@ -519,6 +519,48 @@ abstract class AppL10n {
   /// **'Windows could not provide the folder information xVeil needs to verify access.'**
   String get startupRuntimeCannotVerify;
 
+  /// No description provided for @preferencesStagingAccessRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not verify private access to its temporary or lock file. Check the folder’s inherited permissions before saving again.'**
+  String get preferencesStagingAccessRefused;
+
+  /// No description provided for @preferencesAccessPolicyNotPreserved.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not save the settings while preserving the file’s owner or access permissions. Review the file’s access settings or ask your administrator.'**
+  String get preferencesAccessPolicyNotPreserved;
+
+  /// No description provided for @profileAclResetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Forget saved permission decisions'**
+  String get profileAclResetTitle;
+
+  /// No description provided for @profileAclResetHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies to all xVeil profiles for this system account.'**
+  String get profileAclResetHint;
+
+  /// No description provided for @profileAclResetConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove remembered choices for all profiles in this system account? xVeil will check the permissions again after restart.'**
+  String get profileAclResetConfirm;
+
+  /// No description provided for @profileAclResetDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved permission decisions cleared. Restart xVeil to check permissions again.'**
+  String get profileAclResetDone;
+
+  /// No description provided for @profileAclResetFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not clear all saved permission decisions. Check access to your system account’s secure storage.'**
+  String get profileAclResetFailed;
+
   /// No description provided for @startupAclCorrectionHint.
   ///
   /// In en, this message translates to:
@@ -12385,6 +12427,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The accounts below have access to this folder. Review who may see files synced from the cloud.'**
   String get folderSyncAclReadRisk;
+
+  /// No description provided for @folderSyncWriteAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The operating system denied writing or deleting {path}. Check the folder and file permissions.'**
+  String folderSyncWriteAccessDenied(String path);
+
+  /// No description provided for @folderSyncWriteCannotVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not save or remove {path}. Check that the folder is available and your account can write to it.'**
+  String folderSyncWriteCannotVerify(String path);
 
   /// No description provided for @folderSyncReadAccessDenied.
   ///

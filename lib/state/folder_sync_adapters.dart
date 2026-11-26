@@ -294,10 +294,10 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
       return switch (beneath.refusal) {
         VeilBeneathRefusal.missing => null,
         VeilBeneathRefusal.accessDenied => throw const FolderSyncReadFailure(
-          FolderSyncReadRefusal.accessDenied,
+          FolderSyncAccessRefusal.accessDenied,
         ),
         _ => throw const FolderSyncReadFailure(
-          FolderSyncReadRefusal.cannotVerify,
+          FolderSyncAccessRefusal.cannotVerify,
         ),
       };
     }

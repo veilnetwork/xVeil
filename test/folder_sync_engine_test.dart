@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -134,6 +135,7 @@ class _FakeDisk implements FolderSyncDisk {
   /// when the remote copy stops being readable or the name is refused: the
   /// scratch file is dropped and the old file stays exactly as it was.
   Set<String> refuseWrites = const {};
+  Object? writeError;
 
   @override
   Future<FolderScan> scan(String root) async => FolderScan(
@@ -163,6 +165,7 @@ class _FakeDisk implements FolderSyncDisk {
 
   Future<LocalFile?> _write(String path, RangeSource source) async {
     calls.add('write:$path');
+    if (writeError case final error?) throw error;
     if (refuseWrites.contains(path)) {
       // Nothing is written and nothing is renamed: whatever was there stays.
       return null;
@@ -332,6 +335,28 @@ void main() {
     disk.refuseWrites = const {};
     await engine.runOnce(pair);
     expect(disk.files['a.txt'], 'NEW');
+  });
+
+  test('publishes the local write failure until the next successful pass', () async {
+    cloud.seed('denied.txt', 'payload');
+    disk.writeError = const FileSystemException(
+      'permission denied',
+      'denied.txt',
+      OSError('access denied', 13),
+    );
+    final report = await engine.runOnce(pair);
+    expect(report.failed.single.$1.path, 'denied.txt');
+    expect(
+      (await store.state(pair.id)).writeIssue,
+      (path: 'denied.txt', reason: Platform.isWindows
+          ? FolderSyncAccessRefusal.cannotVerify
+          : FolderSyncAccessRefusal.accessDenied),
+    );
+
+    disk.writeError = null;
+    await engine.runOnce(pair);
+    expect(disk.files['denied.txt'], 'payload');
+    expect((await store.state(pair.id)).writeIssue, isNull);
   });
 
   test('a second pass with nothing changed does nothing at all', () async {

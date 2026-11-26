@@ -261,6 +261,33 @@ class AppL10nRu extends AppL10n {
       'Windows не предоставила сведения, необходимые для проверки прав на папку.';
 
   @override
+  String get preferencesStagingAccessRefused =>
+      'xVeil не смог подтвердить закрытый доступ к временному файлу или файлу блокировки. Проверьте наследуемые права папки и повторите сохранение.';
+
+  @override
+  String get preferencesAccessPolicyNotPreserved =>
+      'xVeil не смог сохранить настройки с текущим владельцем или правами файла. Проверьте права в свойствах файла или обратитесь к администратору.';
+
+  @override
+  String get profileAclResetTitle => 'Сбросить сохранённые решения о правах';
+
+  @override
+  String get profileAclResetHint =>
+      'Для всех профилей xVeil в этой системной учётной записи.';
+
+  @override
+  String get profileAclResetConfirm =>
+      'Удалить сохранённые решения для всех профилей этой учётной записи? После перезапуска xVeil снова проверит права.';
+
+  @override
+  String get profileAclResetDone =>
+      'Сохранённые решения удалены. Перезапустите xVeil, чтобы заново проверить права.';
+
+  @override
+  String get profileAclResetFailed =>
+      'xVeil не смог удалить все сохранённые решения. Проверьте доступ к защищённому хранилищу своей учётной записи.';
+
+  @override
   String get startupAclCorrectionHint =>
       'Проверьте права в свойствах файлов или папок либо обратитесь к администратору. Выбор относится к каждому объекту из списка и его текущим правам.';
 
@@ -7110,6 +7137,16 @@ class AppL10nRu extends AppL10n {
   @override
   String get folderSyncAclReadRisk =>
       'У указанных учётных записей есть доступ к этой папке. Проверьте, кто сможет увидеть файлы, загруженные из облака.';
+
+  @override
+  String folderSyncWriteAccessDenied(String path) {
+    return 'Операционная система запретила запись или удаление $path. Проверьте права на папку и файл.';
+  }
+
+  @override
+  String folderSyncWriteCannotVerify(String path) {
+    return 'xVeil не смог сохранить или удалить $path. Проверьте, доступна ли папка и есть ли у вашей учётной записи право записи.';
+  }
 
   @override
   String folderSyncReadAccessDenied(String path) {

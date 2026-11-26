@@ -454,6 +454,10 @@ String? preferencesFailureText(
     l.startupAclStorageRoleUnavailable,
   ManagedPreferencesFailureReason.profileChoiceUnreadable =>
     l.startupProfileChoiceUnreadable,
+  ManagedPreferencesFailureReason.preferencesAccessPolicy =>
+    l.preferencesAccessPolicyNotPreserved,
+  ManagedPreferencesFailureReason.preferencesStagingAccess =>
+    l.preferencesStagingAccessRefused,
   ManagedPreferencesFailureReason.profileChoiceInvalid =>
     l.startupProfileChoiceInvalid,
   _ => null,

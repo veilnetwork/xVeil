@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../data/folder_scan.dart';
@@ -229,15 +230,16 @@ class FolderSyncEngine {
     final applied = <SyncAction>[];
     final failed = <(SyncAction, Object)>[];
     final conflicts = {...state.pendingConflicts};
-    FolderSyncReadIssue? readIssue = scan.unreadable.isEmpty
+    FolderSyncFileIssue? readIssue = scan.unreadable.isEmpty
         ? null
         : (
             path: scan.unreadable.first.isEmpty
                 ? pair.localPath
                 : scan.unreadable.first,
-            reason: FolderSyncReadRefusal.cannotVerify,
+            reason: FolderSyncAccessRefusal.cannotVerify,
           );
 
+    FolderSyncFileIssue? writeIssue;
     for (final action in plan.actions) {
       try {
         switch (action.kind) {
@@ -303,7 +305,13 @@ class FolderSyncEngine {
             // The writer's own verdict comes first: a refusal or a dead remote
             // copy leaves the old file in place, and an old file of the same
             // size satisfies every check that only looks at the size.
-            if (published == null) continue;
+            if (published == null) {
+              writeIssue ??= (
+                path: action.path,
+                reason: FolderSyncAccessRefusal.cannotVerify,
+              );
+              continue;
+            }
             // CONFIRMED, not assumed (audit XV-12). `writeFrom` returns
             // silently when it refuses a path or the remote copy stops being
             // readable — both deliberate, both indistinguishable from success
@@ -354,8 +362,8 @@ class FolderSyncEngine {
         conflicts.add(action.path);
       } on FolderSyncReadFailure catch (error) {
         if (readIssue == null ||
-            error.reason == FolderSyncReadRefusal.accessDenied &&
-                readIssue.reason != FolderSyncReadRefusal.accessDenied) {
+            error.reason == FolderSyncAccessRefusal.accessDenied &&
+                readIssue.reason != FolderSyncAccessRefusal.accessDenied) {
           readIssue = (path: action.path, reason: error.reason);
         }
         failed.add((action, error));
@@ -363,6 +371,25 @@ class FolderSyncEngine {
         // One file's failure is not the pass's failure. Its base row is left
         // exactly as it was, so nothing later reads the failure as a deletion.
         failed.add((action, error));
+        if (action.kind == SyncActionKind.download ||
+            action.kind == SyncActionKind.deleteLocal) {
+          final code = error is FileSystemException
+              ? error.osError?.errorCode
+              : null;
+          final denied = Platform.isWindows
+              ? code == 5
+              : code == 1 || code == 13;
+          if (writeIssue == null ||
+              denied &&
+                  writeIssue.reason != FolderSyncAccessRefusal.accessDenied) {
+            writeIssue = (
+              path: action.path,
+              reason: denied
+                  ? FolderSyncAccessRefusal.accessDenied
+                  : FolderSyncAccessRefusal.cannotVerify,
+            );
+          }
+        }
       }
     }
 
@@ -376,6 +403,7 @@ class FolderSyncEngine {
         // would re-apply it against a base that has since moved on.
         lastPassAtMs: _now(),
         readIssue: readIssue,
+        writeIssue: writeIssue,
       ),
     );
     return FolderSyncReport(
@@ -411,6 +439,7 @@ class FolderSyncEngine {
       lastPassAtMs: result.lastPassAtMs,
       lastRefusal: result.lastRefusal,
       readIssue: result.readIssue,
+      writeIssue: result.writeIssue,
     );
   });
 
@@ -470,6 +499,7 @@ class FolderSyncEngine {
         lastPassAtMs: state.lastPassAtMs,
         lastRefusal: state.lastRefusal,
         readIssue: state.readIssue,
+        writeIssue: state.writeIssue,
       );
     });
   }

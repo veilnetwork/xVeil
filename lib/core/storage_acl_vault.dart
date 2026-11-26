@@ -22,7 +22,25 @@ const _vault = FlutterSecureStorage(
   ),
 );
 
-String _key(String fingerprint) => 'xveil.storage.acl.v1.$fingerprint';
+const _keyPrefix = 'xveil.storage.acl.v1.';
+String _key(String fingerprint) => '$_keyPrefix$fingerprint';
+
+/// The running profile and its workers keep their admission until restart.
+Future<bool> forgetRememberedStorageAclApprovals() async {
+  try {
+    if (Platform.isWindows) return forgetWindowsProfileAclApprovals();
+    final entries = await _vault.readAll();
+    final decisions = entries.keys
+        .where((key) => key.startsWith(_keyPrefix))
+        .toList();
+    for (final key in decisions) {
+      await _vault.delete(key: key);
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 Future<bool> recordStorageAclApproval(
   ManagedStorageAclWarning warning, {

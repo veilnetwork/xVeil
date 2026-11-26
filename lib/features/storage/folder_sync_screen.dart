@@ -199,10 +199,17 @@ class _PairCard extends ConsumerWidget {
         ? null
         : lastRefusal;
     final readRefusal = switch (readIssue) {
-      (path: final path, reason: FolderSyncReadRefusal.accessDenied) =>
+      (path: final path, reason: FolderSyncAccessRefusal.accessDenied) =>
         l.folderSyncReadAccessDenied(path),
-      (path: final path, reason: FolderSyncReadRefusal.cannotVerify) =>
+      (path: final path, reason: FolderSyncAccessRefusal.cannotVerify) =>
         l.folderSyncReadCannotVerify(path),
+      null => null,
+    };
+    final writeRefusal = switch (view.writeIssue) {
+      (path: final path, reason: FolderSyncAccessRefusal.accessDenied) =>
+        l.folderSyncWriteAccessDenied(path),
+      (path: final path, reason: FolderSyncAccessRefusal.cannotVerify) =>
+        l.folderSyncWriteCannotVerify(path),
       null => null,
     };
     return Card(
@@ -256,6 +263,14 @@ class _PairCard extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
                 refusal == null ? readRefusal! : l.folderSyncRefused(refusal),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          if (writeRefusal != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                writeRefusal,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),

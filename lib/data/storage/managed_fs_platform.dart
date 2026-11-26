@@ -61,10 +61,20 @@ class ManagedFsPlatform {
   ManagedPathWitness inspect(String path) =>
       _inspect(path, includeApprovedAcl: false);
 
-  ManagedPathWitness inspectAcl(String path) =>
-      _inspect(path, includeApprovedAcl: true);
+  ManagedPathWitness inspectAcl(
+    String path, {
+    bool allowDirectoryContentGrants = false,
+  }) => _inspect(
+    path,
+    includeApprovedAcl: true,
+    allowDirectoryContentGrants: allowDirectoryContentGrants,
+  );
 
-  ManagedPathWitness _inspect(String path, {required bool includeApprovedAcl}) {
+  ManagedPathWitness _inspect(
+    String path, {
+    required bool includeApprovedAcl,
+    bool allowDirectoryContentGrants = false,
+  }) {
     // POSIX lstat("link/") follows the link despite lstat's usual contract.
     // Inspect the final component itself, retaining only the filesystem root.
     if (!Platform.isWindows) {
@@ -90,7 +100,7 @@ class ManagedFsPlatform {
       }
       var appleAcl = darwin
           ? _readDarwinAcl(path, facts)
-          : (safe: true, readOnly: true, text: '');
+          : (safe: true, readOnly: true, contentOnly: true, text: '');
       if (appleAcl == null) {
         final refreshed = posixLstat(path);
         if (refreshed == null ||
@@ -111,9 +121,14 @@ class ManagedFsPlatform {
         currentUid: current,
         android: android,
       );
+      final reviewableAppleAcl =
+          appleAcl.readOnly ||
+          (allowDirectoryContentGrants &&
+              facts.isDirectory &&
+              appleAcl.contentOnly);
       final safeAncestor =
           policy.safeAncestor &&
-          (appleAcl.safe || includeApprovedAcl && appleAcl.readOnly);
+          (appleAcl.safe || includeApprovedAcl && reviewableAppleAcl);
       final ownerOnly = policy.ownerOnly && appleAcl.safe;
       final warning = safeAncestor && ownerOnly && policy.ownedByCurrentUser
           ? null
@@ -128,7 +143,7 @@ class ManagedFsPlatform {
       // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
       // that property even for callers that use a witness only for identity.
       if (!appleAcl.safe &&
-          !(includeApprovedAcl ? appleAcl.readOnly : approved)) {
+          !(includeApprovedAcl ? reviewableAppleAcl : approved)) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: facts.isDirectory
@@ -145,6 +160,8 @@ class ManagedFsPlatform {
         safeAncestor: safeAncestor,
         aclWarning: approved && !includeApprovedAcl ? null : warning,
         aclApproved: approved,
+        otherUsersHaveReadOnlyAccess:
+            !facts.groupOrOtherWritable && appleAcl.readOnly,
         unsafeAncestorCause: safeAncestor
             ? null
             : _isTrustedPosixOwner(facts.uid, current, android)
@@ -196,17 +213,33 @@ class ManagedFsPlatform {
   ManagedPathWitness requirePrivateFile(
     String path, {
     bool allowAclApproval = false,
+    bool allowReadOnlyAclApproval = false,
   }) {
-    final facts = inspect(path);
+    final ManagedPathWitness facts;
+    try {
+      facts = allowReadOnlyAclApproval ? inspectAcl(path) : inspect(path);
+    } on ManagedFsFailure catch (error) {
+      if (allowReadOnlyAclApproval && error.aclWarnings.isNotEmpty) {
+        throw const ManagedFsFailure(
+          ManagedFsFailureKind.unsafe,
+          unsafeReason: ManagedFsUnsafeReason.privateFile,
+        );
+      }
+      rethrow;
+    }
+    final readOnlyGrant =
+        allowReadOnlyAclApproval &&
+        facts.ownedByCurrentUser &&
+        facts.safeAncestor &&
+        facts.otherUsersHaveReadOnlyAccess;
+    final canApprove = allowAclApproval || readOnlyGrant;
     if (facts.directory ||
-        (!(allowAclApproval && facts.aclApproved) &&
+        (!(canApprove && facts.aclApproved) &&
             (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
       throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateFile,
-        aclWarnings: [
-          if (allowAclApproval && !facts.directory) ?facts.aclWarning,
-        ],
+        aclWarnings: [if (canApprove && !facts.directory) ?facts.aclWarning],
       );
     }
     return facts;
@@ -318,11 +351,14 @@ class ManagedFsPlatform {
   }
 }
 
+String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
+    _readDarwinAcl(path, facts)?.text;
+
 /// POSIX mode bits bound named ACL grants on Linux. Darwin extended ACLs are
 /// independent of those bits. Conservatively accept only empty/deny-only ACLs,
 /// including the standard home-directory deny-delete entry; never ignore an
 /// allow just because chmod reports 0700. No owner UUID/name is logged.
-({bool safe, bool readOnly, String text})? _readDarwinAcl(
+({bool safe, bool readOnly, bool contentOnly, String text})? _readDarwinAcl(
   String path,
   PosixFileFacts before,
 ) {
@@ -366,7 +402,7 @@ class ManagedFsPlatform {
               before.uid == after.uid &&
               before.gid == after.gid &&
               before.mode == after.mode
-          ? (safe: true, readOnly: true, text: '')
+          ? (safe: true, readOnly: true, contentOnly: true, text: '')
           : null;
     }
     final valid = lib
@@ -385,6 +421,9 @@ class ManagedFsPlatform {
     const readRights = 0x100a8a;
     var hasAllow = false;
     var readOnly = true;
+    var contentOnly = true;
+    // add_file and add_subdirectory apply to the directory contents.
+    const addEntries = (1 << 2) | (1 << 5);
     for (var index = 0; index <= 1024; index++) {
       final rc = next(acl, index == 0 ? 0 : -1, entry);
       // Darwin's end-of-list is EINVAL. Unreadable or unknown entries cannot
@@ -400,6 +439,7 @@ class ManagedFsPlatform {
         return (
           safe: !hasAllow,
           readOnly: readOnly,
+          contentOnly: contentOnly,
           text: text.toDartString(length: length.value),
         );
       }
@@ -411,6 +451,7 @@ class ManagedFsPlatform {
         hasAllow = true;
         if (readMask(entry.value, mask) != 0) return null;
         if (mask.value & ~readRights != 0) readOnly = false;
+        if (mask.value & ~(readRights | addEntries) != 0) contentOnly = false;
       }
     }
     return null;

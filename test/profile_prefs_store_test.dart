@@ -1013,6 +1013,26 @@ Future<void> main(List<String> args) async {
       expect(posixLstat(activeProfilePath(support.path))?.permissions, 0x180);
     }, skip: skipReason);
 
+    test('keep read permissions on the existing profile choice', () async {
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      final path = activeProfilePath(support.path);
+      expect(posixChmod(path, 0x1a0), 0); // 0640
+      expect(await writeRememberedProfile(support.path, 'default'), isTrue);
+      expect(posixLstat(path)?.permissions, 0x1a0);
+      expect(await readRememberedProfile(support.path), 'default');
+    }, skip: skipReason);
+
+    test('refuse an inherited Darwin read ACL before writing the payload', () async {
+      final acl = Process.runSync('/bin/chmod', [
+        '+a', 'everyone allow read,file_inherit,only_inherit', support.path,
+      ]);
+      expect(acl.exitCode, 0, reason: acl.stderr.toString());
+      final file = File(activeProfilePath(support.path));
+      expect(await writePrivateFileAtomically(file, 'decoy'), isFalse);
+      expect(file.existsSync(), isFalse);
+      expect(File('${file.path}.tmp').existsSync(), isFalse);
+    }, skip: !Platform.isMacOS);
+
     test('are renamed into place, leaving no temporary behind', () async {
       expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
       expect(

@@ -330,22 +330,76 @@ PosixFileFacts? _rawLstat(_Libc libc, String path) {
   final buffer = calloc<Uint8>(layout.bufferBytes);
   try {
     if (libc.lstat(pathPtr, buffer) != 0) return null;
-    int u32(int offset) => (buffer + offset).cast<Uint32>().value;
-    int u64(int offset) => (buffer + offset).cast<Uint64>().value;
-    return PosixFileFacts(
-      deviceId: layout.devIs64
-          ? u64(layout.devOffset)
-          : (buffer + layout.devOffset).cast<Int32>().value,
-      inode: u64(layout.inoOffset),
-      mode: layout.modeIs16
-          ? (buffer + layout.modeOffset).cast<Uint16>().value
-          : u32(layout.modeOffset),
-      uid: u32(layout.uidOffset),
-      gid: u32(layout.gidOffset),
-    );
+    return _decodePosixFacts(buffer, layout);
   } finally {
     calloc.free(buffer);
     calloc.free(pathPtr);
+  }
+}
+
+PosixFileFacts _decodePosixFacts(Pointer<Uint8> buffer, _StatLayout layout) {
+  int u32(int offset) => (buffer + offset).cast<Uint32>().value;
+  int u64(int offset) => (buffer + offset).cast<Uint64>().value;
+  return PosixFileFacts(
+    deviceId: layout.devIs64
+        ? u64(layout.devOffset)
+        : (buffer + layout.devOffset).cast<Int32>().value,
+    inode: u64(layout.inoOffset),
+    mode: layout.modeIs16
+        ? (buffer + layout.modeOffset).cast<Uint16>().value
+        : u32(layout.modeOffset),
+    uid: u32(layout.uidOffset),
+    gid: u32(layout.gidOffset),
+  );
+}
+
+/// Apply a mode only to the expected regular file, through a no-follow handle.
+bool posixSetModeForFile(String path, PosixFileFacts expected, int mode) {
+  final libc = _resolveLibc();
+  final open = libc?.open;
+  final close = libc?.close;
+  final sync = libc?.fsync;
+  if (libc == null || open == null || close == null || sync == null) {
+    return false;
+  }
+  final process = DynamicLibrary.process();
+  final apple = Platform.isMacOS || Platform.isIOS;
+  try {
+    final stat = process
+        .lookupFunction<
+          Int32 Function(Int32, Pointer<Uint8>),
+          int Function(int, Pointer<Uint8>)
+        >(
+          Platform.isMacOS && Abi.current() == Abi.macosX64
+              ? 'fstat\$INODE64'
+              : 'fstat',
+        );
+    final chmod = process
+        .lookupFunction<Int32 Function(Int32, Uint32), int Function(int, int)>(
+          'fchmod',
+        );
+    return using((arena) {
+      // O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK.
+      final flags = apple ? 0x1000104 : 0xa0800;
+      final fd = open(path.toNativeUtf8(allocator: arena), flags);
+      if (fd < 0) return false;
+      try {
+        final buffer = arena<Uint8>(libc.layout.bufferBytes);
+        if (stat(fd, buffer) != 0) return false;
+        final actual = _decodePosixFacts(buffer, libc.layout);
+        return actual.isRegularFile &&
+            actual.sameObjectAs(expected) &&
+            actual.uid == expected.uid &&
+            actual.gid == expected.gid &&
+            actual.mode == expected.mode &&
+            chmod(fd, mode) == 0 &&
+            sync(fd) == 0;
+      } finally {
+        close(fd);
+      }
+    });
+  } on ArgumentError {
+    return false;
   }
 }
 

@@ -310,6 +310,18 @@ void main() {
     expect(folderSyncRootRefusal(root.path, approval: warning!.approval), isNull);
   }, skip: !Platform.isMacOS);
 
+  test('a macOS ACL for adding files prompts for write consent', () {
+    final root = tempRoot('xveil_gate_darwin_add');
+    final acl = Process.runSync('/bin/chmod', [
+      '+a', 'everyone allow add_file', root.path,
+    ]);
+    expect(acl.exitCode, 0, reason: acl.stderr.toString());
+    final warning = folderSyncRootRefusal(root.path);
+    expect(warning?.code, FolderSyncRefusalCode.writableByOtherAccounts);
+    expect(warning?.approval?.writeAccess, isTrue);
+    expect(folderSyncRootRefusal(root.path, approval: warning!.approval), isNull);
+  }, skip: !Platform.isMacOS);
+
   test('an ordinary private folder is accepted', () async {
     // The gate has to refuse reachability, not depth: a mirror that turned
     // down normal folders would be broken rather than safe. `Directory

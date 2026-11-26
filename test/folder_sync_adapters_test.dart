@@ -408,7 +408,7 @@ void main() {
       await expectLater(
         disk.openRead(root.path, 'denied.bin'),
         throwsA(isA<FolderSyncReadFailure>().having(
-          (error) => error.reason, 'reason', FolderSyncReadRefusal.accessDenied,
+          (error) => error.reason, 'reason', FolderSyncAccessRefusal.accessDenied,
         )),
       );
     }, skip: !(Platform.isMacOS || Platform.isLinux));

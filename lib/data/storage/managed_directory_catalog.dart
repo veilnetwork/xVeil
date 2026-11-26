@@ -296,7 +296,10 @@ final class ManagedDirectoryCatalog {
         FileSystemEntityType.notFound) {
       throw const ManagedFsFailure(ManagedFsFailureKind.missingCatalog);
     }
-    final catalogWitness = fs.requirePrivateFile(catalogPath);
+    final catalogWitness = fs.requirePrivateFile(
+      catalogPath,
+      allowReadOnlyAclApproval: !exclusive,
+    );
     _checkSqliteSidecars(catalogPath, fs);
     final rolePath = _child(root, ManagedProfileLease.fileName);
     final leaseWitnesses = <String, ManagedPathWitness>{
@@ -384,7 +387,10 @@ final class ManagedDirectoryCatalog {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
     _checkSqliteSidecars(_catalogPath, _fs);
-    _fs.requirePrivateFile(_catalogPath);
+    _fs.requirePrivateFile(
+      _catalogPath,
+      allowReadOnlyAclApproval: !_coordinator.exclusive,
+    );
     _assertSame(_catalogPath, _catalogWitness, _fs);
   }
 
