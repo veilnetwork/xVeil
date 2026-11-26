@@ -354,7 +354,7 @@ void main() {
       File('lib/data/serve_source.dart')
           .readAsStringSync()
           .replaceAll(RegExp(r'\s+'), ' '),
-      contains('await (opener ?? veilOpenSourceForSend)(path)'),
+      contains('opener == null ? await veilOpenSourceForSend( path,'),
       reason:
           'veilOpenPinnedSource no longer opens through the single-descriptor '
           'helper, so routing the senders through it proves nothing',
