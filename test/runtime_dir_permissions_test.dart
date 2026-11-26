@@ -115,7 +115,7 @@ void main() {
   }, skip: skipReason);
 
   test(
-    'a runtime directory with an inherited read ACL is refused before its marker',
+    'new runtime directories are private before their markers are written',
     () async {
       final dir = Directory.systemTemp.createTempSync(
         'xveil-rt-inherited-acl-',
@@ -127,19 +127,13 @@ void main() {
         dir.path,
       ]);
       expect(result.exitCode, 0, reason: result.stderr.toString());
-      final failure = isA<RuntimeDirNotPrivate>()
-          .having((error) => error.retryable, 'recovery actions', isTrue)
-          .having(
-            (error) => error.aclWarning?.extendedAcl,
-            'grant',
-            contains('everyone'),
-          );
-      await expectLater(
-        claimRuntimeDirUnder(dir.path, uniqueSuffix: 'fixture'),
-        throwsA(failure),
-      );
-      await expectLater(RuntimeDirLease.acquire(dir.path), throwsA(failure));
-      expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
+      final claimed = await claimRuntimeDirUnder(dir.path, uniqueSuffix: 'fixture');
+      final lease = await RuntimeDirLease.acquire(dir.path);
+      for (final path in [claimed, lease.path]) {
+        expect(posixLstat(path)?.permissions, 0x1c0);
+        expect(() => verifyRuntimeDir(path), returnsNormally);
+        expect(File('$path/$kRuntimeDirMarker').existsSync(), isTrue);
+      }
     },
     skip: !Platform.isMacOS,
   );

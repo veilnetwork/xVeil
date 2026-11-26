@@ -1074,14 +1074,15 @@ Future<void> main(List<String> args) async {
       expect(await readRememberedProfile(support.path), 'default');
     }, skip: skipReason);
 
-    test('refuse an inherited Darwin read ACL before writing the payload', () async {
+    test('clear the inherited Darwin read ACL before writing the payload', () async {
       final acl = Process.runSync('/bin/chmod', [
         '+a', 'everyone allow read,file_inherit,only_inherit', support.path,
       ]);
       expect(acl.exitCode, 0, reason: acl.stderr.toString());
       final file = File(activeProfilePath(support.path));
-      expect(await writePrivateFileAtomically(file, 'decoy'), isFalse);
-      expect(file.existsSync(), isFalse);
+      expect(await writePrivateFileAtomically(file, 'decoy'), isTrue);
+      expect(const ManagedFsPlatform().inspect(file.path).ownerOnly, isTrue);
+      expect(file.readAsStringSync(), 'decoy');
       expect(File('${file.path}.tmp').existsSync(), isFalse);
     }, skip: !Platform.isMacOS);
 
