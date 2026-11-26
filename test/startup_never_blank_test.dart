@@ -301,7 +301,7 @@ void main() {
       expect(find.textContaining('delete or rename'), findsWidgets);
 
       final action = find.text(
-        remember ? 'Start and remember my choice' : 'Start once',
+        remember ? 'Start and remember my choice' : 'Start and allow until restart',
       );
       await tester.ensureVisible(action);
       await tester.tap(action);
@@ -481,7 +481,7 @@ void main() {
     expect(find.text(otherFolder), findsOneWidget);
     expect(find.textContaining(account), findsOneWidget);
     expect(find.textContaining('Check your account'), findsOneWidget);
-    expect(find.text('Start once'), findsNothing);
+    expect(find.text('Start and allow until restart'), findsNothing);
     expect(find.byType(CopyErrorReportTile), findsOneWidget);
     await tester.ensureVisible(find.text('Try again'));
     await tester.tap(find.text('Try again'));
@@ -562,7 +562,7 @@ void main() {
       find.textContaining('Check whether your account has access'),
       findsOneWidget,
     );
-    expect(find.text('Start once'), findsNothing);
+    expect(find.text('Start and allow until restart'), findsNothing);
     expect(find.byType(CopyErrorReportTile), findsOneWidget);
   });
 
