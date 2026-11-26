@@ -252,6 +252,10 @@ class AppL10nEn extends AppL10n {
       'xVeil needs a folder owned by your account with private access.';
 
   @override
+  String get startupRuntimeNameExhausted =>
+      'All temporary folder names are in use here. Choose another folder or try again later.';
+
+  @override
   String get startupRuntimeCannotWrite =>
       'xVeil could not create or write its private subfolder here. Check your account’s write access and available disk space.';
 
@@ -7091,6 +7095,22 @@ class AppL10nEn extends AppL10n {
   String folderSyncWriteCannotVerify(String path) {
     return 'xVeil could not save or remove $path. Check that the folder is available and your account can write to it.';
   }
+
+  @override
+  String get folderSyncScanAccessDenied =>
+      'The operating system denied access to this folder or its sync files. Check the permissions or ask your administrator.';
+
+  @override
+  String get folderSyncScanUnavailable =>
+      'xVeil could not open or verify this folder for sync. Check that the folder and drive are available, then try again.';
+
+  @override
+  String get folderSyncScanBusy =>
+      'Another operation is using the folder. Try again when it finishes.';
+
+  @override
+  String get folderSyncScanRootChanged =>
+      'The folder changed during the check. Check the path and try again.';
 
   @override
   String folderSyncReadAccessDenied(String path) {

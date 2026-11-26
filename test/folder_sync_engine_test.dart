@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/folder_publication.dart';
 import 'package:xveil/data/folder_scan.dart';
 import 'package:xveil/data/storage/folder_sync_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -137,20 +138,24 @@ class _FakeDisk implements FolderSyncDisk {
   Set<String> refuseWrites = const {};
   Object? writeError;
 
+  FolderFsFailure? scanFailure;
+
   @override
-  Future<FolderScan> scan(String root) async => FolderScan(
-    files: [
-      for (final entry in files.entries)
-        LocalFile(
-          path: entry.key,
-          size: entry.value.length,
-          modifiedAtMs: 100 + entry.value.length,
-        ),
-    ],
-    unreadable: unreadable,
-    truncated: truncated,
-    rootMissing: rootMissing,
-  );
+  Future<FolderScan> scan(String root) async => scanFailure != null
+      ? throw scanFailure!
+      : FolderScan(
+          files: [
+            for (final entry in files.entries)
+              LocalFile(
+                path: entry.key,
+                size: entry.value.length,
+                modifiedAtMs: 100 + entry.value.length,
+              ),
+          ],
+          unreadable: unreadable,
+          truncated: truncated,
+          rootMissing: rootMissing,
+        );
 
   @override
   Future<RangeSource?> openRead(String root, String path) async {
@@ -223,6 +228,31 @@ void main() {
     engine = FolderSyncEngine(cloud, disk, store, () => 7);
   });
   tearDown(() => storage.close());
+
+  test(
+    'a refused root is reported without advancing or changing the sync base',
+    () async {
+      disk.files['keep.txt'] = 'fixture';
+      await engine.runOnce(pair);
+      final before = await store.state(pair.id);
+      disk.scanFailure = const FolderFsFailure(
+        FolderFsFailureKind.unavailable,
+        accessDenied: true,
+      );
+      cloud.calls.clear();
+      final report = await engine.runOnce(pair);
+      final after = await store.state(pair.id);
+      expect(report.refusedReason, FolderSyncScanRefusal.accessDenied.name);
+      expect(after.lastRefusal, report.refusedReason);
+      expect(after.base.single.path, before.base.single.path);
+      expect(after.lastPassAtMs, before.lastPassAtMs);
+      expect(cloud.calls, isEmpty);
+
+      disk.scanFailure = null;
+      await engine.runOnce(pair);
+      expect((await store.state(pair.id)).lastRefusal, isNull);
+    },
+  );
 
   test('conflict answered during upload survives the pass commit', () async {
     disk.files['a.txt'] = 'same';

@@ -107,17 +107,20 @@ final class _OpenProfilePreferences extends _OpenConfig {
 }
 
 final class _PreferencesReadReq extends _Req {
-  const _PreferencesReadReq(super.reply);
+  const _PreferencesReadReq(this.approvals, super.reply);
+  final Set<String> approvals;
 }
 
 final class _PreferencesWriteReq extends _Req {
   const _PreferencesWriteReq(
     this.contents,
+    this.approvals,
     super.reply, {
     this.requireMatch = false,
     this.expected,
   });
   final String contents;
+  final Set<String> approvals;
   final bool requireMatch;
   final String? expected;
 }
@@ -130,7 +133,14 @@ final class _PreferencesReleaseGrantReq extends _Req {
 /// Fixed-file I/O and its native shared profile grant live together. The UI
 /// never receives a grant to do local filesystem work outside this actor.
 final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
-  ManagedProfilePreferencesFile._(this.path, this._profile, this._worker);
+  ManagedProfilePreferencesFile._(
+    this.path,
+    this._profile,
+    this._worker,
+    this._onAclReplaced,
+  );
+
+  final Future<void> Function(StorageAclReplacement)? _onAclReplaced;
   @override
   final String path;
   final String _profile;
@@ -210,7 +220,10 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
     }
   }
 
-  static Future<ManagedProfilePreferencesFile> open(String path) => _open(path);
+  static Future<ManagedProfilePreferencesFile> open(
+    String path, {
+    Future<void> Function(StorageAclReplacement)? onAclReplaced,
+  }) => _open(path, onAclReplaced: onAclReplaced);
 
   @visibleForTesting
   static Future<ManagedProfilePreferencesFile> openWithWriteGateForTesting(
@@ -221,6 +234,7 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
   static Future<ManagedProfilePreferencesFile> _open(
     String path, {
     SendPort? writeGate,
+    Future<void> Function(StorageAclReplacement)? onAclReplaced,
   }) {
     try {
       if (path.isEmpty ||
@@ -235,7 +249,12 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
       if (_maintenance.contains(profile)) {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.busy);
       }
-      final opening = _openOwned(path, profile, writeGate: writeGate);
+      final opening = _openOwned(
+        path,
+        profile,
+        writeGate: writeGate,
+        onAclReplaced: onAclReplaced,
+      );
       (_opening[profile] ??= {}).add(opening);
       void settled() {
         _opening[profile]?.remove(opening);
@@ -258,6 +277,7 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
     String path,
     String profile, {
     SendPort? writeGate,
+    Future<void> Function(StorageAclReplacement)? onAclReplaced,
   }) async {
     for (final old in _retiring.toList()) {
       if (old.path == path) await old.close();
@@ -277,7 +297,12 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
       if (worker == null) {
         throw const ManagedWorkerFailure(ManagedWorkerFailureKind.backend);
       }
-      final file = ManagedProfilePreferencesFile._(path, profile, worker);
+      final file = ManagedProfilePreferencesFile._(
+        path,
+        profile,
+        worker,
+        onAclReplaced,
+      );
       (_active[profile] ??= {}).add(file);
       return file;
     } catch (_) {
@@ -293,21 +318,38 @@ final class ManagedProfilePreferencesFile implements ProfilePreferencesFile {
   }
 
   @override
-  Future<String?> read() =>
-      _worker._call((reply) => _PreferencesReadReq(reply));
+  Future<String?> read() => _worker._call(
+    (reply) => _PreferencesReadReq(storageAclApprovalsForWorker(), reply),
+  );
   @override
-  Future<bool> write(String contents) =>
-      _worker._call((reply) => _PreferencesWriteReq(contents, reply));
+  Future<bool> write(String contents) async => (await _write(contents))!;
+
   @override
   Future<bool?> compareAndWrite(String? expected, String contents) =>
-      _worker._call(
-        (reply) => _PreferencesWriteReq(
-          contents,
-          reply,
-          expected: expected,
-          requireMatch: true,
-        ),
-      );
+      _write(contents, expected: expected, requireMatch: true);
+
+  Future<bool?> _write(
+    String contents, {
+    String? expected,
+    bool requireMatch = false,
+  }) async {
+    final (written, replacement) = await _worker
+        ._call<(bool?, StorageAclReplacement?)>(
+          (reply) => _PreferencesWriteReq(
+            contents,
+            storageAclApprovalsForWorker(),
+            reply,
+            expected: expected,
+            requireMatch: requireMatch,
+          ),
+        );
+    if (replacement != null) {
+      carryStorageAclApproval(replacement);
+      await _onAclReplaced?.call(replacement);
+    }
+    return written;
+  }
+
   @override
   Future<void> close() async {
     _retiring.add(this);
@@ -466,7 +508,8 @@ void _profilePreferencesEntry(
               requireHeld();
             }
             message.reply.send(const _Ok(null));
-          case _PreferencesReadReq():
+          case _PreferencesReadReq(:final approvals):
+            mergeStorageAclApprovals(approvals);
             final elapsed = Stopwatch()..start();
             FileSystemException? contention;
             while (true) {
@@ -507,13 +550,16 @@ void _profilePreferencesEntry(
             }
           case _PreferencesWriteReq(
             :final contents,
+            :final approvals,
             :final requireMatch,
             :final expected,
           ):
+            mergeStorageAclApprovals(approvals);
             if (config.writeGate != null) {
               await _awaitManagedEraseAdmission(inbox, config.writeGate);
             }
             requireHeld();
+            StorageAclReplacement? replacement;
             final written = await withProfilePreferencesWriteLock<bool?>(
               file,
               () {
@@ -537,11 +583,12 @@ void _profilePreferencesEntry(
                   file,
                   contents,
                   reportFailure: true,
+                  onAclReplaced: (receipt) => replacement = receipt,
                 );
               },
             );
             requireHeld();
-            message.reply.send(_Ok(written));
+            message.reply.send(_Ok((written, replacement)));
           case _CloseReq():
             closing = true;
             gate?.close();

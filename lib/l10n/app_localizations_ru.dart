@@ -253,6 +253,10 @@ class AppL10nRu extends AppL10n {
       'Нужна папка с закрытым доступом, принадлежащая вашей учётной записи.';
 
   @override
+  String get startupRuntimeNameExhausted =>
+      'Все имена временных папок здесь заняты. Выберите другую папку или повторите попытку позже.';
+
+  @override
   String get startupRuntimeCannotWrite =>
       'Не удалось создать служебную папку или записать в неё данные. Проверьте права записи и свободное место на диске.';
 
@@ -7147,6 +7151,22 @@ class AppL10nRu extends AppL10n {
   String folderSyncWriteCannotVerify(String path) {
     return 'xVeil не смог сохранить или удалить $path. Проверьте, доступна ли папка и есть ли у вашей учётной записи право записи.';
   }
+
+  @override
+  String get folderSyncScanAccessDenied =>
+      'Операционная система запретила доступ к этой папке или служебным файлам синхронизации. Проверьте права или обратитесь к администратору.';
+
+  @override
+  String get folderSyncScanUnavailable =>
+      'Не удалось открыть или проверить эту папку для синхронизации. Проверьте, доступна ли папка и подключён ли диск, затем повторите попытку.';
+
+  @override
+  String get folderSyncScanBusy =>
+      'Папку использует другая операция. Повторите попытку после её завершения.';
+
+  @override
+  String get folderSyncScanRootChanged =>
+      'Папка изменилась во время проверки. Проверьте путь и повторите попытку.';
 
   @override
   String folderSyncReadAccessDenied(String path) {

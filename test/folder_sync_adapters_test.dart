@@ -379,6 +379,31 @@ void main() {
       root = Directory('${tmp.path}/root')..createSync();
     });
 
+    test(
+      'scan classifies a native access refusal on the root',
+      () async {
+        expect(Process.runSync('/bin/chmod', ['0200', root.path]).exitCode, 0);
+        try {
+          await expectLater(
+            folderDiskFixture().scan(root.path),
+            throwsA(
+              isA<FolderFsFailure>().having(
+                (error) => error.accessDenied,
+                'access denied',
+                isTrue,
+              ),
+            ),
+          );
+        } finally {
+          expect(
+            Process.runSync('/bin/chmod', ['0700', root.path]).exitCode,
+            0,
+          );
+        }
+      },
+      skip: !(Platform.isMacOS || Platform.isLinux),
+    );
+
     test('openRead serves slices without reading the file whole', () async {
       final disk = folderDiskFixture();
       await writeBytes(disk, root.path, 'a.bin', _bytes('abcdefghij'));

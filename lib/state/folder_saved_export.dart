@@ -52,6 +52,7 @@ Future<bool> exportFolderSavedVersion({
   required String root,
   required FolderSavedVersion version,
   required bool Function() stillCurrent,
+  void Function()? verifyRoot,
   ExportDocumentPicker pick = openExportDocument,
   FolderSavedExportCancellation? cancellation,
 }) async {
@@ -62,7 +63,7 @@ Future<bool> exportFolderSavedVersion({
   }
 
   check();
-  final file = await access.open(root, version);
+  final file = await access.open(root, version, verifyRoot: verifyRoot);
   ExportDocument? document;
   var finished = false;
   try {
@@ -71,12 +72,14 @@ Future<bool> exportFolderSavedVersion({
     if (document == null) return false;
     if (cancellation != null) cancellation._document = document;
     check();
+    verifyRoot?.call();
     await for (final chunk in rangeChunks(file.source, 0, file.source.size)) {
       check();
       await document.write(chunk);
       check();
     }
     check();
+    verifyRoot?.call();
     if (!file.unchanged()) throw const FolderSavedVersionChanged();
     await document.finish();
     finished = true;

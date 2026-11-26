@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../data/folder_publication.dart';
 import '../data/folder_scan.dart';
 import '../data/storage/folder_sync_store.dart';
 import '../domain/folder_sync.dart';
@@ -139,7 +140,37 @@ class FolderSyncEngine {
 
   Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
     final state = await _store.state(pair.id);
-    final scan = await _disk.scan(pair.localPath);
+    final FolderScan scan;
+    try {
+      scan = await _disk.scan(pair.localPath);
+    } on FolderFsFailure catch (error) {
+      final refusal = switch (error) {
+        FolderFsFailure(accessDenied: true) =>
+          FolderSyncScanRefusal.accessDenied,
+        FolderFsFailure(kind: FolderFsFailureKind.busy) =>
+          FolderSyncScanRefusal.busy,
+        FolderFsFailure(kind: FolderFsFailureKind.rootChanged) =>
+          FolderSyncScanRefusal.rootChanged,
+        _ => FolderSyncScanRefusal.unavailable,
+      };
+      final finished = await _finishPass(
+        pair.id,
+        state,
+        FolderSyncState(
+          base: state.base,
+          pendingConflicts: state.pendingConflicts,
+          lastPassAtMs: state.lastPassAtMs,
+          lastRefusal: refusal.name,
+        ),
+        consumeAnswers: false,
+      );
+      return FolderSyncReport(
+        applied: const [],
+        failed: const [],
+        conflicts: finished.pendingConflicts,
+        refusedReason: refusal.name,
+      );
+    }
 
     // A scan that could not see everything must never let the differ conclude
     // that the unseen files were deleted. Both of these look identical to a

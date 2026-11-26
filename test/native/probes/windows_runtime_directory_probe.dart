@@ -93,8 +93,8 @@ Future<void> main(List<String> args) async {
     if (manual && unsafe) {
       check(
         'manual_base_refusal_reason',
-        refusal?.windowsAttempts.single.$2.windowsRefusal ==
-            WindowsRuntimeRefusal.invalidPath,
+        refusal?.windowsAttempts.single.$2.refusal ==
+            RuntimeDirectoryRefusal.invalidPath,
       );
       check(
         'manual_base_not_written',

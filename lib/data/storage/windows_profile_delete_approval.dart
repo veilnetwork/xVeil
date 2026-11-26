@@ -31,24 +31,47 @@ bool hasWindowsProfileAclApproval(String fingerprint) {
   if (!Platform.isWindows || !_fingerprintPattern.hasMatch(fingerprint)) {
     return false;
   }
-  return using((arena) {
-    if (_findAtom(_atomName(fingerprint).toNativeUtf16(allocator: arena)) !=
-        0) {
-      return true;
+  return using(
+    (arena) =>
+        _findAtom(_atomName(fingerprint).toNativeUtf16(allocator: arena)) !=
+            0 ||
+        _rememberedApproval(fingerprint, arena),
+  );
+}
+
+bool _rememberedApproval(String fingerprint, Arena arena) {
+  final value = arena<Uint32>();
+  final length = arena<Uint32>()..value = sizeOf<Uint32>();
+  return win.RegGetValue(
+            win.HKEY_CURRENT_USER,
+            _key.toNativeUtf16(allocator: arena),
+            fingerprint.toNativeUtf16(allocator: arena),
+            win.RRF_RT_REG_DWORD,
+            nullptr,
+            value,
+            length,
+          ) ==
+          win.ERROR_SUCCESS &&
+      value.value == 1;
+}
+
+/// Carry a choice only after the owner has verified its own replacement.
+void carryWindowsProfileAclApproval(String before, String after) {
+  if (!Platform.isWindows ||
+      !_fingerprintPattern.hasMatch(before) ||
+      !_fingerprintPattern.hasMatch(after) ||
+      before == after) {
+    return;
+  }
+  using((arena) {
+    if (_rememberedApproval(before, arena) &&
+        _recordApproval(after, remember: true)) {
+      win.RegDeleteKeyValue(
+        win.HKEY_CURRENT_USER,
+        _key.toNativeUtf16(allocator: arena),
+        before.toNativeUtf16(allocator: arena),
+      );
     }
-    final value = arena<Uint32>();
-    final length = arena<Uint32>()..value = sizeOf<Uint32>();
-    return win.RegGetValue(
-              win.HKEY_CURRENT_USER,
-              _key.toNativeUtf16(allocator: arena),
-              fingerprint.toNativeUtf16(allocator: arena),
-              win.RRF_RT_REG_DWORD,
-              nullptr,
-              value,
-              length,
-            ) ==
-            win.ERROR_SUCCESS &&
-        value.value == 1;
   });
 }
 
@@ -57,8 +80,9 @@ bool hasWindowsProfileAclApproval(String fingerprint) {
 bool recordWindowsProfileAclApproval(
   ManagedStorageAclWarning warning, {
   required bool remember,
-}) {
-  final fingerprint = warning.fingerprint;
+}) => _recordApproval(warning.fingerprint, remember: remember);
+
+bool _recordApproval(String fingerprint, {required bool remember}) {
   if (!Platform.isWindows || !_fingerprintPattern.hasMatch(fingerprint)) {
     return false;
   }

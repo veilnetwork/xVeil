@@ -109,9 +109,9 @@ Future<void> main([List<String> args = const []]) async {
 @visibleForTesting
 Future<void> runStartup({
   Future<void> Function()? boot,
-  Future<void> Function(String? windowsRuntimeBase)? bootWithRuntimeBase,
+  Future<void> Function(String? runtimeBase)? bootWithRuntimeBase,
   Future<void> Function()? bootOffline,
-  String? windowsRuntimeBase,
+  String? runtimeBase,
   Future<ProfilePreferencesBootstrap> Function() loadPreferences =
       _loadStartupPreferences,
   void Function(Widget) present = runApp,
@@ -128,7 +128,7 @@ Future<void> runStartup({
       bootWithRuntimeBase ?? (boot == null ? null : (String? _) => boot());
   try {
     if (resumeBoot != null) {
-      await resumeBoot(windowsRuntimeBase);
+      await resumeBoot(runtimeBase);
       return;
     }
     WidgetsFlutterBinding.ensureInitialized();
@@ -137,9 +137,9 @@ Future<void> runStartup({
     loadingPreferences = false;
     Future<void> bootProfile(String? base, {bool offline = false}) =>
         _bootAndRunApp(preferences, present, base, offline: offline);
-    openOffline = () => bootProfile(windowsRuntimeBase, offline: true);
+    openOffline = () => bootProfile(runtimeBase, offline: true);
     resumeBoot = bootProfile;
-    await resumeBoot(windowsRuntimeBase);
+    await resumeBoot(runtimeBase);
   } catch (e, st) {
     final aclWarnings = switch (e) {
       ManagedWorkerFailure(:final aclWarnings) ||
@@ -150,7 +150,7 @@ Future<void> runStartup({
     Future<void> retryStartup({String? selectedBase}) => runStartup(
       bootWithRuntimeBase: resumeBoot,
       bootOffline: openOffline,
-      windowsRuntimeBase: selectedBase ?? windowsRuntimeBase,
+      runtimeBase: selectedBase ?? runtimeBase,
       loadPreferences: loadPreferences,
       present: present,
       recordAclApproval: recordAclApproval,
@@ -352,7 +352,7 @@ Future<ProfilePreferencesBootstrap> _loadStartupPreferences() {
 Future<void> _bootAndRunApp(
   ProfilePreferencesBootstrap preferences,
   void Function(Widget) present,
-  String? windowsRuntimeBase, {
+  String? runtimeBase, {
   bool offline = false,
 }) async {
   if (preferences.erasurePending) {
@@ -387,7 +387,7 @@ Future<void> _bootAndRunApp(
           Future<void> reopen(String? base, {bool offline = false}) =>
               _runBootstrappedApplication(
                 profile: source.profile,
-                windowsRuntimeBase: base,
+                runtimeBase: base,
                 supportDirectory: source.supportDirectory,
                 present: present,
                 offline: offline,
@@ -405,7 +405,7 @@ Future<void> _bootAndRunApp(
   }
   await _runBootstrappedApplication(
     profile: preferences.profile!,
-    windowsRuntimeBase: windowsRuntimeBase,
+    runtimeBase: runtimeBase,
     supportDirectory: preferences.supportDirectory,
     present: present,
     offline: offline,
@@ -415,7 +415,7 @@ Future<void> _bootAndRunApp(
 Future<void> _runBootstrappedApplication({
   required String profile,
   required String? supportDirectory,
-  required String? windowsRuntimeBase,
+  required String? runtimeBase,
   required void Function(Widget) present,
   required bool offline,
 }) async {
@@ -482,29 +482,25 @@ Future<void> _runBootstrappedApplication({
           config.isNotEmpty
       ? (cli: cli, config: config)
       : null;
-  // Check Windows runtime permissions before opening another managed owner or
-  // installing global handlers, so a retry can reuse the admitted preferences.
-  final windowsRuntime =
+  // Claim the runtime before opening another managed owner, so a retry can
+  // reuse the admitted preferences or open local data without a node.
+  final runtimeDirectory =
       !offline &&
-          Platform.isWindows &&
           devConfig == null &&
           ensureVeilClientLoaded() &&
           embeddedNodeAvailable()
-      ? await _claimStartupRuntime(
-          supportDirectory,
-          windowsRuntimeBase: windowsRuntimeBase,
-        )
+      ? await _claimStartupRuntime(supportDirectory, runtimeBase: runtimeBase)
       : null;
   final BootstrapResult boot;
   try {
     boot = await _bootstrapOverrides(
       supportDirectory: supportDirectory,
       devConfig: devConfig,
-      windowsRuntime: windowsRuntime,
+      runtimeDirectory: runtimeDirectory,
       offline: offline,
     );
   } catch (_) {
-    await _discardStartupRuntime(windowsRuntime);
+    await _discardStartupRuntime(runtimeDirectory);
     rethrow;
   }
   if (boot.managedErasurePending ||
@@ -513,7 +509,7 @@ Future<void> _runBootstrappedApplication({
         secureStorageReady: boot.secureStorageReady,
         managedStorage: managedStorageEnabled,
       )) {
-    await _discardStartupRuntime(windowsRuntime);
+    await _discardStartupRuntime(runtimeDirectory);
   }
 
   final priorFlutterOnError = FlutterError.onError;
@@ -572,12 +568,11 @@ Future<void> _discardStartupRuntime(String? path) async {
 
 Future<String> _claimStartupRuntime(
   String? supportDirectory, {
-  String? windowsRuntimeBase,
+  String? runtimeBase,
 }) async {
   // Mobile sandbox policies can refuse sockets in the system temporary area.
   // Windows loopback control files also need stable directory ancestry.
-  final override =
-      windowsRuntimeBase ?? Platform.environment['XVEIL_RUNTIME_DIR'];
+  final override = runtimeBase ?? Platform.environment['XVEIL_RUNTIME_DIR'];
   final base =
       override ??
       (Platform.isWindows
@@ -591,7 +586,7 @@ Future<String> _claimStartupRuntime(
     uniqueSuffix: '$pid',
     windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
     windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
-    windowsRequireUnredirectedBase: windowsRuntimeBase != null,
+    windowsRequireUnredirectedBase: runtimeBase != null,
     onWindowsRuntimeAttempt: (candidate, failure) => diagnosticJournal.record(
       switch (candidate) {
         0 when override != null => DiagnosticEvent.windowsRuntimeOverride,
@@ -601,7 +596,7 @@ Future<String> _claimStartupRuntime(
       },
       values: {
         DiagnosticMetric.success: failure == null ? 1 : 0,
-        if (failure?.windowsRefusal case final reason?)
+        if (failure?.refusal case final reason?)
           DiagnosticMetric.runtimeDirectoryRefusal: reason.index,
       },
     ),
@@ -683,7 +678,7 @@ typedef BootstrapResult = ({
 Future<BootstrapResult> _bootstrapOverrides({
   required String? supportDirectory,
   required ({String cli, String config})? devConfig,
-  required String? windowsRuntime,
+  required String? runtimeDirectory,
   required bool offline,
 }) async {
   final overrides = <Override>[];
@@ -879,13 +874,12 @@ Future<BootstrapResult> _bootstrapOverrides({
     } catch (e) {
       devLog(() => 'xVeil[real]: start failed -> loopback: $e');
     }
-  } else if (ensureVeilClientLoaded() && embeddedNodeAvailable()) {
+  } else if (runtimeDirectory != null) {
     // Deniable path: the node boots IN-PROCESS post-unlock from the identity
     // stored inside the unlocked container (AppController._ensureRealStack),
     // so nothing identity-bearing is ever written to a config.toml. Each
     // instance needs its own listener port (XVEIL_LISTEN_PORT) + sockets dir.
-    final runtimeDir =
-        windowsRuntime ?? await _claimStartupRuntime(supportDirectory);
+    final runtimeDir = runtimeDirectory;
     // The soak hook is default-OFF now; say so once, or a stand polling a port
     // that answers nothing reads as a node that failed to bootstrap.
     final hookNote = debugHookDisabledExplanation();

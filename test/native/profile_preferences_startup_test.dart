@@ -9,14 +9,16 @@ import 'dart:ffi' show nullptr;
 import 'dart:isolate';
 import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:win32/win32.dart' as win;
+import 'package:xveil/core/storage_acl_vault.dart';
 import 'package:xveil/core/storage_unlock_scope.dart';
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
-import 'package:xveil/data/storage/managed_fs_contract.dart';
+import 'package:xveil/data/storage/managed_fs_platform.dart';
 import 'package:xveil/data/storage/managed_identity_lease.dart';
 import 'package:xveil/data/storage/managed_sqlite_connection.dart';
 import 'package:xveil/data/storage/profile_preferences_bootstrap.dart';
@@ -270,7 +272,7 @@ void main() {
   }
 
   test(
-    'Windows reading shared preferences leaves the file ACL unchanged',
+    'Windows reading and saving shared preferences preserve the file ACL',
     () async {
       support.deleteSync();
       support = Directory(
@@ -313,9 +315,82 @@ void main() {
       final after = await Process.run('icacls.exe', [prefs()]);
       expect(after.exitCode, 0);
       expect(after.stdout, before.stdout);
+      const updated = '{"v":1,"e":{"flutter.locale":{"t":"String","v":"ru"}}}';
+      expect(await approved.write(updated), isTrue);
+      final saved = await Process.run('icacls.exe', [prefs()]);
+      expect(saved.exitCode, 0);
+      expect(saved.stdout, before.stdout);
+      expect(await approved.read(), updated);
     },
     skip: !Platform.isWindows,
   );
+
+  for (final namedAcl in [false, true]) {
+    for (final remember in [false, true]) {
+      test(
+        'save preserves the read policy (named=$namedAcl, remember=$remember)',
+        () async {
+          FlutterSecureStorage.setMockInitialValues({});
+          restoreStorageAclApprovals({});
+          addTearDown(() => restoreStorageAclApprovals({}));
+          const beforeContents = '{"v":1,"e":{}}';
+          const afterContents =
+              '{"v":1,"e":{"flutter.locale":{"t":"String","v":"ru"}}}';
+          final path = prefs();
+          final initial = await open(path);
+          expect(await initial.write(beforeContents), isTrue);
+          await initial.close();
+          final applied = Process.runSync('/bin/chmod', [
+            if (namedAcl) ...['+a', 'everyone allow read'] else '0640',
+            path,
+          ]);
+          expect(applied.exitCode, 0, reason: applied.stderr.toString());
+          const fs = ManagedFsPlatform();
+          final before = fs.inspectAcl(path).aclWarning!;
+          final mode = File(path).statSync().mode;
+          expect(
+            await recordStorageAclApproval(before, remember: remember),
+            isTrue,
+          );
+
+          final owner = await openProfilePreferencesWithAclApprovals(path);
+          files.add(owner);
+          final secondOwner = await open(path);
+          expect(await owner.read(), beforeContents);
+          expect(await owner.write(afterContents), isTrue);
+          expect(await owner.read(), afterContents);
+          expect(await secondOwner.read(), afterContents);
+          await secondOwner.close();
+          await owner.close();
+          final after = fs.inspectAcl(path).aclWarning!;
+          expect(after.fingerprint, isNot(before.fingerprint));
+          expect(after.extendedAcl, before.extendedAcl);
+          expect(File(path).statSync().mode, mode);
+
+          restoreStorageAclApprovals({});
+          expect(await restoreRememberedStorageAcl(after), remember);
+          final restarted = await open(path);
+          if (remember) {
+            expect(await restarted.read(), afterContents);
+          } else {
+            await expectLater(
+              restarted.read(),
+              throwsA(
+                isA<ManagedWorkerFailure>().having(
+                  (error) => error.aclWarnings.single.fingerprint,
+                  'fresh warning',
+                  after.fingerprint,
+                ),
+              ),
+            );
+          }
+        },
+        skip: namedAcl
+            ? !Platform.isMacOS
+            : !(Platform.isMacOS || Platform.isLinux),
+      );
+    }
+  }
 
   for (final temporary in [true, false]) {
     test(

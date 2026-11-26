@@ -9,6 +9,7 @@ import '../../core/background_service_lifetime.dart';
 import '../../core/capture_resource_lifetime.dart';
 import '../../core/local_authentication.dart';
 import '../../core/quick_unlock_vault.dart';
+import '../../core/storage_acl_vault.dart';
 import 'async_kv_log_store.dart';
 import 'legacy_profile_preferences.dart';
 import 'managed_directory_catalog.dart';
@@ -262,7 +263,7 @@ final class ColdProfileErasureRecovery {
         args: ['--profile', source.profile],
         environment: {'XVEIL_STORE_PATH': source.legacyPath},
         legacyBackend: backend,
-        openOwnedFile: ManagedProfilePreferencesFile.open,
+        openOwnedFile: openProfilePreferencesWithAclApprovals,
         validateSelectedFile: (path) =>
             validateManagedPreferencesContainer(path, source.legacyPath),
       );

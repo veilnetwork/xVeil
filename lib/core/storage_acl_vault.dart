@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../data/storage/async_kv_log_store.dart';
 import '../data/storage/managed_fs_contract.dart';
 import '../data/storage/storage_acl_approval.dart';
 import '../data/storage/windows_profile_delete_approval.dart';
@@ -25,8 +26,43 @@ const _vault = FlutterSecureStorage(
 const _keyPrefix = 'xveil.storage.acl.v1.';
 String _key(String fingerprint) => '$_keyPrefix$fingerprint';
 
+Future<void> _pendingChanges = Future.value();
+
+Future<T> _changeDecisions<T>(Future<T> Function() change) {
+  final result = _pendingChanges.then((_) => change());
+  _pendingChanges = result.then<void>((_) {}, onError: (Object _) {});
+  return result;
+}
+
+Future<ManagedProfilePreferencesFile> openProfilePreferencesWithAclApprovals(
+  String path,
+) => ManagedProfilePreferencesFile.open(
+  path,
+  onAclReplaced: _rememberReplacement,
+);
+
+Future<void> _rememberReplacement(StorageAclReplacement replacement) =>
+    _changeDecisions(() async {
+      if (replacement.before == replacement.after) return;
+      try {
+        if (Platform.isWindows) {
+          carryWindowsProfileAclApproval(replacement.before, replacement.after);
+          return;
+        }
+        if (await _vault.read(key: _key(replacement.before)) != '1') return;
+        await _vault.write(key: _key(replacement.after), value: '1');
+        await _vault.delete(key: _key(replacement.before));
+      } catch (_) {
+        // The save is already published. A failed vault operation can only
+        // restore the warning on the next launch.
+      }
+    });
+
 /// The running profile and its workers keep their admission until restart.
-Future<bool> forgetRememberedStorageAclApprovals() async {
+Future<bool> forgetRememberedStorageAclApprovals() =>
+    _changeDecisions(_forgetRememberedStorageAclApprovals);
+
+Future<bool> _forgetRememberedStorageAclApprovals() async {
   try {
     if (Platform.isWindows) return forgetWindowsProfileAclApprovals();
     final entries = await _vault.readAll();
@@ -52,7 +88,9 @@ Future<bool> recordStorageAclApproval(
   final fingerprint = warning.fingerprint;
   if (remember) {
     try {
-      await _vault.write(key: _key(fingerprint), value: '1');
+      await _changeDecisions(
+        () => _vault.write(key: _key(fingerprint), value: '1'),
+      );
     } catch (_) {
       return false;
     }

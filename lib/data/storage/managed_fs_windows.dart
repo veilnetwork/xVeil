@@ -481,9 +481,172 @@ bool createPrivateFile(String path) {
   }
 }
 
-T _withPrivateFileDescriptor<T>(String sid, T Function(Pointer<Void>) action) {
-  final sddl = 'O:${sid}D:P(A;;FA;;;$sid)(A;;FA;;;SY)(A;;FA;;;BA)'
-      .toNativeUtf16();
+/// Read and restore the discretionary ACL of the verified preference file.
+/// A newly staged replacement is opened without following a reparse point.
+String readPreferenceDacl(String path, ManagedPathWitness expected) =>
+    _withPreferenceFileHandle(path, expected, 0, _readPreferenceDescriptor);
+
+String _readPreferenceDescriptor(int handle, Arena arena) {
+  final advapi = DynamicLibrary.open('advapi32.dll');
+  final descriptor = arena<Pointer<Void>>();
+  final text = arena<Pointer<Utf16>>();
+  const securityInfo =
+      win.DACL_SECURITY_INFORMATION | win.OWNER_SECURITY_INFORMATION;
+  final read = advapi
+      .lookupFunction<
+        Uint32 Function(
+          IntPtr,
+          Int32,
+          Uint32,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Pointer<Void>>,
+        ),
+        int Function(
+          int,
+          int,
+          int,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Void>,
+          Pointer<Pointer<Void>>,
+        )
+      >('GetSecurityInfo');
+  final stringify = advapi
+      .lookupFunction<
+        Int32 Function(
+          Pointer<Void>,
+          Uint32,
+          Uint32,
+          Pointer<Pointer<Utf16>>,
+          Pointer<Uint32>,
+        ),
+        int Function(
+          Pointer<Void>,
+          int,
+          int,
+          Pointer<Pointer<Utf16>>,
+          Pointer<Uint32>,
+        )
+      >('ConvertSecurityDescriptorToStringSecurityDescriptorW');
+  try {
+    if (read(
+              handle,
+              1,
+              securityInfo,
+              nullptr,
+              nullptr,
+              nullptr,
+              nullptr,
+              descriptor,
+            ) !=
+            0 ||
+        descriptor.value == nullptr ||
+        stringify(descriptor.value, 1, securityInfo, text, nullptr) == 0 ||
+        text.value == nullptr) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    return text.value.toDartString();
+  } finally {
+    if (text.value != nullptr) win.LocalFree(text.value);
+    if (descriptor.value != nullptr) win.LocalFree(descriptor.value);
+  }
+}
+
+void writePreferenceDacl(String path, ManagedPathWitness expected, String acl) {
+  final daclFlags = RegExp(r'D:([A-Z]*)(?:\(|$)').firstMatch(acl)?.group(1);
+  if (daclFlags == null) {
+    throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+  }
+  _withPreferenceFileHandle(path, expected, win.WRITE_DAC, (handle, _) {
+    _withFileDescriptor(
+      acl,
+      (descriptor) => _setFileSecurity(
+        handle,
+        descriptor,
+        setOwner: false,
+        daclProtection: daclFlags.contains('P') ? 0x80000000 : 0x20000000,
+      ),
+    );
+  });
+}
+
+/// Restore ACLs while staging is empty. Read the result again on the same
+/// handle used for writing, in case Windows added inherited entries.
+void writePreferencePayload(
+  String path,
+  ManagedPathWitness expected,
+  String acl,
+  String contents,
+) {
+  _withPreferenceFileHandle(path, expected, win.GENERIC_WRITE, (handle, arena) {
+    if (_readPreferenceDescriptor(handle, arena) != acl) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    final bytes = utf8.encode(contents);
+    if (bytes.isNotEmpty) {
+      final buffer = arena<Uint8>(bytes.length);
+      buffer.asTypedList(bytes.length).setAll(0, bytes);
+      final written = arena<Uint32>();
+      if (win.WriteFile(handle, buffer, bytes.length, written, nullptr) == 0 ||
+          written.value != bytes.length) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.io);
+      }
+    }
+    if (win.FlushFileBuffers(handle) == 0) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    }
+  });
+}
+
+T _withPreferenceFileHandle<T>(
+  String path,
+  ManagedPathWitness expected,
+  int access,
+  T Function(int, Arena) action,
+) => using((arena) {
+  final handle = win.CreateFile(
+    path.toNativeUtf16(allocator: arena),
+    win.FILE_READ_ATTRIBUTES | win.READ_CONTROL | access,
+    access == 0
+        ? win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE
+        : win.FILE_SHARE_READ,
+    nullptr,
+    win.OPEN_EXISTING,
+    win.FILE_FLAG_OPEN_REPARSE_POINT,
+    0,
+  );
+  if (handle == win.INVALID_HANDLE_VALUE) {
+    throw const ManagedFsFailure(ManagedFsFailureKind.io);
+  }
+  try {
+    final info = arena<win.BY_HANDLE_FILE_INFORMATION>();
+    if (win.GetFileInformationByHandle(handle, info) == 0 ||
+        info.ref.dwFileAttributes &
+                (win.FILE_ATTRIBUTE_DIRECTORY |
+                    win.FILE_ATTRIBUTE_REPARSE_POINT) !=
+            0 ||
+        (access != 0 && info.ref.nNumberOfLinks != 1) ||
+        _fileIdentity(info.ref, _currentSid()) != expected.identity) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+    }
+    return action(handle, arena);
+  } finally {
+    win.CloseHandle(handle);
+  }
+});
+
+T _withPrivateFileDescriptor<T>(String sid, T Function(Pointer<Void>) action) =>
+    _withFileDescriptor(
+      'O:${sid}D:P(A;;FA;;;$sid)(A;;FA;;;SY)(A;;FA;;;BA)',
+      action,
+    );
+
+T _withFileDescriptor<T>(String policy, T Function(Pointer<Void>) action) {
+  final sddl = policy.toNativeUtf16();
   final descriptor = calloc<Pointer<Void>>();
   try {
     final convert = DynamicLibrary.open('advapi32.dll')
@@ -577,7 +740,7 @@ ManagedPathWitness normalizePrivateFileAccess(
     }
     _withPrivateFileDescriptor(
       sid,
-      (descriptor) => _setPrivateFileSecurity(
+      (descriptor) => _setFileSecurity(
         handle,
         descriptor,
         setOwner: current.ownedByWindowsAdministrators,
@@ -597,10 +760,11 @@ ManagedPathWitness normalizePrivateFileAccess(
   }
 }
 
-void _setPrivateFileSecurity(
+void _setFileSecurity(
   int handle,
   Pointer<Void> descriptor, {
   required bool setOwner,
+  int daclProtection = 0x80000000,
 }) {
   final acl = calloc<Pointer<Void>>();
   final owner = calloc<Pointer<Void>>();
@@ -665,12 +829,11 @@ void _setPrivateFileSecurity(
           )
         >('SetSecurityInfo');
     const fileObject = 1;
-    const protectedDacl = 0x80000000;
     if (setSecurity(
           handle,
           fileObject,
           win.DACL_SECURITY_INFORMATION |
-              protectedDacl |
+              daclProtection |
               (setOwner ? win.OWNER_SECURITY_INFORMATION : 0),
           owner.value,
           nullptr,

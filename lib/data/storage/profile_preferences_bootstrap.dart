@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../core/storage_features.dart';
+import '../../core/storage_acl_vault.dart';
 import 'async_kv_log_store.dart';
 import 'app_profile.dart';
 import 'legacy_profile_preferences.dart';
@@ -37,7 +38,9 @@ Future<ProfilePreferencesBootstrap> bootstrapProfilePreferences({
       supportDir: () async => selectedSupport = await supportDir(),
       args: args,
       environment: env,
-      openOwnedFile: managedStorage ? ManagedProfilePreferencesFile.open : null,
+      openOwnedFile: managedStorage
+          ? openProfilePreferencesWithAclApprovals
+          : null,
       validateSelectedFile: managedStorage
           ? (path) => validateManagedPreferencesContainer(
               path,

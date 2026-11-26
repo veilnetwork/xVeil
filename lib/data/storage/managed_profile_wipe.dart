@@ -10,6 +10,7 @@ import '../../core/local_authentication.dart';
 import '../../core/background_service_lifetime.dart';
 import '../../core/capture_resource_lifetime.dart';
 import '../../core/quick_unlock_vault.dart';
+import '../../core/storage_acl_vault.dart';
 import 'async_kv_log_store.dart';
 import 'legacy_compaction_source.dart';
 import 'legacy_profile_preferences.dart';
@@ -332,7 +333,7 @@ final class ManagedProfileWipe {
           args: ['--profile', _source.profile],
           environment: {'XVEIL_STORE_PATH': _source.legacyPath},
           legacyBackend: backend,
-          openOwnedFile: ManagedProfilePreferencesFile.open,
+          openOwnedFile: openProfilePreferencesWithAclApprovals,
           validateSelectedFile: (path) =>
               validateManagedPreferencesContainer(path, _source.legacyPath),
         ),

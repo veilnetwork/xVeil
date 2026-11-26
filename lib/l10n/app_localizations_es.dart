@@ -253,6 +253,10 @@ class AppL10nEs extends AppL10n {
       'xVeil necesita una carpeta privada que pertenezca a tu cuenta.';
 
   @override
+  String get startupRuntimeNameExhausted =>
+      'Todos los nombres de carpetas temporales están ocupados. Elige otra carpeta o vuelve a intentarlo más tarde.';
+
+  @override
   String get startupRuntimeCannotWrite =>
       'xVeil no pudo crear su subcarpeta privada ni escribir en ella. Comprueba los permisos de escritura y el espacio disponible en el disco.';
 
@@ -7179,6 +7183,22 @@ class AppL10nEs extends AppL10n {
   String folderSyncWriteCannotVerify(String path) {
     return 'xVeil no pudo guardar o eliminar $path. Comprueba que la carpeta esté disponible y que tu cuenta pueda escribir en ella.';
   }
+
+  @override
+  String get folderSyncScanAccessDenied =>
+      'El sistema operativo denegó el acceso a esta carpeta o a sus archivos de sincronización. Comprueba los permisos o consulta al administrador.';
+
+  @override
+  String get folderSyncScanUnavailable =>
+      'xVeil no pudo abrir o verificar esta carpeta para sincronizarla. Comprueba que la carpeta y la unidad estén accesibles y vuelve a intentarlo.';
+
+  @override
+  String get folderSyncScanBusy =>
+      'Otra operación está usando la carpeta. Vuelve a intentarlo cuando termine.';
+
+  @override
+  String get folderSyncScanRootChanged =>
+      'La carpeta cambió durante la comprobación. Comprueba la ruta y vuelve a intentarlo.';
 
   @override
   String folderSyncReadAccessDenied(String path) {

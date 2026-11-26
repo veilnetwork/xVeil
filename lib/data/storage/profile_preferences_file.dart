@@ -6,8 +6,8 @@ import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
 import 'app_profile.dart';
 import 'managed_fs_platform.dart';
-import 'managed_fs_posix_acl.dart' show readLinuxStorageAcl;
-import 'storage_acl_approval.dart' show approveStorageAcl;
+import 'managed_fs_posix_acl.dart';
+import 'storage_acl_approval.dart';
 import 'managed_fs_windows.dart' as windows;
 import 'managed_identity_lease.dart'
     show ManagedLeaseFailure, ManagedLeaseFailureKind, PosixSidecarLock;
@@ -54,7 +54,6 @@ final class ProfilePreferencesErasurePending implements Exception {
 /// switcher has been found. They must be readable before anything is unlocked,
 /// so they cannot go inside the container; the least that can be asked of them
 /// is that no other local account can read them (audit X-05).
-const int _ownerOnlyFile = 0x180; // 0600
 const int _ownerOnlyDir = 0x1C0; // 0700
 
 /// Whether a failure to make these files owner-only must fail the write.
@@ -99,12 +98,13 @@ const _cannotPreservePolicy = ManagedFsFailure(
   unsafeReason: ManagedFsUnsafeReason.preferencesAccessPolicy,
 );
 
-/// A portable mode can be carried across to the new inode. Refuse changes to
-/// other access policies until the platform can reproduce them exactly.
+/// Copy only a known, owner-controlled read-only sharing policy. Staging
+/// starts private, and both objects are checked before and after publication.
 class _PreferenceFileAccess {
-  _PreferenceFileAccess(this.witness, this.posix);
+  _PreferenceFileAccess(this.witness, this.posix, [this.acl = '']);
   final ManagedPathWitness? witness;
   final PosixFileFacts? posix;
+  final String acl;
 
   static _PreferenceFileAccess capture(File file) {
     final type = FileSystemEntity.typeSync(file.path, followLinks: false);
@@ -116,62 +116,129 @@ class _PreferenceFileAccess {
     final facts = const ManagedFsPlatform().inspectAcl(file.path);
     if (!facts.ownedByCurrentUser) throw _cannotPreservePolicy;
     if (Platform.isWindows) {
-      if (!facts.ownerOnly) throw _cannotPreservePolicy;
-      return _PreferenceFileAccess(facts, null);
+      if (!facts.otherUsersHaveReadOnlyAccess) throw _cannotPreservePolicy;
+      final acl = windows.readPreferenceDacl(file.path, facts);
+      final verified = const ManagedFsPlatform().inspectAcl(file.path);
+      if (verified.identity != facts.identity ||
+          verified.aclWarning?.fingerprint != facts.aclWarning?.fingerprint) {
+        throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+      }
+      return _PreferenceFileAccess(facts, null, acl);
     }
     final posix = posixLstat(file.path);
     if (posix == null ||
         !posix.isRegularFile ||
+        facts.identity != '${posix.deviceId}:${posix.inode}:${posix.uid}' ||
         !facts.otherUsersHaveReadOnlyAccess ||
         posix.permissions & 0xe00 != 0) {
       throw _cannotPreservePolicy;
     }
-    final hasPortableAcl = Platform.isMacOS
-        ? readDarwinStorageAcl(file.path, posix)?.isEmpty == true
-        : readLinuxStorageAcl(file.path)?.isEmpty == true;
-    if (!hasPortableAcl) throw _cannotPreservePolicy;
-    return _PreferenceFileAccess(facts, posix);
+    final linuxAcl = Platform.isLinux ? readLinuxStorageAcl(file.path) : null;
+    final acl = Platform.isMacOS
+        ? readDarwinStorageAcl(file.path, posix)
+        : linuxAcl == null
+        ? null
+        : base64Encode(linuxAcl);
+    if (acl == null ||
+        Platform.isMacOS &&
+            facts.aclWarning != null &&
+            acl != (facts.aclWarning!.extendedAcl ?? '')) {
+      throw _cannotPreservePolicy;
+    }
+    return _PreferenceFileAccess(facts, posix, acl);
   }
 
-  void prepareReplacement(File destination, File temp) {
+  bool _samePolicy(_PreferenceFileAccess current) {
+    final previous = posix;
+    final actual = current.posix;
+    if (previous == null) return actual == null && acl == current.acl;
+    return actual != null &&
+        actual.uid == previous.uid &&
+        actual.permissions == previous.permissions &&
+        (previous.permissions & 0x38 == 0 && acl.isEmpty ||
+            actual.gid == previous.gid) &&
+        acl == current.acl;
+  }
+
+  void _checkDestination(File destination) {
     final current = capture(destination);
     if (current.witness?.identity != witness?.identity ||
         current.witness?.aclWarning?.fingerprint !=
             witness?.aclWarning?.fingerprint ||
-        current.posix?.mode != posix?.mode ||
-        current.posix?.gid != posix?.gid) {
+        !_samePolicy(current)) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
-    }
-    final previous = posix;
-    if (previous == null || previous.permissions == _ownerOnlyFile) return;
-    final next = capture(temp).posix;
-    if (next == null ||
-        next.uid != previous.uid ||
-        (previous.permissions & 0x38 != 0 && next.gid != previous.gid) ||
-        !_isPrivateFile(temp.path) ||
-        !posixSetModeForFile(temp.path, next, previous.permissions)) {
-      throw _cannotPreservePolicy;
     }
   }
 
-  bool checkPublished(File file) {
+  _PreferenceFileAccess prepareReplacement(File destination, File temp) {
+    _checkDestination(destination);
     final previous = posix;
-    if (previous == null || previous.permissions == _ownerOnlyFile) {
-      return _isPrivateFile(file.path);
+    final staging = capture(temp);
+    if (staging.witness?.ownerOnly == false) throw _cannotPreservePolicy;
+    if (witness == null || _samePolicy(staging)) return staging;
+    if (Platform.isWindows) {
+      windows.writePreferenceDacl(temp.path, staging.witness!, acl);
+    } else {
+      final next = staging.posix;
+      if (previous == null ||
+          next == null ||
+          next.uid != previous.uid ||
+          ((previous.permissions & 0x38 != 0 || acl.isNotEmpty) &&
+              next.gid != previous.gid) ||
+          !posixSetModeForFile(
+            temp.path,
+            next,
+            previous.permissions,
+            applyAcl: acl == staging.acl
+                ? null
+                : (fd) => writePosixStorageAcl(fd, acl),
+          )) {
+        throw _cannotPreservePolicy;
+      }
     }
+    final ready = capture(temp);
+    if (ready.witness?.identity != staging.witness?.identity ||
+        !_samePolicy(ready)) {
+      throw _cannotPreservePolicy;
+    }
+    return ready;
+  }
+
+  _PreferenceFileAccess writeWindowsReplacement(
+    File destination,
+    File temp,
+    String contents,
+  ) {
+    final prepared = prepareReplacement(destination, temp);
+    windows.writePreferencePayload(
+      temp.path,
+      prepared.witness!,
+      prepared.acl,
+      contents,
+    );
+    _checkDestination(destination);
+    return prepared;
+  }
+
+  bool checkPublished(
+    File file,
+    _PreferenceFileAccess prepared,
+    void Function(StorageAclReplacement)? onAclReplaced,
+  ) {
     final result = capture(file);
-    final actual = result.posix;
-    if (actual == null ||
-        actual.uid != previous.uid ||
-        actual.permissions != previous.permissions ||
-        (previous.permissions & 0x38 != 0 && actual.gid != previous.gid)) {
+    if (result.witness?.identity != prepared.witness?.identity ||
+        !prepared._samePolicy(result)) {
       return false;
     }
-    // The worker installed this replacement itself under the same permission
-    // policy. Keep its already-approved scope valid within this process.
-    if (result.witness?.aclWarning case final warning?
-        when witness?.aclApproved == true) {
-      approveStorageAcl(warning.fingerprint);
+    final before = witness?.aclWarning;
+    final after = result.witness?.aclWarning;
+    if (before != null && after != null && witness!.aclApproved) {
+      final replacement = (
+        before: before.fingerprint,
+        after: after.fingerprint,
+      );
+      carryStorageAclApproval(replacement);
+      onAclReplaced?.call(replacement);
     }
     return true;
   }
@@ -518,28 +585,30 @@ Future<bool> writePrivateFileAtomically(
 
     if (!_prepareTemporary(temp)) return false;
     _verifyPrivateTemporary(temp);
-    final handle = await temp.open(mode: FileMode.writeOnly);
-    try {
-      _verifyPrivateTemporary(temp);
-      await handle.writeString(contents);
-      await handle.flush(); // fsync(2) on the file
-    } finally {
-      await handle.close();
+    final _PreferenceFileAccess prepared;
+    if (Platform.isWindows) {
+      prepared = access.writeWindowsReplacement(file, temp, contents);
+    } else {
+      final handle = await temp.open(mode: FileMode.writeOnly);
+      try {
+        _verifyPrivateTemporary(temp);
+        await handle.writeString(contents);
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+      prepared = access.prepareReplacement(file, temp);
     }
-
-    access.prepareReplacement(file, temp);
     await temp.rename(file.path);
     // The rename itself, made durable. Null just means no libc binding here.
     posixFsyncDir(file.parent.path);
-    if (!access.checkPublished(file)) return false;
-
     // Read it back. This is the difference between "no call reported an error"
     // and "the bytes are there".
     if (await file.readAsString() != contents) {
       devLog(() => 'xVeil[prefs]: ${file.path} did not read back as written');
       return false;
     }
-    return true;
+    return access.checkPublished(file, prepared, null);
   } catch (e) {
     onFailure?.call(e);
     devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
@@ -559,6 +628,7 @@ bool writePrivateFileAtomicallySync(
   File file,
   String contents, {
   bool reportFailure = false,
+  void Function(StorageAclReplacement)? onAclReplaced,
 }) {
   final temp = File('${file.path}.tmp');
   try {
@@ -572,18 +642,24 @@ bool writePrivateFileAtomicallySync(
     }
     if (!_prepareTemporary(temp)) return false;
     _verifyPrivateTemporary(temp);
-    final handle = temp.openSync(mode: FileMode.writeOnly);
-    try {
-      _verifyPrivateTemporary(temp);
-      handle.writeStringSync(contents);
-      handle.flushSync();
-    } finally {
-      handle.closeSync();
+    final _PreferenceFileAccess prepared;
+    if (Platform.isWindows) {
+      prepared = access.writeWindowsReplacement(file, temp, contents);
+    } else {
+      final handle = temp.openSync(mode: FileMode.writeOnly);
+      try {
+        _verifyPrivateTemporary(temp);
+        handle.writeStringSync(contents);
+        handle.flushSync();
+      } finally {
+        handle.closeSync();
+      }
+      prepared = access.prepareReplacement(file, temp);
     }
-    access.prepareReplacement(file, temp);
     temp.renameSync(file.path);
     posixFsyncDir(file.parent.path);
-    return access.checkPublished(file) && file.readAsStringSync() == contents;
+    return file.readAsStringSync() == contents &&
+        access.checkPublished(file, prepared, onAclReplaced);
   } catch (_) {
     try {
       if (temp.existsSync()) temp.deleteSync();

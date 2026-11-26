@@ -195,9 +195,20 @@ class _PairCard extends ConsumerWidget {
     final readIssue = view.readIssue;
     final refusal = rootRefusal != null
         ? folderSyncRefusalText(l, rootRefusal)
-        : FolderSyncRefusalCode.values.any((code) => code.name == lastRefusal)
-        ? null
-        : lastRefusal;
+        : switch (FolderSyncScanRefusal.values
+              .where((code) => code.name == lastRefusal)
+              .firstOrNull) {
+            FolderSyncScanRefusal.accessDenied => l.folderSyncScanAccessDenied,
+            FolderSyncScanRefusal.unavailable => l.folderSyncScanUnavailable,
+            FolderSyncScanRefusal.busy => l.folderSyncScanBusy,
+            FolderSyncScanRefusal.rootChanged => l.folderSyncScanRootChanged,
+            null =>
+              FolderSyncRefusalCode.values.any(
+                    (code) => code.name == lastRefusal,
+                  )
+                  ? null
+                  : lastRefusal,
+          };
     final readRefusal = switch (readIssue) {
       (path: final path, reason: FolderSyncAccessRefusal.accessDenied) =>
         l.folderSyncReadAccessDenied(path),
@@ -350,8 +361,18 @@ class _PairCard extends ConsumerWidget {
                 TextButton.icon(
                   onPressed: () => showDialog<void>(
                     context: context,
-                    builder: (_) =>
-                        FolderSavedVersionsDialog(root: view.pair.localPath),
+                    builder: (_) => FolderSavedVersionsDialog(
+                      root: view.pair.localPath,
+                      rootRefusal: () {
+                        final refusal = folderSyncRootRefusal(
+                          view.pair.localPath,
+                          approval: view.pair.rootApproval,
+                        );
+                        return refusal == null
+                            ? null
+                            : folderSyncRefusalText(l, refusal);
+                      },
+                    ),
                   ),
                   icon: const Icon(Icons.history),
                   label: Text(l.folderSyncSavedTitle),

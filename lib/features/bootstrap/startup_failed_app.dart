@@ -7,7 +7,7 @@ import '../../data/storage/managed_fs_contract.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show ManagedPreferencesFailureReason;
 import '../../data/veil_stack.dart'
-    show RuntimeDirNotPrivate, WindowsRuntimeRefusal;
+    show RuntimeDirNotPrivate, RuntimeDirectoryRefusal;
 import '../../l10n/app_localizations.dart';
 import '../settings/error_report.dart';
 
@@ -351,15 +351,16 @@ class _RuntimeRefusalDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final reason = switch (failure.windowsRefusal) {
-      WindowsRuntimeRefusal.invalidPath ||
-      WindowsRuntimeRefusal.notDirectory => l.startupRuntimeInvalidPath,
-      WindowsRuntimeRefusal.unsafeAncestor => l.startupRuntimeUnsafeAncestor,
-      WindowsRuntimeRefusal.insufficientPrivacy =>
+    final reason = switch (failure.refusal) {
+      RuntimeDirectoryRefusal.invalidPath ||
+      RuntimeDirectoryRefusal.notDirectory => l.startupRuntimeInvalidPath,
+      RuntimeDirectoryRefusal.unsafeAncestor => l.startupRuntimeUnsafeAncestor,
+      RuntimeDirectoryRefusal.insufficientPrivacy =>
         l.startupRuntimeInsufficientPrivacy,
-      WindowsRuntimeRefusal.cannotCreate ||
-      WindowsRuntimeRefusal.cannotWrite => l.startupRuntimeCannotWrite,
-      WindowsRuntimeRefusal.cannotVerify => l.startupRuntimeCannotVerify,
+      RuntimeDirectoryRefusal.cannotCreate ||
+      RuntimeDirectoryRefusal.cannotWrite => l.startupRuntimeCannotWrite,
+      RuntimeDirectoryRefusal.cannotVerify => l.startupRuntimeCannotVerify,
+      RuntimeDirectoryRefusal.nameExhausted => l.startupRuntimeNameExhausted,
       null => null,
     };
     return Column(

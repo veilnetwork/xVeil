@@ -13,7 +13,7 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/data/veil_stack.dart'
-    show RuntimeDirNotPrivate, WindowsRuntimeRefusal;
+    show claimRuntimeDirUnder, RuntimeDirNotPrivate, RuntimeDirectoryRefusal;
 import 'package:xveil/desktop/desktop_tray.dart'
     show initDesktopWindow, isDesktopTrayPlatform;
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
@@ -363,7 +363,7 @@ void main() {
           folder,
           'unsafe Windows directory permissions',
           retryable: true,
-          windowsRefusal: WindowsRuntimeRefusal.unsafeAncestor,
+          refusal: RuntimeDirectoryRefusal.unsafeAncestor,
         );
       },
       bootOffline: () async => presented = opened,
@@ -378,6 +378,43 @@ void main() {
     expect(presented, same(opened));
     expect(networkAttempts, 1);
   });
+
+  testWidgets(
+    'a POSIX runtime with denied write access offers recovery',
+    (tester) async {
+      final folder = Directory.systemTemp.createTempSync(
+        'xveil-runtime-no-write-',
+      );
+      expect(Process.runSync('/bin/chmod', ['0500', folder.path]).exitCode, 0);
+      addTearDown(() {
+        Process.runSync('/bin/chmod', ['0700', folder.path]);
+        folder.deleteSync(recursive: true);
+      });
+      Widget? presented;
+      await tester.runAsync(
+        () => runStartup(
+          bootWithRuntimeBase: (_) async {
+            await claimRuntimeDirUnder(folder.path, uniqueSuffix: 'denied');
+          },
+          bootOffline: () async {},
+          present: (widget) => presented = widget,
+        ),
+      );
+      final screen = presented! as StartupFailedApp;
+      expect(
+        screen.runtimeFailure!.refusal,
+        RuntimeDirectoryRefusal.cannotWrite,
+      );
+      expect(screen.retryWithRuntimeBase, isNotNull);
+      expect(screen.openOffline, isNotNull);
+      await tester.pumpWidget(screen);
+      expect(
+        find.textContaining('Check your account’s write access'),
+        findsOneWidget,
+      );
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
 
   testWidgets('bootstrap leaves the native close button enabled', (
     tester,
@@ -414,13 +451,13 @@ void main() {
     final first = RuntimeDirNotPrivate(
       otherFolder,
       'Windows directory write failed',
-      windowsRefusal: WindowsRuntimeRefusal.cannotWrite,
+      refusal: RuntimeDirectoryRefusal.cannotWrite,
     );
     final last = RuntimeDirNotPrivate(
       folder,
       'unsafe Windows directory permissions',
       aclWarning: warning,
-      windowsRefusal: WindowsRuntimeRefusal.unsafeAncestor,
+      refusal: RuntimeDirectoryRefusal.unsafeAncestor,
     );
     await runStartup(
       boot: () async {

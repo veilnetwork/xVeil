@@ -156,9 +156,7 @@ const _linuxArm32 = _StatLayout(
 _StatLayout? _layoutForHost() => switch (Abi.current()) {
   Abi.macosArm64 || Abi.macosX64 || Abi.iosArm64 || Abi.iosX64 => _darwin,
   Abi.linuxX64 || Abi.androidX64 => _linuxX64,
-  Abi.linuxArm64 ||
-  Abi.androidArm64 ||
-  Abi.linuxRiscv64 => _linuxGeneric64,
+  Abi.linuxArm64 || Abi.androidArm64 || Abi.linuxRiscv64 => _linuxGeneric64,
   Abi.androidArm || Abi.linuxArm => _linuxArm32,
   _ => null,
 };
@@ -354,7 +352,12 @@ PosixFileFacts _decodePosixFacts(Pointer<Uint8> buffer, _StatLayout layout) {
 }
 
 /// Apply a mode only to the expected regular file, through a no-follow handle.
-bool posixSetModeForFile(String path, PosixFileFacts expected, int mode) {
+bool posixSetModeForFile(
+  String path,
+  PosixFileFacts expected,
+  int mode, {
+  bool Function(int fd)? applyAcl,
+}) {
   final libc = _resolveLibc();
   final open = libc?.open;
   final close = libc?.close;
@@ -393,6 +396,7 @@ bool posixSetModeForFile(String path, PosixFileFacts expected, int mode) {
             actual.gid == expected.gid &&
             actual.mode == expected.mode &&
             chmod(fd, mode) == 0 &&
+            (applyAcl == null || applyAcl(fd)) &&
             sync(fd) == 0;
       } finally {
         close(fd);

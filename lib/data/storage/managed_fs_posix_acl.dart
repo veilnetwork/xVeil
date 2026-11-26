@@ -109,6 +109,61 @@ Uint8List? readLinuxStorageAcl(String path) {
   }
 }
 
+/// Apply the ACL snapshot to an already verified staging file descriptor.
+/// The caller verifies the resulting ACL and mode before publishing the file.
+bool writePosixStorageAcl(int fd, String acl) {
+  final libc = DynamicLibrary.process();
+  return using((arena) {
+    if (Platform.isMacOS) {
+      final parse = libc
+          .lookupFunction<
+            Pointer<Void> Function(Pointer<Utf8>),
+            Pointer<Void> Function(Pointer<Utf8>)
+          >('acl_from_text');
+      final set = libc
+          .lookupFunction<
+            Int32 Function(Int32, Pointer<Void>, Int32),
+            int Function(int, Pointer<Void>, int)
+          >('acl_set_fd_np');
+      final free = libc
+          .lookupFunction<
+            Int32 Function(Pointer<Void>),
+            int Function(Pointer<Void>)
+          >('acl_free');
+      final snapshot = acl.isEmpty
+          ? libc.lookupFunction<
+              Pointer<Void> Function(Int32),
+              Pointer<Void> Function(int)
+            >('acl_init')(0)
+          : parse(acl.toNativeUtf8(allocator: arena));
+      if (snapshot == nullptr) return false;
+      try {
+        return set(fd, snapshot, 0x100) == 0; // ACL_TYPE_EXTENDED
+      } finally {
+        free(snapshot);
+      }
+    }
+    final attribute = 'system.posix_acl_access'.toNativeUtf8(allocator: arena);
+    if (acl.isEmpty) {
+      final remove = libc
+          .lookupFunction<
+            Int32 Function(Int32, Pointer<Utf8>),
+            int Function(int, Pointer<Utf8>)
+          >('fremovexattr');
+      return remove(fd, attribute) == 0;
+    }
+    final set = libc
+        .lookupFunction<
+          Int32 Function(Int32, Pointer<Utf8>, Pointer<Void>, UintPtr, Int32),
+          int Function(int, Pointer<Utf8>, Pointer<Void>, int, int)
+        >('fsetxattr');
+    final aclBytes = base64Decode(acl);
+    final bytes = arena<Uint8>(aclBytes.length);
+    bytes.asTypedList(aclBytes.length).setAll(0, aclBytes);
+    return set(fd, attribute, bytes.cast(), aclBytes.length, 0) == 0;
+  });
+}
+
 Uint8List? _linuxAccessAcl(String path) => using((arena) {
   final libc = DynamicLibrary.process();
   final attribute = 'system.posix_acl_access'.toNativeUtf8(allocator: arena);

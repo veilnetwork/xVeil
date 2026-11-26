@@ -49,6 +49,8 @@ class FolderSyncPair {
   final FolderSyncRootApproval? rootApproval;
 }
 
+enum FolderSyncScanRefusal { accessDenied, unavailable, busy, rootChanged }
+
 enum FolderSyncAccessRefusal { accessDenied, cannotVerify }
 
 /// A bounded failure in the local filesystem. The engine attaches the file

@@ -42,13 +42,19 @@ abstract interface class FolderSavedVersionAccess {
     String root, {
     String? after,
     bool Function()? stillCurrent,
+    void Function()? verifyRoot,
   });
-  Future<SavedFolderFile> open(String root, FolderSavedVersion version);
+  Future<SavedFolderFile> open(
+    String root,
+    FolderSavedVersion version, {
+    void Function()? verifyRoot,
+  });
   Future<bool> discard(
     String root,
     FolderSavedVersion version, {
     required Future<bool> Function() confirm,
     required bool Function() stillCurrent,
+    void Function()? verifyRoot,
   });
 }
 
@@ -61,11 +67,25 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
   final int pageSize;
   static final _copy = RegExp(r'^\.xveil-[0-9a-f]{32}\.(previous|incoming)$');
 
+  NativeFolderSession _openRoot(String root, void Function()? verifyRoot) {
+    verifyRoot?.call();
+    final scope = NativeFolderSession.open(root, lib: library);
+    try {
+      verifyRoot?.call();
+      scope.checkRoot();
+      return scope;
+    } catch (_) {
+      scope.close();
+      rethrow;
+    }
+  }
+
   @override
   Future<FolderSavedVersionPage> list(
     String root, {
     String? after,
     bool Function()? stillCurrent,
+    void Function()? verifyRoot,
   }) async {
     if (pageSize < 1 || pageSize > 200) {
       throw ArgumentError('Invalid page size');
@@ -77,7 +97,7 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
     }
 
     check();
-    final scope = NativeFolderSession.open(root, lib: library);
+    final scope = _openRoot(root, verifyRoot);
     try {
       // Keep only the next page (+ one witness for pagination). Enumeration
       // streams; neither a huge directory nor a long history becomes a list
@@ -139,6 +159,7 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
         }
       }
       check();
+      verifyRoot?.call();
       scope.checkRoot();
       return FolderSavedVersionPage(
         List.unmodifiable(entries),
@@ -197,12 +218,16 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
   }
 
   @override
-  Future<SavedFolderFile> open(String root, FolderSavedVersion version) async {
+  Future<SavedFolderFile> open(
+    String root,
+    FolderSavedVersion version, {
+    void Function()? verifyRoot,
+  }) async {
     if (version.version == null ||
         !_copy.hasMatch(version.relativePath.split('/').last)) {
       throw const FolderSavedVersionChanged();
     }
-    final scope = NativeFolderSession.open(root, lib: library);
+    final scope = _openRoot(root, verifyRoot);
     SavedFolderFile? file;
     var handedOff = false;
     try {
@@ -231,6 +256,7 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
     FolderSavedVersion version, {
     required Future<bool> Function() confirm,
     required bool Function() stillCurrent,
+    void Function()? verifyRoot,
   }) async {
     void check() {
       if (!stillCurrent()) throw const FolderSavedOperationCancelled();
@@ -240,7 +266,7 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
     // Pin the selected object before confirmation, without holding admission
     // across user interaction. A replacement while the dialog is open must
     // never turn confirmation into deletion of that newer object.
-    final selected = await open(root, version);
+    final selected = await open(root, version, verifyRoot: verifyRoot);
     try {
       check();
       if (!await confirm()) return false;
@@ -254,7 +280,7 @@ class NativeFolderSavedVersions implements FolderSavedVersionAccess {
       final prefix = separator < 0
           ? ''
           : version.relativePath.substring(0, separator + 1);
-      final scope = NativeFolderSession.open(root, lib: library);
+      final scope = _openRoot(root, verifyRoot);
       try {
         check();
         if (!selected.discard(

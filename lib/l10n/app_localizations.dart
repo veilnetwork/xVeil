@@ -507,6 +507,12 @@ abstract class AppL10n {
   /// **'xVeil needs a folder owned by your account with private access.'**
   String get startupRuntimeInsufficientPrivacy;
 
+  /// No description provided for @startupRuntimeNameExhausted.
+  ///
+  /// In en, this message translates to:
+  /// **'All temporary folder names are in use here. Choose another folder or try again later.'**
+  String get startupRuntimeNameExhausted;
+
   /// No description provided for @startupRuntimeCannotWrite.
   ///
   /// In en, this message translates to:
@@ -12439,6 +12445,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'xVeil could not save or remove {path}. Check that the folder is available and your account can write to it.'**
   String folderSyncWriteCannotVerify(String path);
+
+  /// No description provided for @folderSyncScanAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The operating system denied access to this folder or its sync files. Check the permissions or ask your administrator.'**
+  String get folderSyncScanAccessDenied;
+
+  /// No description provided for @folderSyncScanUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not open or verify this folder for sync. Check that the folder and drive are available, then try again.'**
+  String get folderSyncScanUnavailable;
+
+  /// No description provided for @folderSyncScanBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Another operation is using the folder. Try again when it finishes.'**
+  String get folderSyncScanBusy;
+
+  /// No description provided for @folderSyncScanRootChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The folder changed during the check. Check the path and try again.'**
+  String get folderSyncScanRootChanged;
 
   /// No description provided for @folderSyncReadAccessDenied.
   ///

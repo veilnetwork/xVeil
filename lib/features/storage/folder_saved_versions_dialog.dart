@@ -22,12 +22,22 @@ final folderSavedExportPickerProvider = Provider<ExportDocumentPicker>(
 );
 
 class FolderSavedVersionsDialog extends ConsumerStatefulWidget {
-  const FolderSavedVersionsDialog({super.key, required this.root});
+  const FolderSavedVersionsDialog({
+    super.key,
+    required this.root,
+    this.rootRefusal,
+  });
   final String root;
+  final String? Function()? rootRefusal;
 
   @override
   ConsumerState<FolderSavedVersionsDialog> createState() =>
       _FolderSavedVersionsDialogState();
+}
+
+class _SavedRootRefused implements Exception {
+  const _SavedRootRefused(this.message);
+  final String message;
 }
 
 class _FolderSavedVersionsDialogState
@@ -38,11 +48,26 @@ class _FolderSavedVersionsDialogState
   FolderSavedVersionPage? _page;
   bool _loading = true;
   bool _failed = false;
+  String? _rootRefusal;
   String? _exporting;
   FolderSavedExportCancellation? _cancellation;
 
   bool _current() =>
       mounted && widget.root == _root && ref.holdsIdentity(_lease);
+
+  void _verifyRoot() {
+    if (widget.rootRefusal?.call() case final String message) {
+      throw _SavedRootRefused(message);
+    }
+  }
+
+  void _showRootRefusal(_SavedRootRefused refusal) {
+    if (!_current()) return;
+    setState(() {
+      _rootRefusal = refusal.message;
+      _page = null;
+    });
+  }
 
   void _cancelExport() {
     final cancellation = _cancellation;
@@ -95,14 +120,19 @@ class _FolderSavedVersionsDialogState
     setState(() {
       _loading = true;
       _failed = false;
+      _rootRefusal = null;
     });
     try {
+      _verifyRoot();
       final page = await _access.list(
         widget.root,
         after: after,
         stillCurrent: _current,
+        verifyRoot: _verifyRoot,
       );
       if (_current()) setState(() => _page = page);
+    } on _SavedRootRefused catch (error) {
+      _showRootRefusal(error);
     } on FolderSavedOperationCancelled {
       // A locked/switched identity cannot populate the old modal.
     } catch (error) {
@@ -127,15 +157,19 @@ class _FolderSavedVersionsDialogState
     setState(() => _exporting = version.relativePath);
     String? message;
     try {
+      _verifyRoot();
       final saved = await exportFolderSavedVersion(
         access: _access,
         root: widget.root,
         version: version,
         stillCurrent: _current,
+        verifyRoot: _verifyRoot,
         cancellation: cancellation,
         pick: picker,
       );
       if (saved) message = l.chatFileSavedToChosenFolder;
+    } on _SavedRootRefused catch (error) {
+      _showRootRefusal(error);
     } on FolderSavedOperationCancelled {
       // No success/failure notice leaks into the replacement identity.
     } on FolderSavedVersionChanged catch (error) {
@@ -166,10 +200,12 @@ class _FolderSavedVersionsDialogState
     setState(() => _exporting = version.relativePath);
     String? message;
     try {
+      _verifyRoot();
       final removed = await _access.discard(
         _root,
         version,
         stillCurrent: _current,
+        verifyRoot: _verifyRoot,
         confirm: () async {
           if (!_current()) return false;
           return await showDialog<bool>(
@@ -193,6 +229,9 @@ class _FolderSavedVersionsDialogState
         },
       );
       if (removed) message = l.folderSyncSavedRemoved;
+    } on _SavedRootRefused catch (error) {
+      _showRootRefusal(error);
+      return;
     } on FolderSavedOperationCancelled {
       // The old operation has no authority in the replacement identity.
     } on FolderSavedVersionChanged catch (error) {
@@ -231,6 +270,8 @@ class _FolderSavedVersionsDialogState
             ? Text(l.folderSyncSavedSessionChanged)
             : _loading
             ? const Center(child: CircularProgressIndicator())
+            : _rootRefusal != null
+            ? Text(_rootRefusal!)
             : _failed
             ? Text(l.folderSyncSavedLoadFailed)
             : (_page?.entries.isEmpty ?? true)

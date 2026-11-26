@@ -22,8 +22,9 @@ enum FolderFsFailureKind {
 /// Only a category survives this boundary. Native paths and error strings are
 /// neither kept on this object nor copied into the diagnostic error registry.
 class FolderFsFailure implements Exception {
-  const FolderFsFailure(this.kind);
+  const FolderFsFailure(this.kind, {this.accessDenied = false});
   final FolderFsFailureKind kind;
+  final bool accessDenied;
 
   @override
   String toString() => 'Folder filesystem operation refused (${kind.name})';
@@ -164,11 +165,14 @@ class _Api {
   final _CloseDart close;
   final _FreeDart free;
 
-  bool freeError(Pointer<Pointer<Utf8>> error) {
+  bool freeError(Pointer<Pointer<Utf8>> error) =>
+      takeError(error) == 'folder publication is busy';
+
+  String? takeError(Pointer<Pointer<Utf8>> error) {
     final value = error.value;
-    if (value == nullptr) return false;
+    if (value == nullptr) return null;
     try {
-      return value.toDartString() == 'folder publication is busy';
+      return value.toDartString();
     } finally {
       free(value);
       error.value = nullptr;
@@ -216,10 +220,20 @@ class NativeFolderSession {
     final error = calloc<Pointer<Utf8>>();
     try {
       final handle = api.open(path, error);
-      final busy = api.freeError(error);
+      final refusal = api.takeError(error);
       if (handle == nullptr) {
+        // The installed native ABI returns Rust I/O errors as text. Use only
+        // stable numeric suffixes, discarding the message and any path in it.
+        final denied = Platform.isWindows
+            ? refusal?.endsWith('(os error 5)') == true ||
+                  refusal?.endsWith('(NTSTATUS 0xc0000022)') == true
+            : refusal?.endsWith('(os error 13)') == true ||
+                  refusal?.endsWith('(os error 1)') == true;
         throw FolderFsFailure(
-          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.unavailable,
+          refusal == 'folder publication is busy'
+              ? FolderFsFailureKind.busy
+              : FolderFsFailureKind.unavailable,
+          accessDenied: denied,
         );
       }
       return NativeFolderSession._(root, api, handle);
@@ -332,8 +346,12 @@ class NativeFolderSession {
       checkRoot();
     } on FolderFsFailure {
       rethrow;
-    } on FileSystemException {
-      throw const FolderFsFailure(FolderFsFailureKind.recovery);
+    } on FileSystemException catch (error) {
+      final code = error.osError?.errorCode;
+      throw FolderFsFailure(
+        FolderFsFailureKind.recovery,
+        accessDenied: Platform.isWindows ? code == 5 : code == 1 || code == 13,
+      );
     }
   }
 

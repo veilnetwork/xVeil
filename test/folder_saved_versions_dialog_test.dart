@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/document_export.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/folder_publication.dart';
 import 'package:xveil/data/folder_saved_versions.dart';
 import 'package:xveil/domain/folder_sync.dart';
@@ -51,10 +53,14 @@ class _App extends AppController {
 }
 
 class _Pairs extends FolderSyncController {
+  _Pairs(this.pair);
+
+  final FolderSyncPair pair;
+
   @override
-  List<FolderSyncPairView> build() => const [
+  List<FolderSyncPairView> build() => [
     FolderSyncPairView(
-      pair: FolderSyncPair(id: 'pair', localPath: 'fixture-root'),
+      pair: pair,
       conflicts: {},
       lastPassAtMs: null,
       lastRefusal: null,
@@ -95,7 +101,9 @@ class _Access implements FolderSavedVersionAccess {
     String root, {
     String? after,
     bool Function()? stillCurrent,
+    void Function()? verifyRoot,
   }) async {
+    verifyRoot?.call();
     cursors.add(after);
     if (fail) throw StateError('PRIVATE_CANARY');
     if (pending != null) return pending!.future;
@@ -105,19 +113,28 @@ class _Access implements FolderSavedVersionAccess {
   }
 
   @override
-  Future<SavedFolderFile> open(String root, FolderSavedVersion version) async =>
-      source;
+  Future<SavedFolderFile> open(
+    String root,
+    FolderSavedVersion version, {
+    void Function()? verifyRoot,
+  }) async {
+    verifyRoot?.call();
+    return source;
+  }
+
   @override
   Future<bool> discard(
     String root,
     FolderSavedVersion version, {
     required Future<bool> Function() confirm,
     required bool Function() stillCurrent,
+    void Function()? verifyRoot,
   }) async {
     try {
       if (!stillCurrent()) throw const FolderSavedOperationCancelled();
       if (!await confirm()) return false;
       if (!stillCurrent()) throw const FolderSavedOperationCancelled();
+      verifyRoot?.call();
       if (failDiscard) throw const FolderFsFailure(FolderFsFailureKind.cleanup);
       removals++;
       return true;
@@ -169,6 +186,10 @@ void main() {
     WidgetTester tester, {
     Widget? child,
     ExportDocumentPicker? pick,
+    FolderSyncPair pair = const FolderSyncPair(
+      id: 'pair',
+      localPath: 'fixture-root',
+    ),
   }) async {
     container = ProviderContainer(
       overrides: [
@@ -177,7 +198,7 @@ void main() {
         folderSavedExportPickerProvider.overrideWithValue(
           pick ?? (_) async => document,
         ),
-        folderSyncControllerProvider.overrideWith(() => _Pairs()),
+        folderSyncControllerProvider.overrideWith(() => _Pairs(pair)),
       ],
     );
     await tester.pumpWidget(
@@ -205,7 +226,14 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await mount(tester, child: const FolderSyncScreen());
+    final root = Directory.systemTemp.createTempSync('xveil-versions-card-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    if (!Platform.isWindows) expect(posixChmod(root.path, 0x1c0), 0);
+    await mount(
+      tester,
+      child: const FolderSyncScreen(),
+      pair: FolderSyncPair(id: 'pair', localPath: root.path),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, l.folderSyncSavedTitle));
     await tester.pumpAndSettle();
@@ -213,6 +241,59 @@ void main() {
     expect(find.text('first.txt'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'saved versions explain a replaced approved folder',
+    (tester) async {
+      final base = Directory.systemTemp.createTempSync(
+        'xveil-versions-replaced-',
+      );
+      addTearDown(() => base.deleteSync(recursive: true));
+      expect(posixChmod(base.path, 0x1c0), 0);
+      final root = Directory('${base.path}/root')..createSync();
+      expect(posixChmod(root.path, 0x1ed), 0);
+      final approval = folderSyncRootRefusal(root.path)!.approval!;
+      root.renameSync('${base.path}/previous');
+      Directory(root.path).createSync();
+      await mount(
+        tester,
+        child: const FolderSyncScreen(),
+        pair: FolderSyncPair(
+          id: 'pair',
+          localPath: root.path,
+          rootApproval: approval,
+        ),
+      );
+      await tester.tap(find.widgetWithText(TextButton, l.folderSyncSavedTitle));
+      await tester.pumpAndSettle();
+      expect(find.text(l.folderSyncRefusedPathChanged), findsOneWidget);
+      expect(access.cursors, isEmpty);
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
+
+  testWidgets(
+    'removal is refused when folder access changes during confirmation',
+    (tester) async {
+      String? refusal;
+      await mount(
+        tester,
+        child: FolderSavedVersionsDialog(
+          root: 'fixture-root',
+          rootRefusal: () => refusal,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(l.folderSyncSavedRemove));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      refusal = l.folderSyncRefusedPathChanged;
+      await tester.tap(find.text(l.actionRemove));
+      await tester.pumpAndSettle();
+      expect(access.removals, 0);
+      expect(find.text(l.folderSyncRefusedPathChanged), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'help is shown on demand and pagination replaces the bounded page',

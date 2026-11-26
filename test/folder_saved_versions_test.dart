@@ -57,10 +57,20 @@ class _Access implements FolderSavedVersionAccess {
     String root, {
     String? after,
     bool Function()? stillCurrent,
-  }) => inner.list(root, after: after, stillCurrent: stillCurrent);
+    void Function()? verifyRoot,
+  }) => inner.list(
+    root,
+    after: after,
+    stillCurrent: stillCurrent,
+    verifyRoot: verifyRoot,
+  );
   @override
-  Future<SavedFolderFile> open(String root, FolderSavedVersion version) async {
-    final file = await inner.open(root, version);
+  Future<SavedFolderFile> open(
+    String root,
+    FolderSavedVersion version, {
+    void Function()? verifyRoot,
+  }) async {
+    final file = await inner.open(root, version, verifyRoot: verifyRoot);
     opened.add(file);
     return _ObservedFile(file, readSizes);
   }
@@ -71,11 +81,13 @@ class _Access implements FolderSavedVersionAccess {
     FolderSavedVersion version, {
     required Future<bool> Function() confirm,
     required bool Function() stillCurrent,
+    void Function()? verifyRoot,
   }) => inner.discard(
     root,
     version,
     confirm: confirm,
     stillCurrent: stillCurrent,
+    verifyRoot: verifyRoot,
   );
 }
 
