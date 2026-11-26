@@ -294,6 +294,76 @@ void main() {
     });
   }
 
+  testWidgets('storage consent works after preferences have loaded', (
+    tester,
+  ) async {
+    final warning = ManagedStorageAclWarning(
+      path: '/fixture/visible-storage',
+      fingerprint: 'b' * 64,
+      grants: const [
+        (account: 'collaborators', rights: {ManagedAclRight.write}),
+      ],
+    );
+    final opened = Container();
+    var choice = false;
+    Widget? presented;
+    await runStartup(
+      boot: () async {
+        if (!choice) {
+          throw ManagedFsFailure(
+            ManagedFsFailureKind.unsafe,
+            aclWarnings: [warning],
+          );
+        }
+        presented = opened;
+      },
+      restoreAclApproval: (_) async => false,
+      recordAclApproval: (candidate, {required remember}) {
+        expect(candidate, warning);
+        expect(remember, isTrue);
+        choice = true;
+        return true;
+      },
+      present: (widget) => presented = widget,
+    );
+
+    await tester.pumpWidget(presented!);
+    expect(find.text(warning.path), findsOneWidget);
+    await tester.tap(find.text('Start and remember my choice'));
+    await tester.pumpAndSettle();
+    expect(presented, same(opened));
+  });
+
+  testWidgets('runtime failure offers local access without retrying the node', (
+    tester,
+  ) async {
+    const folder = r'C:ixture-runtime';
+    final opened = Container();
+    var networkAttempts = 0;
+    Widget? presented;
+    await runStartup(
+      bootWithRuntimeBase: (_) async {
+        networkAttempts++;
+        throw RuntimeDirNotPrivate(
+          folder,
+          'unsafe Windows directory permissions',
+          retryable: true,
+          windowsRefusal: WindowsRuntimeRefusal.unsafeAncestor,
+        );
+      },
+      bootOffline: () async => presented = opened,
+      present: (widget) => presented = widget,
+    );
+
+    await tester.pumpWidget(presented!);
+    final button = find.text('Open without network');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(presented, same(opened));
+    expect(networkAttempts, 1);
+  });
+
   testWidgets('bootstrap leaves the native close button enabled', (
     tester,
   ) async {

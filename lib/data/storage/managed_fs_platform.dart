@@ -58,7 +58,13 @@ managedPosixPathPolicy(
 class ManagedFsPlatform {
   const ManagedFsPlatform();
 
-  ManagedPathWitness inspect(String path) {
+  ManagedPathWitness inspect(String path) =>
+      _inspect(path, includeApprovedAcl: false);
+
+  ManagedPathWitness inspectAcl(String path) =>
+      _inspect(path, includeApprovedAcl: true);
+
+  ManagedPathWitness _inspect(String path, {required bool includeApprovedAcl}) {
     // POSIX lstat("link/") follows the link despite lstat's usual contract.
     // Inspect the final component itself, retaining only the filesystem root.
     if (!Platform.isWindows) {
@@ -67,7 +73,9 @@ class ManagedFsPlatform {
       }
     }
     try {
-      if (Platform.isWindows) return windows.inspect(path);
+      if (Platform.isWindows) {
+        return windows.inspect(path, includeApprovedAcl: includeApprovedAcl);
+      }
       final current = posixEuid();
       final darwin = Platform.isMacOS || Platform.isIOS;
       // The witness compares libc and Dart observations. The first writer
@@ -117,7 +125,7 @@ class ManagedFsPlatform {
           warning != null && hasStorageAclApproval(warning.fingerprint);
       // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
       // that property even for callers that use a witness only for identity.
-      if (!appleAcl.safe && !approved) {
+      if (!appleAcl.safe && (!approved || includeApprovedAcl)) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: facts.isDirectory
@@ -132,7 +140,7 @@ class ManagedFsPlatform {
         ownerOnly: ownerOnly,
         ownedByCurrentUser: policy.ownedByCurrentUser,
         safeAncestor: safeAncestor,
-        aclWarning: approved ? null : warning,
+        aclWarning: approved && !includeApprovedAcl ? null : warning,
         aclApproved: approved,
         unsafeAncestorCause: safeAncestor
             ? null

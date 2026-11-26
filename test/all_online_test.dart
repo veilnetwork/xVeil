@@ -59,6 +59,45 @@ Future<void> _settle(ProviderContainer c) async {
 }
 
 void main() {
+  test('offline master unlock opens the identity picker', () async {
+    SharedPreferences.setMockInitialValues({
+      'onboarded': true,
+      'keep_all_online': true,
+    });
+    final backing = FakeHvContainer();
+    final master = backing.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([
+      RosterEntry(label: 'alice', spaceKeys: _keys(1)),
+      RosterEntry(label: 'bob', spaceKeys: _keys(2)),
+    ]);
+    await master.close();
+
+    var hostsStarted = 0;
+    final container = ProviderContainer(
+      overrides: [
+        singleSpaceStorageProvider.overrideWith((ref) => backing.storage()),
+        deniableBootProvider.overrideWithValue(
+          const DeniableBootConfig(runtimeDir: null, storePath: '/fixture'),
+        ),
+        sessionBuilderProvider.overrideWith((ref) {
+          hostsStarted++;
+          throw StateError('offline master must not start a node');
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(appControllerProvider.notifier);
+    await _settle(container);
+    await controller.unlock('masterpw');
+
+    final state = container.read(appControllerProvider);
+    expect(state.phase, AppPhase.pickingIdentity);
+    expect(state.identities.toSet(), {'alice', 'bob'});
+    expect(container.read(sessionProvider), isNull);
+    expect(hostsStarted, 0);
+  });
+
   test('all-online: master unlock boots all identities; switch repoints; '
       'lock disposes', () async {
     SharedPreferences.setMockInitialValues({

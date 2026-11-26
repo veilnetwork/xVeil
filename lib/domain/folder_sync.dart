@@ -23,6 +23,8 @@
 ///     folder in the cloud, and a device may have several.
 library;
 
+typedef FolderSyncRootApproval = ({String identity, String fingerprint});
+
 /// One configured mapping: a local folder mirrored to a cloud folder.
 class FolderSyncPair {
   const FolderSyncPair({
@@ -30,6 +32,7 @@ class FolderSyncPair {
     required this.localPath,
     this.cloudFolderId,
     this.deletePropagates = true,
+    this.rootApproval,
   });
 
   final String id;
@@ -39,6 +42,7 @@ class FolderSyncPair {
   final String? cloudFolderId;
 
   final bool deletePropagates;
+  final FolderSyncRootApproval? rootApproval;
 }
 
 /// One file as the local folder currently presents it.

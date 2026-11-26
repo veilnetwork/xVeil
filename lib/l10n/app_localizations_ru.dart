@@ -220,7 +220,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil не нашёл защищённую папку для служебных файлов управления подключением. Выберите принадлежащую вашей учётной записи папку на локальном диске или попросите администратора создать её. Другие пользователи не должны иметь возможности подменить папку или любой каталог на пути к ней.';
+      'xVeil нужна защищённая папка для файлов управления подключением. Можно открыть локальные данные без сети, выбрать папку на локальном диске или обратиться к администратору.';
 
   @override
   String get startupRuntimeChecking =>
@@ -228,7 +228,10 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get startupRuntimeStillBlocked =>
-      'Проверка завершена. Для запуска xVeil всё ещё нужна защищённая папка.';
+      'Проверка завершена. Для подключения к сети по-прежнему нужна защищённая папка.';
+
+  @override
+  String get startupRuntimeOpenOffline => 'Открыть без сети';
 
   @override
   String get startupRuntimeChooseFolder => 'Выбрать другую папку';
@@ -7103,6 +7106,20 @@ class AppL10nRu extends AppL10n {
   String folderSyncRefusedUnreadable(String path) {
     return 'не удалось прочитать права доступа к $path';
   }
+
+  @override
+  String get folderSyncAclRisk =>
+      'Указанные учётные записи могут менять файлы в этой папке. Их изменения могут попасть в облако. Удаления для этой папки синхронизироваться не будут.';
+
+  @override
+  String get folderSyncAclAccept => 'Разрешить синхронизацию с этими правами';
+
+  @override
+  String get folderSyncAclReview => 'Проверить права папки';
+
+  @override
+  String get folderSyncRefusedPathChanged =>
+      'По этому пути находится другая папка. Чтобы синхронизировать её, удалите эту пару и добавьте папку заново.';
 
   @override
   String folderSyncRefusedWritable(String path) {

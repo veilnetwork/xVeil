@@ -2,10 +2,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/folder_sync.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/identity_guard.dart';
 import '../../state/folder_sync_controller.dart';
+import '../bootstrap/startup_failed_app.dart' show StorageAclDetails;
 import '../common/relative_time.dart';
 import 'folder_saved_versions_dialog.dart';
 
@@ -43,45 +45,22 @@ class FolderSyncScreen extends ConsumerWidget {
           final path = await (pickDirectory ?? FilePicker.getDirectoryPath)();
           if (path == null || path.isEmpty) return;
           if (!ref.holdsIdentity(lease)) return;
-          // `addPair` answers with WHY it would not take the folder — a root
-          // another account on this computer can write to, or one that overlaps
-          // a folder already mirrored. That answer was thrown away, so a
-          // refused folder looked exactly like a tap that did nothing, and the
-          // thing people learn from a button that does nothing is that the app
-          // is broken. Both reasons come back the same way and go out the same
-          // way; neither creates a pair, so there is no row to hang this on and
-          // it has to be said here.
+          final id = 'pair-${DateTime.now().microsecondsSinceEpoch}';
           final refusal = await controller.addPair(
             localPath: path,
-            id: 'pair-${DateTime.now().microsecondsSinceEpoch}',
+            id: id,
             owner: lease,
           );
           if (refusal == null || !context.mounted) return;
-          final message = folderSyncRefusalText(l, refusal);
-          if (message == null) return;
-          await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              icon: Icon(
-                Icons.warning_amber_rounded,
-                color: Theme.of(ctx).colorScheme.error,
-              ),
-              title: Text(l.folderSyncNotAddedTitle),
-              // The reason itself, not a paraphrase of it: it names the exact
-              // folder in the chain that is open, and that is the one part
-              // nobody can guess. Translated HERE, from a code — the reason
-              // used to arrive as an English sentence and go straight into
-              // this localised frame, so a Russian reader was shown a Russian
-              // sentence with an English middle.
-              content: Text(l.folderSyncNotAdded(message)),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: Text(l.actionDone),
-                ),
-              ],
-            ),
-          );
+          await _reviewRoot(context, refusal, (approval) async {
+            if (!context.mounted || !ref.holdsIdentity(lease)) return null;
+            return controller.addPair(
+              localPath: path,
+              id: id,
+              owner: lease,
+              rootApproval: approval,
+            );
+          }, adding: true);
         },
         icon: const Icon(Icons.create_new_folder_outlined),
         label: Text(l.folderSyncAdd),
@@ -125,6 +104,7 @@ String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
   return switch (refusal.code) {
     // Silence on purpose: see the code's own doc.
     FolderSyncRefusalCode.identityChanged => null,
+    FolderSyncRefusalCode.pathChanged => l.folderSyncRefusedPathChanged,
     FolderSyncRefusalCode.overlapsExistingPair => l.folderSyncRefusedOverlap,
     FolderSyncRefusalCode.unresolvable => l.folderSyncRefusedUnresolvable(
       path,
@@ -137,6 +117,67 @@ String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
   };
 }
 
+Future<void> _reviewRoot(
+  BuildContext context,
+  FolderSyncRefusal refusal,
+  Future<FolderSyncRefusal?> Function(FolderSyncRootApproval) confirm, {
+  bool adding = false,
+}) async {
+  var current = refusal;
+  while (true) {
+    if (!context.mounted) return;
+    final warning = current.aclWarning;
+    final approval = current.approval;
+    final l = AppL10n.of(context);
+    final message = folderSyncRefusalText(l, current);
+    if (message == null) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        scrollable: true,
+        icon: const Icon(Icons.warning_amber_rounded),
+        title: Text(
+          adding && approval == null
+              ? l.folderSyncNotAddedTitle
+              : l.startupAclWarningTitle,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              approval != null
+                  ? l.folderSyncAclRisk
+                  : adding
+                  ? l.folderSyncNotAdded(message)
+                  : message,
+            ),
+            if (warning != null) ...[
+              const SizedBox(height: 8),
+              StorageAclDetails(warning),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(approval == null ? l.actionDone : l.actionCancel),
+          ),
+          if (approval != null)
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l.folderSyncAclAccept),
+            ),
+        ],
+      ),
+    );
+    if (accepted != true || approval == null || !context.mounted) return;
+    final next = await confirm(approval);
+    if (next == null) return;
+    current = next;
+  }
+}
+
 class _PairCard extends ConsumerWidget {
   const _PairCard({required this.view});
 
@@ -146,7 +187,13 @@ class _PairCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final controller = ref.read(folderSyncControllerProvider.notifier);
-    final refusal = view.lastRefusal;
+    final rootRefusal = view.rootRefusal;
+    final lastRefusal = view.lastRefusal;
+    final refusal = rootRefusal != null
+        ? folderSyncRefusalText(l, rootRefusal)
+        : FolderSyncRefusalCode.values.any((code) => code.name == lastRefusal)
+        ? null
+        : lastRefusal;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Column(
@@ -199,6 +246,27 @@ class _PairCard extends ConsumerWidget {
               child: Text(
                 l.folderSyncRefused(refusal),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          if (rootRefusal?.aclWarning != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: view.busy
+                    ? null
+                    : () async {
+                        final lease = ref.leaseIdentity();
+                        await _reviewRoot(
+                          context,
+                          rootRefusal!,
+                          (approval) => controller.approvePair(
+                            view.pair.id,
+                            approval,
+                            owner: lease,
+                          ),
+                        );
+                      },
+                child: Text(l.folderSyncAclReview),
               ),
             ),
           if (view.conflicts.isNotEmpty) ...[

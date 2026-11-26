@@ -9,7 +9,6 @@ import '../data/folder_publication.dart';
 import '../domain/cloud.dart';
 import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
-import '../data/range_sources.dart';
 import '../domain/range_source.dart';
 import 'folder_sync_engine.dart';
 import '../data/fs_beneath.dart';
@@ -287,22 +286,16 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // beneath a held directory handle with no symlink to follow, which is the
     // same guarantee the CREATE side already uses.
     //
-    // `supported` is not the same question as "refused": a refusal must not
-    // fall back to the weaker open, or the fallback serves exactly the file
-    // the walk rejected.
+    // Shared roots may contain entries changed by other accounts. Reads
+    // require the native walk even when the SDK cannot perform it.
     final beneath = await veilOpenBeneath(root, path, lib: library);
-    if (beneath.supported) {
-      final source = beneath.source;
-      if (source == null) return null;
-      return RangeSource(
-        size: source.size,
-        read: source.read,
-        close: source.close,
-      );
-    }
-    final resolved = mirrorPathWithin(root, path);
-    if (resolved == null) return null;
-    return fileRangeSource(resolved);
+    final source = beneath.source;
+    if (source == null) return null;
+    return RangeSource(
+      size: source.size,
+      read: source.read,
+      close: source.close,
+    );
   }
 
   /// Download outside the folder admission. Only a fully prepared local copy

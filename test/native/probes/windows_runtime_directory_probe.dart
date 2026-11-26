@@ -56,7 +56,6 @@ Future<void> main(List<String> args) async {
     final manual = mode.startsWith('manual-');
     final unsafe =
         mode.startsWith('unsafe-') && !privateFallback ||
-        mode == 'manual-shared' ||
         mode == 'manual-unsafe-name';
     final verifyShared = mode == 'verify-shared';
     final nested =
@@ -81,7 +80,7 @@ Future<void> main(List<String> args) async {
         claimed = await claimRuntimeDirUnder(
           supplied,
           uniqueSuffix: '17',
-          windowsBaseMustBePrivate: manual,
+          windowsRequireUnredirectedBase: manual,
           windowsFallbackBase: fallback == null ? null : '${base.path}/local',
           windowsPrivateFallbackBase: fallback == null ? null : () => fallback,
           onWindowsRuntimeAttempt: (candidate, failure) =>
@@ -92,12 +91,10 @@ Future<void> main(List<String> args) async {
       refusal = error;
     }
     if (manual && unsafe) {
-      final expected = mode == 'manual-shared'
-          ? WindowsRuntimeRefusal.insufficientPrivacy
-          : WindowsRuntimeRefusal.invalidPath;
       check(
         'manual_base_refusal_reason',
-        refusal?.windowsAttempts.single.$2.windowsRefusal == expected,
+        refusal?.windowsAttempts.single.$2.windowsRefusal ==
+            WindowsRuntimeRefusal.invalidPath,
       );
       check(
         'manual_base_not_written',
@@ -156,6 +153,13 @@ Future<void> main(List<String> args) async {
         'stable_nonempty_base_accepted',
         refusal == null && claimed != null,
       );
+      if (mode == 'manual-shared') {
+        final facts = windows.inspect(base.path);
+        check(
+          'shared_base_not_tightened',
+          !facts.ownerOnly && facts.safeAncestor,
+        );
+      }
       check('occupied_child_not_adopted', claimed != occupied.path);
       final directory = windows.inspect(claimed!);
       check(

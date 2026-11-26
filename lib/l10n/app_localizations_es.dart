@@ -220,7 +220,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil no pudo verificar una carpeta privada para los archivos que controlan su conexión de red. Elige una carpeta en un disco local que pertenezca a tu cuenta o pide al administrador que cree una. Otros usuarios no deben poder sustituir ninguna carpeta de la ruta.';
+      'xVeil necesita una carpeta protegida para los archivos que controlan la conexión. Puedes abrir tus datos locales sin conexión, elegir una carpeta en una unidad local o pedir ayuda a tu administrador.';
 
   @override
   String get startupRuntimeChecking =>
@@ -228,7 +228,10 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupRuntimeStillBlocked =>
-      'Comprobación terminada. xVeil aún necesita una carpeta protegida para iniciarse.';
+      'Comprobación terminada. Todavía se necesita una carpeta protegida para conectarse a la red.';
+
+  @override
+  String get startupRuntimeOpenOffline => 'Abrir sin conexión';
 
   @override
   String get startupRuntimeChooseFolder => 'Elegir otra carpeta';
@@ -7134,6 +7137,21 @@ class AppL10nEs extends AppL10n {
   String folderSyncRefusedUnreadable(String path) {
     return 'no se han podido leer los permisos de $path';
   }
+
+  @override
+  String get folderSyncAclRisk =>
+      'Las cuentas indicadas pueden cambiar los archivos de esta carpeta. Sus cambios se pueden sincronizar con la nube. Las eliminaciones no se propagarán para esta carpeta.';
+
+  @override
+  String get folderSyncAclAccept =>
+      'Permitir la sincronización con estos permisos';
+
+  @override
+  String get folderSyncAclReview => 'Revisar los permisos de la carpeta';
+
+  @override
+  String get folderSyncRefusedPathChanged =>
+      'Esta ruta apunta a otra carpeta. Para sincronizarla, elimina este par y vuelve a añadir la carpeta.';
 
   @override
   String folderSyncRefusedWritable(String path) {

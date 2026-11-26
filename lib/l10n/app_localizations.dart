@@ -456,7 +456,7 @@ abstract class AppL10n {
   /// No description provided for @startupRuntimeDirectoryFailed.
   ///
   /// In en, this message translates to:
-  /// **'xVeil could not verify a private folder for the files that control its network connection. Select a folder on a local drive that belongs to your account, or ask your administrator to create one. Other users must not be able to replace any folder along its path.'**
+  /// **'xVeil needs a protected folder for the files that control its network connection. You can open your local data without network access, choose a folder on a local drive, or ask your administrator for help.'**
   String get startupRuntimeDirectoryFailed;
 
   /// No description provided for @startupRuntimeChecking.
@@ -468,8 +468,14 @@ abstract class AppL10n {
   /// No description provided for @startupRuntimeStillBlocked.
   ///
   /// In en, this message translates to:
-  /// **'Check complete. xVeil still needs a protected folder to start.'**
+  /// **'Check complete. A protected folder is still needed to connect to the network.'**
   String get startupRuntimeStillBlocked;
+
+  /// No description provided for @startupRuntimeOpenOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Open without network'**
+  String get startupRuntimeOpenOffline;
 
   /// No description provided for @startupRuntimeChooseFolder.
   ///
@@ -12373,6 +12379,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'the permissions of {path} could not be read'**
   String folderSyncRefusedUnreadable(String path);
+
+  /// No description provided for @folderSyncAclRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'The accounts below can change files in this folder. Their edits may be synced to the cloud. Deletions will not propagate for this folder.'**
+  String get folderSyncAclRisk;
+
+  /// No description provided for @folderSyncAclAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow sync for these permissions'**
+  String get folderSyncAclAccept;
+
+  /// No description provided for @folderSyncAclReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Review folder permissions'**
+  String get folderSyncAclReview;
+
+  /// No description provided for @folderSyncRefusedPathChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'This path no longer points to the folder you approved. To sync the new folder, remove this pair and add the folder again.'**
+  String get folderSyncRefusedPathChanged;
 
   /// No description provided for @folderSyncRefusedWritable.
   ///

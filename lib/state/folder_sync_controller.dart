@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/posix_file_facts.dart';
 import '../data/storage/folder_sync_store.dart';
+import '../data/storage/managed_fs_platform.dart';
+import '../data/storage/managed_fs_windows.dart' as windows;
 import '../domain/folder_sync.dart';
 import 'app_controller.dart' show IdentityLease, appControllerProvider;
 import 'cloud_service.dart';
@@ -22,6 +26,7 @@ class FolderSyncPairView {
     required this.lastPassAtMs,
     required this.lastRefusal,
     required this.busy,
+    this.rootRefusal,
   });
 
   final FolderSyncPair pair;
@@ -29,6 +34,7 @@ class FolderSyncPairView {
   final int? lastPassAtMs;
   final String? lastRefusal;
   final bool busy;
+  final FolderSyncRefusal? rootRefusal;
 }
 
 /// Owns the configured pairs and runs their passes.
@@ -38,6 +44,7 @@ class FolderSyncPairView {
 /// would record a state that never existed.
 class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   final Set<String> _running = {};
+  final Map<String, FolderSyncRefusal> _rootRefusals = {};
 
   /// Long enough that a save, an unpack or our own downloads settle into one
   /// pass; short enough that a person who dropped a file in does not wonder
@@ -81,6 +88,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   List<FolderSyncPairView> build() {
     // WATCHED, so a switch rebuilds instead of carrying A's pairs into B.
     _store = ref.watch(folderSyncStoreProvider);
+    _rootRefusals.clear();
     // Automatic passes are DESKTOP only, for the same reason pairs are: a
     // phone has no folder another app writes to, and Directory.watch is not
     // dependable there. Tests get no scheduler either — a background timer
@@ -147,6 +155,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           lastPassAtMs: saved.lastPassAtMs,
           lastRefusal: saved.lastRefusal,
           busy: _running.contains(pair.id),
+          rootRefusal: _rootRefusals[pair.id],
         ),
       );
     }
@@ -169,77 +178,134 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     String? cloudFolderId,
     required String id,
     IdentityLease? owner,
+    FolderSyncRootApproval? rootApproval,
   }) async {
-    if (owner != null &&
-        !ref.read(appControllerProvider.notifier).holdsIdentity(owner)) {
-      return const FolderSyncRefusal(FolderSyncRefusalCode.identityChanged);
-    }
-    // The store this call was asked of, held across every await below: a list
-    // read from A must not be written to B.
     final store = _store;
-    final pairs = [...await store.pairs()];
-    // Refused rather than supported: a file inside two pairs is uploaded
-    // twice, under two cloud paths, with two independent bases — nothing is
-    // lost, but one file quietly becomes two objects and deleting it locally
-    // deletes both, which is impossible to explain to whoever it happens to.
-    if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) {
-      return const FolderSyncRefusal(
-        FolderSyncRefusalCode.overlapsExistingPair,
-      );
+    FolderSyncRefusal? refusal;
+    await store.updatePairs((pairs) {
+      if (!_holdsPairStore(store, owner)) {
+        refusal = const FolderSyncRefusal(
+          FolderSyncRefusalCode.identityChanged,
+        );
+        return null;
+      }
+      if (pairs.any((pair) => folderPairsOverlap(pair.localPath, localPath))) {
+        refusal = const FolderSyncRefusal(
+          FolderSyncRefusalCode.overlapsExistingPair,
+        );
+        return null;
+      }
+      refusal = folderSyncRootRefusal(localPath, approval: rootApproval);
+      if (refusal != null) return null;
+      return [
+        ...pairs,
+        FolderSyncPair(
+          id: id,
+          localPath: localPath,
+          cloudFolderId: cloudFolderId,
+          deletePropagates: rootApproval == null,
+          rootApproval: rootApproval,
+        ),
+      ];
+    });
+    if (refusal == null) await reload();
+    return refusal;
+  }
+
+  bool _holdsPairStore(FolderSyncStore store, IdentityLease? owner) =>
+      identical(_store, store) &&
+      (owner == null ||
+          ref.read(appControllerProvider.notifier).holdsIdentity(owner));
+
+  Future<FolderSyncRefusal?> approvePair(
+    String id,
+    FolderSyncRootApproval approval, {
+    required IdentityLease owner,
+  }) async {
+    final store = _store;
+    FolderSyncRefusal? refusal;
+    await store.updatePairs((pairs) {
+      if (!_holdsPairStore(store, owner)) {
+        refusal = const FolderSyncRefusal(
+          FolderSyncRefusalCode.identityChanged,
+        );
+        return null;
+      }
+      final index = pairs.indexWhere((pair) => pair.id == id);
+      if (index < 0) {
+        refusal = const FolderSyncRefusal(
+          FolderSyncRefusalCode.identityChanged,
+        );
+        return null;
+      }
+      final pair = pairs[index];
+      if (pair.rootApproval case final previous?
+          when previous.identity != approval.identity) {
+        refusal = FolderSyncRefusal(
+          FolderSyncRefusalCode.pathChanged,
+          path: pair.localPath,
+        );
+        return null;
+      }
+      refusal = folderSyncRootRefusal(pair.localPath, approval: approval);
+      if (refusal != null) return null;
+      return [...pairs]
+        ..[index] = FolderSyncPair(
+          id: pair.id,
+          localPath: pair.localPath,
+          cloudFolderId: pair.cloudFolderId,
+          deletePropagates: false,
+          rootApproval: approval,
+        );
+    });
+    if (refusal == null && identical(_store, store)) {
+      _rootRefusals.remove(id);
+      await reload();
     }
-    final unsafe = folderSyncRootRefusal(localPath);
-    if (unsafe != null) return unsafe;
-    pairs.add(
-      FolderSyncPair(
-        id: id,
-        localPath: localPath,
-        cloudFolderId: cloudFolderId,
-      ),
-    );
-    if (!identical(_store, store)) return null;
-    await store.savePairs(pairs);
-    await reload();
-    return null;
+    return refusal;
   }
 
   Future<void> removePair(String id) async {
     final store = _store;
-    final pairs = (await store.pairs()).where((p) => p.id != id).toList();
-    if (!identical(_store, store)) return;
-    await store.savePairs(pairs);
-    // The remembered base goes with it. Keeping it would make a later re-add
-    // of the same folder infer deletions from a picture of the distant past.
+    var removed = false;
+    await store.updatePairs((pairs) {
+      if (!identical(_store, store)) return null;
+      final remaining = pairs.where((pair) => pair.id != id).toList();
+      removed = remaining.length != pairs.length;
+      return removed ? remaining : null;
+    });
+    if (!removed) return;
+    // A later re-add must not infer deletions from the previous pair's base.
     await store.forget(id);
+    if (!identical(_store, store)) return;
+    _rootRefusals.remove(id);
     _scheduler?.unwatch(id);
     await reload();
   }
 
   Future<FolderSyncReport?> runOnce(FolderSyncPair pair) async {
     final engine = _engine;
-    if (engine == null || !_running.add(pair.id)) return null;
+    if (!_running.add(pair.id)) return null;
     // The store this pass belongs to, taken before the first await. A pass in
     // flight when the identity changes must not finish against the next
     // identity's store — the rebuild above stops NEW passes, not one already
     // running.
     final store = _store;
     try {
-      // EVERY PASS, not only at setup.
-      //
-      // `addPair` checked this once, when the folder was chosen, and every
-      // pass afterwards trusted that answer for as long as the pair existed. A
-      // root can stop being safe later: a parent directory made writable by
-      // other accounts, or the folder replaced by a symlink pointing
-      // elsewhere. From then on each pass read and wrote through a root
-      // nothing had looked at since the day it was added.
-      //
-      // Refused rather than narrowed, and recorded where the screen already
-      // shows a refusal — a pass that cannot vouch for its root must not run a
-      // partial one.
-      final unsafe = folderSyncRootRefusal(pair.localPath);
+      // Reload the pair after taking the per-pair lane. A scheduled pass may
+      // have captured its old permissions or a pair that was since removed.
+      final pairs = await store.pairs();
+      if (!identical(_store, store)) return null;
+      final configured = pairs.where((item) => item.id == pair.id).firstOrNull;
+      if (configured == null) return null;
+      pair = configured;
+      final unsafe = folderSyncRootRefusal(
+        pair.localPath,
+        approval: pair.rootApproval,
+      );
       if (unsafe != null) {
-        final reason =
-            'the sync root is no longer safe to use '
-            '(${unsafe.code.name}${unsafe.path == null ? '' : ': ${unsafe.path}'})';
+        _rootRefusals[pair.id] = unsafe;
+        final reason = unsafe.code.name;
         final saved = await store.updateState(
           pair.id,
           (saved) => FolderSyncState(
@@ -259,6 +325,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           refusedReason: reason,
         );
       }
+      _rootRefusals.remove(pair.id);
       // Inside the try, not before it. `_running` is what stops a second pass
       // over the same pair, and the id went in one statement earlier — so a
       // throw from this reload left the pair marked busy for the lifetime of
@@ -271,7 +338,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         // B's cloud.
         return null;
       }
-      return await engine.runOnce(pair);
+      return await engine?.runOnce(pair);
     } finally {
       _running.remove(pair.id);
       await reload();
@@ -288,46 +355,17 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   }
 }
 
-/// Why [path] must not become a sync root, or null when it may.
-///
-/// The mirror writes into this folder on behalf of whatever the cloud account
-/// admits, so who ELSE can reach the folder is this app's business and not the
-/// user's alone. If any step of the path — the folder itself or an ancestor —
-/// may be written by group or by other, another local account can rename or
-/// replace it between two passes, and the mirror will then create the user's
-/// files under a name that account chose. That is the only arrangement in
-/// which this app is a confused deputy: an attacker running as the SAME user
-/// gains nothing here they could not do directly.
-///
-/// ANCESTORS are the point. A leaf-only check looks correct and is not: a
-/// perfectly private `0755` folder inside a `0777` parent can simply be
-/// swapped for a link to somewhere else, leaf permissions untouched.
-///
-/// This is a PRECONDITION, not a race fix. The window between this check and a
-/// later write stays open — closing that needs descriptor-relative `openat`
-/// with `O_NOFOLLOW`, which `dart:io` does not expose (see the note on
-/// `mirrorPathWithin`). What the gate removes is the setting in which the
-/// window has somebody else standing in it.
-///
-/// Both the path as given and the path with its links resolved are walked, for
-/// the reason the privileged-launch guard walks both: the resolved chain says
-/// where writes land, the literal chain says which links could be repointed to
-/// land elsewhere. A symlink STEP is not refused for being one — a link's own
-/// mode means nothing on POSIX, what governs it is its parent's write bits and
-/// what it points at, and both are steps of this same walk. (`/var` on macOS
-/// is a symlink; refusing links outright would refuse every temporary folder
-/// on the platform.)
-FolderSyncRefusal? folderSyncRootRefusal(String path) {
-  // Windows says nothing about this in mode bits: rights there live in ACLs,
-  // which this code does not read and a POSIX mode cannot describe. Same
-  // reasoning as `runtimeDirMustBePrivate()` — a check that cannot be made
-  // faithfully must not be faked, so nothing is refused. A host whose ABI is
-  // not in the `lstat` table is the same case.
-  if (Platform.isWindows || !posixFactsAvailable) return null;
-
+/// Only access to the selected directory's contents is reviewable. Every
+/// directory above it must protect its name, including the literal path of any
+/// symlink step. Consent is scoped to the observed directory and its ACL.
+FolderSyncRefusal? folderSyncRootRefusal(
+  String path, {
+  FolderSyncRootApproval? approval,
+}) {
+  final absolute = Directory(path).absolute.path;
   final String canonical;
   try {
-    canonical = Directory(path).resolveSymbolicLinksSync();
+    canonical = Directory(absolute).resolveSymbolicLinksSync();
   } on FileSystemException catch (error) {
     return FolderSyncRefusal(
       FolderSyncRefusalCode.unresolvable,
@@ -336,27 +374,76 @@ FolderSyncRefusal? folderSyncRootRefusal(String path) {
     );
   }
 
-  for (final step in {..._rootChain(canonical), ..._rootChain(path)}) {
-    final facts = posixLstat(step);
-    // Unreadable is not evidence of safety. Every step of a path that just
-    // resolved does exist, so a null here is an anomaly, not a normal state.
-    if (facts == null) {
+  final windowsHost = Platform.isWindows;
+  if (windowsHost &&
+      !windows.managedWindowsFinalPathMatches(absolute, canonical)) {
+    return FolderSyncRefusal(FolderSyncRefusalCode.unresolvable, path: path);
+  }
+
+  FolderSyncRefusal? rootRisk;
+  for (final step in {..._rootChain(canonical), ..._rootChain(absolute)}) {
+    final leaf = step == canonical;
+    try {
+      if (!windowsHost && posixLstat(step)?.isSymlink == true) continue;
+      final facts = windowsHost
+          ? windows.inspect(
+              step,
+              includeApprovedAcl: true,
+              protectFromReparseChanges: true,
+            )
+          : const ManagedFsPlatform().inspectAcl(step);
+      if (!facts.directory) {
+        return FolderSyncRefusal(
+          FolderSyncRefusalCode.unresolvable,
+          path: step,
+        );
+      }
+      final identity = leaf
+          ? sha256.convert(utf8.encode(facts.identity)).toString()
+          : null;
+      if (leaf && approval != null && approval.identity != identity) {
+        return FolderSyncRefusal(FolderSyncRefusalCode.pathChanged, path: step);
+      }
+
+      if (!facts.safeAncestor ||
+          (windowsHost && leaf && !facts.otherUsersHaveReadOnlyAccess)) {
+        final warning = facts.aclWarning;
+        // Windows must also protect the root itself against DELETE, reparse
+        // changes and ACL changes. On POSIX a sibling cannot rename a leaf
+        // through an ancestor it cannot write. Extended Darwin ACLs that allow
+        // replacement still fail in the platform inspection.
+        final approvable =
+            leaf &&
+            facts.ownedByCurrentUser &&
+            warning != null &&
+            (windowsHost
+                ? facts.safeAncestor
+                : facts.unsafeAncestorCause ==
+                      ManagedAncestorRefusalCause.unsafePermissions);
+        final current = approvable
+            ? (identity: identity!, fingerprint: warning.fingerprint)
+            : null;
+        final refusal = FolderSyncRefusal(
+          FolderSyncRefusalCode.writableByOtherAccounts,
+          path: step,
+          aclWarning: warning,
+          approval: current,
+        );
+        if (!approvable) return refusal;
+        if (approval != current) rootRisk = refusal;
+      }
+    } on ManagedFsFailure catch (error) {
+      final warning = error.aclWarnings.firstOrNull;
       return FolderSyncRefusal(
-        FolderSyncRefusalCode.permissionsUnreadable,
+        warning == null
+            ? FolderSyncRefusalCode.permissionsUnreadable
+            : FolderSyncRefusalCode.writableByOtherAccounts,
         path: step,
-      );
-    }
-    if (facts.isSymlink) continue;
-    // Sticky takes the dangerous half of the write bit back: in `/tmp` others
-    // may create their own entries but may not touch this one.
-    if (facts.groupOrOtherWritable && !(facts.isDirectory && facts.isSticky)) {
-      return FolderSyncRefusal(
-        FolderSyncRefusalCode.writableByOtherAccounts,
-        path: step,
+        aclWarning: warning,
       );
     }
   }
-  return null;
+  return rootRisk;
 }
 
 /// Why a folder was refused as a sync root.
@@ -386,6 +473,8 @@ enum FolderSyncRefusalCode {
   /// account can redirect what is mirrored into it.
   writableByOtherAccounts,
 
+  pathChanged,
+
   /// The identity changed while the picker was open, so the folder chosen on
   /// one identity's screen would have become a pair of another's.
   ///
@@ -402,7 +491,16 @@ enum FolderSyncRefusalCode {
 /// the parent, and naming the leaf instead would send someone looking at the
 /// one directory that is fine.
 class FolderSyncRefusal {
-  const FolderSyncRefusal(this.code, {this.path, this.detail});
+  const FolderSyncRefusal(
+    this.code, {
+    this.path,
+    this.detail,
+    this.aclWarning,
+    this.approval,
+  });
+
+  final ManagedStorageAclWarning? aclWarning;
+  final FolderSyncRootApproval? approval;
 
   final FolderSyncRefusalCode code;
 
@@ -421,16 +519,13 @@ class FolderSyncRefusal {
 /// path cannot spin here.
 List<String> _rootChain(String path) {
   final steps = <String>[];
-  var current = path;
-  for (var guard = 0; guard < 128; guard++) {
-    steps.add(current);
-    final index = current.lastIndexOf('/');
-    if (index < 0) break;
-    final parent = index == 0 ? '/' : current.substring(0, index);
-    if (parent == current) break;
+  var current = Directory(path);
+  while (true) {
+    steps.add(current.path);
+    final parent = current.parent;
+    if (parent.path == current.path) return steps;
     current = parent;
   }
-  return steps;
 }
 
 final folderSyncStoreProvider = Provider<FolderSyncStore>(

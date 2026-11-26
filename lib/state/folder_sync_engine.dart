@@ -187,7 +187,10 @@ class FolderSyncEngine {
       base: resolvedBase,
       local: scan.files,
       remote: remote,
-      deletePropagates: pair.deletePropagates && trustworthy,
+      // Removing a local file currently uses a path. A shared writer could
+      // exchange an intermediate directory during that operation.
+      deletePropagates:
+          pair.deletePropagates && pair.rootApproval == null && trustworthy,
       pendingConflicts: state.pendingConflicts,
     );
 

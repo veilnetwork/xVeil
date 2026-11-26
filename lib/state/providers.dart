@@ -311,8 +311,10 @@ class DeniableBootConfig {
     this.debugMetricsPort,
   });
 
-  /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
-  final String runtimeDir;
+  /// Directory for the ephemeral node control files. Null in offline mode.
+  final String? runtimeDir;
+
+  bool get canHostAllIdentities => runtimeDir != null && storePath != null;
 
   /// This instance's listener port (give two instances on one host distinct
   /// ports so they don't collide).

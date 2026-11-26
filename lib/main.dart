@@ -22,6 +22,7 @@ import 'data/node/bundled_seeds.dart' show resolveBootstrapPeers;
 import 'data/node/bundled_seeds_prefs.dart' show bundledSeedsAllowed;
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
+import 'data/transport/fail_closed_transport.dart';
 import 'data/storage/app_profile.dart';
 import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
@@ -109,6 +110,7 @@ Future<void> main([List<String> args = const []]) async {
 Future<void> runStartup({
   Future<void> Function()? boot,
   Future<void> Function(String? windowsRuntimeBase)? bootWithRuntimeBase,
+  Future<void> Function()? bootOffline,
   String? windowsRuntimeBase,
   Future<ProfilePreferencesBootstrap> Function() loadPreferences =
       _loadStartupPreferences,
@@ -121,6 +123,7 @@ Future<void> runStartup({
 }) async {
   assert(boot == null || bootWithRuntimeBase == null);
   var loadingPreferences = false;
+  var openOffline = bootOffline;
   var resumeBoot =
       bootWithRuntimeBase ?? (boot == null ? null : (String? _) => boot());
   try {
@@ -132,15 +135,21 @@ Future<void> runStartup({
     loadingPreferences = true;
     final preferences = await loadPreferences();
     loadingPreferences = false;
-    resumeBoot = (base) => _bootAndRunApp(preferences, present, base);
+    Future<void> bootProfile(String? base, {bool offline = false}) =>
+        _bootAndRunApp(preferences, present, base, offline: offline);
+    openOffline = () => bootProfile(windowsRuntimeBase, offline: true);
+    resumeBoot = bootProfile;
     await resumeBoot(windowsRuntimeBase);
   } catch (e, st) {
-    final aclWarnings = loadingPreferences && e is ManagedWorkerFailure
-        ? e.aclWarnings
-        : const <ManagedStorageAclWarning>[];
+    final aclWarnings = switch (e) {
+      ManagedWorkerFailure(:final aclWarnings) ||
+      ManagedFsFailure(:final aclWarnings) => aclWarnings,
+      _ => const <ManagedStorageAclWarning>[],
+    };
     final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
     Future<void> retryStartup({String? selectedBase}) => runStartup(
       bootWithRuntimeBase: resumeBoot,
+      bootOffline: openOffline,
       windowsRuntimeBase: selectedBase ?? windowsRuntimeBase,
       loadPreferences: loadPreferences,
       present: present,
@@ -148,7 +157,9 @@ Future<void> runStartup({
       restoreAclApproval: restoreAclApproval,
     );
     final unapproved = <ManagedStorageAclWarning>[];
-    for (final warning in aclWarnings) {
+    for (final warning in {
+      for (final warning in aclWarnings) warning.fingerprint: warning,
+    }.values) {
       if (!await restoreAclApproval(warning)) unapproved.add(warning);
     }
     if (aclWarnings.isNotEmpty && unapproved.isEmpty) {
@@ -213,42 +224,43 @@ Future<void> runStartup({
       atMs: DateTime.now().millisecondsSinceEpoch,
       startupPreferenceFailure: preferenceFailure,
     );
-    final canRetry =
-        loadingPreferences &&
-        (e is ProfileChoiceReadFailure && e.busy ||
-            e is ManagedWorkerFailure &&
-                e.kind == ManagedWorkerFailureKind.busy &&
-                (e.preferencesOpenReason ==
-                        ManagedPreferencesFailureReason.busy ||
-                    e.preferencesReadReason ==
-                        ManagedPreferencesFailureReason.busy));
+    final storageFailureReason = switch (e) {
+      ManagedWorkerFailure() when loadingPreferences =>
+        e.preferencesOpenReason ?? e.preferencesReadReason,
+      ManagedFsFailure() => managedStorageFailureReason(e),
+      ProfileChoiceReadFailure() when loadingPreferences =>
+        e.malformed
+            ? ManagedPreferencesFailureReason.profileChoiceInvalid
+            : ManagedPreferencesFailureReason.profileChoiceUnreadable,
+      _ => null,
+    };
     final unsafeAncestor =
-        loadingPreferences &&
-        e is ManagedWorkerFailure &&
-        (e.preferencesOpenReason ==
-                ManagedPreferencesFailureReason.unsafeAncestor ||
-            e.preferencesReadReason ==
-                ManagedPreferencesFailureReason.unsafeAncestor);
+        storageFailureReason == ManagedPreferencesFailureReason.unsafeAncestor;
+    final canRetry =
+        storageFailureReason == ManagedPreferencesFailureReason.busy ||
+        e is ProfileChoiceReadFailure && e.busy ||
+        e is ManagedFsFailure && e.kind != ManagedFsFailureKind.erasurePending;
     present(
       StartupFailedApp(
-        preferencesReason: loadingPreferences
-            ? switch (e) {
-                ManagedWorkerFailure() =>
-                  e.preferencesOpenReason ?? e.preferencesReadReason,
-                ProfileChoiceReadFailure() =>
-                  e.malformed
-                      ? ManagedPreferencesFailureReason.profileChoiceInvalid
-                      : ManagedPreferencesFailureReason.profileChoiceUnreadable,
-                _ => null,
-              }
-            : null,
+        preferencesReason: storageFailureReason,
         preferencesFormatFailed:
             loadingPreferences && e is ProfilePreferencesFormatFailure,
         preferencesUnsafeAncestor: unsafeAncestor,
         ancestorRefusal: unsafeAncestor
-            ? preferenceFailure?.ancestorRefusal
+            ? e is ManagedFsFailure
+                  ? e.ancestorRefusal
+                  : preferenceFailure?.ancestorRefusal
             : null,
         runtimeFailure: runtimeFailure,
+        openOffline: runtimeFailure?.retryable == true && openOffline != null
+            ? () => runStartup(
+                boot: openOffline,
+                loadPreferences: loadPreferences,
+                present: present,
+                recordAclApproval: recordAclApproval,
+                restoreAclApproval: restoreAclApproval,
+              )
+            : null,
         retryWithRuntimeBase: runtimeFailure?.retryable == true && boot == null
             ? (selectedBase) => retryStartup(selectedBase: selectedBase)
             : null,
@@ -338,8 +350,9 @@ Future<ProfilePreferencesBootstrap> _loadStartupPreferences() {
 Future<void> _bootAndRunApp(
   ProfilePreferencesBootstrap preferences,
   void Function(Widget) present,
-  String? windowsRuntimeBase,
-) async {
+  String? windowsRuntimeBase, {
+  bool offline = false,
+}) async {
   if (preferences.erasurePending) {
     final source = preferences.legacyPreferences;
     if (source == null) {
@@ -368,15 +381,21 @@ Future<void> _bootAndRunApp(
             rethrow;
           }
         },
-        onRecovered: () => runStartup(
-          bootWithRuntimeBase: (base) => _runBootstrappedApplication(
-            profile: source.profile,
-            windowsRuntimeBase: base,
-            supportDirectory: source.supportDirectory,
+        onRecovered: () {
+          Future<void> reopen(String? base, {bool offline = false}) =>
+              _runBootstrappedApplication(
+                profile: source.profile,
+                windowsRuntimeBase: base,
+                supportDirectory: source.supportDirectory,
+                present: present,
+                offline: offline,
+              );
+          return runStartup(
+            bootWithRuntimeBase: reopen,
+            bootOffline: () => reopen(null, offline: true),
             present: present,
-          ),
-          present: present,
-        ),
+          );
+        },
         close: recovery.close,
       ),
     );
@@ -387,6 +406,7 @@ Future<void> _bootAndRunApp(
     windowsRuntimeBase: windowsRuntimeBase,
     supportDirectory: preferences.supportDirectory,
     present: present,
+    offline: offline,
   );
 }
 
@@ -395,6 +415,7 @@ Future<void> _runBootstrappedApplication({
   required String? supportDirectory,
   required String? windowsRuntimeBase,
   required void Function(Widget) present,
+  required bool offline,
 }) async {
   activeProfile = profile;
 
@@ -462,7 +483,8 @@ Future<void> _runBootstrappedApplication({
   // Check Windows runtime permissions before opening another managed owner or
   // installing global handlers, so a retry can reuse the admitted preferences.
   final windowsRuntime =
-      Platform.isWindows &&
+      !offline &&
+          Platform.isWindows &&
           devConfig == null &&
           ensureVeilClientLoaded() &&
           embeddedNodeAvailable()
@@ -471,6 +493,27 @@ Future<void> _runBootstrappedApplication({
           windowsRuntimeBase: windowsRuntimeBase,
         )
       : null;
+  final BootstrapResult boot;
+  try {
+    boot = await _bootstrapOverrides(
+      supportDirectory: supportDirectory,
+      devConfig: devConfig,
+      windowsRuntime: windowsRuntime,
+      offline: offline,
+    );
+  } catch (_) {
+    await _discardStartupRuntime(windowsRuntime);
+    rethrow;
+  }
+  if (boot.managedErasurePending ||
+      mustRefuseInsecureStorage(
+        shipped: kReleaseMode || kProfileMode,
+        secureStorageReady: boot.secureStorageReady,
+        managedStorage: managedStorageEnabled,
+      )) {
+    await _discardStartupRuntime(windowsRuntime);
+  }
+
   final priorFlutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
     devLog(
@@ -507,26 +550,6 @@ Future<void> _runBootstrappedApplication({
   // above. Debug keeps the red screen so developers see failures.
   if (kReleaseMode) {
     ErrorWidget.builder = (details) => const SizedBox.shrink();
-  }
-
-  final BootstrapResult boot;
-  try {
-    boot = await _bootstrapOverrides(
-      supportDirectory: supportDirectory,
-      devConfig: devConfig,
-      windowsRuntime: windowsRuntime,
-    );
-  } catch (_) {
-    await _discardStartupRuntime(windowsRuntime);
-    rethrow;
-  }
-  if (boot.managedErasurePending ||
-      mustRefuseInsecureStorage(
-        shipped: kReleaseMode || kProfileMode,
-        secureStorageReady: boot.secureStorageReady,
-        managedStorage: managedStorageEnabled,
-      )) {
-    await _discardStartupRuntime(windowsRuntime);
   }
 
   present(applicationForBootstrap(boot, shipped: kReleaseMode || kProfileMode));
@@ -566,7 +589,7 @@ Future<String> _claimStartupRuntime(
     uniqueSuffix: '$pid',
     windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
     windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
-    windowsBaseMustBePrivate: windowsRuntimeBase != null,
+    windowsRequireUnredirectedBase: windowsRuntimeBase != null,
     onWindowsRuntimeAttempt: (candidate, failure) => diagnosticJournal.record(
       switch (candidate) {
         0 when override != null => DiagnosticEvent.windowsRuntimeOverride,
@@ -659,6 +682,7 @@ Future<BootstrapResult> _bootstrapOverrides({
   required String? supportDirectory,
   required ({String cli, String config})? devConfig,
   required String? windowsRuntime,
+  required bool offline,
 }) async {
   final overrides = <Override>[];
   var secureStorageReady = false;
@@ -810,7 +834,25 @@ Future<BootstrapResult> _bootstrapOverrides({
     );
   }
 
-  if (devConfig != null) {
+  if (offline) {
+    overrides.add(
+      deniableBootProvider.overrideWithValue(
+        DeniableBootConfig(runtimeDir: null, storePath: storePath),
+      ),
+    );
+    overrides.add(
+      nodeBootStateProvider.overrideWith(
+        (ref) => const NodeStatus(phase: NodePhase.offline),
+      ),
+    );
+    overrides.add(
+      veilTransportProvider.overrideWith((ref) {
+        final transport = FailClosedTransport();
+        ref.onDispose(transport.dispose);
+        return transport;
+      }),
+    );
+  } else if (devConfig != null) {
     // Config-file dev path: boot from a pre-made config.toml at launch.
     try {
       if (ensureVeilClientLoaded()) {

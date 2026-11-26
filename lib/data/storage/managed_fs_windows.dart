@@ -82,7 +82,11 @@ String? programDataRuntimeBase() {
   bool ownedByCurrentUser,
   bool otherUsersHaveReadOnlyAccess,
 })?
-managedWindowsAclPolicy(Object? value, String currentSid) {
+managedWindowsAclPolicy(
+  Object? value,
+  String currentSid, {
+  bool protectFromReparseChanges = false,
+}) {
   if (!RegExp(r'^S-1-[0-9]+(?:-[0-9]+)+$').hasMatch(currentSid) ||
       value is! Map ||
       value.containsKey('error')) {
@@ -99,6 +103,11 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
   var private = true;
   var stable = _isTrustedSid(owner, currentSid);
   var otherUsersHaveReadOnlyAccess = true;
+  // Sync roots and their ancestors must retain their object type. Windows
+  // may allow changing a reparse point with either of these write rights.
+  final reparseRights = protectFromReparseChanges
+      ? win.FILE_WRITE_DATA | win.FILE_WRITE_ATTRIBUTES
+      : 0;
   for (final rule in rules) {
     if (rule is! Map ||
         rule['allow'] is! bool ||
@@ -121,7 +130,7 @@ managedWindowsAclPolicy(Object? value, String currentSid) {
         win.GENERIC_READ |
         win.GENERIC_EXECUTE;
     if (rights & ~readAndExecute != 0) otherUsersHaveReadOnlyAccess = false;
-    if (rights & _ancestorRiskMask != 0) stable = false;
+    if (rights & (_ancestorRiskMask | reparseRights) != 0) stable = false;
   }
   return (
     ownerOnly: private,
@@ -216,7 +225,11 @@ Set<ManagedAclRight> _displayRights(int mask) {
   return rights.isEmpty ? {ManagedAclRight.other} : rights;
 }
 
-ManagedPathWitness inspect(String path, {bool includeApprovedAcl = false}) {
+ManagedPathWitness inspect(
+  String path, {
+  bool includeApprovedAcl = false,
+  bool protectFromReparseChanges = false,
+}) {
   final name = path.toNativeUtf16();
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
   var handle = win.INVALID_HANDLE_VALUE;
@@ -252,7 +265,11 @@ ManagedPathWitness inspect(String path, {bool includeApprovedAcl = false}) {
     }
     final facts = veilPathSecurityFacts(path);
     final currentSid = _currentSid();
-    final policy = managedWindowsAclPolicy(facts, currentSid);
+    final policy = managedWindowsAclPolicy(
+      facts,
+      currentSid,
+      protectFromReparseChanges: protectFromReparseChanges,
+    );
     final finalPath = facts?['finalPath'];
     if (policy == null ||
         finalPath is! String ||
@@ -490,14 +507,12 @@ T _withPrivateFileDescriptor<T>(String sid, T Function(Pointer<Void>) action) {
 /// All changes are metadata on the open handle; the file bytes stay intact.
 ManagedPathWitness normalizePrivateFileAccess(
   String path,
-  ManagedPathWitness expected, {
-  bool allowLegacyReadAccess = false,
-}) {
+  ManagedPathWitness expected,
+) {
   bool canRepair(ManagedPathWitness witness) =>
       !witness.directory &&
       (witness.ownedByCurrentUser || witness.ownedByWindowsAdministrators) &&
-      (witness.ownerOnly ||
-          allowLegacyReadAccess && witness.otherUsersHaveReadOnlyAccess);
+      witness.ownerOnly;
 
   if (!canRepair(expected)) {
     throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);

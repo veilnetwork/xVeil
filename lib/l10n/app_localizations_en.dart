@@ -219,7 +219,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupRuntimeDirectoryFailed =>
-      'xVeil could not verify a private folder for the files that control its network connection. Select a folder on a local drive that belongs to your account, or ask your administrator to create one. Other users must not be able to replace any folder along its path.';
+      'xVeil needs a protected folder for the files that control its network connection. You can open your local data without network access, choose a folder on a local drive, or ask your administrator for help.';
 
   @override
   String get startupRuntimeChecking =>
@@ -227,7 +227,10 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupRuntimeStillBlocked =>
-      'Check complete. xVeil still needs a protected folder to start.';
+      'Check complete. A protected folder is still needed to connect to the network.';
+
+  @override
+  String get startupRuntimeOpenOffline => 'Open without network';
 
   @override
   String get startupRuntimeChooseFolder => 'Choose a different folder';
@@ -7047,6 +7050,20 @@ class AppL10nEn extends AppL10n {
   String folderSyncRefusedUnreadable(String path) {
     return 'the permissions of $path could not be read';
   }
+
+  @override
+  String get folderSyncAclRisk =>
+      'The accounts below can change files in this folder. Their edits may be synced to the cloud. Deletions will not propagate for this folder.';
+
+  @override
+  String get folderSyncAclAccept => 'Allow sync for these permissions';
+
+  @override
+  String get folderSyncAclReview => 'Review folder permissions';
+
+  @override
+  String get folderSyncRefusedPathChanged =>
+      'This path no longer points to the folder you approved. To sync the new folder, remove this pair and add the folder again.';
 
   @override
   String folderSyncRefusedWritable(String path) {

@@ -33,7 +33,7 @@ enum ManagedPreferencesFailureReason {
   profileChoiceInvalid,
 }
 
-ManagedPreferencesFailureReason _preferencesFailureReason(Object error) =>
+ManagedPreferencesFailureReason managedStorageFailureReason(Object error) =>
     switch (error) {
       ManagedFsFailure(:final kind, :final unsafeReason) => switch (kind) {
         ManagedFsFailureKind.unavailable =>
@@ -356,7 +356,7 @@ void _profilePreferencesEntry(
       Directory(base).uri.resolve(ProfilePreferencesLayout.file),
     );
   } catch (error) {
-    final reason = _preferencesFailureReason(error);
+    final reason = managedStorageFailureReason(error);
     final filesystem = error is ManagedFsFailure ? error : null;
     try {
       gate?.close();
@@ -465,36 +465,7 @@ void _profilePreferencesEntry(
             FileSystemException? contention;
             while (true) {
               requireHeld();
-              var witness = inspectFile();
-              if (Platform.isWindows &&
-                  witness != null &&
-                  !witness.aclApproved &&
-                  !witness.directory &&
-                  (witness.ownedByWindowsAdministrators ||
-                      witness.ownedByCurrentUser && !witness.ownerOnly) &&
-                  (witness.ownerOnly || witness.otherUsersHaveReadOnlyAccess)) {
-                final initial = witness;
-                try {
-                  witness = windows.normalizePrivateFileAccess(
-                    file.path,
-                    initial,
-                    allowLegacyReadAccess: true,
-                  );
-                } on ManagedFsFailure catch (error) {
-                  if (error.kind != ManagedFsFailureKind.unsafe &&
-                      error.kind != ManagedFsFailureKind.io) {
-                    rethrow;
-                  }
-                  final current = inspectFile();
-                  if (current == null ||
-                      !initial.sameObject(current) ||
-                      current.aclWarning == null) {
-                    rethrow;
-                  }
-                  witness = current;
-                }
-                requireHeld();
-              }
+              final witness = inspectFile();
               final failure = fileFailure(witness);
               if (failure != null) {
                 message.reply.send(
@@ -572,7 +543,7 @@ void _profilePreferencesEntry(
                   isWindowsFileSharingViolation(error)
                       ? ManagedWorkerFailureKind.busy
                       : _managedFailureKind(error),
-                  preferencesReadReason: _preferencesFailureReason(error),
+                  preferencesReadReason: managedStorageFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
                   aclWarnings: filesystem?.aclWarnings ?? const [],
                 )

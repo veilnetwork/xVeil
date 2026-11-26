@@ -66,9 +66,10 @@
   "startupAclChangeOwner": "change owner",
   "startupAclFullControl": "full control",
   "startupAclOther": "other access",
-  "startupRuntimeDirectoryFailed": "xVeil could not verify a private folder for the files that control its network connection. Select a folder on a local drive that belongs to your account, or ask your administrator to create one. Other users must not be able to replace any folder along its path.",
+  "startupRuntimeDirectoryFailed": "xVeil needs a protected folder for the files that control its network connection. You can open your local data without network access, choose a folder on a local drive, or ask your administrator for help.",
   "startupRuntimeChecking": "Checking access to the network control folders…",
-  "startupRuntimeStillBlocked": "Check complete. xVeil still needs a protected folder to start.",
+  "startupRuntimeStillBlocked": "Check complete. A protected folder is still needed to connect to the network.",
+  "startupRuntimeOpenOffline": "Open without network",
   "startupRuntimeChooseFolder": "Choose a different folder",
   "startupRuntimePickerFailed": "Could not open the folder chooser. Try again.",
   "startupRuntimeInvalidPath": "This path does not identify a supported local folder.",
@@ -2987,6 +2988,10 @@
   "folderSyncRefusedOverlap": "it overlaps a folder that is already synced",
   "folderSyncRefusedUnresolvable": "the real location behind {path} could not be resolved ({detail})",
   "folderSyncRefusedUnreadable": "the permissions of {path} could not be read",
+  "folderSyncAclRisk": "The accounts below can change files in this folder. Their edits may be synced to the cloud. Deletions will not propagate for this folder.",
+  "folderSyncAclAccept": "Allow sync for these permissions",
+  "folderSyncAclReview": "Review folder permissions",
+  "folderSyncRefusedPathChanged": "This path no longer points to the folder you approved. To sync the new folder, remove this pair and add the folder again.",
   "folderSyncRefusedWritable": "{path} can be written by other accounts on this computer, so what is mirrored into it could be redirected somewhere else",
   "@folderSyncRefusedUnresolvable": {
     "placeholders": {

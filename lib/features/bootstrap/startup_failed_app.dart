@@ -33,6 +33,7 @@ class StartupFailedApp extends StatelessWidget {
     this.aclWarnings = const [],
     this.runtimeFailure,
     this.retryWithRuntimeBase,
+    this.openOffline,
     this.pickRuntimeDirectory = FilePicker.getDirectoryPath,
     this.acceptAclWarning,
   });
@@ -45,6 +46,7 @@ class StartupFailedApp extends StatelessWidget {
   final List<ManagedStorageAclWarning> aclWarnings;
   final RuntimeDirNotPrivate? runtimeFailure;
   final Future<void> Function(String path)? retryWithRuntimeBase;
+  final Future<void> Function()? openOffline;
   final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
@@ -70,6 +72,7 @@ class StartupFailedApp extends StatelessWidget {
         aclWarnings: aclWarnings,
         runtimeFailure: runtimeFailure,
         retryWithRuntimeBase: retryWithRuntimeBase,
+        openOffline: openOffline,
         pickRuntimeDirectory: pickRuntimeDirectory,
         acceptAclWarning: acceptAclWarning,
       ),
@@ -87,6 +90,7 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.aclWarnings,
     required this.runtimeFailure,
     required this.retryWithRuntimeBase,
+    required this.openOffline,
     required this.pickRuntimeDirectory,
     required this.acceptAclWarning,
   });
@@ -99,6 +103,7 @@ class _StartupFailedScreen extends StatefulWidget {
   final List<ManagedStorageAclWarning> aclWarnings;
   final RuntimeDirNotPrivate? runtimeFailure;
   final Future<void> Function(String path)? retryWithRuntimeBase;
+  final Future<void> Function()? openOffline;
   final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
 
@@ -168,6 +173,7 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     final warnings = widget.aclWarnings;
     final runtime = widget.runtimeFailure;
     final selectRuntime = widget.retryWithRuntimeBase;
+    final openOffline = widget.openOffline;
     final accept = widget.acceptAclWarning;
     final actionStyle = Theme.of(
       context,
@@ -186,10 +192,11 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
             },
             false when widget.preferencesFormatFailed =>
               l.startupPreferencesFormatFailed,
-            false when retryPreferences != null => l.startupPreferencesBusy,
             false =>
               _preferencesExplanation(l, widget.preferencesReason) ??
-                  l.startupFailedAction,
+                  (retryPreferences == null
+                      ? l.startupFailedAction
+                      : l.startupPreferencesBusy),
           };
     return Scaffold(
       body: SafeArea(
@@ -222,7 +229,7 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   ),
                   const SizedBox(height: 8),
                   for (final warning in warnings) ...[
-                    _AclDetails(warning),
+                    StorageAclDetails(warning),
                     const SizedBox(height: 16),
                   ],
                   Text(l.startupAclCorrectionHint, style: actionStyle),
@@ -293,7 +300,9 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   const LinearProgressIndicator(),
                 ],
                 const CopyErrorReportTile(phase: 'startup-failed'),
-                if (retryPreferences != null || selectRuntime != null) ...[
+                if (retryPreferences != null ||
+                    selectRuntime != null ||
+                    openOffline != null) ...[
                   const SizedBox(height: 16),
                   Wrap(
                     spacing: 8,
@@ -309,6 +318,11 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                                 ? l.startupRetry
                                 : l.startupAclRecheck,
                           ),
+                        ),
+                      if (openOffline != null)
+                        FilledButton.tonal(
+                          onPressed: _busy ? null : () => _retry(openOffline),
+                          child: Text(l.startupRuntimeOpenOffline),
                         ),
                       if (selectRuntime != null)
                         OutlinedButton(
@@ -353,7 +367,7 @@ class _RuntimeRefusalDetails extends StatelessWidget {
       children: [
         if (reason != null) Text(reason),
         if (failure.aclWarning case final warning?)
-          _AclDetails(warning)
+          StorageAclDetails(warning)
         else
           SelectableText(failure.dir),
       ],
@@ -361,8 +375,8 @@ class _RuntimeRefusalDetails extends StatelessWidget {
   }
 }
 
-class _AclDetails extends StatelessWidget {
-  const _AclDetails(this.warning);
+class StorageAclDetails extends StatelessWidget {
+  const StorageAclDetails(this.warning, {super.key});
 
   final ManagedStorageAclWarning warning;
 

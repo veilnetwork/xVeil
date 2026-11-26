@@ -19,7 +19,6 @@ import 'managed_directory_catalog.dart';
 import 'managed_fs_contract.dart';
 import 'managed_fs_platform.dart' show ManagedFsPlatform;
 import 'storage_acl_approval.dart';
-import 'managed_fs_windows.dart' as windows;
 import 'managed_identity_catalog.dart';
 import 'managed_identity_lease.dart';
 import 'managed_reclaim_budget.dart';

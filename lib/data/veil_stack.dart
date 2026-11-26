@@ -340,13 +340,22 @@ bool _createExclusiveDir(String path) {
 /// Inspect only canonical Windows paths. Every parent must prevent replacement
 /// by an untrusted account; read-only shared bases remain valid. The child
 /// itself additionally needs current-user ownership and a private DACL.
-void _assertWindowsRuntimePath(String path, {bool private = false}) {
+void _assertWindowsRuntimePath(
+  String path, {
+  bool private = false,
+  bool sharedReadOnly = false,
+}) {
   var current = Directory(path);
   try {
     for (var depth = 0; depth < 256; depth++) {
       final facts = windows.inspect(current.path, includeApprovedAcl: true);
+      final stable =
+          facts.safeAncestor &&
+          !(depth == 0 &&
+              sharedReadOnly &&
+              !facts.otherUsersHaveReadOnlyAccess);
       if (!facts.directory ||
-          !facts.safeAncestor ||
+          !stable ||
           (depth == 0 &&
               private &&
               (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
@@ -356,7 +365,7 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
           aclWarning: facts.directory ? facts.aclWarning : null,
           windowsRefusal: !facts.directory
               ? WindowsRuntimeRefusal.notDirectory
-              : !facts.safeAncestor
+              : !stable
               ? WindowsRuntimeRefusal.unsafeAncestor
               : WindowsRuntimeRefusal.insufficientPrivacy,
         );
@@ -384,7 +393,11 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
 /// Resolve aliases once and use only the verified canonical path thereafter.
 /// Validate the nearest existing ancestor BEFORE creating missing parents;
 /// recursive Directory.create would follow mutable ancestors before admission.
-String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
+String _prepareWindowsRuntimeBase(
+  String supplied, {
+  bool private = false,
+  bool requireUnredirected = false,
+}) {
   try {
     // The embedded Windows endpoint carries the directory in a query
     // parameter. Its parser treats '&' as a separator and does not unescape.
@@ -421,21 +434,29 @@ String _prepareWindowsRuntimeBase(String supplied, {bool private = false}) {
       existing = existing.parent;
     }
     var canonical = existing.resolveSymbolicLinksSync();
-    if (private &&
+    if ((private || requireUnredirected) &&
         !windows.managedWindowsFinalPathMatches(existing.path, canonical)) {
       throw RuntimeDirNotPrivate(
         supplied,
-        'redirected private Windows runtime base',
+        'redirected Windows runtime base',
         windowsRefusal: WindowsRuntimeRefusal.invalidPath,
       );
     }
-    _assertWindowsRuntimePath(canonical, private: private && missing.isEmpty);
+    _assertWindowsRuntimePath(
+      canonical,
+      private: private && missing.isEmpty,
+      sharedReadOnly: requireUnredirected && missing.isEmpty,
+    );
     for (var index = missing.length - 1; index >= 0; index--) {
       canonical = p.join(canonical, missing[index]);
       // A racing trusted caller may create the same base. It still has to
       // satisfy the full directory policy; it is never claimed as our child.
       windows.createPrivateDirectory(canonical);
-      _assertWindowsRuntimePath(canonical, private: private && index == 0);
+      _assertWindowsRuntimePath(
+        canonical,
+        private: private && index == 0,
+        sharedReadOnly: requireUnredirected && index == 0,
+      );
     }
     return canonical;
   } on RuntimeDirNotPrivate {
@@ -651,7 +672,7 @@ Future<String> claimRuntimeDirUnder(
   required String uniqueSuffix,
   String? windowsFallbackBase,
   String? Function()? windowsPrivateFallbackBase,
-  bool windowsBaseMustBePrivate = false,
+  bool windowsRequireUnredirectedBase = false,
   void Function(int candidate, RuntimeDirNotPrivate? failure)?
   onWindowsRuntimeAttempt,
 }) async {
@@ -672,8 +693,8 @@ Future<String> claimRuntimeDirUnder(
         if (path == null) continue;
         final verified = _prepareWindowsRuntimeBase(
           path,
-          private:
-              candidate == 2 || (candidate == 0 && windowsBaseMustBePrivate),
+          private: candidate == 2,
+          requireUnredirected: candidate == 0 && windowsRequireUnredirectedBase,
         );
         final child = await _claimRuntimeChild(verified, uniqueSuffix);
         onWindowsRuntimeAttempt?.call(candidate, null);

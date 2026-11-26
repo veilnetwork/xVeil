@@ -2138,7 +2138,7 @@ class AppController extends Notifier<AppState> {
             .read(keepAllOnlineProvider.notifier)
             .resolved();
         if (!ref.mounted || _supersededSince(gen)) return;
-        if (allOnline && boot?.storePath != null) {
+        if (allOnline && boot?.canHostAllIdentities == true) {
           try {
             await _enterAllOnline(roster, boot!);
             return;
@@ -3941,7 +3941,7 @@ class AppController extends Notifier<AppState> {
     if (!ref.mounted || _supersededSince(gen)) return;
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
-      runtimeDir: boot.runtimeDir,
+      runtimeDir: boot.runtimeDir!,
       listenPort: boot.listenPort,
       // A BUILDER, not the finished list. Each identity in the session resolves
       // its own answer from its own space and gets its own list built from it;
@@ -4233,7 +4233,7 @@ class AppController extends Notifier<AppState> {
       if (keepAllOnline &&
           ref.read(sessionProvider) == null &&
           _pendingRoster != null &&
-          boot?.storePath != null) {
+          boot?.canHostAllIdentities == true) {
         final roster = work.copyRoster(_pendingRoster)!;
         _setPendingRoster(roster); // Session and controller retain these keys.
         await work.step(() => _enterAllOnline(roster, boot!));
@@ -4737,7 +4737,7 @@ class AppController extends Notifier<AppState> {
       // All-online: rebuild the whole session (every node re-boots), then
       // restore the view to [target] if it still exists (else the first).
       final boot = ref.read(deniableBootProvider);
-      if (boot?.storePath != null) {
+      if (boot?.canHostAllIdentities == true) {
         try {
           await edit.step(() => _enterAllOnline(updated, boot!));
           if (valid) {
@@ -5201,7 +5201,8 @@ class AppController extends Notifier<AppState> {
                 () => ref.read(keepAllOnlineProvider.notifier).resolved(),
               );
           final canHost =
-              allOnline && ref.read(deniableBootProvider)?.storePath != null;
+              allOnline &&
+              ref.read(deniableBootProvider)?.canHostAllIdentities == true;
           _forgetEraseRecovery();
           state = AppState(
             AppPhase.pickingIdentity,
@@ -6374,6 +6375,8 @@ class AppController extends Notifier<AppState> {
     // the Dart heap across a lock.
     var identityPhrase = takePendingIdentityPhrase();
     var restoringIdentity = takePendingRestoringIdentity();
+    final runtime = boot.runtimeDir;
+    if (runtime == null) return;
     // Taken before the boot — the longest await in the app (see [_lifecycle]).
     final gen = _lifecycle;
     // THIS identity's answer, out of the space this boot is about to run on —
@@ -6441,7 +6444,7 @@ class AppController extends Notifier<AppState> {
         rollbackAnchor: PrefsRollbackAnchorStore(
           await ref.read(prefsProvider.future),
         ),
-        runtimeDirBase: boot.runtimeDir,
+        runtimeDirBase: runtime,
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
         listenPort: boot.listenPort + _oneActivePortOffset,

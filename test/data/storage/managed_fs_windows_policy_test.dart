@@ -75,6 +75,27 @@ void main() {
       );
     },
   );
+  test('sync paths refuse grants that can change reparse data', () {
+    for (final mask in [0x2, 0x100]) {
+      expect(
+        managedWindowsAclPolicy(
+          facts([rule('S-1-1-0', mask)]),
+          current,
+          protectFromReparseChanges: true,
+        )!.safeAncestor,
+        isFalse,
+      );
+    }
+    expect(
+      managedWindowsAclPolicy(
+        facts([rule('S-1-1-0', 0x1200a9)]),
+        current,
+        protectFromReparseChanges: true,
+      )!.safeAncestor,
+      isTrue,
+    );
+  });
+
   test('deny and inherit-only entries never grant access', () {
     expect(
       managedWindowsAclPolicy(

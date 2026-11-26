@@ -401,34 +401,15 @@ void main() {
       expect(await disk.openRead(root.path, 'nope.bin'), isNull);
     });
 
-    test('the mirror read asks the native walk BEFORE resolving a name', () {
-      // The containment check and the open both resolve the same name, so a
-      // component swapped between them serves a file from outside the root
-      // (report27 X14). The native walk closes that window by holding each
-      // directory open — and it is unavailable under `flutter test`, so the
-      // behavioural test below cannot tell whether it ran. This one can: it
-      // asserts the ORDER in the source, which is what the fix is.
+    test('mirror reads require the native containment check', () {
       final source = File(
         'lib/state/folder_sync_adapters.dart',
       ).readAsStringSync();
-      final body = source.substring(
-        source.indexOf('Future<RangeSource?> openRead('),
-      );
-      final beneath = body.indexOf('veilOpenBeneath(');
-      final byName = body.indexOf('mirrorPathWithin(');
-      expect(beneath, greaterThanOrEqualTo(0), reason: 'the walk is not used');
-      expect(
-        beneath,
-        lessThan(byName),
-        reason: 'the name is resolved before the walk is even asked',
-      );
-      expect(
-        body.contains('beneath.supported'),
-        isTrue,
-        reason:
-            'a refusal and an inability must not read the same: falling back '
-            'on a refusal serves the very file the walk rejected',
-      );
+      final start = source.indexOf('Future<RangeSource?> openRead(');
+      final body = source.substring(start, source.indexOf('  }', start));
+      expect(body, contains('veilOpenBeneath('));
+      expect(body, isNot(contains('mirrorPathWithin(')));
+      expect(body, isNot(contains('fileRangeSource(')));
     });
 
     test('openRead does not follow a link out of the mirrored folder', () async {
@@ -436,8 +417,7 @@ void main() {
       // again, so a component swapped between the two hands this read a file
       // from outside the root — and the bytes go up to the cloud
       // (report27 X14). The native walk holds each directory open and follows
-      // no link; where it is unavailable the weaker open stands, so this test
-      // asserts what the platform can actually promise.
+      // no link. If the native walk is unavailable, the read is refused.
       final disk = folderDiskFixture();
       final outside = File('${root.parent.path}/secret.txt')
         ..writeAsStringSync('not yours');

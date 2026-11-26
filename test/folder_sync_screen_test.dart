@@ -201,6 +201,31 @@ void main() {
     expect(shown, contains(parent.path));
   });
 
+  testWidgets('a shared folder requires confirmation before adding a pair', (
+    tester,
+  ) async {
+    final tmp = tempRoot('xveil_sync_screen_consent');
+    final root = Directory('${tmp.path}/mirror')..createSync();
+    expect(posixChmod(root.path, _mode0777), 0);
+    final l = await pumpScreen(tester, root.path);
+    final add = find.widgetWithText(FloatingActionButton, l.folderSyncAdd);
+
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    expect(find.text(l.folderSyncAclRisk), findsOneWidget);
+    expect(find.textContaining(l.startupAclWrite), findsWidgets);
+    await tester.tap(find.text(l.actionCancel));
+    await tester.pumpAndSettle();
+    expect(find.text(l.folderSyncEmpty), findsOneWidget);
+
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.folderSyncAclAccept));
+    await tester.pumpAndSettle();
+    expect(find.text(root.path), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
   testWidgets('an overlapping folder is refused through the SAME path',
       (tester) async {
     // The second reason `addPair` can give. It travels the same way and must

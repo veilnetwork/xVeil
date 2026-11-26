@@ -104,6 +104,13 @@ class FolderSyncStore {
     }
   }
 
+  Future<void> updatePairs(
+    List<FolderSyncPair>? Function(List<FolderSyncPair>) update,
+  ) => _serialized(_pairsKey, () async {
+    final next = update(await pairs());
+    if (next != null) await savePairs(next);
+  });
+
   Future<void> savePairs(List<FolderSyncPair> pairs) => _write(
     _pairsKey,
     jsonEncode([
@@ -113,6 +120,10 @@ class FolderSyncStore {
           'local': pair.localPath,
           if (pair.cloudFolderId != null) 'folder': pair.cloudFolderId,
           'del': pair.deletePropagates,
+          if (pair.rootApproval case final approval?) ...{
+            'rootIdentity': approval.identity,
+            'rootAcl': approval.fingerprint,
+          },
         },
     ]),
   );
@@ -212,11 +223,17 @@ class FolderSyncStore {
       return null;
     }
     final folder = row['folder'];
+    final identity = row['rootIdentity'];
+    final fingerprint = row['rootAcl'];
+    final approval = identity is String && fingerprint is String
+        ? (identity: identity, fingerprint: fingerprint)
+        : null;
     return FolderSyncPair(
       id: id,
       localPath: local,
       cloudFolderId: folder is String && folder.isNotEmpty ? folder : null,
       deletePropagates: row['del'] != false,
+      rootApproval: approval,
     );
   }
 

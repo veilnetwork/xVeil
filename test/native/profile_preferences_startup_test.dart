@@ -269,6 +269,54 @@ void main() {
     );
   }
 
+  test(
+    'Windows reading shared preferences leaves the file ACL unchanged',
+    () async {
+      support.deleteSync();
+      support = Directory(
+        Platform.environment['LOCALAPPDATA']!,
+      ).createTempSync('xveil-prefs-read-acl-');
+      final owner = await open(prefs());
+      const contents = '{"v":1,"e":{}}';
+      expect(await owner.write(contents), isTrue);
+      final granted = await Process.run('icacls.exe', [
+        prefs(),
+        '/grant',
+        '*S-1-1-0:(R)',
+      ]);
+      expect(granted.exitCode, 0, reason: granted.stderr.toString());
+
+      final ManagedStorageAclWarning warning;
+      try {
+        await owner.read();
+        fail('Shared access must be explained before reading the file');
+      } on ManagedWorkerFailure catch (error) {
+        expect(
+          error.preferencesReadReason,
+          ManagedPreferencesFailureReason.filePermissions,
+        );
+        warning = error.aclWarnings.single;
+        expect(
+          warning.grants.any(
+            (grant) => grant.rights.contains(ManagedAclRight.read),
+          ),
+          isTrue,
+        );
+      }
+
+      final before = await Process.run('icacls.exe', [prefs()]);
+      expect(before.exitCode, 0);
+      await owner.close();
+      approveStorageAcl(warning.fingerprint);
+      final approved = await open(prefs());
+      expect(await approved.read(), contents);
+      final after = await Process.run('icacls.exe', [prefs()]);
+      expect(after.exitCode, 0);
+      expect(after.stdout, before.stdout);
+    },
+    skip: !Platform.isWindows,
+  );
+
   for (final temporary in [true, false]) {
     test(
       'Windows startup while a file is held open (temporary=$temporary)',

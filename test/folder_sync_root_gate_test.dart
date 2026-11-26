@@ -204,6 +204,7 @@ void main() {
         endsWith(parent.path),
         reason: 'the refusal must name the step that is actually open',
       );
+      expect(refusal.approval, isNull);
       expect(
         container.read(folderSyncControllerProvider),
         isEmpty,
@@ -223,9 +224,60 @@ void main() {
 
       expect(refusal?.code, FolderSyncRefusalCode.writableByOtherAccounts);
       expect(refusal?.path, endsWith(root.path));
+      expect(refusal?.approval, isNotNull);
       expect(container.read(folderSyncControllerProvider), isEmpty);
     });
   });
+
+  test(
+    'remembered consent is scoped to the folder and its current ACL',
+    () async {
+      final tmp = tempRoot('xveil_gate_consent');
+      final root = Directory('${tmp.path}/mirror')..createSync();
+      _chmod(root, _mode0777);
+      final refusal = await controller.addPair(
+        localPath: root.path,
+        id: 'shared',
+      );
+      final approval = refusal!.approval!;
+      expect(refusal.aclWarning!.grants, isNotEmpty);
+
+      _chmod(root, 0x1FD); // 0775
+      final changed = await controller.addPair(
+        localPath: root.path,
+        id: 'shared',
+        rootApproval: approval,
+      );
+      expect(changed?.approval?.identity, approval.identity);
+      expect(changed?.approval?.fingerprint, isNot(approval.fingerprint));
+      expect(container.read(folderSyncControllerProvider), isEmpty);
+
+      final current = changed!.approval!;
+      expect(
+        await controller.addPair(
+          localPath: root.path,
+          id: 'shared',
+          rootApproval: current,
+        ),
+        isNull,
+      );
+      final saved =
+          (await container.read(folderSyncStoreProvider).pairs()).single;
+      expect(saved.rootApproval, current);
+      expect(
+        folderSyncRootRefusal(root.path, approval: saved.rootApproval),
+        isNull,
+      );
+
+      root.renameSync('${tmp.path}/old-mirror');
+      Directory(root.path).createSync();
+      _chmod(root, _mode0700);
+      expect(
+        folderSyncRootRefusal(root.path, approval: saved.rootApproval)?.code,
+        FolderSyncRefusalCode.pathChanged,
+      );
+    },
+  );
 
   test('an ordinary private folder is accepted', () async {
     // The gate has to refuse reachability, not depth: a mirror that turned
