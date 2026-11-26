@@ -464,13 +464,17 @@ int? posixChmod(String path, int mode) {
 /// Dart's `Directory.create` is happy to return an existing directory, so it
 /// cannot express "this must be mine, freshly made". Null when unavailable;
 /// otherwise 0 on success and -1 on any failure (including EEXIST).
-int? posixMkdir(String path, int mode) {
+int? posixMkdir(String path, int mode) => posixMkdirResult(path, mode)?.code;
+
+({int code, int? errno})? posixMkdirResult(String path, int mode) {
   final libc = _resolveLibc();
   final mkdir = libc?.mkdir;
   if (mkdir == null) return null;
   final pathPtr = path.toNativeUtf8();
   try {
-    return mkdir(pathPtr, mode);
+    final errno = libc?.errnoLocation?.call();
+    final code = mkdir(pathPtr, mode);
+    return (code: code, errno: code == 0 ? null : errno?.value);
   } finally {
     calloc.free(pathPtr);
   }

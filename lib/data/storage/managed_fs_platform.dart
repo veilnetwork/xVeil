@@ -219,11 +219,15 @@ class ManagedFsPlatform {
     try {
       facts = allowReadOnlyAclApproval ? inspectAcl(path) : inspect(path);
     } on ManagedFsFailure catch (error) {
-      if (allowReadOnlyAclApproval && error.aclWarnings.isNotEmpty) {
+      if (error.aclWarnings.isNotEmpty) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: ManagedFsUnsafeReason.privateFile,
           path: path,
+          aclWarnings: [
+            for (final warning in error.aclWarnings)
+              warning.withPolicy(canContinue: allowAclApproval),
+          ],
         );
       }
       rethrow;
@@ -241,7 +245,10 @@ class ManagedFsPlatform {
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateFile,
         path: path,
-        aclWarnings: [if (canApprove && !facts.directory) ?facts.aclWarning],
+        aclWarnings: [
+          if (facts.aclWarning case final warning? when !facts.directory)
+            warning.withPolicy(canContinue: canApprove),
+        ],
       );
     }
     return facts;

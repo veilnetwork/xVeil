@@ -797,6 +797,24 @@ Future<void> main(List<String> args) async {
     });
   });
 
+  test(
+    'unreadable legacy preferences are not treated as an empty store',
+    () async {
+      final path = profilePrefsPath(support.path, AppProfiles.defaultName);
+      final file = File(path)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"v":1,"e":{}}');
+      if (posixEuid() == 0) return;
+      expect(posixChmod(path, 0), 0);
+      addTearDown(() => posixChmod(file.path, 0x180));
+      await expectLater(
+        ProfilePreferencesStore.load(path),
+        throwsA(isA<FileSystemException>()),
+      );
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
+
   // ─────────────────────────────────────────────────────────────────────────
   // Audit X-02. A write that says it worked when it did not.
   // ─────────────────────────────────────────────────────────────────────────
@@ -809,8 +827,8 @@ Future<void> main(List<String> args) async {
 
     test('is reported to the caller, not swallowed', () async {
       final path = profilePrefsPath(support.path, AppProfiles.defaultName);
-      blockWritesTo(path);
       final store = await ProfilePreferencesStore.load(path);
+      blockWritesTo(path);
 
       expect(
         await store.setValue('String', 'flutter.proxy_routing', 'EXIT'),

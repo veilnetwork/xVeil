@@ -10,6 +10,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'package:xveil/core/cleanup_legs.dart';
+import 'package:xveil/core/filesystem_errors.dart';
 import 'package:xveil/core/secret_wipe.dart' show wipeSecretBytes;
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/domain/sovereign_secret.dart';
@@ -44,7 +45,7 @@ import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'storage/managed_fs_contract.dart'
-    show ManagedFsFailure, ManagedStorageAclWarning;
+    show ManagedFsFailure, ManagedFsUnsafeReason, ManagedStorageAclWarning;
 import 'storage/managed_fs_platform.dart' show ManagedFsPlatform;
 import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
@@ -97,6 +98,7 @@ enum RuntimeDirectoryRefusal {
   cannotCreate,
   cannotWrite,
   nameExhausted,
+  accessDenied,
 }
 
 typedef WindowsRuntimeAttempt = (int candidate, RuntimeDirNotPrivate failure);
@@ -322,8 +324,16 @@ bool _createExclusiveDir(String path) {
     _assertWindowsRuntimePath(path, private: true);
     return true;
   }
-  final rc = posixMkdir(path, 0x1C0); // 0700
-  if (rc != null) return rc == 0;
+  final result = posixMkdirResult(path, 0x1C0); // 0700
+  if (result != null) {
+    if (result.code == 0) return true;
+    if (result.errno == 17) return false; // EEXIST
+    throw FileSystemException(
+      'could not create directory',
+      path,
+      OSError('mkdir failed', result.errno ?? OSError.noErrorCode),
+    );
+  }
   // No libc binding on an unsupported platform: the pre-check is not atomic,
   // but it is still a
   // refusal to adopt somebody else's directory rather than a silent reuse.
@@ -374,6 +384,19 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
     }
   } on RuntimeDirNotPrivate {
     rethrow;
+  } on ManagedFsFailure catch (error) {
+    final denied =
+        error.unsafeReason == ManagedFsUnsafeReason.windowsPathAccessDenied;
+    throw RuntimeDirNotPrivate(
+      current.path,
+      denied
+          ? 'Windows denied directory access'
+          : 'Windows directory verification failed',
+      retryable: true,
+      refusal: denied
+          ? RuntimeDirectoryRefusal.accessDenied
+          : RuntimeDirectoryRefusal.cannotVerify,
+    );
   } catch (_) {
     throw RuntimeDirNotPrivate(
       current.path,
@@ -451,6 +474,8 @@ String _prepareWindowsRuntimeBase(
     return canonical;
   } on RuntimeDirNotPrivate {
     rethrow;
+  } on FileSystemException catch (error) {
+    throw _runtimeCreationFailure(supplied, error);
   } catch (_) {
     throw RuntimeDirNotPrivate(
       supplied,
@@ -460,46 +485,70 @@ String _prepareWindowsRuntimeBase(
   }
 }
 
-/// A staging directory that is 0700 because THIS call said so.
-///
-/// `createTemp` is mkdtemp, and mkdtemp is specified to create 0700 — which is
-/// what the five call sites below relied on, and what a Linux CI runner
-/// disproved: the same code that measures 0700 on macOS measured 0755 there,
-/// on the directory the native provisioner writes `device_identity_sk.bin`
-/// into. Whatever the platform does with mkdtemp, an explicit mode does not
-/// depend on it. `posixMkdir` is the same call `_createExclusiveDir` makes for
-/// the runtime directory, for the same reason.
-///
-/// EXCLUSIVE, like that one: a name that already exists belongs to somebody
-/// else and is never adopted, so a planted directory cannot be handed the key.
-Directory _createPrivateStagingDir(String base, String prefix) {
-  // The BASE may not be there yet — the node boot hands its runtime directory
-  // in, and provisioning can run before anything has claimed it. `mkdir` does
-  // not make parents, so without this the whole boot ends on ENOENT with a
-  // message about a staging directory. Creating the base is safe to do here:
-  // what must be private is the CHILD, which is created below with its mode
-  // stated outright, and the base is a container the caller already named.
-  //
-  // Not a symlink, for the same reason `claimRuntimeDirUnder` checks: `create`
-  // follows one, and a link planted here would relocate the key material.
-  if (FileSystemEntity.typeSync(base, followLinks: false) ==
-      FileSystemEntityType.link) {
-    throw FileSystemException('staging base is a symlink', base);
+/// The new directory is verified before any temporary secret is written.
+Directory createPrivateStagingDirectory(String base, String prefix) {
+  try {
+    if (Platform.isWindows) {
+      base = _prepareWindowsRuntimeBase(base);
+    } else {
+      final directory = Directory(base);
+      directory.createSync(recursive: true);
+      base = directory.resolveSymbolicLinksSync();
+      if (runtimeDirMustBePrivate()) {
+        var current = Directory(base);
+        while (true) {
+          final facts = const ManagedFsPlatform().inspectAcl(current.path);
+          if (!facts.directory || !facts.safeAncestor) {
+            throw RuntimeDirNotPrivate(
+              current.path,
+              'staging parent may be replaced',
+              refusal: RuntimeDirectoryRefusal.unsafeAncestor,
+              retryable: true,
+              aclWarning: facts.aclWarning,
+            );
+          }
+          final parent = current.parent;
+          if (parent.path == current.path) break;
+          current = parent;
+        }
+      }
+    }
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final path = '$base/${_randomName(prefix)}';
+      if (!_createExclusiveDir(path)) continue;
+      verifyRuntimeDir(path);
+      return Directory(path);
+    }
+  } on FileSystemException catch (error) {
+    throw _runtimeCreationFailure(base, error);
   }
-  if (Platform.isWindows) {
-    base = _prepareWindowsRuntimeBase(base);
-  } else {
-    Directory(base).createSync(recursive: true);
-  }
-  for (var attempt = 0; attempt < 8; attempt++) {
-    final path = '$base/${_randomName(prefix)}';
-    if (_createExclusiveDir(path)) return Directory(path);
-  }
-  throw FileSystemException(
-    'could not create a private staging directory',
+  throw _runtimeNamesExhausted(base);
+}
+
+RuntimeDirNotPrivate _runtimeCreationFailure(
+  String base,
+  FileSystemException error,
+) {
+  final denied = fileSystemAccessDenied(error);
+  return RuntimeDirNotPrivate(
     base,
+    denied
+        ? 'the operating system denied directory access'
+        : 'could not create or write the runtime directory',
+    retryable: true,
+    refusal: denied
+        ? RuntimeDirectoryRefusal.accessDenied
+        : RuntimeDirectoryRefusal.cannotWrite,
   );
 }
+
+RuntimeDirNotPrivate _runtimeNamesExhausted(String base) =>
+    RuntimeDirNotPrivate(
+      base,
+      'no free runtime directory name',
+      retryable: true,
+      refusal: RuntimeDirectoryRefusal.nameExhausted,
+    );
 
 String _randomName(String prefix) {
   final random = Random.secure();
@@ -697,12 +746,8 @@ Future<String> claimRuntimeDirUnder(
           'Windows directory creation failed',
           refusal: RuntimeDirectoryRefusal.cannotCreate,
         );
-      } on FileSystemException {
-        failure = RuntimeDirNotPrivate(
-          path ?? base,
-          'Windows directory write failed',
-          refusal: RuntimeDirectoryRefusal.cannotWrite,
-        );
+      } on FileSystemException catch (error) {
+        failure = _runtimeCreationFailure(path ?? base, error);
       }
       attempts.add((candidate, failure));
       onWindowsRuntimeAttempt?.call(candidate, failure);
@@ -730,13 +775,8 @@ Future<String> claimRuntimeDirUnder(
     }
     await Directory(base).create(recursive: true);
     return await _claimRuntimeChild(base, uniqueSuffix);
-  } on FileSystemException {
-    throw RuntimeDirNotPrivate(
-      base,
-      'runtime directory creation or write failed',
-      retryable: true,
-      refusal: RuntimeDirectoryRefusal.cannotWrite,
-    );
+  } on FileSystemException catch (error) {
+    throw _runtimeCreationFailure(base, error);
   }
 }
 
@@ -915,32 +955,36 @@ class RuntimeDirLease {
         FileSystemEntityType.link) {
       throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
     }
-    if (Platform.isWindows) {
-      base = _prepareWindowsRuntimeBase(base);
-      if (_forbiddenBase(base)) {
-        throw RuntimeDirNotPrivate(
-          base,
-          'canonical runtime base is a root or home',
+    try {
+      if (Platform.isWindows) {
+        base = _prepareWindowsRuntimeBase(base);
+        if (_forbiddenBase(base)) {
+          throw RuntimeDirNotPrivate(
+            base,
+            'canonical runtime base is a root or home',
+          );
+        }
+      } else {
+        await Directory(base).create(recursive: true);
+      }
+
+      for (var attempt = 0; attempt < 8; attempt++) {
+        final path = '$base/${_randomName(prefix)}';
+        if (!_createExclusiveDir(path)) continue;
+        verifyRuntimeDir(path);
+        final secret = _randomSecret();
+        await _writeRuntimeDirMarker(path, secret: secret);
+        return RuntimeDirLease._(
+          path: path,
+          base: base,
+          secret: secret,
+          identity: posixLstat(path),
         );
       }
-    } else {
-      await Directory(base).create(recursive: true);
+    } on FileSystemException catch (error) {
+      throw _runtimeCreationFailure(base, error);
     }
-
-    for (var attempt = 0; attempt < 8; attempt++) {
-      final path = '$base/${_randomName(prefix)}';
-      if (!_createExclusiveDir(path)) continue;
-      await restrictRuntimeDir(path);
-      final secret = _randomSecret();
-      await _writeRuntimeDirMarker(path, secret: secret);
-      return RuntimeDirLease._(
-        path: path,
-        base: base,
-        secret: secret,
-        identity: posixLstat(path),
-      );
-    }
-    throw RuntimeDirNotPrivate(base, 'no free runtime directory name');
+    throw _runtimeNamesExhausted(base);
   }
 
   /// Why this lease may NOT delete its directory, or null when it may.
@@ -1729,7 +1773,10 @@ class RealVeilStack {
     // process. The ordinary call left it at whatever the umask says, and this
     // is the directory the native provisioner writes
     // `device_identity_sk.bin` into.
-    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idprov');
+    final stagingDir = createPrivateStagingDirectory(
+      stagingBase,
+      'xveil-idprov',
+    );
     final staging = stagingDir.path;
     // The address the certificate NAMES, kept so the address that comes out
     // can be checked against it. Null on every path where nothing was
@@ -2116,7 +2163,7 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = _createPrivateStagingDir(
+    final stagingDir = createPrivateStagingDirectory(
       stagingBase,
       'xveil-iddelegate',
     );
@@ -2218,7 +2265,10 @@ class RealVeilStack {
     // whatever the umask says — and what gets written there is
     // `device_identity_sk.bin`, this device's signing key. Not a difference
     // worth repeating in a new path.
-    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idrenew');
+    final stagingDir = createPrivateStagingDirectory(
+      stagingBase,
+      'xveil-idrenew',
+    );
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -2304,7 +2354,10 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idrevoke');
+    final stagingDir = createPrivateStagingDirectory(
+      stagingBase,
+      'xveil-idrevoke',
+    );
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -2432,7 +2485,10 @@ class RealVeilStack {
       // The renewal path had already been given the safer call; the other four
       // had not, which is the shape of a fix applied at one site instead of to
       // the operation.
-      final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idadopt');
+      final stagingDir = createPrivateStagingDirectory(
+        stagingBase,
+        'xveil-idadopt',
+      );
       final staging = stagingDir.path;
       try {
         if (adoptNamed != null) {
@@ -2511,7 +2567,10 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idmerge');
+    final stagingDir = createPrivateStagingDirectory(
+      stagingBase,
+      'xveil-idmerge',
+    );
     final staging = stagingDir.path;
     try {
       // The merge happens on a COPY. A delegation that fails half way — a

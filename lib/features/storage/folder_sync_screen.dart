@@ -105,11 +105,16 @@ String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
     // Silence on purpose: see the code's own doc.
     FolderSyncRefusalCode.identityChanged => null,
     FolderSyncRefusalCode.pathChanged => l.folderSyncRefusedPathChanged,
+    FolderSyncRefusalCode.confirmationRequired =>
+      l.folderSyncConfirmExistingRoot(path),
+    FolderSyncRefusalCode.redirectableWindowsPath =>
+      l.folderSyncWindowsRootRedirectable(path),
     FolderSyncRefusalCode.overlapsExistingPair => l.folderSyncRefusedOverlap,
     FolderSyncRefusalCode.unresolvable => l.folderSyncRefusedUnresolvable(
       path,
       refusal.detail ?? '',
     ),
+    FolderSyncRefusalCode.osAccessDenied => l.folderSyncReadAccessDenied(path),
     FolderSyncRefusalCode.permissionsUnreadable =>
       l.folderSyncRefusedUnreadable(path),
     FolderSyncRefusalCode.readableByOtherAccounts => l.folderSyncAclReadRisk,
@@ -287,6 +292,55 @@ class _PairCard extends ConsumerWidget {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
+          if (rootRefusal?.rootIdentity case final identity?)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: view.busy
+                    ? null
+                    : () async {
+                        final lease = ref.leaseIdentity();
+                        final accepted = await showDialog<bool>(
+                          context: context,
+                          builder: (dialog) => AlertDialog(
+                            title: Text(l.folderSyncConfirmRoot),
+                            content: Text(
+                              l.folderSyncConfirmExistingRoot(
+                                view.pair.localPath,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialog, false),
+                                child: Text(l.actionCancel),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(dialog, true),
+                                child: Text(l.folderSyncConfirmRoot),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (!context.mounted || accepted != true) return;
+                        final refusal = await controller.confirmPairRoot(
+                          view.pair.id,
+                          identity,
+                          owner: lease,
+                        );
+                        if (!context.mounted || refusal == null) return;
+                        await _reviewRoot(
+                          context,
+                          refusal,
+                          (approval) => controller.approvePair(
+                            view.pair.id,
+                            approval,
+                            owner: lease,
+                          ),
+                        );
+                      },
+                child: Text(l.folderSyncConfirmRoot),
+              ),
+            ),
           if (rootRefusal?.aclWarning != null)
             Align(
               alignment: AlignmentDirectional.centerStart,
@@ -362,23 +416,60 @@ class _PairCard extends ConsumerWidget {
               children: [
                 TextButton.icon(
                   onPressed: () async {
-                    final pair = view.pair;
-                    var identity = pair.rootIdentity;
+                    var pair = view.pair;
+                    final lease = ref.leaseIdentity();
+                    FolderSyncRefusal? inspect() {
+                      final identity =
+                          pair.rootIdentity ?? pair.rootApproval?.identity;
+                      if (identity == null) {
+                        return FolderSyncRefusal(
+                          FolderSyncRefusalCode.confirmationRequired,
+                          path: pair.localPath,
+                        );
+                      }
+                      return folderSyncRootRefusal(
+                        pair.localPath,
+                        approval: pair.rootApproval,
+                        expectedIdentity: identity,
+                      );
+                    }
+
                     await showDialog<void>(
                       context: context,
                       builder: (_) => FolderSavedVersionsDialog(
                         root: pair.localPath,
                         rootRefusal: () {
-                          final refusal = folderSyncRootRefusal(
-                            pair.localPath,
-                            approval: pair.rootApproval,
-                            expectedIdentity: identity,
-                            onVerifiedIdentity: (value) => identity = value,
-                          );
+                          final refusal = inspect();
                           return refusal == null
                               ? null
                               : folderSyncRefusalText(l, refusal);
                         },
+                        reviewRoot: (dialog) async {
+                          final refusal = inspect();
+                          if (refusal?.aclWarning == null) return;
+                          await _reviewRoot(dialog, refusal!, (approval) async {
+                            final next = await controller.approvePair(
+                              pair.id,
+                              approval,
+                              owner: lease,
+                            );
+                            if (next == null &&
+                                context.mounted &&
+                                ref.holdsIdentity(lease)) {
+                              pair =
+                                  ref
+                                      .read(folderSyncControllerProvider)
+                                      .where(
+                                        (entry) => entry.pair.id == pair.id,
+                                      )
+                                      .firstOrNull
+                                      ?.pair ??
+                                  pair;
+                            }
+                            return next;
+                          });
+                        },
+                        canReviewRoot: () => inspect()?.aclWarning != null,
                       ),
                     );
                   },

@@ -114,9 +114,18 @@ class _PreferenceFileAccess {
     }
     if (type != FileSystemEntityType.file) throw _cannotPreservePolicy;
     final facts = const ManagedFsPlatform().inspectAcl(file.path);
-    if (!facts.ownedByCurrentUser) throw _cannotPreservePolicy;
+    if (!facts.ownedByCurrentUser || !facts.otherUsersHaveReadOnlyAccess) {
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        unsafeReason: ManagedFsUnsafeReason.preferencesAccessPolicy,
+        path: file.path,
+        aclWarnings: [
+          if (facts.aclWarning case final warning?)
+            warning.withPolicy(canContinue: false, readOnlyInApp: true),
+        ],
+      );
+    }
     if (Platform.isWindows) {
-      if (!facts.otherUsersHaveReadOnlyAccess) throw _cannotPreservePolicy;
       final acl = windows.readPreferenceDacl(file.path, facts);
       final verified = const ManagedFsPlatform().inspectAcl(file.path);
       if (verified.identity != facts.identity ||

@@ -12,6 +12,7 @@ import 'dart:typed_data';
 
 import '../core/posix_file_facts.dart';
 import '../data/storage/managed_fs_platform.dart';
+import '../data/storage/managed_fs_windows.dart' as win;
 
 /// Ceiling on a SHARED deployment secret read from a file.
 ///
@@ -108,80 +109,18 @@ const String kAcceptReadableSecretFilesFlag = '--accept-readable-secret-files';
 const String kAcceptReadableSecretFilesEnv =
     'XVEIL_ACCEPT_READABLE_SECRET_FILES';
 
-/// Why this platform cannot prove a secret file is private, or null when it
-/// can.
-///
-/// On macOS and Linux, inspection checks the access ACL and mode.
-///
-/// Windows cannot — not from Dart. Access there is an ACL, and nothing in
-/// `dart:io` reads one: [FileStat.mode] is synthesised from the read-only
-/// attribute and has no relation to who may open the file, and [FileStat]
-/// carries no owner on any platform. So a `--password-file` on Windows used to
-/// be accepted with NO check of any kind: not the owner, not the ACL, not even
-/// the useless mode. A password sitting in a world-readable directory — the
-/// default for anything under `C:\ProgramData` — passed silently (audit X-10).
-///
-/// This is a statement about what can be verified, not about what is likely.
-/// The remedy is not a better check in Dart; it is to type the secret in, or to
-/// take responsibility for the file explicitly.
+/// Explanation for the explicit Windows fallback when the ACL probe fails.
 String? unverifiableSecretFileReason({required bool isWindows}) => isWindows
-    ? 'Windows access control is an ACL, and Dart exposes neither the ACL nor '
-          'the owner — this process cannot tell whether another account can '
-          'read the file'
+    ? 'the Windows ACL probe is unavailable, so ownership and access by '
+          'other accounts could not be established'
     : null;
 
-/// Read a secret from [path], refusing one this process cannot show is private.
+/// Read a bounded credential after checking file type, ownership and access.
+/// Windows uses the native ACL probe when available. Known read-only grants
+/// require explicit consent. The caller may separately accept an unavailable
+/// Windows probe, and receives a warning before the unverified read.
 ///
-/// This used to be a bare `readAsString` (audit XV-16). A container password, a
-/// recovery phrase or an API token sitting at mode 0644 — the default under
-/// most umasks — is readable by every account on the box, and a headless
-/// deployment is exactly where nobody is watching. Worse, the path could be a
-/// SYMLINK: point `--password-file` at one and the daemon reads wherever it
-/// leads, which turns a config knob into a file-disclosure primitive for anyone
-/// who can write the config.
-///
-/// Checked, not assumed, and fail-closed. What is checked, exactly:
-///
-///  * it is not a symlink, and it is a regular file;
-///  * on macOS and Linux, a verified grant is private unless the operator
-///    accepts sharing with accounts that only have read or execute rights;
-///  * on POSIX, it is OWNED by this process;
-///  * on Windows, NOTHING can be checked, so the read is refused unless the
-///    operator asserts otherwise ([acceptUnchecked]);
-///  * the file did not change between the check and the read.
-///
-/// ## One call, not three
-///
-/// The type check, the mode check and the "before" snapshot used to be three
-/// separate lookups against the NAME. That left a window between the mode check
-/// and the snapshot: a file swapped in there is never mode-checked, and because
-/// the swap happened BEFORE the snapshot it also produces a perfectly
-/// consistent before/after pair. The detection agreed that nothing had changed,
-/// about a file that was never checked (audit X-05).
-///
-/// On POSIX all three now come from ONE `lstat(2)` via [posixLstat]: the facts
-/// that decide are the same facts that get compared afterwards, so there is no
-/// window between deciding and snapshotting to swap into.
-///
-/// ## Ownership, and comparing by identity
-///
-/// [FileStat] carries no uid, which is why ownership went unchecked — a file
-/// owned by ANOTHER account at mode 0600 used to pass, and that account could
-/// then rewrite it under us. `lstat` carries `st_uid`, and [posixEuid] says who
-/// we are, so on POSIX that is now closed.
-///
-/// The before/after comparison is by `(st_dev, st_ino)` — object identity —
-/// rather than by size and modification time. Both of those are writable by
-/// anyone who can write the file (`utimes`), so a swap that preserves them is
-/// one `touch -r` away from being invisible. An inode is not something the
-/// attacker gets to choose.
-///
-/// Windows, and any POSIX host whose `struct stat` layout [posixLstat] does not
-/// know, keep the original path-based flow — it is what those platforms had,
-/// and it is not made worse.
-///
-/// [isWindows] and [warn] are injected so the refusal is testable from any
-/// host — this is the branch that had no coverage at all.
+/// [isWindows] and [warn] allow tests to exercise the unavailable-probe path.
 Future<String> readSecretFile(
   String path,
   String label, {
@@ -218,7 +157,34 @@ Future<String> readSecretFile(
       throw StateError('$label file $path is not a regular file');
     }
   }
-  final unverifiable = unverifiableSecretFileReason(isWindows: windows);
+  ManagedPathWitness? acl;
+  const fs = ManagedFsPlatform();
+  final windowsPath = File(path).absolute.path;
+  if (windows && Platform.isWindows && isWindows == null) {
+    try {
+      acl = win.inspect(windowsPath, includeApprovedAcl: true);
+    } on ManagedFsFailure catch (error) {
+      if (error.unsafeReason != null) {
+        throw StateError(
+          '$label file $path could not be verified (${error.unsafeReason!.name}). '
+          'Check the file and folder permissions or type the secret at the prompt.',
+        );
+      }
+      // Compatibility for systems where the SDK probe cannot read an ACL.
+    }
+  }
+  final unverifiable = acl == null
+      ? unverifiableSecretFileReason(isWindows: windows)
+      : null;
+  if (acl != null) {
+    _checkSecretGrant(
+      path,
+      label,
+      acl,
+      acceptReadable: acceptReadable,
+      warn: warn,
+    );
+  }
   if (unverifiable != null) {
     // Loud either way: refuse, or say plainly that the guarantee is the
     // operator's and not the program's. Silence was the bug.
@@ -226,9 +192,8 @@ Future<String> readSecretFile(
       throw StateError(
         '$label file $path cannot be verified: $unverifiable. Run xveil from a '
         'terminal and type the secret at the prompt instead (leave the file '
-        'option off). For an unattended service, restrict the file yourself '
-        '(icacls <file> /inheritance:r /grant:r "%USERNAME%":R) and re-run '
-        'with $kAcceptUncheckedSecretFilesFlag, or set '
+        'option off). For an unattended service, check the file and folder '
+        'security properties and re-run with $kAcceptUncheckedSecretFilesFlag, or set '
         '$kAcceptUncheckedSecretFilesEnv=1 — that flag asserts the file is '
         'private, it does not make it so.',
       );
@@ -247,8 +212,6 @@ Future<String> readSecretFile(
       'platform — the permission check still applies to $label file $path.',
     );
   }
-  ManagedPathWitness? acl;
-  const fs = ManagedFsPlatform();
   if (before != null) {
     final euid = posixEuid();
     if (euid != null && before.uid != euid) {
@@ -271,29 +234,14 @@ Future<String> readSecretFile(
           '$label file $path changed during the permission check.',
         );
       }
-      if (!acl.safeAncestor || !acl.otherUsersHaveReadOnlyAccess) {
-        final details = _secretAclDetails(acl.aclWarning);
-        throw StateError(
-          '$label file $path can be modified by another account.$details',
-        );
-      }
-      if (!acl.ownerOnly) {
-        final details = _secretAclDetails(acl.aclWarning);
-        final description =
-            '$label file $path is mode '
-            '${(before.mode & 0x1FF).toRadixString(8)} '
-            'and may be readable beyond its owner.$details';
-        if (!acceptReadable || acl.aclWarning == null) {
-          throw StateError(
-            '$description Check the ACL and mode (chmod 600 for mode bits), '
-            'type the secret at the prompt, or pass '
-            '$kAcceptReadableSecretFilesFlag to accept verified read-only access.',
-          );
-        }
-        (warn ?? stderr.writeln)(
-          'xveil: WARNING: $description The operator accepted this access.',
-        );
-      }
+      _checkSecretGrant(
+        path,
+        label,
+        acl,
+        acceptReadable: acceptReadable,
+        warn: warn,
+        mode: before.mode & 0x1ff,
+      );
     } else if (before.mode & 0x3F != 0) {
       throw StateError(
         '$label file $path is mode ${(before.mode & 0x1FF).toRadixString(8)} — '
@@ -352,6 +300,22 @@ Future<String> readSecretFile(
     return value;
   }
 
+  if (acl != null) {
+    final value = utf8
+        .decode(await _readBounded(path, label, kSecretFileMaxBytes))
+        .trim();
+    final after = win.inspect(windowsPath, includeApprovedAcl: true);
+    if (!after.sameObject(acl) ||
+        after.ownerOnly != acl.ownerOnly ||
+        after.aclWarning?.fingerprint != acl.aclWarning?.fingerprint) {
+      throw StateError(
+        '$label file $path changed permissions while being read.',
+      );
+    }
+    if (value.isEmpty) throw StateError('$label file is empty');
+    return value;
+  }
+
   // Windows, or a POSIX ABI with no layout in the table: size and modification
   // time are all Dart offers. Weaker — both are writable by anyone who can
   // write the file — but it is what these platforms had, and nothing here makes
@@ -374,9 +338,47 @@ Future<String> readSecretFile(
   return value;
 }
 
+void _checkSecretGrant(
+  String path,
+  String label,
+  ManagedPathWitness acl, {
+  required bool acceptReadable,
+  void Function(String)? warn,
+  int? mode,
+}) {
+  final details = _secretAclDetails(acl.aclWarning);
+  if (acl.directory || !acl.ownedByCurrentUser) {
+    throw StateError(
+      '$label file $path must be owned and writable only by your account '
+      'or a trusted system account.$details',
+    );
+  }
+  if (!acl.safeAncestor || !acl.otherUsersHaveReadOnlyAccess) {
+    throw StateError(
+      '$label file $path can be modified by another account.$details',
+    );
+  }
+  if (acl.ownerOnly) return;
+  final description =
+      '$label file $path ${mode == null ? '' : 'is mode ${mode.toRadixString(8)} and '}'
+      'may be readable beyond its owner.$details';
+  if (!acceptReadable || acl.aclWarning == null) {
+    throw StateError(
+      '$description Check the file permissions${mode == null ? '' : ' (chmod 600 for mode bits)'}, '
+      'type the secret at the prompt, or pass '
+      '$kAcceptReadableSecretFilesFlag to accept verified read-only grants.',
+    );
+  }
+  (warn ?? stderr.writeln)(
+    'xveil: WARNING: $description The operator accepted this access.',
+  );
+}
+
 String _secretAclDetails(ManagedStorageAclWarning? warning) {
   if (warning == null) return '';
   return [
+    if (warning.grantsArePotential)
+      'ACL allow entries (deny rules can limit access):',
     for (final grant in warning.grants)
       '${grant.account.isEmpty ? 'other accounts' : grant.account}: '
           '${grant.rights.map((right) => right.name).join(', ')}',

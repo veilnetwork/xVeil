@@ -263,7 +263,10 @@ class _CountingEngine implements FolderSyncEngine {
   int runs = 0;
 
   @override
-  Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
+  Future<FolderSyncReport> runOnce(
+    FolderSyncPair pair, {
+    void Function()? verifyRoot,
+  }) async {
     runs++;
     return const FolderSyncReport(
       applied: [],

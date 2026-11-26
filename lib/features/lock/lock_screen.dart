@@ -4,6 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../core/storage_acl_vault.dart';
+import '../../data/storage/async_kv_log_store.dart'
+    show managedStorageFailureReason;
+import '../../data/storage/managed_fs_contract.dart';
+import '../bootstrap/startup_failed_app.dart'
+    show showStorageAccessReview, preferencesFailureText, StorageAclDetails;
 import '../../state/app_controller.dart';
 import '../../core/error_journal.dart';
 import '../../domain/storage_locator.dart';
@@ -69,6 +75,34 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         SnackBar(content: Text(AppL10n.of(context).storageSelectionFailed)),
       );
     }
+  }
+
+  Future<void> _reviewStorageAccess(ManagedFsFailure failure) async {
+    final l = AppL10n.of(context);
+    final warnings = failure.aclWarnings;
+    final remember = await showStorageAccessReview(context, failure);
+    if (!mounted ||
+        remember == null ||
+        !identical(
+          ref.read(appControllerProvider).storageAccessFailure,
+          failure,
+        )) {
+      return;
+    }
+    for (final warning in warnings) {
+      if (!await recordStorageAclApproval(warning, remember: remember)) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.storageAclRetryOperation)));
   }
 
   Future<void> _startOver() async {
@@ -181,9 +215,19 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final failure = ref.watch(
       appControllerProvider.select((s) => s.unlockFailure),
     );
+    final accessFailure = ref.watch(
+      appControllerProvider.select((state) => state.storageAccessFailure),
+    );
     final storageError = switch (failure) {
       UnlockFailure.storageBusy => l.lockStorageBusy,
-      UnlockFailure.storageUnavailable => l.lockStorageOpenFailed,
+      UnlockFailure.storageUnavailable =>
+        accessFailure == null
+            ? l.lockStorageOpenFailed
+            : preferencesFailureText(
+                    l,
+                    managedStorageFailureReason(accessFailure),
+                  ) ??
+                  l.lockStorageOpenFailed,
       UnlockFailure.wrongPassword || null => null,
     };
     final canCopyReport = failure != null || errorJournal.entries.isNotEmpty;
@@ -261,6 +305,17 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                           style: TextStyle(color: scheme.error),
                         ),
                       ),
+                    ],
+                    if (accessFailure != null) ...[
+                      if (accessFailure.path case final path?)
+                        SelectableText(path),
+                      if (accessFailure.aclWarnings.isNotEmpty)
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _reviewStorageAccess(accessFailure),
+                          child: Text(l.storageAclReview),
+                        ),
                     ],
                     const SizedBox(height: 16),
                     FilledButton(
@@ -427,6 +482,7 @@ class WipeReportHost extends ConsumerWidget {
             _WipeLeftoverDialog(
               remaining: report.remaining,
               stopped: report.stopped,
+              storageAccessFailure: report.storageAccessFailure,
               onDone: () => ref.read(wipeReportProvider.notifier).dismiss(),
               onRetry: () => ref.read(wipeReportProvider.notifier).runWipe(),
             ),
@@ -451,6 +507,7 @@ class _WipeLeftoverDialog extends StatelessWidget {
   const _WipeLeftoverDialog({
     required this.remaining,
     required this.stopped,
+    this.storageAccessFailure,
     required this.onDone,
     required this.onRetry,
   });
@@ -470,6 +527,7 @@ class _WipeLeftoverDialog extends StatelessWidget {
   /// The wipe threw instead of returning. Nothing was verified, so this cannot
   /// claim the rest was destroyed — it says only what is honestly known.
   final bool stopped;
+  final ManagedFsFailure? storageAccessFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -529,6 +587,18 @@ class _WipeLeftoverDialog extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(line),
                 ),
+            if (storageAccessFailure case final failure?) ...[
+              if (preferencesFailureText(
+                    l,
+                    managedStorageFailureReason(failure),
+                  )
+                  case final reason?)
+                Text(reason),
+              if (failure.aclWarnings.isEmpty && failure.path != null)
+                SelectableText(failure.path!),
+              for (final warning in failure.aclWarnings)
+                StorageAclDetails(warning),
+            ],
             // Only when the wipe ran to the end. After a throw nothing was
             // verified, so "everything else was destroyed" would be a guess
             // dressed as a reassurance.

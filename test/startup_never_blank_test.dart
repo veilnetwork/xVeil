@@ -27,17 +27,21 @@ import 'package:xveil/main.dart' show runStartup;
 /// EMPTY WINDOW: process alive, log written where nobody looks, and a user with
 /// no way to tell whether their data had been touched.
 void main() {
-  test('forgetting durable ACL decisions preserves other secure entries', () async {
-    final fingerprint = 'a' * 64;
-    const unrelated = 'unrelated-entry';
-    const storage = FlutterSecureStorage();
-    FlutterSecureStorage.setMockInitialValues({
-      'xveil.storage.acl.v1.$fingerprint': '1',
-      unrelated: 'value',
-    });
-    expect(await forgetRememberedStorageAclApprovals(), isTrue);
-    expect(await storage.readAll(), {unrelated: 'value'});
-  }, skip: Platform.isWindows);
+  test(
+    'forgetting durable ACL decisions preserves other secure entries',
+    () async {
+      final fingerprint = 'a' * 64;
+      const unrelated = 'unrelated-entry';
+      const storage = FlutterSecureStorage();
+      FlutterSecureStorage.setMockInitialValues({
+        'xveil.storage.acl.v1.$fingerprint': '1',
+        unrelated: 'value',
+      });
+      expect(await forgetRememberedStorageAclApprovals(), isTrue);
+      expect(await storage.readAll(), {unrelated: 'value'});
+    },
+    skip: Platform.isWindows,
+  );
 
   setUp(errorJournal.clear);
 
@@ -403,13 +407,13 @@ void main() {
       final screen = presented! as StartupFailedApp;
       expect(
         screen.runtimeFailure!.refusal,
-        RuntimeDirectoryRefusal.cannotWrite,
+        RuntimeDirectoryRefusal.accessDenied,
       );
       expect(screen.retryWithRuntimeBase, isNotNull);
       expect(screen.openOffline, isNotNull);
       await tester.pumpWidget(screen);
       expect(
-        find.textContaining('Check your account’s write access'),
+        find.textContaining('The operating system denied access to the folder'),
         findsOneWidget,
       );
     },

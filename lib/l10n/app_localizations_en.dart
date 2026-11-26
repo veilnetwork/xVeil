@@ -8570,4 +8570,88 @@ class AppL10nEn extends AppL10n {
   @override
   String get masterAppendReplayBody =>
       'Continue adding the new identity. Your existing data will be kept.';
+
+  @override
+  String get storageAclPotentialGrants =>
+      'The ACL lists these grants. Deny rules and group membership can limit actual access.';
+
+  @override
+  String get storageAclSettingsReadOnly =>
+      'xVeil can read these settings. It can save changes after the file is owned by your account and other accounts lack write access.';
+
+  @override
+  String get storageAclUnlockReadRisk =>
+      'Other accounts may be able to read this storage. Check the accounts and rights before deciding whether to continue.';
+
+  @override
+  String get folderSyncConfirmRoot => 'Confirm sync folder';
+
+  @override
+  String folderSyncConfirmExistingRoot(String path) {
+    return 'Confirm that $path is the folder belonging to this sync pair. Existing sync history and deletion settings will apply.';
+  }
+
+  @override
+  String folderSyncWindowsRootRedirectable(String path) {
+    return 'Windows permissions may let another account redirect $path. Choose a folder whose path other accounts cannot redirect, or ask your administrator to review its permissions.';
+  }
+
+  @override
+  String get mediaCameraPermissionDenied =>
+      'Camera access was denied. Allow xVeil to use the camera in your system privacy settings and try again.';
+
+  @override
+  String get mediaMicrophonePermissionDenied =>
+      'Microphone access was denied. Allow xVeil to use the microphone in your system privacy settings and try again.';
+
+  @override
+  String get mediaPermissionCheckUnavailable =>
+      'Could not check device access. Open your system privacy settings or try again.';
+
+  @override
+  String get mediaScreenPermissionDeclined =>
+      'Screen-sharing permission was declined or the request was closed. Start sharing again and confirm the system prompt.';
+
+  @override
+  String get mediaScreenStartFailed =>
+      'Screen sharing could not start. Try again after closing any other screen capture.';
+
+  @override
+  String get notificationPermissionDenied =>
+      'System notifications are disabled for xVeil. You can enable them in system settings.';
+
+  @override
+  String get devicesPairLanDenied =>
+      'The system denied access to the local network. Check the local-network or firewall settings for xVeil, or use the other linking method below.';
+
+  @override
+  String get quickUnlockAuthCancelled =>
+      'System authentication was cancelled. Try again or use your password.';
+
+  @override
+  String get quickUnlockAuthNotEnrolled =>
+      'Set up biometrics or device sign-in in your system settings, then try again.';
+
+  @override
+  String get quickUnlockAuthLockedOut =>
+      'System authentication is locked. Use your password and unlock biometrics in system settings.';
+
+  @override
+  String get quickUnlockAuthFailed =>
+      'The system could not authenticate you. Check the device sign-in settings or use your password.';
+
+  @override
+  String get storageAclMaintenanceBlocked =>
+      'This operation would replace a file whose access settings xVeil cannot preserve. Review the access settings before retrying.';
+
+  @override
+  String get storageAclRetryOperation =>
+      'Choice saved. Retry the operation when you are ready.';
+
+  @override
+  String get storageAclReview => 'Review access permissions';
+
+  @override
+  String get startupRuntimeAccessDenied =>
+      'The operating system denied access to the folder used for connection control. Check your account’s permissions or choose another folder.';
 }

@@ -6,11 +6,12 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
+import '../../core/document_export.dart';
 import '../../core/ids.dart';
 import '../../state/app_controller.dart';
 import '../../data/serve_source.dart';
+import '../../domain/chat_file_export.dart';
 import '../../domain/content_manifest.dart';
 import '../../domain/media_file_name.dart';
 import '../../domain/media_object.dart' show kInlineImageMaxBytes;
@@ -366,55 +367,37 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
   }
 
   Future<void> _saveHeld() async {
+    final app = ref.read(appControllerProvider.notifier);
+    final lease = app.leaseIdentity();
+    final storage = ref.read(storageProvider);
+    final cid = _cid;
+    final l = AppL10n.of(context);
+    bool current() => mounted && app.holdsIdentity(lease);
     final manifest = await _manifest();
     final size = widget.media.size ?? manifest?.size;
-    if (size == null || size <= 0 || !mounted) return;
+    if (size == null || size <= 0 || !current()) return;
     final name = _safeFileName(widget.media.name ?? manifest?.name ?? 'file');
-    final String? path;
-    if (Platform.isAndroid || Platform.isIOS) {
-      path = '${(await getApplicationDocumentsDirectory()).path}/$name';
-    } else {
-      path = await FilePicker.saveFile(fileName: name);
-    }
-    if (path == null) return;
-    var written = 0;
-    var ok = true;
-    IOSink? output;
+    String message;
     try {
-      output = File(path).openWrite();
-      while (written < size) {
-        final remaining = size - written;
-        final want = remaining > 256 * 1024 ? 256 * 1024 : remaining;
-        final chunk = await ref
-            .read(storageProvider)
-            .readFileRange(_cid, written, want);
-        if (chunk == null || chunk.length != want) {
-          ok = false;
-          break;
-        }
-        output.add(chunk);
-        written += chunk.length;
-      }
-    } catch (_) {
-      ok = false;
-    } finally {
-      await output?.close();
-    }
-    if (!ok) {
-      try {
-        await File(path).delete();
-      } catch (_) {}
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ok
-                ? AppL10n.of(context).chatFileSaved
-                : AppL10n.of(context).chatFileSaveFailed,
-          ),
-        ),
+      final saved = await exportChatFile(
+        name: name,
+        size: size,
+        read: (offset, count) => storage.readFileRange(cid, offset, count),
+        stillOurs: current,
       );
+      if (!saved) return;
+      message = l.chatFileSaved;
+    } on DocumentExportException catch (error) {
+      message = error.permissionDenied
+          ? l.chatFileSavePermissionDenied
+          : l.chatFileSaveFailed;
+    } catch (_) {
+      message = l.chatFileSaveFailed;
+    }
+    if (mounted && current()) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

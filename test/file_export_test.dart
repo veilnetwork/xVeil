@@ -175,47 +175,30 @@ void main() {
       expect(dir.listSync(), hasLength(1), reason: 'a temp was left behind');
     });
 
-    test('and a sibling refused ASYNCHRONOUSLY still falls back', () async {
-      // The one that mattered on the device. `openWrite` opens nothing, so a
-      // sandbox's refusal arrives through the sink afterwards — the `try`
-      // around the call saw a clean return, the fallback never ran, and every
-      // export on that build failed with a partial nobody had asked for
-      // (report17 XV17-M1).
-      final file = target('notes.txt');
-      final opened = <String>[];
+    test(
+      'an asynchronous sibling refusal leaves the original intact',
+      () async {
+        final file = target('notes.txt')..writeAsStringSync('the original');
+        final opened = <String>[];
 
-      final ok = await writeStreamedFile(
-        file: file,
-        size: 128,
-        read: source(128),
-        openSink: (f) {
-          opened.add(f.path);
-          if (f.path.contains('.xveil-part-')) {
-            return _AsyncRefusingSink(f.openWrite());
-          }
-          return f.openWrite();
-        },
-      );
-
-      expect(
-        opened.any((p) => p.contains('.xveil-part-')),
-        isTrue,
-        reason: 'no sibling was even tried',
-      );
-      // THE POINT, and what the first version of this test missed: without the
-      // awaited open the refusal never arrives, the sibling is written and
-      // renamed, and every assertion about the RESULT still passes. What
-      // distinguishes the two is whether the direct path was opened at all.
-      expect(
-        opened,
-        contains(file.path),
-        reason:
-            'the fallback never ran: the refusal was not seen, so the '
-            'export went through a sibling the sandbox had refused',
-      );
-      expect(ok, isTrue, reason: 'the fallback did not finish the copy');
-      expect(file.lengthSync(), 128);
-    });
+        await expectLater(
+          writeStreamedFile(
+            file: file,
+            size: 128,
+            read: source(128),
+            openSink: (f) {
+              opened.add(f.path);
+              return _AsyncRefusingSink(f.openWrite());
+            },
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(opened, hasLength(1));
+        expect(opened.single, isNot(file.path));
+        expect(file.readAsStringSync(), 'the original');
+        expect(dir.listSync(), hasLength(1));
+      },
+    );
 
     test('the sibling is not at a name anybody could have guessed', () async {
       // Two things at once. A predictable `<target>.xveil-part` can be a
@@ -259,33 +242,20 @@ void main() {
       );
     });
 
-    test(
-      'and a filesystem that refuses a sibling still writes direct',
-      () async {
-        // The sandbox case: the save panel grants the SELECTED path and nothing
-        // else, so opening `<name>.part` fails. Falling back is what makes an
-        // export possible there at all.
-        final file = target('notes.txt');
-        var refusedSibling = false;
-
-        final ok = await writeStreamedFile(
+    test('a synchronous sibling refusal leaves the original intact', () async {
+      final file = target('notes.txt')..writeAsStringSync('the original');
+      await expectLater(
+        writeStreamedFile(
           file: file,
           size: 128,
           read: source(128),
-          openSink: (f) {
-            if (f.path.contains('.xveil-part-')) {
-              refusedSibling = true;
-              throw const FileSystemException('Operation not permitted');
-            }
-            return f.openWrite();
-          },
-        );
-
-        expect(refusedSibling, isTrue, reason: 'no sibling was even tried');
-        expect(ok, isTrue);
-        expect(file.lengthSync(), 128);
-      },
-    );
+          openSink: (_) =>
+              throw const FileSystemException('Operation not permitted'),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(file.readAsStringSync(), 'the original');
+    });
   });
 
   group('choosing where it goes', () {

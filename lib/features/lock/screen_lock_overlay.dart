@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/local_authentication.dart';
 import '../../core/secure_screen.dart';
 import '../../domain/screen_lock.dart';
 import '../../l10n/app_localizations.dart';
@@ -134,6 +135,7 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   Timer? _ticker;
   List<int> _pattern = [];
   int _patternEpoch = 0;
+  LocalAuthenticationFailure? _authFailure;
   bool _authBusy = false;
 
   @override
@@ -293,17 +295,41 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                                 onPressed: waiting || _authBusy
                                     ? null
                                     : () async {
-                                        setState(() => _authBusy = true);
+                                        setState(() {
+                                          _authBusy = true;
+                                          _authFailure = null;
+                                        });
+                                        final authentication = ref.read(
+                                          localScreenAuthenticationProvider,
+                                        );
+                                        authentication.lastFailure = null;
                                         await ref
                                             .read(screenLockProvider.notifier)
                                             .tryUnlockSystem(
                                               l.quickUnlockReason,
                                             );
                                         if (mounted) {
-                                          setState(() => _authBusy = false);
+                                          setState(() {
+                                            _authBusy = false;
+                                            _authFailure =
+                                                authentication.lastFailure;
+                                          });
                                         }
                                       },
                               ),
+                            if (_authFailure case final failure?)
+                              Text(switch (failure) {
+                                LocalAuthenticationFailure.cancelled =>
+                                  l.quickUnlockAuthCancelled,
+                                LocalAuthenticationFailure.notEnrolled =>
+                                  l.quickUnlockAuthNotEnrolled,
+                                LocalAuthenticationFailure.lockedOut =>
+                                  l.quickUnlockAuthLockedOut,
+                                LocalAuthenticationFailure.unavailable =>
+                                  l.quickUnlockUnavailable,
+                                LocalAuthenticationFailure.failed =>
+                                  l.quickUnlockAuthFailed,
+                              }),
                             const SizedBox(height: 16),
                             FilledButton(
                               key: const ValueKey('screen-lock-submit'),

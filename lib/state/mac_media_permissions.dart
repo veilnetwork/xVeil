@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+enum MediaPermissionStatus { allowed, denied, unavailable }
+
 /// Apple/Android microphone and camera permission via a MethodChannel.
 ///
 /// macOS and iOS use AVCaptureDevice.requestAccess; Android maps to runtime
@@ -11,20 +13,33 @@ import 'package:flutter/services.dart';
 class MacMediaPermissions {
   static const _ch = MethodChannel('xveil/media_permissions');
 
-  static Future<bool> requestMicrophone() => _request('audio');
-  static Future<bool> requestCamera() => _request('video');
+  static Future<bool> requestMicrophone() async =>
+      await requestMicrophoneAccess() == MediaPermissionStatus.allowed;
+  static Future<bool> requestCamera() async =>
+      await requestCameraAccess() == MediaPermissionStatus.allowed;
+
+  static Future<MediaPermissionStatus> requestMicrophoneAccess() =>
+      _request('audio');
+  static Future<MediaPermissionStatus> requestCameraAccess() =>
+      _request('video');
 
   static Future<String> microphoneStatus() => _status('audio');
   static Future<String> cameraStatus() => _status('video');
 
-  static Future<bool> _request(String type) async {
-    if (!Platform.isMacOS && !Platform.isIOS && !Platform.isAndroid) {
-      return true;
-    }
+  static bool get hasPermissionBridge =>
+      Platform.isMacOS || Platform.isIOS || Platform.isAndroid;
+
+  static Future<MediaPermissionStatus> _request(String type) async {
+    if (!hasPermissionBridge) return MediaPermissionStatus.allowed;
     try {
-      return (await _ch.invokeMethod<bool>('request', {'type': type})) ?? false;
+      final granted = await _ch.invokeMethod<bool>('request', {'type': type});
+      return switch (granted) {
+        true => MediaPermissionStatus.allowed,
+        false => MediaPermissionStatus.denied,
+        null => MediaPermissionStatus.unavailable,
+      };
     } catch (_) {
-      return false;
+      return MediaPermissionStatus.unavailable;
     }
   }
 

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/storage/managed_fs_contract.dart';
 import '../../data/storage/async_kv_log_store.dart'
-    show ManagedPreferencesFailureReason;
+    show ManagedPreferencesFailureReason, managedStorageFailureReason;
 import '../../data/veil_stack.dart'
     show RuntimeDirNotPrivate, RuntimeDirectoryRefusal;
 import '../../l10n/app_localizations.dart';
@@ -264,19 +264,24 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                   ),
                 ] else ...[
                   Text(explanation, style: actionStyle),
-                  if (widget.storageRefusalPath case final path?) ...[
+                  for (final warning in warnings) ...[
                     const SizedBox(height: 8),
-                    SelectableText(path),
+                    StorageAclDetails(warning),
+                  ],
+                  if (warnings.isEmpty &&
+                      widget.storageRefusalPath != null) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(widget.storageRefusalPath!),
                   ],
                   if (runtime != null) ...[
                     const SizedBox(height: 8),
                     if (runtime.windowsAttempts.isEmpty)
-                      _RuntimeRefusalDetails(runtime)
+                      RuntimeRefusalDetails(runtime)
                     else
                       for (final (_, failure) in runtime.windowsAttempts)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: _RuntimeRefusalDetails(failure),
+                          child: RuntimeRefusalDetails(failure),
                         ),
                   ],
                   if (widget.preferencesUnsafeAncestor && ancestor != null) ...[
@@ -352,8 +357,8 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
   }
 }
 
-class _RuntimeRefusalDetails extends StatelessWidget {
-  const _RuntimeRefusalDetails(this.failure);
+class RuntimeRefusalDetails extends StatelessWidget {
+  const RuntimeRefusalDetails(this.failure, {super.key});
 
   final RuntimeDirNotPrivate failure;
 
@@ -369,6 +374,7 @@ class _RuntimeRefusalDetails extends StatelessWidget {
       RuntimeDirectoryRefusal.cannotCreate ||
       RuntimeDirectoryRefusal.cannotWrite => l.startupRuntimeCannotWrite,
       RuntimeDirectoryRefusal.cannotVerify => l.startupRuntimeCannotVerify,
+      RuntimeDirectoryRefusal.accessDenied => l.startupRuntimeAccessDenied,
       RuntimeDirectoryRefusal.nameExhausted => l.startupRuntimeNameExhausted,
       null => null,
     };
@@ -385,6 +391,80 @@ class _RuntimeRefusalDetails extends StatelessWidget {
   }
 }
 
+/// Returns the requested scope of an approval, or null when declined.
+Future<bool?> showStorageAccessReview(
+  BuildContext context,
+  ManagedFsFailure failure, {
+  String? explanation,
+}) {
+  final l = AppL10n.of(context);
+  final warnings = failure.aclWarnings;
+  final canContinue =
+      warnings.isNotEmpty && warnings.every((warning) => warning.canContinue);
+  final hasWritableGrant = warnings.any(
+    (warning) =>
+        warning.readOnlyInApp ||
+        warning.grants.any(
+          (grant) => grant.rights.any(
+            (right) =>
+                right != ManagedAclRight.read &&
+                right != ManagedAclRight.execute,
+          ),
+        ),
+  );
+  final consentExplainer = hasWritableGrant
+      ? (warnings.any((warning) => warning.directory)
+            ? l.startupAclWarningRisk
+            : l.startupAclFileWarningRisk)
+      : l.storageAclUnlockReadRisk;
+  return showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      scrollable: true,
+      title: Text(l.startupAclWarningTitle),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            explanation ??
+                (canContinue
+                    ? consentExplainer
+                    : preferencesFailureText(
+                            l,
+                            managedStorageFailureReason(failure),
+                          ) ??
+                          l.startupAclCorrectionHint),
+          ),
+          if (warnings.isEmpty && failure.path != null)
+            SelectableText(failure.path!),
+          for (final warning in warnings) ...[
+            const SizedBox(height: 12),
+            StorageAclDetails(warning),
+          ],
+          if (warnings.isNotEmpty) Text(l.startupAclCorrectionHint),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialog),
+          child: Text(canContinue ? l.actionCancel : l.actionDone),
+        ),
+        if (canContinue) ...[
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(l.profileAclContinueOnce),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(l.profileAclRememberChoice),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
 class StorageAclDetails extends StatelessWidget {
   const StorageAclDetails(this.warning, {super.key});
 
@@ -399,6 +479,9 @@ class StorageAclDetails extends StatelessWidget {
         SelectableText(warning.path),
         const SizedBox(height: 8),
         if (warning.owner case final owner?) Text(l.startupAclOwner(owner)),
+        if (warning.grantsArePotential && warning.grants.isNotEmpty)
+          Text(l.storageAclPotentialGrants),
+        if (warning.readOnlyInApp) Text(l.storageAclSettingsReadOnly),
         for (final grant in warning.grants)
           Text(
             l.startupAclGrant(

@@ -728,7 +728,11 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
                     }
                 } else {
                     ScreenCaptureBridge.retire(session, channel)
-                    result.success(false)
+                    if (resultCode != Activity.RESULT_OK) {
+                        result.error("screen_capture_consent_declined", "Screen capture consent declined", null)
+                    } else {
+                        result.error("screen_capture", "Capture request expired", null)
+                    }
                 }
             }
         } catch (_: Exception) {

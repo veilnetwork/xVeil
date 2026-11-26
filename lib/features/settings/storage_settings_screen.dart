@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../common/help_label.dart';
+import '../../core/storage_acl_vault.dart';
+import '../bootstrap/startup_failed_app.dart' show showStorageAccessReview;
 import '../common/translation_models_tile.dart';
 import '../common/whisper_model_tile.dart';
 import 'compaction_offer_dialog.dart';
@@ -245,11 +247,37 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(l.actionDone)));
       await _load();
-    } catch (_) {
-      if (mounted && ctrl.holdsIdentity(lease)) {
+    } catch (error) {
+      if (!mounted || !ctrl.holdsIdentity(lease)) return;
+      final access = appStorageFailure(error);
+      if (access == null) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l.settingsStorageCompactFailed)));
+        return;
+      }
+      final remember = await showStorageAccessReview(
+        context,
+        access,
+        explanation: access.aclWarnings.any((warning) => !warning.canContinue)
+            ? l.storageAclMaintenanceBlocked
+            : null,
+      );
+      if (!mounted || !ctrl.holdsIdentity(lease) || remember == null) return;
+      for (final warning in access.aclWarnings) {
+        if (!await recordStorageAclApproval(warning, remember: remember)) {
+          if (mounted && ctrl.holdsIdentity(lease)) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+          }
+          return;
+        }
+      }
+      if (mounted && ctrl.holdsIdentity(lease)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.storageAclRetryOperation)));
       }
     } finally {
       if (mounted) setState(() => _reclaimingOwned = false);

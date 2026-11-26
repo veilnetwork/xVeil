@@ -6,6 +6,11 @@ import 'dart:typed_data';
 import '../data/folder_scan.dart';
 import '../data/folder_file_metadata.dart';
 import '../data/folder_publication.dart';
+import '../data/veil_stack.dart'
+    show
+        createPrivateStagingDirectory,
+        RuntimeDirectoryRefusal,
+        RuntimeDirNotPrivate;
 import '../domain/cloud.dart';
 import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
@@ -254,20 +259,43 @@ class CloudServiceFolderSync implements FolderSyncCloud {
 /// at one chunk rather than one file.
 const int kFolderSyncChunkBytes = 256 * 1024;
 
-class LocalFolderSyncDisk implements FolderSyncDisk {
-  const LocalFolderSyncDisk({this.library});
+class LocalFolderSyncDisk implements FolderSyncDisk, FolderSyncRootBoundDisk {
+  const LocalFolderSyncDisk({this.library, this.verifyRoot});
+
+  final void Function()? verifyRoot;
+
+  @override
+  FolderSyncDisk bindRoot(void Function() verifyRoot) =>
+      LocalFolderSyncDisk(library: library, verifyRoot: verifyRoot);
+
+  NativeFolderSession _openScope(String root) {
+    verifyRoot?.call();
+    final scope = NativeFolderSession.open(root, lib: library);
+    try {
+      verifyRoot?.call();
+      scope.checkRoot();
+      return scope;
+    } catch (_) {
+      scope.close();
+      rethrow;
+    }
+  }
 
   /// Explicit FS-only fixture seam. Production always uses the verified SDK.
   final DynamicLibrary? library;
 
   @override
   Future<FolderScan> scan(String root) async {
-    if (!Directory(root).existsSync()) return scanFolder(Directory(root));
-    final scope = NativeFolderSession.open(root, lib: library);
+    verifyRoot?.call();
+    if (!Directory(root).existsSync() && verifyRoot == null) {
+      return scanFolder(Directory(root));
+    }
+    final scope = _openScope(root);
     try {
       await scope.recoverBeforeScan();
       final result = await scanFolder(Directory(root));
       scope.checkRoot();
+      verifyRoot?.call();
       return result;
     } finally {
       scope.close();
@@ -288,7 +316,14 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     //
     // Shared roots may contain entries changed by other accounts. Reads
     // require the native walk even when the SDK cannot perform it.
+    verifyRoot?.call();
     final beneath = await veilOpenBeneath(root, path, lib: library);
+    try {
+      verifyRoot?.call();
+    } catch (_) {
+      await beneath.source?.close();
+      rethrow;
+    }
     final source = beneath.source;
     if (source == null) {
       return switch (beneath.refusal) {
@@ -331,9 +366,18 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     await _requireVersion(root, path, expected);
     // Private staging keeps slow/failed network reads out of the root-wide
     // admission. No user target or parent directory is touched during download.
-    final staging = await Directory.systemTemp.createTemp(
-      'xveil-folder-stage-',
-    );
+    final Directory staging;
+    try {
+      staging = createPrivateStagingDirectory(
+        Directory.systemTemp.path,
+        'xveil-folder-stage',
+      );
+    } on RuntimeDirNotPrivate catch (error) {
+      throw FolderFsFailure(
+        FolderFsFailureKind.preparation,
+        accessDenied: error.refusal == RuntimeDirectoryRefusal.accessDenied,
+      );
+    }
     try {
       final prepared = File('${staging.path}/payload');
       final output = await prepared.open(mode: FileMode.writeOnly);
@@ -355,7 +399,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
         await output.close();
       }
       if (written != source.size) return null;
-      final scope = NativeFolderSession.open(root, lib: library);
+      final scope = _openScope(root);
       try {
         await scope.recoverBeforePublish(path);
         await _requireVersion(root, path, expected);
@@ -415,23 +459,25 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
 
   @override
   Future<void> remove(String root, String path) async {
+    verifyRoot?.call();
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) return;
     final file = File(resolved);
-    if (file.existsSync()) await file.delete();
+    if (file.existsSync()) file.deleteSync();
     // Prune the directories the file left behind, but never the pair's root:
     // a mirror that removes the folder the user pointed at looks like the
     // feature uninstalled itself.
     var dir = file.parent;
     while (dir.path.length > root.length && dir.existsSync()) {
       if (dir.listSync().isNotEmpty) break;
-      await dir.delete();
+      dir.deleteSync();
       dir = dir.parent;
     }
   }
 
   @override
   Future<LocalFile?> stat(String root, String path) async {
+    verifyRoot?.call();
     // SAME RESOLVER as write and remove (audit XV-12). This built the path by
     // concatenation, so a name the writer would refuse still had its metadata
     // read — `..` segments and absolute paths included. One resolver for every

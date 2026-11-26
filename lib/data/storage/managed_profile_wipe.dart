@@ -15,6 +15,7 @@ import 'async_kv_log_store.dart';
 import 'legacy_compaction_source.dart';
 import 'legacy_profile_preferences.dart';
 import 'managed_directory_catalog.dart';
+import 'managed_fs_contract.dart';
 import 'profile_preferences.dart';
 import 'profile_prefs_store.dart';
 import 'profile_storage_router_owner.dart';
@@ -22,7 +23,9 @@ import 'storage.dart';
 
 /// Safe for UI/error reports: backend messages, names and paths stay private.
 final class ManagedProfileWipeFailure implements Exception {
-  const ManagedProfileWipeFailure();
+  const ManagedProfileWipeFailure([this.filesystemFailure]);
+
+  final ManagedFsFailure? filesystemFailure;
   @override
   String toString() => 'ManagedProfileWipeFailure';
 }
@@ -142,8 +145,15 @@ final class ManagedProfileWipe {
       try {
         await _resume();
         done.complete();
-      } catch (_) {
-        done.completeError(const ManagedProfileWipeFailure());
+      } catch (error, stack) {
+        final filesystem = switch (error) {
+          ManagedFsFailure() => error,
+          ManagedWorkerFailure(:final filesystemFailure) => filesystemFailure,
+          ManagedProfileWipeFailure(:final filesystemFailure) =>
+            filesystemFailure,
+          _ => null,
+        };
+        done.completeError(ManagedProfileWipeFailure(filesystem), stack);
       } finally {
         _pending = null;
       }

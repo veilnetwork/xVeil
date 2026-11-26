@@ -181,7 +181,13 @@ class _QrScanScreenState extends State<QrScanScreen>
                       children: [
                         const Icon(Icons.no_photography_outlined, size: 48),
                         const SizedBox(height: 16),
-                        Text(l.scanUnavailable, textAlign: TextAlign.center),
+                        Text(
+                          error.errorCode ==
+                                  MobileScannerErrorCode.permissionDenied
+                              ? l.mediaCameraPermissionDenied
+                              : l.scanUnavailable,
+                          textAlign: TextAlign.center,
+                        ),
                       ],
                     ),
                   ),

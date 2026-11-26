@@ -449,6 +449,9 @@ final pendingRecoveryCertificateProvider = StateProvider<bool>((ref) => false);
 /// when the in-process boot fails. Null ⇒ no real node expected (pure dev/UI
 /// build) ⇒ the demo `FakeNodeController` is used.
 final nodeBootStateProvider = StateProvider<NodeStatus?>((ref) => null);
+final nodeRuntimeFailureProvider = StateProvider<RuntimeDirNotPrivate?>(
+  (ref) => null,
+);
 
 final nodeControllerProvider = Provider<NodeController>((ref) {
   final stack = ref.watch(realStackProvider);

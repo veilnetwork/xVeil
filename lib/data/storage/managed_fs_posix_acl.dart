@@ -33,9 +33,10 @@ ManagedStorageAclWarning? managedPosixAclWarning(
   return ManagedStorageAclWarning(
     path: canonicalPath,
     directory: facts.isDirectory,
-    owner: facts.uid == currentUid ? null : 'UID ${facts.uid}',
+    owner: facts.uid == currentUid ? null : _accountLabel(facts.uid),
     extendedAcl: darwinAcl.isEmpty ? null : darwinAcl,
-    grants: grants,
+    grants: [...grants, ..._darwinDisplayGrants(darwinAcl)],
+    grantsArePotential: darwinAcl.isNotEmpty,
     fingerprint: sha256
         .convert(
           utf8.encode(
@@ -58,6 +59,48 @@ ManagedStorageAclWarning? managedPosixAclWarning(
   );
 }
 
+/// Interpret the human-readable entries for the local UI only. Admission and
+/// consent still use the native ACL masks and the exact serialized ACL.
+Iterable<ManagedAclGrant> _darwinDisplayGrants(String acl) sync* {
+  for (final line in const LineSplitter().convert(acl)) {
+    final fields = line.split(':');
+    if (fields.length != 6 || (fields[0] != 'user' && fields[0] != 'group')) {
+      continue;
+    }
+    final flags = fields[4].split(',');
+    if (!flags.contains('allow') || flags.contains('only_inherit')) continue;
+    final name = fields[2];
+    final id = int.tryParse(fields[3]);
+    final account = name == 'everyone' && fields[0] == 'group'
+        ? ''
+        : name.isNotEmpty
+        ? name
+        : id != null
+        ? _accountLabel(id, group: fields[0] == 'group')
+        : fields[1];
+    final rights = {
+      for (final right in fields[5].split(','))
+        switch (right) {
+          'read' ||
+          'readattr' ||
+          'readextattr' ||
+          'readsecurity' => ManagedAclRight.read,
+          'write' ||
+          'append' ||
+          'writeattr' ||
+          'writeextattr' => ManagedAclRight.write,
+          'execute' => ManagedAclRight.execute,
+          'delete' => ManagedAclRight.delete,
+          'delete_child' => ManagedAclRight.deleteChildren,
+          'writesecurity' => ManagedAclRight.changePermissions,
+          'chown' => ManagedAclRight.changeOwner,
+          _ => ManagedAclRight.other,
+        },
+    };
+    yield (account: account, rights: rights);
+  }
+}
+
 Set<ManagedAclRight> _modeRights(int bits) => {
   if (bits & 4 != 0) ManagedAclRight.read,
   if (bits & 2 != 0) ManagedAclRight.write,
@@ -72,7 +115,10 @@ List<ManagedAclGrant>? _posixGrants(PosixFileFacts facts, Uint8List acl) {
   ];
   if (acl.isEmpty) {
     if (groupMask != 0) {
-      grants.add((account: 'GID ${facts.gid}', rights: _modeRights(groupMask)));
+      grants.add((
+        account: _accountLabel(facts.gid, group: true),
+        rights: _modeRights(groupMask),
+      ));
     }
     return grants;
   }
@@ -86,9 +132,9 @@ List<ManagedAclGrant>? _posixGrants(PosixFileFacts facts, Uint8List acl) {
     final id = data.getUint32(offset + 4, Endian.little);
     if (permissions > 7) return null;
     final account = switch (tag) {
-      2 => 'UID $id',
-      4 => 'GID ${facts.gid}',
-      8 => 'GID $id',
+      2 => _accountLabel(id),
+      4 => _accountLabel(facts.gid, group: true),
+      8 => _accountLabel(id, group: true),
       1 || 16 || 32 => null, // owner, mask, other
       _ => '',
     };
@@ -99,6 +145,44 @@ List<ManagedAclGrant>? _posixGrants(PosixFileFacts facts, Uint8List acl) {
     }
   }
   return grants;
+}
+
+// passwd and group both begin with their name pointer on the supported
+// POSIX hosts. The reentrant lookup keeps each isolate's buffers independent.
+String _accountLabel(int id, {bool group = false}) {
+  final numeric = '${group ? 'GID' : 'UID'} $id';
+  try {
+    final nameFor = DynamicLibrary.process()
+        .lookupFunction<
+          Int32 Function(
+            Uint32,
+            Pointer<Void>,
+            Pointer<Uint8>,
+            Size,
+            Pointer<Pointer<Void>>,
+          ),
+          int Function(
+            int,
+            Pointer<Void>,
+            Pointer<Uint8>,
+            int,
+            Pointer<Pointer<Void>>,
+          )
+        >(group ? 'getgrgid_r' : 'getpwuid_r');
+    return using((arena) {
+      final record = arena<Uint64>(32).cast<Void>();
+      final buffer = arena<Uint8>(16384);
+      final result = arena<Pointer<Void>>();
+      if (nameFor(id, record, buffer, 16384, result) != 0 ||
+          result.value == nullptr) {
+        return numeric;
+      }
+      final name = result.value.cast<Pointer<Utf8>>().value;
+      return name == nullptr ? numeric : '${name.toDartString()} ($numeric)';
+    });
+  } catch (_) {
+    return numeric;
+  }
 }
 
 Uint8List? readLinuxStorageAcl(String path) {

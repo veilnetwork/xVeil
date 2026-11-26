@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/mac_media_permissions.dart';
 import '../../state/call_noise_suppression.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_audio_route.dart';
@@ -156,6 +157,46 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     if (!ok && _ownsDeviceAction(svc, callId)) _showDeviceFailure();
   }
 
+  Future<void> _toggleCapture(
+    CallService svc,
+    Call call,
+    bool on, {
+    required bool camera,
+  }) async {
+    if (!_ownsDeviceAction(svc, call.callId)) return;
+    if (on) {
+      final status =
+          await (camera
+                  ? MacMediaPermissions.requestCameraAccess()
+                  : MacMediaPermissions.requestMicrophoneAccess())
+              .timeout(
+                const Duration(seconds: 10),
+                onTimeout: () => MediaPermissionStatus.unavailable,
+              );
+      if (!mounted || !_ownsDeviceAction(svc, call.callId)) return;
+      if (status != MediaPermissionStatus.allowed) {
+        final l = AppL10n.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(switch (status) {
+              MediaPermissionStatus.denied =>
+                camera
+                    ? l.mediaCameraPermissionDenied
+                    : l.mediaMicrophonePermissionDenied,
+              _ => l.mediaPermissionCheckUnavailable,
+            }),
+          ),
+        );
+        return;
+      }
+    }
+    if (camera) {
+      await svc.setCameraEnabled(on);
+    } else {
+      await svc.setMicEnabled(on);
+    }
+  }
+
   Future<void> _toggleScreen(CallService svc, Call call) async {
     if (!_ownsDeviceAction(svc, call.callId)) return;
     if (call.screenOn) {
@@ -164,6 +205,17 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     }
     if (!Platform.isMacOS) {
       await svc.setScreenShareEnabled(true);
+      if (mounted &&
+          _ownsDeviceAction(svc, call.callId) &&
+          svc.current?.screenOn != true) {
+        final l = AppL10n.of(context);
+        final message = svc.screenCaptureConsentDeclined
+            ? l.mediaScreenPermissionDeclined
+            : l.mediaScreenStartFailed;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
       return;
     }
     if (!svc.screenCaptureAccessGranted && !svc.requestScreenCaptureAccess()) {
@@ -326,6 +378,12 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                   remoteVideo: remoteVideo,
                   onShowDevices: (svc) => _openCaptureDevicePicker(svc, call),
                   onToggleScreen: (svc) => _toggleScreen(svc, call),
+                  onToggleCapture: (svc, camera) => _toggleCapture(
+                    svc,
+                    call,
+                    camera ? !call.cameraOn : !call.micOn,
+                    camera: camera,
+                  ),
                   onMinimize: canMinimize
                       ? () => setState(() => _mode = _OverlayMode.mini)
                       : null,
@@ -407,6 +465,12 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     }
     return _FloatingCallTile(
       call: call,
+      onCapture: (svc, camera) => _toggleCapture(
+        svc,
+        call,
+        camera ? !call.cameraOn : !call.micOn,
+        camera: camera,
+      ),
       remoteVideo: remoteVideo,
       offset: _miniOffset,
       onDrag: (delta) {
@@ -451,6 +515,7 @@ class _CallBody extends ConsumerWidget {
     required this.onSelfPreviewShow,
     required this.onShowDevices,
     required this.onToggleScreen,
+    required this.onToggleCapture,
   });
   final Call call;
   final Widget remoteVideo;
@@ -464,6 +529,7 @@ class _CallBody extends ConsumerWidget {
   final VoidCallback onSelfPreviewShow;
   final ValueChanged<CallService> onShowDevices;
   final ValueChanged<CallService> onToggleScreen;
+  final void Function(CallService service, bool camera) onToggleCapture;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -546,6 +612,7 @@ class _CallBody extends ConsumerWidget {
           svc: svc,
           l: l,
           onScreen: () => onToggleScreen(svc),
+          onCapture: (camera) => onToggleCapture(svc, camera),
         ),
         const SizedBox(height: 24),
       ],
@@ -622,6 +689,7 @@ class _CallBody extends ConsumerWidget {
             call: call,
             svc: svc,
             onScreen: () => onToggleScreen(svc),
+            onCapture: (camera) => onToggleCapture(svc, camera),
           ),
         ),
       ],
@@ -1080,6 +1148,7 @@ class _FloatingCallTile extends ConsumerWidget {
     required this.onDrag,
     required this.onExpand,
     required this.onHide,
+    required this.onCapture,
   });
 
   final Call call;
@@ -1088,6 +1157,7 @@ class _FloatingCallTile extends ConsumerWidget {
   final ValueChanged<Offset> onDrag;
   final VoidCallback onExpand;
   final VoidCallback onHide;
+  final void Function(CallService, bool camera) onCapture;
 
   static const double _width = 188;
   static const double _height = 154;
@@ -1174,15 +1244,11 @@ class _FloatingCallTile extends ConsumerWidget {
                   children: [
                     _TileIconButton(
                       icon: call.micOn ? Icons.mic : Icons.mic_off,
-                      onTap: () {
-                        svc.setMicEnabled(!call.micOn);
-                      },
+                      onTap: () => onCapture(svc, false),
                     ),
                     _TileIconButton(
                       icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
-                      onTap: () {
-                        svc.setCameraEnabled(!call.cameraOn);
-                      },
+                      onTap: () => onCapture(svc, true),
                     ),
                   ],
                 ),
@@ -1489,11 +1555,13 @@ class _VideoControlsBar extends StatelessWidget {
     required this.call,
     required this.svc,
     required this.onScreen,
+    required this.onCapture,
   });
 
   final Call call;
   final CallService svc;
   final VoidCallback onScreen;
+  final ValueChanged<bool> onCapture;
 
   @override
   Widget build(BuildContext context) {
@@ -1504,13 +1572,13 @@ class _VideoControlsBar extends StatelessWidget {
           key: const ValueKey('call-mic'),
           icon: call.micOn ? Icons.mic : Icons.mic_off,
           label: call.micOn ? l.callMicOn : l.callMicOff,
-          onPressed: () => svc.setMicEnabled(!call.micOn),
+          onPressed: () => onCapture(false),
         ),
         CallControlAction(
           key: const ValueKey('call-camera'),
           icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
           label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
-          onPressed: () => svc.setCameraEnabled(!call.cameraOn),
+          onPressed: () => onCapture(true),
         ),
         if (Platform.isAndroid && call.cameraOn && !call.screenOn)
           CallControlAction(
@@ -1554,11 +1622,13 @@ class _Controls extends StatelessWidget {
     required this.svc,
     required this.l,
     required this.onScreen,
+    required this.onCapture,
   });
   final Call call;
   final CallService svc;
   final AppL10n l;
   final VoidCallback onScreen;
+  final ValueChanged<bool> onCapture;
 
   @override
   Widget build(BuildContext context) {
@@ -1601,13 +1671,13 @@ class _Controls extends StatelessWidget {
               key: const ValueKey('call-mic'),
               icon: call.micOn ? Icons.mic : Icons.mic_off,
               label: call.micOn ? l.callMicOn : l.callMicOff,
-              onPressed: () => svc.setMicEnabled(!call.micOn),
+              onPressed: () => onCapture(false),
             ),
             CallControlAction(
               key: const ValueKey('call-camera'),
               icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
               label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
-              onPressed: () => svc.setCameraEnabled(!call.cameraOn),
+              onPressed: () => onCapture(true),
             ),
             if (call.media.video &&
                 (defaultTargetPlatform == TargetPlatform.macOS ||

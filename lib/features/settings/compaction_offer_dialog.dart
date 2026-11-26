@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/error_journal.dart';
+import '../../core/storage_acl_vault.dart';
+import '../../data/storage/managed_fs_contract.dart';
+import '../bootstrap/startup_failed_app.dart' show showStorageAccessReview;
 import '../../domain/storage_compaction_policy.dart';
 import '../../domain/compaction_profile_authorization.dart';
 import '../../domain/storage_locator.dart';
@@ -175,6 +178,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   /// something they can check rather than trust.
   final _found = <({String name, int subordinates})>[];
   String? _error;
+  ManagedFsFailure? _accessFailure;
   bool _busy = false;
   bool _failedRun = false;
   bool get _current =>
@@ -453,6 +457,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         setState(() {
           _failedRun = true;
           _error = failure;
+          _accessFailure = appStorageFailure(error);
         });
       } else if (messenger?.mounted ?? false) {
         messenger!.showSnackBar(SnackBar(content: Text(failure)));
@@ -478,6 +483,29 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     widget.onOperationStarted(operation);
     await operation;
     _closeCompactionRoute(route, null);
+  }
+
+  Future<void> _reviewAccess(ManagedFsFailure access) async {
+    final l = AppL10n.of(context);
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
+    final remember = await showStorageAccessReview(
+      context,
+      access,
+      explanation: access.aclWarnings.any((warning) => !warning.canContinue)
+          ? l.storageAclMaintenanceBlocked
+          : null,
+    );
+    if (!mounted || !ctrl.holdsIdentity(lease) || remember == null) return;
+    for (final warning in access.aclWarnings) {
+      if (!await recordStorageAclApproval(warning, remember: remember)) {
+        if (mounted) setState(() => _error = l.startupAclApprovalFailed);
+        return;
+      }
+    }
+    if (mounted && ctrl.holdsIdentity(lease)) {
+      setState(() => _error = l.storageAclRetryOperation);
+    }
   }
 
   @override
@@ -520,6 +548,11 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
               ),
               onSubmitted: _busy || _failedRun || !_current ? null : _accept,
             ),
+            if (_accessFailure case final access?)
+              TextButton(
+                onPressed: () => _reviewAccess(access),
+                child: Text(l.storageAclReview),
+              ),
             if (_failedRun && _error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),

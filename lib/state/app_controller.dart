@@ -1,3 +1,6 @@
+import '../core/storage_acl_vault.dart' show restoreRememberedStorageAcl;
+import '../data/storage/managed_fs_contract.dart';
+
 import 'startup_unlock.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -145,11 +148,19 @@ UnlockFailure _storageUnlockFailure(Object error) => switch (error) {
   _ => UnlockFailure.storageUnavailable,
 };
 
+ManagedFsFailure? appStorageFailure(Object error) => switch (error) {
+  ManagedWorkerFailure(:final filesystemFailure) ||
+  ManagedProfileWipeFailure(:final filesystemFailure) => filesystemFailure,
+  ManagedFsFailure() => error,
+  _ => null,
+};
+
 class AppState {
   const AppState(
     this.phase, {
     this.identity,
     this.unlockFailure,
+    this.storageAccessFailure,
     this.identities = const [],
     this.activeIdentity,
     this.preparingReason = PreparingReason.node,
@@ -160,6 +171,7 @@ class AppState {
   final bool erasureBusy;
   final Identity? identity;
   final UnlockFailure? unlockFailure;
+  final ManagedFsFailure? storageAccessFailure;
   bool get unlockError => unlockFailure != null;
 
   /// Why the preparing screen is up (opening container / first-run mining /
@@ -639,6 +651,14 @@ class AppController extends Notifier<AppState> {
       state = state.copyWith();
       return true;
     } catch (error, stack) {
+      if (appStorageFailure(error) case final failure?
+          when ref.mounted && !_supersededSince(gen)) {
+        state = AppState(
+          state.phase,
+          unlockFailure: UnlockFailure.storageUnavailable,
+          storageAccessFailure: failure,
+        );
+      }
       errorJournal.record(
         kind: 'storage-selection',
         error: error,
@@ -1913,7 +1933,28 @@ class AppController extends Notifier<AppState> {
     final settled = _unlockSettled = Completer<void>();
     _unlockInFlight = true;
     try {
-      await _unlockInner(password);
+      final gen = _lifecycle;
+      final restored = <String>{};
+      while (true) {
+        await _unlockInner(password);
+        if (!ref.mounted || _supersededSince(gen)) break;
+        final warnings = state.storageAccessFailure?.aclWarnings;
+        if (warnings == null ||
+            warnings.isEmpty ||
+            warnings.any(
+              (warning) =>
+                  !warning.canContinue ||
+                  restored.contains(warning.fingerprint),
+            )) {
+          break;
+        }
+        var retry = true;
+        for (final warning in warnings) {
+          restored.add(warning.fingerprint);
+          if (!await restoreRememberedStorageAcl(warning)) retry = false;
+        }
+        if (!retry || !ref.mounted || _supersededSince(gen)) break;
+      }
     } finally {
       _unlockInFlight = false;
       if (identical(_unlockSettled, settled)) _unlockSettled = null;
@@ -1986,7 +2027,11 @@ class AppController extends Notifier<AppState> {
         await storage.close();
       } catch (_) {}
       if (!ref.mounted || _supersededSince(gen)) return;
-      state = AppState(AppPhase.locked, unlockFailure: failure);
+      state = AppState(
+        AppPhase.locked,
+        unlockFailure: failure,
+        storageAccessFailure: appStorageFailure(e),
+      );
       return;
     }
     if (!ok) {
@@ -2260,7 +2305,11 @@ class AppController extends Notifier<AppState> {
         _clearMasterSession();
         ref.read(screenLockProvider.notifier).forgetSession();
         _forgetAccessVerifier();
-        state = AppState(AppPhase.locked, unlockFailure: failure);
+        state = AppState(
+          AppPhase.locked,
+          unlockFailure: failure,
+          storageAccessFailure: appStorageFailure(e),
+        );
       }
     } finally {
       // There is no replacement session in a disposed controller. Release any
@@ -6362,6 +6411,7 @@ class AppController extends Notifier<AppState> {
   /// embedded boot is configured and not already running.
   Future<void> _ensureRealStack() async {
     if (ref.read(realStackProvider) != null) return;
+    ref.read(nodeRuntimeFailureProvider.notifier).state = null;
     final boot = ref.read(deniableBootProvider);
     if (boot == null) return;
     // One shot, taken BEFORE the await rather than cleared after it.
@@ -6534,6 +6584,10 @@ class AppController extends Notifier<AppState> {
         stack: st,
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
+      if (!ref.mounted || _supersededSince(gen)) return;
+      if (e is RuntimeDirNotPrivate) {
+        ref.read(nodeRuntimeFailureProvider.notifier).state = e;
+      }
       ref.read(nodeBootStateProvider.notifier).state = NodeStatus(
         phase: NodePhase.error,
         message: 'node failed to start: $e',
@@ -8003,7 +8057,13 @@ class TeardownOutcome {
 /// See [WipeReportController] for why it has to be one.
 @immutable
 class WipeReport {
-  const WipeReport({required this.remaining, required this.stopped});
+  const WipeReport({
+    required this.remaining,
+    required this.stopped,
+    this.storageAccessFailure,
+  });
+
+  final ManagedFsFailure? storageAccessFailure;
 
   /// The codes [AppController.wipeContainers] returns for what it re-stat'd and
   /// found still present (`container`, `files`, `speech-model`,
@@ -8071,7 +8131,11 @@ class WipeReportController extends Notifier<WipeReport?> {
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
       if (!ref.mounted) return;
-      state = const WipeReport(remaining: [], stopped: true);
+      state = WipeReport(
+        remaining: const [],
+        stopped: true,
+        storageAccessFailure: appStorageFailure(error),
+      );
     } finally {
       _running = false;
     }

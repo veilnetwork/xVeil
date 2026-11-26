@@ -181,7 +181,7 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                         .setNegativeButton(activity.getString(android.R.string.cancel), activity.mainExecutor) { _, _ ->
                             if (gate.finish(read)) {
                                 read.cancellation.cancel()
-                                read.result.success(null)
+                                read.result.error("authentication_cancelled", "System authentication was cancelled", null)
                             }
                         }
                     if (Build.VERSION.SDK_INT >= 30) {
@@ -191,7 +191,21 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                         read.cancellation, activity.mainExecutor,
                         object : BiometricPrompt.AuthenticationCallback() {
                             override fun onAuthenticationError(code: Int, text: CharSequence) {
-                                finish(read, null)
+                                val reason = when (code) {
+                                    BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
+                                    BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
+                                    BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT -> "authentication_cancelled"
+                                    BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS,
+                                    BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL -> "authentication_not_enrolled"
+                                    BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT,
+                                    BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT -> "authentication_locked"
+                                    BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT,
+                                    BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "unavailable"
+                                    else -> "protected_read_failed"
+                                }
+                                if (gate.finish(read)) {
+                                    read.result.error(reason, "System authentication did not complete", null)
+                                }
                             }
                             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                                 if (!gate.owns(read)) return

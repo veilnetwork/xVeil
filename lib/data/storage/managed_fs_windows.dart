@@ -324,6 +324,7 @@ ManagedPathWitness inspect(
           : ManagedStorageAclWarning(
               path: stripExtendedLengthPrefix(finalPath),
               directory: directory,
+              grantsArePotential: true,
               fingerprint: grant.fingerprint,
               owner: owner == currentSid ? null : windowsAclAccountLabel(owner),
               grants: grant.grants.entries.map(

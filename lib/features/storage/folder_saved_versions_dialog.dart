@@ -8,6 +8,7 @@ import '../../core/document_export.dart';
 import '../../core/diagnostic_journal.dart';
 import '../../core/format.dart';
 import '../../data/folder_saved_versions.dart';
+import '../../data/folder_publication.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/folder_saved_export.dart';
@@ -26,9 +27,13 @@ class FolderSavedVersionsDialog extends ConsumerStatefulWidget {
     super.key,
     required this.root,
     this.rootRefusal,
+    this.reviewRoot,
+    this.canReviewRoot,
   });
   final String root;
   final String? Function()? rootRefusal;
+  final Future<void> Function(BuildContext)? reviewRoot;
+  final bool Function()? canReviewRoot;
 
   @override
   ConsumerState<FolderSavedVersionsDialog> createState() =>
@@ -48,6 +53,7 @@ class _FolderSavedVersionsDialogState
   FolderSavedVersionPage? _page;
   bool _loading = true;
   bool _failed = false;
+  bool _accessDenied = false;
   String? _rootRefusal;
   String? _exporting;
   FolderSavedExportCancellation? _cancellation;
@@ -120,6 +126,7 @@ class _FolderSavedVersionsDialogState
     setState(() {
       _loading = true;
       _failed = false;
+      _accessDenied = false;
       _rootRefusal = null;
     });
     try {
@@ -140,6 +147,7 @@ class _FolderSavedVersionsDialogState
       if (_current()) {
         setState(() {
           _failed = true;
+          _accessDenied = error is FolderFsFailure && error.accessDenied;
           _page = null;
         });
       }
@@ -182,7 +190,9 @@ class _FolderSavedVersionsDialogState
           : l.chatFileSaveFailed;
     } catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.exporting);
-      message = l.chatFileSaveFailed;
+      message = error is FolderFsFailure && error.accessDenied
+          ? l.folderSyncReadAccessDenied(version.relativePath)
+          : l.chatFileSaveFailed;
     } finally {
       _cancellation = null;
       if (mounted) setState(() => _exporting = null);
@@ -239,7 +249,9 @@ class _FolderSavedVersionsDialogState
       message = l.folderSyncSavedChanged;
     } catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.discarding);
-      message = l.folderSyncSavedRemoveFailed;
+      message = error is FolderFsFailure && error.accessDenied
+          ? l.folderSyncWriteAccessDenied(version.relativePath)
+          : l.folderSyncSavedRemoveFailed;
     } finally {
       if (mounted) setState(() => _exporting = null);
     }
@@ -273,7 +285,11 @@ class _FolderSavedVersionsDialogState
             : _rootRefusal != null
             ? Text(_rootRefusal!)
             : _failed
-            ? Text(l.folderSyncSavedLoadFailed)
+            ? Text(
+                _accessDenied
+                    ? l.folderSyncScanAccessDenied
+                    : l.folderSyncSavedLoadFailed,
+              )
             : (_page?.entries.isEmpty ?? true)
             ? Text(l.folderSyncSavedEmpty)
             : ListView.builder(
@@ -335,6 +351,16 @@ class _FolderSavedVersionsDialogState
               ),
       ),
       actions: [
+        if (enabled &&
+            _rootRefusal != null &&
+            widget.canReviewRoot?.call() == true)
+          TextButton(
+            onPressed: () async {
+              await widget.reviewRoot?.call(context);
+              if (_current()) await _load();
+            },
+            child: Text(l.folderSyncAclReview),
+          ),
         IconButton(
           tooltip: l.folderSyncSavedRefresh,
           icon: const Icon(Icons.refresh),

@@ -1466,6 +1466,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   DevicePairingCode? _pairCode;
   DevicePairingLanServer? _pairServer;
   bool _pairUnavailable = false;
+  bool _pairLanDenied = false;
   Timer? _pairExpiry;
   Timer? _readyTimeout;
   NodeId? _candidateIdentity;
@@ -1527,8 +1528,13 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           port: server.port,
         ),
       );
-    } catch (_) {
-      if (mounted) setState(() => _pairUnavailable = true);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _pairUnavailable = true;
+          _pairLanDenied = isPairingLanAccessDenied(error);
+        });
+      }
     }
   }
 
@@ -1850,7 +1856,11 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                   copiedMessage: l.devicesTokenCopiedClears,
                 ),
               ] else if (_pairUnavailable && _candidateIdentity == null) ...[
-                Text(l.devicesPairLanUnavailable),
+                Text(
+                  _pairLanDenied
+                      ? l.devicesPairLanDenied
+                      : l.devicesPairLanUnavailable,
+                ),
               ] else if (_candidateIdentity == null) ...[
                 const Center(child: CircularProgressIndicator()),
               ],

@@ -94,6 +94,8 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
       _error = null;
     });
     var saved = false;
+    final authentication = ref.read(localScreenAuthenticationProvider);
+    authentication.lastFailure = null;
     try {
       saved = await ref
           .read(screenLockProvider.notifier)
@@ -181,7 +183,15 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     } else {
       setState(() {
         _busy = false;
-        _error = l.quickUnlockSaveFailed;
+        _error = switch (authentication.lastFailure) {
+          LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
+          LocalAuthenticationFailure.notEnrolled =>
+            l.quickUnlockAuthNotEnrolled,
+          LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
+          LocalAuthenticationFailure.unavailable => l.quickUnlockUnavailable,
+          LocalAuthenticationFailure.failed => l.quickUnlockAuthFailed,
+          null => l.quickUnlockSaveFailed,
+        };
       });
     }
   }

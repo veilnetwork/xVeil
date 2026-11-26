@@ -415,6 +415,7 @@ void _profilePreferencesEntry(
           _serveManagedCleanup(config, inbox, () => gate?.close()),
           preferencesOpenReason: reason,
           ancestorRefusal: filesystem?.ancestorRefusal,
+          filesystemFailure: filesystem,
           aclWarnings: filesystem?.aclWarnings ?? const [],
         ),
       );
@@ -425,6 +426,7 @@ void _profilePreferencesEntry(
         _managedFailureKind(error),
         preferencesOpenReason: reason,
         ancestorRefusal: filesystem?.ancestorRefusal,
+        filesystemFailure: filesystem,
         aclWarnings: filesystem?.aclWarnings ?? const [],
       ),
     );
@@ -452,7 +454,27 @@ void _profilePreferencesEntry(
         FileSystemEntityType.notFound) {
       return null;
     }
-    return fs.inspect(file.path);
+    try {
+      return fs.inspect(file.path);
+    } on ManagedFsFailure catch (error) {
+      if (error.aclWarnings.isEmpty) rethrow;
+      var canSave = false;
+      try {
+        final acl = fs.inspectAcl(file.path);
+        canSave = acl.ownedByCurrentUser && acl.otherUsersHaveReadOnlyAccess;
+      } on ManagedFsFailure {
+        // A policy that cannot be preserved still allows informed reading.
+      }
+      throw ManagedFsFailure(
+        error.kind,
+        unsafeReason: error.unsafeReason,
+        path: file.path,
+        aclWarnings: [
+          for (final warning in error.aclWarnings)
+            warning.withPolicy(readOnlyInApp: !canSave),
+        ],
+      );
+    }
   }
 
   ManagedPreferencesFailureReason? fileFailure(ManagedPathWitness? witness) {
@@ -523,7 +545,11 @@ void _profilePreferencesEntry(
                     preferencesReadReason: failure,
                     aclWarnings: [
                       if (failure != ManagedPreferencesFailureReason.fileType)
-                        ?witness?.aclWarning,
+                        ?witness?.aclWarning?.withPolicy(
+                          readOnlyInApp:
+                              !witness.otherUsersHaveReadOnlyAccess ||
+                              !witness.ownedByCurrentUser,
+                        ),
                     ],
                   ),
                 );
@@ -572,7 +598,11 @@ void _profilePreferencesEntry(
                     preferencesWriteReason: refusal,
                     aclWarnings: [
                       if (refusal != ManagedPreferencesFailureReason.fileType)
-                        ?witness?.aclWarning,
+                        ?witness?.aclWarning?.withPolicy(
+                          canContinue:
+                              witness.otherUsersHaveReadOnlyAccess &&
+                              witness.ownedByCurrentUser,
+                        ),
                     ],
                   );
                 }

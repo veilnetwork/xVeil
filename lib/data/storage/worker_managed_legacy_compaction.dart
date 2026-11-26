@@ -39,6 +39,7 @@ final class ManagedLegacyCompactionFailure extends ManagedWorkerFailure {
     required this.mayHaveApplied,
     required this.recovery,
     this.warning,
+    super.filesystemFailure,
   });
   final bool mayHaveApplied;
   final LegacyReferenceRepairOutcome? recovery;
@@ -53,8 +54,10 @@ final class _LegacyCompactionErr extends _Reply {
     this.kind,
     this.mayHaveApplied,
     this.recovery,
-    this.warning,
-  );
+    this.warning, {
+    this.filesystemFailure,
+  });
+  final ManagedFsFailure? filesystemFailure;
   final ManagedWorkerFailureKind kind;
   final bool mayHaveApplied;
   final LegacyReferenceRepairOutcome? recovery;
@@ -236,6 +239,9 @@ final class ManagedLegacyCompactionWorker {
         _managedFailureKind(error),
         mayHaveApplied: true,
         recovery: null,
+        filesystemFailure: error is ManagedWorkerFailure
+            ? error.filesystemFailure
+            : null,
       );
     } finally {
       await admission.settleAndClose();
@@ -538,6 +544,7 @@ void _managedLegacyCompactionEntry(
                   (publicationAttempted && lastRecovery == null),
               lastRecovery,
               publicationWarning,
+              filesystemFailure: error is ManagedFsFailure ? error : null,
             ),
           );
         } else {

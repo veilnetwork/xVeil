@@ -14813,6 +14813,132 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Continue adding the new identity. Your existing data will be kept.'**
   String get masterAppendReplayBody;
+
+  /// No description provided for @storageAclPotentialGrants.
+  ///
+  /// In en, this message translates to:
+  /// **'The ACL lists these grants. Deny rules and group membership can limit actual access.'**
+  String get storageAclPotentialGrants;
+
+  /// No description provided for @storageAclSettingsReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil can read these settings. It can save changes after the file is owned by your account and other accounts lack write access.'**
+  String get storageAclSettingsReadOnly;
+
+  /// No description provided for @storageAclUnlockReadRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Other accounts may be able to read this storage. Check the accounts and rights before deciding whether to continue.'**
+  String get storageAclUnlockReadRisk;
+
+  /// No description provided for @folderSyncConfirmRoot.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm sync folder'**
+  String get folderSyncConfirmRoot;
+
+  /// No description provided for @folderSyncConfirmExistingRoot.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm that {path} is the folder belonging to this sync pair. Existing sync history and deletion settings will apply.'**
+  String folderSyncConfirmExistingRoot(String path);
+
+  /// No description provided for @folderSyncWindowsRootRedirectable.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows permissions may let another account redirect {path}. Choose a folder whose path other accounts cannot redirect, or ask your administrator to review its permissions.'**
+  String folderSyncWindowsRootRedirectable(String path);
+
+  /// No description provided for @mediaCameraPermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera access was denied. Allow xVeil to use the camera in your system privacy settings and try again.'**
+  String get mediaCameraPermissionDenied;
+
+  /// No description provided for @mediaMicrophonePermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone access was denied. Allow xVeil to use the microphone in your system privacy settings and try again.'**
+  String get mediaMicrophonePermissionDenied;
+
+  /// No description provided for @mediaPermissionCheckUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check device access. Open your system privacy settings or try again.'**
+  String get mediaPermissionCheckUnavailable;
+
+  /// No description provided for @mediaScreenPermissionDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen-sharing permission was declined or the request was closed. Start sharing again and confirm the system prompt.'**
+  String get mediaScreenPermissionDeclined;
+
+  /// No description provided for @mediaScreenStartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen sharing could not start. Try again after closing any other screen capture.'**
+  String get mediaScreenStartFailed;
+
+  /// No description provided for @notificationPermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'System notifications are disabled for xVeil. You can enable them in system settings.'**
+  String get notificationPermissionDenied;
+
+  /// No description provided for @devicesPairLanDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The system denied access to the local network. Check the local-network or firewall settings for xVeil, or use the other linking method below.'**
+  String get devicesPairLanDenied;
+
+  /// No description provided for @quickUnlockAuthCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'System authentication was cancelled. Try again or use your password.'**
+  String get quickUnlockAuthCancelled;
+
+  /// No description provided for @quickUnlockAuthNotEnrolled.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up biometrics or device sign-in in your system settings, then try again.'**
+  String get quickUnlockAuthNotEnrolled;
+
+  /// No description provided for @quickUnlockAuthLockedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'System authentication is locked. Use your password and unlock biometrics in system settings.'**
+  String get quickUnlockAuthLockedOut;
+
+  /// No description provided for @quickUnlockAuthFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The system could not authenticate you. Check the device sign-in settings or use your password.'**
+  String get quickUnlockAuthFailed;
+
+  /// No description provided for @storageAclMaintenanceBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'This operation would replace a file whose access settings xVeil cannot preserve. Review the access settings before retrying.'**
+  String get storageAclMaintenanceBlocked;
+
+  /// No description provided for @storageAclRetryOperation.
+  ///
+  /// In en, this message translates to:
+  /// **'Choice saved. Retry the operation when you are ready.'**
+  String get storageAclRetryOperation;
+
+  /// No description provided for @storageAclReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Review access permissions'**
+  String get storageAclReview;
+
+  /// No description provided for @startupRuntimeAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The operating system denied access to the folder used for connection control. Check your account’s permissions or choose another folder.'**
+  String get startupRuntimeAccessDenied;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

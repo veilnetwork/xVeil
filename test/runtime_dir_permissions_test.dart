@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/veil_stack.dart';
 
 /// The node's runtime directory holds `admin.sock` — the socket that CONTROLS
@@ -142,6 +143,26 @@ void main() {
     },
     skip: !Platform.isMacOS,
   );
+
+  test('an unwritable base reports the system refusal', () async {
+    if (posixEuid() == 0) return;
+    final base = Directory.systemTemp.createTempSync('xveil-rt-read-only-');
+    addTearDown(() {
+      posixChmod(base.path, 0x1c0);
+      base.deleteSync(recursive: true);
+    });
+    expect(posixChmod(base.path, 0x140), 0);
+    await expectLater(
+      RuntimeDirLease.acquire(base.path),
+      throwsA(
+        isA<RuntimeDirNotPrivate>().having(
+          (error) => error.refusal,
+          'reason',
+          RuntimeDirectoryRefusal.accessDenied,
+        ),
+      ),
+    );
+  }, skip: skipReason);
 
   test('a leased runtime directory is created and secured in one call',
       () async {

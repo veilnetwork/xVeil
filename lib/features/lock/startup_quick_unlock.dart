@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../core/local_authentication.dart';
+import 'package:flutter/services.dart';
 import '../../state/app_controller.dart';
 import '../../state/identity_guard.dart';
 import '../../state/startup_unlock.dart';
@@ -18,7 +20,7 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
   List<int> _nodes = [];
   int _padEpoch = 0;
   bool _busy = false;
-  bool _failed = false;
+  String? _failure;
 
   Future<void> _unlock(bool system) async {
     if (_busy) return;
@@ -26,14 +28,26 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
     final app = ref.read(appControllerProvider.notifier);
     final vault = ref.read(quickUnlockVaultProvider);
     final locator = ref.read(storageAccessLocatorProvider);
-    final reason = AppL10n.of(context).quickUnlockReason;
+    final l = AppL10n.of(context);
+    final authentication = ref.read(localScreenAuthenticationProvider);
+    authentication.lastFailure = null;
+    String failureMessage(LocalAuthenticationFailure? failure) =>
+        switch (failure) {
+          LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
+          LocalAuthenticationFailure.notEnrolled =>
+            l.quickUnlockAuthNotEnrolled,
+          LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
+          LocalAuthenticationFailure.unavailable => l.quickUnlockUnavailable,
+          LocalAuthenticationFailure.failed => l.quickUnlockAuthFailed,
+          null => l.startupUnlockFailed,
+        };
     setState(() {
       _busy = true;
-      _failed = false;
+      _failure = null;
     });
     try {
       final password = system
-          ? await vault.openSystem(reason)
+          ? await vault.openSystem(l.quickUnlockReason)
           : await vault.openPattern(_nodes);
       if (!mounted ||
           ref.read(storageAccessLocatorProvider) != locator ||
@@ -42,12 +56,29 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
         return;
       }
       if (password == null) {
-        setState(() => _failed = true);
+        setState(
+          () => _failure = failureMessage(
+            system ? authentication.lastFailure : null,
+          ),
+        );
       } else {
         await app.unlock(password);
       }
-    } catch (_) {
-      if (mounted && ref.holdsIdentity(lease)) setState(() => _failed = true);
+    } catch (error) {
+      if (mounted && ref.holdsIdentity(lease)) {
+        final failure = error is PlatformException
+            ? switch (error.code) {
+                'authentication_cancelled' =>
+                  LocalAuthenticationFailure.cancelled,
+                'authentication_not_enrolled' =>
+                  LocalAuthenticationFailure.notEnrolled,
+                'authentication_locked' => LocalAuthenticationFailure.lockedOut,
+                'unavailable' => LocalAuthenticationFailure.unavailable,
+                _ => null,
+              }
+            : classifyLocalAuthenticationFailure(error);
+        setState(() => _failure = failureMessage(failure));
+      }
     } finally {
       if (mounted) {
         ref.invalidate(startupUnlockOptionsProvider);
@@ -91,9 +122,9 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
               ],
             ),
           if (options.patternBlocked) Text(l.startupUnlockBlocked),
-          if (_failed)
+          if (_failure case final failure?)
             Text(
-              l.startupUnlockFailed,
+              failure,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
         ],

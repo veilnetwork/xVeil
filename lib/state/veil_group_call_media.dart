@@ -353,8 +353,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        // Public constructor parameter, private stored readiness gate.
        // ignore: prefer_initializing_formals
        _audioProcessingReady = audioProcessingReady,
-       _requestMicrophone = requestMicrophone ?? _defaultMicPermission,
-       _requestCamera = requestCamera ?? _defaultCameraPermission,
+       // Public permission seams used by media tests.
+       // ignore: prefer_initializing_formals
+       _requestMicrophone = requestMicrophone,
+       // ignore: prefer_initializing_formals
+       _requestCamera = requestCamera,
        _desktopScreenCaptureSupported =
            desktopScreenCaptureSupported ?? Platform.isMacOS,
        _androidCapture = androidCapture ?? Platform.isAndroid,
@@ -385,8 +388,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final GroupCallMediaSecretResolver _roomMediaSecret;
   final GroupAudioEngineFactory _engineFactory;
   final Future<void>? _audioProcessingReady;
-  final Future<bool> Function() _requestMicrophone;
-  final Future<bool> Function() _requestCamera;
+  final Future<bool> Function()? _requestMicrophone;
+  final Future<bool> Function()? _requestCamera;
   // The injected engine's screen capability can differ from the test host.
   final bool _desktopScreenCaptureSupported;
   final bool _androidCapture;
@@ -492,20 +495,34 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _tail = Future<void>.value();
   int _sessionRequestEpoch = 0;
 
-  static Future<bool> _defaultMicPermission() async {
-    if (!Platform.isMacOS) return true;
-    return MacMediaPermissions.requestMicrophone().timeout(
+  MediaPermissionStatus? _microphonePermission;
+  MediaPermissionStatus? _cameraPermission;
+  MediaPermissionStatus? get microphonePermission => _microphonePermission;
+  MediaPermissionStatus? get cameraPermission => _cameraPermission;
+
+  Future<MediaPermissionStatus> _permission({required bool camera}) async {
+    final request = camera ? _requestCamera : _requestMicrophone;
+    final result = request == null
+        ? (camera
+              ? MacMediaPermissions.requestCameraAccess()
+              : MacMediaPermissions.requestMicrophoneAccess())
+        : request().then(
+            (allowed) => allowed
+                ? MediaPermissionStatus.allowed
+                : MediaPermissionStatus.denied,
+          );
+    return result.timeout(
       const Duration(seconds: 5),
-      onTimeout: () => false,
+      onTimeout: () => MediaPermissionStatus.unavailable,
     );
   }
 
-  static Future<bool> _defaultCameraPermission() async {
-    if (!Platform.isMacOS) return true;
-    return MacMediaPermissions.requestCamera().timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => false,
-    );
+  void onCaptureAccessGranted({required bool camera}) {
+    if (camera) {
+      _cameraPermission = MediaPermissionStatus.allowed;
+    } else {
+      _microphonePermission = MediaPermissionStatus.allowed;
+    }
   }
 
   Future<T> _locked<T>(Future<T> Function() action) async {
@@ -551,6 +568,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   // Guarded for the same reason as the 1:1 controller's pair: read from the
   // overlay outside any catch, and meaningless without an engine anyway.
+  @override
+  bool get screenCaptureConsentDeclined => _screenCaptureConsentDeclined;
+
+  bool _screenCaptureConsentDeclined = false;
+
   @override
   bool get screenCaptureAccessGranted =>
       !Platform.isMacOS ||
@@ -600,16 +622,19 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _audioEnabled = call.media.audio;
     // Match direct calls: bound the permission prompt, then bring up playout
     // even when capture permission is denied or still pending.
-    if (call.media.audio) {
-      final micGranted = await _requestMicrophone();
+    _microphonePermission = null;
+    _cameraPermission = null;
+    if (call.media.audio && call.micOn) {
+      final status = await _permission(camera: false);
       if (!isCurrent()) return false;
-      devLog(() => 'xVeil[group-call-media]: mic permission=$micGranted');
+      _microphonePermission = status;
     }
-    if ((call.media.video || call.media.screen) &&
-        (Platform.isMacOS || Platform.isIOS)) {
-      final cameraGranted = await _requestCamera();
+    if (call.media.video &&
+        call.cameraOn &&
+        MacMediaPermissions.hasPermissionBridge) {
+      final status = await _permission(camera: true);
       if (!isCurrent()) return false;
-      devLog(() => 'xVeil[group-call-media]: camera permission=$cameraGranted');
+      _cameraPermission = status;
     }
     final localId = await _transport.localNodeId();
     if (!isCurrent()) return false;
@@ -727,8 +752,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!enabled) return false;
     final request = _sessionRequestEpoch;
     if (Platform.isMacOS || Platform.isIOS) {
-      final granted = await _requestCamera();
-      if (!granted) return false;
+      final status = await _permission(camera: true);
+      if (status != MediaPermissionStatus.allowed) return false;
     }
     return _locked(() async {
       if (request != _sessionRequestEpoch) return false;
@@ -2071,6 +2096,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     required int request,
     required int epoch,
   }) async {
+    _screenCaptureConsentDeclined = false;
     bool current() =>
         identical(_engine, engine) &&
         _engineRequest == request &&
@@ -2122,6 +2148,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       await retire();
       return false;
     }
+    _screenCaptureConsentDeclined =
+        screen is AndroidScreenCapture && screen.consentDeclined;
     if (!started) await retire();
     return started;
   }

@@ -113,6 +113,14 @@ Future<void> _writePacket(Socket socket, Uint8List packet) async {
 
 /// A temporary encrypted local socket. It exists only while the desktop's
 /// pairing sheet is open. Each connection carries one request and one reply.
+bool isPairingLanAccessDenied(Object error) {
+  if (error is! SocketException) return false;
+  final code = error.osError?.errorCode;
+  return Platform.isWindows
+      ? code == 10013 || code == 5
+      : code == 1 || code == 13;
+}
+
 class DevicePairingLanServer {
   DevicePairingLanServer._(this._servers, this._ticket, this._onRequest);
 
@@ -164,7 +172,9 @@ class DevicePairingLanServer {
         } on SocketException catch (error) {
           // VPNs/adapters can disappear after interface discovery. Retain
           // reachable listeners and advertise only their bound addresses.
-          lastBindError = error;
+          if (lastBindError == null || isPairingLanAccessDenied(error)) {
+            lastBindError = error;
+          }
         }
       }
       if (servers.isEmpty) {

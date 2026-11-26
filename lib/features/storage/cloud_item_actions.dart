@@ -1,13 +1,16 @@
 import 'dart:io';
-import '../../domain/file_export.dart';
-import '../../domain/file_names.dart';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/document_export.dart';
+import '../../core/filesystem_errors.dart';
+import '../../domain/chat_file_export.dart';
 import '../../domain/cloud.dart';
+import '../../domain/file_export.dart';
+import '../../domain/file_names.dart';
 import '../../state/cloud_service.dart';
 
 /// What a caller needs to bring ONE cloud item in or out: the file-picker
@@ -16,7 +19,7 @@ import '../../state/cloud_service.dart';
 /// body renders single items too — an attachment chip has to import and export
 /// through exactly the same path, not a second one that drifts.
 
-enum CloudExportResult { done, cancelled, failed }
+enum CloudExportResult { done, cancelled, permissionDenied, failed }
 
 /// Pick a file and import it into [service]. Returns the new row, or null when
 /// the picker was dismissed; import failures throw, as [CloudService] reports
@@ -65,50 +68,38 @@ Future<CloudExportResult> exportCloudItem(
     // The bytes may live only on another device. Waiting for them is the whole
     // point of the action, so unlike a preview this one blocks.
     if (!await service.ensureLocal(item)) return CloudExportResult.failed;
-    final String? destination;
+    final name = safeCloudExportName(item.name);
+    Future<List<int>?> read(int offset, int want) => service.isClosed
+        ? Future.value(null)
+        : service.readContentRange(item, offset, want);
     if (Platform.isAndroid || Platform.isIOS) {
-      // saveFile wants every byte up front on mobile, which an item of any
-      // size cannot promise, so there the destination is app documents.
-      //
-      // A FREE name, not the item's. The destination was taken straight from
-      // the name and the rename below REPLACES, so exporting an item called
-      // `notes.txt` destroyed whatever was already called that - and the name
-      // belongs to a shared volume, not necessarily to the person exporting.
-      destination = uncontestedPath(
+      final destination = uncontestedPath(
         (await getApplicationDocumentsDirectory()).path,
-        safeCloudExportName(item.name),
+        name,
       );
-    } else {
-      destination = await FilePicker.saveFile(
-        fileName: safeCloudExportName(item.name),
+      if (service.isClosed) return CloudExportResult.failed;
+      final complete = await writeStreamedFile(
+        file: File(destination),
+        size: item.size,
+        read: read,
       );
+      return complete ? CloudExportResult.done : CloudExportResult.failed;
     }
-    if (destination == null) return CloudExportResult.cancelled;
-    // THE SAVE DIALOG IS THE WINDOW. It is the platform's, it stays open as
-    // long as the user wants, and in all-online mode they can switch identity
-    // while it is up: every node stays running, so this captured service kept
-    // working and the copy below wrote one identity's plaintext to a path
-    // chosen while looking at the other (report21 X21-H2). A service whose
-    // identity has been left is closed, which is the signal.
-    if (service.isClosed) return CloudExportResult.failed;
-    // Straight to the chosen path, no `.part` sibling.
-    //
-    // The sibling was there to protect an existing file from a copy that
-    // failed halfway, and on a sandboxed macOS build it could not be opened at
-    // all: the save panel grants a read-write exception for the SELECTED path
-    // only, so `open()` on `<dest>.part` returns "Operation not permitted" and
-    // every export failed. The same discovery is written up in the chat
-    // download path, which is why it writes direct too.
-    //
-    // What replaces the sibling is cleanup that always runs: a copy that did
-    // not finish leaves no file at all, so there is never a truncated one that
-    // looks complete.
-    final complete = await writeStreamedFile(
-      file: File(destination),
+    final saved = await exportChatFile(
+      name: name,
       size: item.size,
-      read: (offset, want) => service.readContentRange(item, offset, want),
+      stillOurs: () => !service.isClosed,
+      read: read,
     );
-    return complete ? CloudExportResult.done : CloudExportResult.failed;
+    return saved ? CloudExportResult.done : CloudExportResult.cancelled;
+  } on DocumentExportException catch (error) {
+    return error.permissionDenied
+        ? CloudExportResult.permissionDenied
+        : CloudExportResult.failed;
+  } on FileSystemException catch (error) {
+    return fileSystemAccessDenied(error)
+        ? CloudExportResult.permissionDenied
+        : CloudExportResult.failed;
   } catch (_) {
     return CloudExportResult.failed;
   }

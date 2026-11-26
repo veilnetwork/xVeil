@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/filesystem_errors.dart';
 import '../data/folder_publication.dart';
 import '../data/folder_scan.dart';
 import '../data/storage/folder_sync_store.dart';
@@ -98,6 +99,10 @@ abstract class FolderSyncDisk {
   Future<LocalFile?> stat(String root, String path);
 }
 
+abstract interface class FolderSyncRootBoundDisk {
+  FolderSyncDisk bindRoot(void Function() verifyRoot);
+}
+
 /// The outcome of one pass, for the UI and the logs.
 class FolderSyncReport {
   const FolderSyncReport({
@@ -138,11 +143,21 @@ class FolderSyncEngine {
   final FolderSyncStore _store;
   final int Function() _now;
 
-  Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
+  Future<FolderSyncReport> runOnce(
+    FolderSyncPair pair, {
+    void Function()? verifyRoot,
+  }) async {
+    final disk = switch (_disk) {
+      FolderSyncRootBoundDisk bound when verifyRoot != null => bound.bindRoot(
+        verifyRoot,
+      ),
+      _ => _disk,
+    };
     final state = await _store.state(pair.id);
     final FolderScan scan;
     try {
-      scan = await _disk.scan(pair.localPath);
+      verifyRoot?.call();
+      scan = await disk.scan(pair.localPath);
     } on FolderFsFailure catch (error) {
       final refusal = switch (error) {
         FolderFsFailure(accessDenied: true) =>
@@ -261,26 +276,30 @@ class FolderSyncEngine {
     final applied = <SyncAction>[];
     final failed = <(SyncAction, Object)>[];
     final conflicts = {...state.pendingConflicts};
-    FolderSyncFileIssue? readIssue = scan.unreadable.isEmpty
+    final unreadable =
+        scan.accessDenied.firstOrNull ?? scan.unreadable.firstOrNull;
+    FolderSyncFileIssue? readIssue = unreadable == null
         ? null
         : (
-            path: scan.unreadable.first.isEmpty
-                ? pair.localPath
-                : scan.unreadable.first,
-            reason: FolderSyncAccessRefusal.cannotVerify,
+            path: unreadable.isEmpty ? pair.localPath : unreadable,
+            reason: scan.accessDenied.isEmpty
+                ? FolderSyncAccessRefusal.cannotVerify
+                : FolderSyncAccessRefusal.accessDenied,
           );
 
     FolderSyncFileIssue? writeIssue;
+    String? rootRefusal;
     for (final action in plan.actions) {
       try {
+        verifyRoot?.call();
         switch (action.kind) {
           case SyncActionKind.conflict:
             // Recorded, never resolved here. The user picks a side; until then
             // the differ leaves this path alone.
             conflicts.add(action.path);
           case SyncActionKind.upload:
-            final version = await _disk.stat(pair.localPath, action.path);
-            final source = await _disk.openRead(pair.localPath, action.path);
+            final version = await disk.stat(pair.localPath, action.path);
+            final source = await disk.openRead(pair.localPath, action.path);
             if (source == null) {
               continue; // vanished mid-pass: next pass sees it
             }
@@ -324,7 +343,7 @@ class FolderSyncEngine {
             if (source == null) continue; // content not here yet; try next pass
             LocalFile? published;
             try {
-              published = await _disk.writeChecked(
+              published = await disk.writeChecked(
                 pair.localPath,
                 action.path,
                 source,
@@ -363,7 +382,7 @@ class FolderSyncEngine {
             );
             applied.add(action);
           case SyncActionKind.deleteLocal:
-            await _disk.remove(pair.localPath, action.path);
+            await disk.remove(pair.localPath, action.path);
             base.remove(action.path);
             applied.add(action);
           case SyncActionKind.deleteRemote:
@@ -377,7 +396,7 @@ class FolderSyncEngine {
             await _cloud.rename(id, action.path);
             final from = action.fromPath;
             final was = from == null ? null : base.remove(from);
-            final stat = await _disk.stat(pair.localPath, action.path);
+            final stat = await disk.stat(pair.localPath, action.path);
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: was?.contentId ?? '',
@@ -402,14 +421,16 @@ class FolderSyncEngine {
         // One file's failure is not the pass's failure. Its base row is left
         // exactly as it was, so nothing later reads the failure as a deletion.
         failed.add((action, error));
+        if (error is FolderFsFailure &&
+            error.kind == FolderFsFailureKind.rootChanged) {
+          rootRefusal = FolderSyncScanRefusal.rootChanged.name;
+          break;
+        }
         if (action.kind == SyncActionKind.download ||
             action.kind == SyncActionKind.deleteLocal) {
-          final code = error is FileSystemException
-              ? error.osError?.errorCode
-              : null;
-          final denied = Platform.isWindows
-              ? code == 5
-              : code == 1 || code == 13;
+          final denied =
+              error is FolderFsFailure && error.accessDenied ||
+              error is FileSystemException && fileSystemAccessDenied(error);
           if (writeIssue == null ||
               denied &&
                   writeIssue.reason != FolderSyncAccessRefusal.accessDenied) {
@@ -435,10 +456,13 @@ class FolderSyncEngine {
         lastPassAtMs: _now(),
         readIssue: readIssue,
         writeIssue: writeIssue,
+        lastRefusal: rootRefusal,
       ),
+      consumeAnswers: rootRefusal == null,
     );
     return FolderSyncReport(
       applied: applied,
+      refusedReason: rootRefusal,
       failed: failed,
       conflicts: finished.pendingConflicts,
       ambiguous: plan.ambiguous,

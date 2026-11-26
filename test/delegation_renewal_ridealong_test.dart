@@ -103,7 +103,7 @@ void main() {
     expect(start, isNot(-1));
     final body = stack.substring(start, start + 3000);
     expect(
-      body.contains('_createPrivateStagingDir('),
+      body.contains('createPrivateStagingDirectory('),
       isTrue,
       reason:
           'what is written there is device_identity_sk.bin — this device\'s '

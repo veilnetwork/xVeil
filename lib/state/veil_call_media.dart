@@ -1729,6 +1729,11 @@ class VeilCallMediaController implements CallMediaController {
   // build with no engine they were an uncaught throw from a widget. No engine
   // means no screen to capture, so the honest answer is "not granted".
   @override
+  bool get screenCaptureConsentDeclined => _screenCaptureConsentDeclined;
+
+  bool _screenCaptureConsentDeclined = false;
+
+  @override
   bool get screenCaptureAccessGranted =>
       !Platform.isMacOS ||
       (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ??
@@ -3990,6 +3995,7 @@ class VeilCallMediaController implements CallMediaController {
     VeilMediaEngine engine, {
     required int epoch,
   }) async {
+    _screenCaptureConsentDeclined = false;
     final callId = _activeCall?.callId;
     if (callId == null || _engine != engine) return false;
     _androidScreenPushLogged = false;
@@ -4019,6 +4025,8 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
       return false;
     }
+    _screenCaptureConsentDeclined =
+        screen is AndroidScreenCapture && screen.consentDeclined;
     if (!started && _androidScreen == screen) _androidScreen = null;
     return started;
   }

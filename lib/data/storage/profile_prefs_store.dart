@@ -9,11 +9,16 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:shared_preferences_platform_interface/types.dart';
 import 'package:shared_preferences_windows/shared_preferences_windows.dart';
 
+import '../../core/filesystem_errors.dart';
 import '../../core/log.dart';
 import '../../core/storage_acl_vault.dart';
 import '../../domain/profile_preferences_layout.dart';
 import 'app_profile.dart';
-import 'async_kv_log_store.dart' show ManagedWorkerFailure;
+import 'async_kv_log_store.dart'
+    show
+        ManagedPreferencesFailureReason,
+        ManagedWorkerFailure,
+        ManagedWorkerFailureKind;
 import 'managed_fs_contract.dart' show ManagedFsFailure;
 import 'profile_preferences_file.dart';
 import 'legacy_profile_preferences.dart';
@@ -130,11 +135,11 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       throw StateError('profile preference file owner mismatch');
     }
     final file = File(path);
-    // Admission failures from a native owner must propagate. The legacy
-    // backend still tolerates unreadable preferences during startup.
+    // Missing preferences mean a new store. Access failures must propagate
+    // so startup cannot mistake an unreadable profile for a new profile.
     final contents = ownedFile != null
         ? await ownedFile.read()
-        : await _readUnowned(file).onError<FileSystemException>((_, _) => null);
+        : await _readUnowned(file);
     final entries = _decodeSnapshot(
       contents,
       recoverInvalidJson: ownedFile == null,
@@ -148,7 +153,12 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   }
 
   static Future<String?> _readUnowned(File file) async {
-    return file.existsSync() ? file.readAsString() : null;
+    try {
+      return await file.readAsString();
+    } on FileSystemException catch (error) {
+      if (fileSystemPathMissing(error)) return null;
+      rethrow;
+    }
   }
 
   Future<String?> _readContents() => _ownedFile?.read() ?? _readUnowned(_file);
@@ -242,7 +252,23 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     final next = _writes.then((_) async {
       final elapsed = Stopwatch()..start();
       while (true) {
-        final raw = await _readContents();
+        final String? raw;
+        try {
+          raw = await _readContents();
+        } on FileSystemException catch (error) {
+          _writeFailures.add(
+            ManagedWorkerFailure(
+              ManagedWorkerFailureKind.invalid,
+              preferencesWriteReason: fileSystemAccessDenied(error)
+                  ? ManagedPreferencesFailureReason.filesystemAccessDenied
+                  : FileSystemEntity.typeSync(_file.path, followLinks: false) ==
+                        FileSystemEntityType.directory
+                  ? ManagedPreferencesFailureReason.fileType
+                  : ManagedPreferencesFailureReason.filesystemIo,
+            ),
+          );
+          return false;
+        }
         final snapshot = _decodeSnapshot(
           raw,
           recoverInvalidJson: _ownedFile == null,

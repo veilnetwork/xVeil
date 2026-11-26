@@ -60,6 +60,9 @@ final class ManagedStorageAclWarning {
     this.directory = true,
     this.owner,
     this.extendedAcl,
+    this.canContinue = true,
+    this.readOnlyInApp = false,
+    this.grantsArePotential = false,
   }) : grants = List.unmodifiable(grants);
 
   final String path;
@@ -68,6 +71,24 @@ final class ManagedStorageAclWarning {
   final bool directory;
   final String? owner;
   final String? extendedAcl;
+  final bool canContinue;
+  final bool readOnlyInApp;
+  final bool grantsArePotential;
+
+  ManagedStorageAclWarning withPolicy({
+    bool? canContinue,
+    bool? readOnlyInApp,
+  }) => ManagedStorageAclWarning(
+    path: path,
+    fingerprint: fingerprint,
+    grants: grants,
+    directory: directory,
+    owner: owner,
+    extendedAcl: extendedAcl,
+    canContinue: canContinue ?? this.canContinue,
+    readOnlyInApp: readOnlyInApp ?? this.readOnlyInApp,
+    grantsArePotential: grantsArePotential,
+  );
 }
 
 /// The exception text is safe to log. Permission details are local to

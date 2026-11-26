@@ -218,6 +218,7 @@ abstract class CallMediaController {
   Future<bool> selectSpeaker(String id) async => false;
   Future<bool> selectScreen(String id) async => false;
   bool get screenCaptureAccessGranted => true;
+  bool get screenCaptureConsentDeclined => false;
   bool requestScreenCaptureAccess() => true;
 
   /// Mount the video pipeline (send + receive) on the live session of a call
@@ -1744,6 +1745,9 @@ class CallService {
     if (c == null || !c.isLive) return false;
     return await _media?.selectScreen(id) ?? false;
   }
+
+  bool get screenCaptureConsentDeclined =>
+      _media?.screenCaptureConsentDeclined ?? false;
 
   bool get screenCaptureAccessGranted =>
       _media?.screenCaptureAccessGranted ?? true;

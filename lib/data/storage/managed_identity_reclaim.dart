@@ -23,7 +23,10 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   void _reclaimLease() {
     validatePaths();
     lease!.requireHeld();
-    owner._fs.requirePrivateFile(file('keybox.hv'));
+    owner._fs.requirePrivateFile(
+      file('keybox.hv'),
+      allowReadOnlyAclApproval: true,
+    );
     owner._fs.requirePrivateFile(file('content.hv'));
     owner._fs.requirePrivateFile(file('maintenance.hv'));
   }
@@ -38,7 +41,10 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
         // SQLite FULL auto-vacuum already reclaims at commit. Never invoke an
         // encrypted compactor or ask for a password on the plaintext branch.
         validatePaths();
-        owner._fs.requirePrivateFile(file('data.store'));
+        owner._fs.requirePrivateFile(
+          file('data.store'),
+          allowReadOnlyAclApproval: true,
+        );
         final bytes = File(file('data.store')).lengthSync();
         return ManagedReclaimReport(
           beforeBytes: bytes,

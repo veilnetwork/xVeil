@@ -16,7 +16,7 @@ import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../common/async_error_view.dart';
 import '../bootstrap/startup_failed_app.dart'
-    show preferencesFailureText, StorageAclDetails;
+    show preferencesFailureText, showStorageAccessReview;
 
 /// The hidden profile switcher: which on-disk profile the app starts on.
 ///
@@ -86,48 +86,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<bool> _reviewAcl(ManagedFsFailure failure) async {
-    final warning = failure.aclWarnings.single;
-    if (await restoreRememberedStorageAcl(warning)) return true;
+    final warnings = failure.aclWarnings;
+    var restored = warnings.every((warning) => warning.canContinue);
+    if (restored) {
+      for (final warning in warnings) {
+        if (!await restoreRememberedStorageAcl(warning)) restored = false;
+      }
+    }
+    if (restored) return true;
     if (!mounted) return false;
     final l = AppL10n.of(context);
-    final remember = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        scrollable: true,
-        title: Text(l.startupAclWarningTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(l.startupAclFileWarningRisk),
-            const SizedBox(height: 8),
-            StorageAclDetails(warning),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(l.actionCancel),
-          ),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l.profileAclContinueOnce),
-          ),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l.profileAclRememberChoice),
-          ),
-        ],
-      ),
-    );
+    final remember = await showStorageAccessReview(context, failure);
     if (!mounted || remember == null) return false;
-    final saved = await recordStorageAclApproval(warning, remember: remember);
-    if (mounted && !saved) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+    for (final warning in warnings) {
+      if (!await recordStorageAclApproval(warning, remember: remember)) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+        }
+        return false;
+      }
     }
-    return saved;
+    return true;
   }
 
   void _retry() {

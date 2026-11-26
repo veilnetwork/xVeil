@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
+import '../core/filesystem_errors.dart';
 import '../domain/folder_sync.dart';
 import '../domain/range_source.dart';
 import 'fs_beneath.dart';
@@ -165,8 +166,15 @@ class _Api {
   final _CloseDart close;
   final _FreeDart free;
 
-  bool freeError(Pointer<Pointer<Utf8>> error) =>
-      takeError(error) == 'folder publication is busy';
+  FolderFsFailure failure(String? error, FolderFsFailureKind kind) =>
+      FolderFsFailure(
+        error == 'folder publication is busy' ? FolderFsFailureKind.busy : kind,
+        accessDenied: Platform.isWindows
+            ? error?.endsWith('(os error 5)') == true ||
+                  error?.endsWith('(NTSTATUS 0xc0000022)') == true
+            : error?.endsWith('(os error 13)') == true ||
+                  error?.endsWith('(os error 1)') == true,
+      );
 
   String? takeError(Pointer<Pointer<Utf8>> error) {
     final value = error.value;
@@ -224,17 +232,7 @@ class NativeFolderSession {
       if (handle == nullptr) {
         // The installed native ABI returns Rust I/O errors as text. Use only
         // stable numeric suffixes, discarding the message and any path in it.
-        final denied = Platform.isWindows
-            ? refusal?.endsWith('(os error 5)') == true ||
-                  refusal?.endsWith('(NTSTATUS 0xc0000022)') == true
-            : refusal?.endsWith('(os error 13)') == true ||
-                  refusal?.endsWith('(os error 1)') == true;
-        throw FolderFsFailure(
-          refusal == 'folder publication is busy'
-              ? FolderFsFailureKind.busy
-              : FolderFsFailureKind.unavailable,
-          accessDenied: denied,
-        );
+        throw api.failure(refusal, FolderFsFailureKind.unavailable);
       }
       return NativeFolderSession._(root, api, handle);
     } finally {
@@ -273,9 +271,9 @@ class NativeFolderSession {
     final error = calloc<Pointer<Utf8>>();
     try {
       final matches = _api.matches(handle, path, error);
-      _api.freeError(error);
+      final refusal = _api.takeError(error);
       if (!matches) {
-        throw const FolderFsFailure(FolderFsFailureKind.rootChanged);
+        throw _api.failure(refusal, FolderFsFailureKind.rootChanged);
       }
     } finally {
       calloc.free(path);
@@ -347,10 +345,9 @@ class NativeFolderSession {
     } on FolderFsFailure {
       rethrow;
     } on FileSystemException catch (error) {
-      final code = error.osError?.errorCode;
       throw FolderFsFailure(
         FolderFsFailureKind.recovery,
-        accessDenied: Platform.isWindows ? code == 5 : code == 1 || code == 13,
+        accessDenied: fileSystemAccessDenied(error),
       );
     }
   }
@@ -362,11 +359,9 @@ class NativeFolderSession {
     final error = calloc<Pointer<Utf8>>();
     try {
       final result = _api.recover(handle, path, error);
-      final busy = _api.freeError(error);
+      final refusal = _api.takeError(error);
       if (result < 0) {
-        throw FolderFsFailure(
-          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.recovery,
-        );
+        throw _api.failure(refusal, FolderFsFailureKind.recovery);
       }
       return result == 1;
     } finally {
@@ -385,12 +380,10 @@ class NativeFolderSession {
     try {
       final file = _api.openSaved(handle, path, size, modified, error);
       final hadError = error.value != nullptr;
-      final busy = _api.freeError(error);
+      final refusal = _api.takeError(error);
       if (file == nullptr) {
         if (!hadError) return null;
-        throw FolderFsFailure(
-          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.reading,
-        );
+        throw _api.failure(refusal, FolderFsFailureKind.reading);
       }
       final reader = _api.reader.own(file, size.value);
       var closed = false;
@@ -414,9 +407,9 @@ class NativeFolderSession {
           final err = calloc<Pointer<Utf8>>();
           try {
             final result = _api.unchanged(file, err);
-            _api.freeError(err);
+            final refusal = _api.takeError(err);
             if (result < 0) {
-              throw const FolderFsFailure(FolderFsFailureKind.reading);
+              throw _api.failure(refusal, FolderFsFailureKind.reading);
             }
             return result == 1;
           } finally {
@@ -433,11 +426,9 @@ class NativeFolderSession {
           final err = calloc<Pointer<Utf8>>();
           try {
             final result = _api.discard(scope._live, path, file, spare, err);
-            final busy = _api.freeError(err);
+            final refusal = _api.takeError(err);
             if (result < 0) {
-              throw FolderFsFailure(
-                busy ? FolderFsFailureKind.busy : FolderFsFailureKind.cleanup,
-              );
+              throw _api.failure(refusal, FolderFsFailureKind.cleanup);
             }
             scope.checkRoot();
             return result == 1;
@@ -463,11 +454,9 @@ class NativeFolderSession {
     final error = calloc<Pointer<Utf8>>();
     try {
       final file = _api.createIncoming(handle, path, error);
-      final busy = _api.freeError(error);
+      final refusal = _api.takeError(error);
       if (file == nullptr) {
-        throw FolderFsFailure(
-          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.preparation,
-        );
+        throw _api.failure(refusal, FolderFsFailureKind.preparation);
       }
       return _api.writer.own(file);
     } finally {
@@ -504,12 +493,10 @@ class NativeFolderSession {
         modified,
         error,
       );
-      final busy = _api.freeError(error);
+      final refusal = _api.takeError(error);
       if (result == 0) throw const FolderSyncLocalChanged();
       if (result != 1) {
-        throw FolderFsFailure(
-          busy ? FolderFsFailureKind.busy : FolderFsFailureKind.publication,
-        );
+        throw _api.failure(refusal, FolderFsFailureKind.publication);
       }
       return LocalFile(
         path: path,

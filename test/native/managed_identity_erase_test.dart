@@ -27,8 +27,14 @@ class _RemoveBeforeLease extends ManagedFsPlatform {
   ManagedIdentityEntry? armed;
   String? catalogPath;
   @override
-  ManagedPathWitness inspect(String path) {
-    final result = super.inspect(path);
+  ManagedPathWitness inspectAcl(
+    String path, {
+    bool allowDirectoryContentGrants = false,
+  }) {
+    final result = super.inspectAcl(
+      path,
+      allowDirectoryContentGrants: allowDirectoryContentGrants,
+    );
     final entry = armed;
     if (entry != null && path.endsWith('identity.meta.lock')) {
       armed = null;

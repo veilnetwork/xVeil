@@ -229,10 +229,22 @@ void main() {
     final root = Directory.systemTemp.createTempSync('xveil-versions-card-');
     addTearDown(() => root.deleteSync(recursive: true));
     if (!Platform.isWindows) expect(posixChmod(root.path, 0x1c0), 0);
+    String? identity;
+    expect(
+      folderSyncRootRefusal(
+        root.path,
+        onVerifiedIdentity: (value) => identity = value,
+      ),
+      isNull,
+    );
     await mount(
       tester,
       child: const FolderSyncScreen(),
-      pair: FolderSyncPair(id: 'pair', localPath: root.path),
+      pair: FolderSyncPair(
+        id: 'pair',
+        localPath: root.path,
+        rootIdentity: identity,
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, l.folderSyncSavedTitle));

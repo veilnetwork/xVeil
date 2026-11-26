@@ -217,7 +217,7 @@ final class StorageProfileCoordinator {
     final directory = ManagedDirectoryCatalog._privateDirectory(
       path,
       fs,
-      allowAclApproval: !exclusive,
+      allowReadOnlyAclApproval: true,
     );
     final role = ManagedDirectoryCatalog._child(
       path,
@@ -226,17 +226,17 @@ final class StorageProfileCoordinator {
     final files = <String, ManagedPathWitness>{
       ManagedProfileLease.fileName: fs.requirePrivateFile(
         role,
-        allowAclApproval: !exclusive,
+        allowReadOnlyAclApproval: true,
       ),
       '${ManagedProfileLease.fileName}.lock': fs.requirePrivateFile(
         '$role.lock',
-        allowAclApproval: !exclusive,
+        allowReadOnlyAclApproval: true,
       ),
     };
     ManagedDirectoryCatalog._checkSqliteSidecars(
       role,
       fs,
-      allowAclApproval: !exclusive,
+      allowReadOnlyAclApproval: true,
     );
     if (File('$role.lock').lengthSync() != 0) {
       throw const ManagedFsFailure(
@@ -295,12 +295,12 @@ final class StorageProfileCoordinator {
     ManagedDirectoryCatalog._privateDirectory(
       directory,
       _fs,
-      allowAclApproval: !this.exclusive,
+      allowReadOnlyAclApproval: true,
     );
     ManagedDirectoryCatalog._assertSame(directory, _directoryWitness, _fs);
     for (final entry in _files.entries) {
       final path = ManagedDirectoryCatalog._child(directory, entry.key);
-      _fs.requirePrivateFile(path, allowAclApproval: !this.exclusive);
+      _fs.requirePrivateFile(path, allowReadOnlyAclApproval: true);
       ManagedDirectoryCatalog._assertSame(path, entry.value, _fs);
     }
     if (File(

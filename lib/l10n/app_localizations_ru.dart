@@ -8640,4 +8640,88 @@ class AppL10nRu extends AppL10n {
   @override
   String get masterAppendReplayBody =>
       'Продолжите добавление личности. Существующие данные сохранятся.';
+
+  @override
+  String get storageAclPotentialGrants =>
+      'В списке прав указаны следующие разрешения. Запрещающие правила и членство в группах могут ограничивать фактический доступ.';
+
+  @override
+  String get storageAclSettingsReadOnly =>
+      'xVeil может прочитать эти настройки. Сохранение изменений станет доступно, когда файл будет принадлежать вашей учётной записи, а у других учётных записей не будет права записи.';
+
+  @override
+  String get storageAclUnlockReadRisk =>
+      'Другие учётные записи могут читать данные этого хранилища. Проверьте список учётных записей и прав перед продолжением.';
+
+  @override
+  String get folderSyncConfirmRoot => 'Подтвердить папку';
+
+  @override
+  String folderSyncConfirmExistingRoot(String path) {
+    return 'Подтвердите, что $path — папка этой пары синхронизации. К ней будут применены история синхронизации и текущая настройка удаления.';
+  }
+
+  @override
+  String folderSyncWindowsRootRedirectable(String path) {
+    return 'Права Windows могут позволить другой учётной записи перенаправить $path. Выберите папку, путь к которой защищён от перенаправления другими учётными записями, или попросите администратора проверить права.';
+  }
+
+  @override
+  String get mediaCameraPermissionDenied =>
+      'Доступ к камере запрещён. Разрешите xVeil использовать камеру в настройках конфиденциальности системы и повторите попытку.';
+
+  @override
+  String get mediaMicrophonePermissionDenied =>
+      'Доступ к микрофону запрещён. Разрешите xVeil использовать микрофон в настройках конфиденциальности системы и повторите попытку.';
+
+  @override
+  String get mediaPermissionCheckUnavailable =>
+      'Не удалось проверить доступ к устройству. Откройте настройки конфиденциальности системы или повторите попытку.';
+
+  @override
+  String get mediaScreenPermissionDeclined =>
+      'Разрешение на показ экрана отклонено или запрос был закрыт. Начните показ снова и подтвердите системный запрос.';
+
+  @override
+  String get mediaScreenStartFailed =>
+      'Не удалось начать показ экрана. Завершите другие сеансы захвата экрана и повторите попытку.';
+
+  @override
+  String get notificationPermissionDenied =>
+      'Системные уведомления для xVeil отключены. Их можно включить в настройках системы.';
+
+  @override
+  String get devicesPairLanDenied =>
+      'Система запретила доступ к локальной сети. Проверьте разрешение на локальную сеть или правила файрвола для xVeil. Ниже доступен другой способ связывания.';
+
+  @override
+  String get quickUnlockAuthCancelled =>
+      'Системная проверка отменена. Повторите попытку или используйте пароль.';
+
+  @override
+  String get quickUnlockAuthNotEnrolled =>
+      'Настройте биометрию или вход на устройстве в системных настройках и повторите попытку.';
+
+  @override
+  String get quickUnlockAuthLockedOut =>
+      'Системная проверка заблокирована. Используйте пароль и восстановите доступ к биометрии в настройках системы.';
+
+  @override
+  String get quickUnlockAuthFailed =>
+      'Системе не удалось подтвердить вход. Проверьте настройки входа на устройстве или используйте пароль.';
+
+  @override
+  String get storageAclMaintenanceBlocked =>
+      'Эта операция заменяет файл, права которого xVeil не может сохранить. Проверьте права доступа перед повторной попыткой.';
+
+  @override
+  String get storageAclRetryOperation =>
+      'Выбор принят. Повторите операцию, когда будете готовы.';
+
+  @override
+  String get storageAclReview => 'Посмотреть права доступа';
+
+  @override
+  String get startupRuntimeAccessDenied =>
+      'Система запретила доступ к служебной папке управления подключением. Проверьте права своей учётной записи или выберите другую папку.';
 }

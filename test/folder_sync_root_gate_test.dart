@@ -6,9 +6,11 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/folder_sync.dart';
+import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/folder_sync_controller.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
 import 'package:xveil/state/providers.dart';
@@ -45,7 +47,10 @@ class _CountingEngine extends FolderSyncEngine {
   int runs = 0;
 
   @override
-  Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
+  Future<FolderSyncReport> runOnce(
+    FolderSyncPair pair, {
+    void Function()? verifyRoot,
+  }) async {
     runs++;
     return const FolderSyncReport(applied: [], failed: [], conflicts: {});
   }
@@ -74,10 +79,12 @@ void _chmod(Directory dir, int mode) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late ProviderContainer container;
   late FolderSyncController controller;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     container = ProviderContainer(
       overrides: [storageProvider.overrideWith((ref) => _FileOnlyStorage())],
     );
@@ -211,6 +218,24 @@ void main() {
         expect(pair.rootApproval, isNull);
         if (legacy) {
           expect(pair.rootIdentity, isNull);
+          final report = await ctrl.runOnce(pair);
+          expect(
+            report?.refusedReason,
+            FolderSyncRefusalCode.confirmationRequired.name,
+          );
+          expect(engine.runs, 0);
+          final checked = c
+              .read(folderSyncControllerProvider)
+              .single
+              .rootRefusal!;
+          expect(
+            await ctrl.confirmPairRoot(
+              pair.id,
+              checked.rootIdentity!,
+              owner: c.read(appControllerProvider.notifier).leaseIdentity(),
+            ),
+            isNull,
+          );
           expect((await ctrl.runOnce(pair))?.isRefused, isFalse);
         }
         final bound = (await store.pairs()).single;
@@ -335,24 +360,31 @@ void main() {
     },
   );
 
-  test('a readable shared folder needs consent and keeps deletion sync', () async {
-    final root = tempRoot('xveil_gate_readable');
-    _chmod(root, _mode0755);
-    final warning = await controller.addPair(localPath: root.path, id: 'readable');
-    expect(warning?.code, FolderSyncRefusalCode.readableByOtherAccounts);
-    expect(warning?.approval?.writeAccess, isFalse);
-    expect(
-      await controller.addPair(
+  test(
+    'a readable shared folder needs consent and keeps deletion sync',
+    () async {
+      final root = tempRoot('xveil_gate_readable');
+      _chmod(root, _mode0755);
+      final warning = await controller.addPair(
         localPath: root.path,
         id: 'readable',
-        rootApproval: warning!.approval,
-      ),
-      isNull,
-    );
-    final saved = (await container.read(folderSyncStoreProvider).pairs()).single;
-    expect(saved.deletePropagates, isTrue);
-    expect(saved.rootApproval?.writeAccess, isFalse);
-  });
+      );
+      expect(warning?.code, FolderSyncRefusalCode.readableByOtherAccounts);
+      expect(warning?.approval?.writeAccess, isFalse);
+      expect(
+        await controller.addPair(
+          localPath: root.path,
+          id: 'readable',
+          rootApproval: warning!.approval,
+        ),
+        isNull,
+      );
+      final saved =
+          (await container.read(folderSyncStoreProvider).pairs()).single;
+      expect(saved.deletePropagates, isTrue);
+      expect(saved.rootApproval?.writeAccess, isFalse);
+    },
+  );
 
   test('a macOS list and search ACL can be accepted', () {
     final root = tempRoot('xveil_gate_darwin_readable');

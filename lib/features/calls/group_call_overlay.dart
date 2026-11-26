@@ -12,6 +12,7 @@ import '../../domain/group.dart';
 import '../../domain/group_call.dart';
 import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/mac_media_permissions.dart';
 import '../../state/call_noise_suppression.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_audio_route.dart';
@@ -130,6 +131,49 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     }
   }
 
+  Future<void> _toggleCapture(
+    _GroupScreenOwner owner,
+    bool on, {
+    required bool camera,
+  }) async {
+    if (!_ownsScreenAction(owner)) return;
+    if (on) {
+      final status =
+          await (camera
+                  ? MacMediaPermissions.requestCameraAccess()
+                  : MacMediaPermissions.requestMicrophoneAccess())
+              .timeout(
+                const Duration(seconds: 10),
+                onTimeout: () => MediaPermissionStatus.unavailable,
+              );
+      if (!mounted || !_ownsScreenAction(owner)) return;
+      if (status != MediaPermissionStatus.allowed) {
+        final l = AppL10n.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(switch (status) {
+              MediaPermissionStatus.denied =>
+                camera
+                    ? l.mediaCameraPermissionDenied
+                    : l.mediaMicrophonePermissionDenied,
+              _ => l.mediaPermissionCheckUnavailable,
+            }),
+          ),
+        );
+        return;
+      }
+    }
+    if (owner.calls.mediaController
+        case final VeilGroupCallMediaController media when on) {
+      media.onCaptureAccessGranted(camera: camera);
+    }
+    if (camera) {
+      await owner.calls.setCameraEnabled(on);
+    } else {
+      await owner.calls.setMicEnabled(on);
+    }
+  }
+
   Future<void> _toggleScreen(_GroupScreenOwner owner, GroupCall call) async {
     if (!_ownsScreenAction(owner)) return;
     final calls = owner.calls;
@@ -139,6 +183,17 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     }
     if (!Platform.isMacOS) {
       await calls.setScreenShareEnabled(true);
+      if (mounted &&
+          _ownsScreenAction(owner) &&
+          calls.current?.screenOn != true) {
+        final l = AppL10n.of(context);
+        final message = calls.screenCaptureConsentDeclined
+            ? l.mediaScreenPermissionDeclined
+            : l.mediaScreenStartFailed;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
       return;
     }
     if (!calls.screenCaptureAccessGranted &&
@@ -250,11 +305,16 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                 onDecline: () => unawaited(calls.decline()),
                 onLeave: () => unawaited(calls.leave()),
                 onEndEveryone: () => unawaited(calls.endForEveryone()),
-                onMic: () => unawaited(calls.setMicEnabled(!call.micOn)),
-                onCamera: () =>
-                    unawaited(calls.setCameraEnabled(!call.cameraOn)),
+                onMic: () => unawaited(
+                  _toggleCapture(owner, !call.micOn, camera: false),
+                ),
+                onCamera: () => unawaited(
+                  _toggleCapture(owner, !call.cameraOn, camera: true),
+                ),
                 onScreen: () => unawaited(_toggleScreen(owner, call)),
                 onSettings: () => unawaited(_openSettings(owner)),
+                microphonePermission: nativeMedia?.microphonePermission,
+                cameraPermission: nativeMedia?.cameraPermission,
                 localVideoFrame: nativeMedia?.localVideoFrame,
                 videoFrameFor: nativeMedia?.videoFrameFor,
               ),
@@ -302,6 +362,8 @@ class GroupCallRoomView extends StatelessWidget {
     required this.onScreen,
     this.onSettings,
     this.onMinimize,
+    this.microphonePermission,
+    this.cameraPermission,
     this.localVideoFrame,
     this.videoFrameFor,
   });
@@ -319,6 +381,8 @@ class GroupCallRoomView extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onScreen;
   final VoidCallback? onSettings;
+  final MediaPermissionStatus? microphonePermission;
+  final MediaPermissionStatus? cameraPermission;
   final ValueListenable<VeilVideoFrame?>? localVideoFrame;
   final ValueListenable<VeilVideoFrame?>? Function(NodeId)? videoFrameFor;
 
@@ -346,6 +410,26 @@ class GroupCallRoomView extends StatelessWidget {
             minimizeLabel: l.groupCallMinimize,
           ),
         ),
+        if (microphonePermission == MediaPermissionStatus.denied ||
+            cameraPermission == MediaPermissionStatus.denied ||
+            microphonePermission == MediaPermissionStatus.unavailable ||
+            cameraPermission == MediaPermissionStatus.unavailable)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              [
+                if (microphonePermission == MediaPermissionStatus.denied)
+                  l.mediaMicrophonePermissionDenied,
+                if (cameraPermission == MediaPermissionStatus.denied)
+                  l.mediaCameraPermissionDenied,
+                if (microphonePermission == MediaPermissionStatus.unavailable ||
+                    cameraPermission == MediaPermissionStatus.unavailable)
+                  l.mediaPermissionCheckUnavailable,
+              ].join(' '),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: LayoutBuilder(

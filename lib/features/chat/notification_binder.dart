@@ -3,7 +3,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, setEquals;
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
@@ -311,7 +311,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
       // The pending flag covers the prompt's own inactive/resumed transition.
       // Only a real OS decision suppresses attempts on later returns.
-      _permissionDecided = await service.requestPermission() != null;
+      final granted = await service.requestPermission();
+      _permissionDecided = granted != null;
+      if (granted == false &&
+          mounted &&
+          ref.read(appControllerProvider).phase == AppPhase.ready) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(AppL10n.of(context).notificationPermissionDenied),
+          ),
+        );
+      }
     } finally {
       _permissionRequestPending = false;
     }

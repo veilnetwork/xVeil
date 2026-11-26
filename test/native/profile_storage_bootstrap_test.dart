@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/managed_directory_catalog.dart';
 import 'package:xveil/data/storage/managed_fs_platform.dart';
+import 'package:xveil/data/storage/managed_identity_catalog.dart';
 import 'package:xveil/data/storage/profile_storage_bootstrap.dart';
 import 'package:xveil/data/storage/profile_storage_router_owner.dart';
 import 'package:xveil/data/storage/storage_acl_approval.dart';
@@ -70,11 +71,49 @@ void main() {
     final opened = ManagedDirectoryCatalog.openExisting(profile);
     expect(opened, isNotNull);
     opened!.close();
-    expect(
-      () => ManagedDirectoryCatalog.openExclusiveMaintenance(profile),
-      throwsA(isA<ManagedFsFailure>()),
-    );
+    final maintenance = ManagedDirectoryCatalog.openExclusiveMaintenance(profile);
+    expect(maintenance, isNotNull);
+    maintenance!.close();
   }, skip: !(Platform.isMacOS || Platform.isLinux));
+
+  test(
+    'identity data accepts only verified read access after approval',
+    () {
+      final owner = ManagedDirectoryCatalog.createOrOpen(profile);
+      addTearDown(owner.close);
+      final id = ManagedIdentityId('a' * 32);
+      ManagedIdentityFiles.createUnencrypted(owner, id: id).close();
+      final file = owner.layout.dataPath(id);
+      final approvals = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(approvals));
+      expect(posixChmod(file, 0x1a0), 0);
+      expect(
+        () => ManagedIdentityFiles.openUnencrypted(owner, id: id),
+        throwsA(
+          isA<ManagedFsFailure>().having(
+            (error) => error.aclWarnings.single.canContinue,
+            'reviewable',
+            isTrue,
+          ),
+        ),
+      );
+      approveStorageAcl(fs.inspectAcl(file).aclWarning!.fingerprint);
+      ManagedIdentityFiles.openUnencrypted(owner, id: id).close();
+      expect(posixChmod(file, 0x1b0), 0);
+      approveStorageAcl(fs.inspectAcl(file).aclWarning!.fingerprint);
+      expect(
+        () => ManagedIdentityFiles.openUnencrypted(owner, id: id),
+        throwsA(
+          isA<ManagedFsFailure>().having(
+            (error) => error.aclWarnings.single.canContinue,
+            'reviewable',
+            isFalse,
+          ),
+        ),
+      );
+    },
+    skip: !(Platform.isMacOS || Platform.isLinux),
+  );
 
   test('approval cannot admit a catalog that other accounts can write', () {
     ManagedDirectoryCatalog.createOrOpen(profile).close();
@@ -87,9 +126,9 @@ void main() {
     expect(
       () => ManagedDirectoryCatalog.openExisting(profile),
       throwsA(isA<ManagedFsFailure>().having(
-        (error) => error.aclWarnings,
-        'approvable grants',
-        isEmpty,
+        (error) => error.aclWarnings.single.canContinue,
+        'grant cannot be approved',
+        isFalse,
       )),
     );
   }, skip: !(Platform.isMacOS || Platform.isLinux));

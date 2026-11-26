@@ -82,6 +82,7 @@ Future<bool> recordStorageAclApproval(
   ManagedStorageAclWarning warning, {
   required bool remember,
 }) async {
+  if (!warning.canContinue) return false;
   if (Platform.isWindows) {
     return recordWindowsProfileAclApproval(warning, remember: remember);
   }
@@ -103,7 +104,9 @@ Future<bool> restoreRememberedStorageAcl(
   ManagedStorageAclWarning warning,
 ) async {
   // Windows checks its account registry directly, also in storage workers.
-  if (Platform.isWindows || hasStorageAclApproval(warning.fingerprint)) {
+  if (!warning.canContinue ||
+      Platform.isWindows ||
+      hasStorageAclApproval(warning.fingerprint)) {
     return false;
   }
   try {

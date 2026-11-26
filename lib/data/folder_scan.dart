@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../core/filesystem_errors.dart';
 import '../domain/folder_sync.dart';
 import 'folder_file_metadata.dart';
 
@@ -12,6 +13,7 @@ class FolderScan {
     required this.unreadable,
     required this.truncated,
     this.rootMissing = false,
+    this.accessDenied = const [],
   });
 
   final List<LocalFile> files;
@@ -21,6 +23,7 @@ class FolderScan {
   /// to appear looks exactly like a file the user deleted, and the sync would
   /// mirror that "deletion" to the cloud.
   final List<String> unreadable;
+  final List<String> accessDenied;
 
   /// True when [maxFiles] stopped the walk. The caller must surface this —
   /// a truncated scan also looks like deletions.
@@ -62,6 +65,7 @@ Future<FolderScan> scanFolder(
 }) async {
   final files = <LocalFile>[];
   final unreadable = <String>[];
+  final denied = <String>[];
   var truncated = false;
   if (!root.existsSync()) {
     return FolderScan(
@@ -78,8 +82,10 @@ Future<FolderScan> scanFolder(
     final List<FileSystemEntity> entries;
     try {
       entries = dir.listSync(followLinks: false);
-    } catch (_) {
-      unreadable.add(_relative(rootPath, dir.path));
+    } on FileSystemException catch (error) {
+      final path = _relative(rootPath, dir.path);
+      unreadable.add(path);
+      if (fileSystemAccessDenied(error)) denied.add(path);
       return;
     }
     entries.sort((a, b) => a.path.compareTo(b.path));
@@ -110,14 +116,20 @@ Future<FolderScan> scanFolder(
           return;
         }
         files.add(stamp);
-      } catch (_) {
+      } on FileSystemException catch (error) {
         unreadable.add(relative);
+        if (fileSystemAccessDenied(error)) denied.add(relative);
       }
     }
   }
 
   await walk(root);
-  return FolderScan(files: files, unreadable: unreadable, truncated: truncated);
+  return FolderScan(
+    files: files,
+    unreadable: unreadable,
+    truncated: truncated,
+    accessDenied: denied,
+  );
 }
 
 String _relative(String rootPath, String path) {

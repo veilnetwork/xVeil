@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/help_label.dart';
+import '../bootstrap/startup_failed_app.dart' show RuntimeRefusalDetails;
 import '../common/shown_cause.dart';
 import '../calls/call_screen_permission.dart';
 import '../../core/error_journal.dart';
@@ -111,6 +112,14 @@ class NetworkScreen extends ConsumerWidget {
             data: (s) =>
                 _StatusCard(phase: s.phase, peers: peers, message: s.message),
           ),
+          if (status.asData?.value.phase == NodePhase.error &&
+              ref.watch(nodeRuntimeFailureProvider) != null)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: RuntimeRefusalDetails(
+                ref.watch(nodeRuntimeFailureProvider)!,
+              ),
+            ),
           // An identity that declined the shared entry nodes and has added none
           // of its own cannot reach anything, and the status card above says
           // only "offline" — which reads as a fault. Name the actual reason and

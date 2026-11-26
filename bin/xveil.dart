@@ -292,14 +292,14 @@ arguments. Preferred: run from a terminal with no --password-file and type the
 store password at the prompt — nothing is written down, so there is no file for
 another account to read.
 
-A credential file is the unattended fallback. On macOS and Linux, xVeil checks
-the owner, permissions and ACL of the file. To permit verified read-only access
-for other accounts, pass --accept-readable-secret-files (or set
+A credential file is the unattended fallback. xVeil checks the owner and ACL
+on macOS, Linux and Windows. To accept verified read-only access for other
+accounts, pass --accept-readable-secret-files (or set
 XVEIL_ACCEPT_READABLE_SECRET_FILES=1). xVeil reports the grant before reading.
-On Windows, xVeil cannot verify ownership and the ACL in this path. Restrict it
-yourself and pass --accept-unchecked-secret-files (or set
-XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1). That flag records your assertion; it
-verifies nothing.
+If the Windows ACL probe is unavailable, check the file and folder permissions
+yourself. Pass --accept-unchecked-secret-files (or set
+XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1) to record your decision to use the file
+without a verified ACL.
 
 Native libraries may be selected with VEIL_FFI_DYLIB and XVEIL_HV_DYLIB.
 

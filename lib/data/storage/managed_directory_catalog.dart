@@ -290,7 +290,11 @@ final class ManagedDirectoryCatalog {
   }) {
     coordinator.requireHeld(exclusive: exclusive);
     _assertProfile(profile, profileWitness, fs);
-    final rootWitness = _privateDirectory(root, fs);
+    final rootWitness = _privateDirectory(
+      root,
+      fs,
+      allowReadOnlyAclApproval: true,
+    );
     final catalogPath = _child(root, _catalogName);
     if (FileSystemEntity.typeSync(catalogPath, followLinks: false) ==
         FileSystemEntityType.notFound) {
@@ -298,9 +302,9 @@ final class ManagedDirectoryCatalog {
     }
     final catalogWitness = fs.requirePrivateFile(
       catalogPath,
-      allowReadOnlyAclApproval: !exclusive,
+      allowReadOnlyAclApproval: true,
     );
-    _checkSqliteSidecars(catalogPath, fs, allowReadOnlyAclApproval: !exclusive);
+    _checkSqliteSidecars(catalogPath, fs, allowReadOnlyAclApproval: true);
     final rolePath = _child(root, ManagedProfileLease.fileName);
     final leaseWitnesses = <String, ManagedPathWitness>{
       ManagedProfileLease.fileName: fs.requirePrivateFile(rolePath),
@@ -374,7 +378,7 @@ final class ManagedDirectoryCatalog {
     _coordinator.requireHeld();
     _profileLease.requireHeld();
     _assertProfile(profileDirectory, _profileWitness, _fs);
-    _privateDirectory(directory, _fs);
+    _privateDirectory(directory, _fs, allowReadOnlyAclApproval: true);
     _assertSame(directory, _rootWitness, _fs);
     for (final entry in _leaseWitnesses.entries) {
       _fs.requirePrivateFile(_child(directory, entry.key));
@@ -386,15 +390,8 @@ final class ManagedDirectoryCatalog {
         0) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
-    _checkSqliteSidecars(
-      _catalogPath,
-      _fs,
-      allowReadOnlyAclApproval: !_coordinator.exclusive,
-    );
-    _fs.requirePrivateFile(
-      _catalogPath,
-      allowReadOnlyAclApproval: !_coordinator.exclusive,
-    );
+    _checkSqliteSidecars(_catalogPath, _fs, allowReadOnlyAclApproval: true);
+    _fs.requirePrivateFile(_catalogPath, allowReadOnlyAclApproval: true);
     _assertSame(_catalogPath, _catalogWitness, _fs);
   }
 
@@ -512,16 +509,42 @@ final class ManagedDirectoryCatalog {
     String path,
     ManagedFsPlatform fs, {
     bool allowAclApproval = false,
+    bool allowReadOnlyAclApproval = false,
   }) {
-    final witness = fs.inspect(path);
+    final ManagedPathWitness witness;
+    try {
+      witness = allowReadOnlyAclApproval
+          ? fs.inspectAcl(path)
+          : fs.inspect(path);
+    } on ManagedFsFailure catch (error) {
+      if (error.aclWarnings.isEmpty) rethrow;
+      throw ManagedFsFailure(
+        error.kind,
+        unsafeReason: error.unsafeReason,
+        ancestorRefusal: error.ancestorRefusal,
+        path: error.path ?? path,
+        aclWarnings: [
+          for (final warning in error.aclWarnings)
+            warning.withPolicy(canContinue: allowAclApproval),
+        ],
+      );
+    }
+    final canApprove =
+        allowAclApproval ||
+        allowReadOnlyAclApproval &&
+            witness.ownedByCurrentUser &&
+            witness.safeAncestor &&
+            witness.otherUsersHaveReadOnlyAccess;
     if (!witness.directory ||
-        (!(allowAclApproval && witness.aclApproved) &&
+        (!(canApprove && witness.aclApproved) &&
             (!witness.ownerOnly || !witness.ownedByCurrentUser))) {
       throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateDirectory,
+        path: path,
         aclWarnings: [
-          if (allowAclApproval && witness.directory) ?witness.aclWarning,
+          if (witness.aclWarning case final warning? when witness.directory)
+            warning.withPolicy(canContinue: canApprove),
         ],
       );
     }

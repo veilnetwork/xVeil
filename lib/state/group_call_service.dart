@@ -104,6 +104,7 @@ abstract class GroupCallMediaController {
   Future<List<CallMediaDevice>> listScreens() async => const [];
   Future<bool> selectScreen(String id) async => false;
   bool get screenCaptureAccessGranted => true;
+  bool get screenCaptureConsentDeclined => false;
   bool requestScreenCaptureAccess() => true;
   Stream<void> get screenShareStopped => const Stream<void>.empty();
   DateTime? lastMediaRxAt(NodeId peer) => null;
@@ -641,6 +642,9 @@ class GroupCallService {
     if (call == null || !call.isLive) return false;
     return await _media?.selectScreen(id) ?? false;
   }
+
+  bool get screenCaptureConsentDeclined =>
+      _media?.screenCaptureConsentDeclined ?? false;
 
   bool get screenCaptureAccessGranted =>
       _media?.screenCaptureAccessGranted ?? true;

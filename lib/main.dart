@@ -35,6 +35,7 @@ import 'data/storage/profile_preferences_file.dart'
 import 'data/storage/profile_prefs_store.dart'
     show ProfilePreferencesFormatFailure;
 import 'data/storage/cold_profile_erasure_recovery.dart';
+import 'core/filesystem_errors.dart';
 import 'core/background_service_lifetime.dart';
 import 'core/local_authentication.dart';
 import 'core/quick_unlock_vault.dart';
@@ -165,7 +166,9 @@ Future<void> runStartup({
     for (final warning in {
       for (final warning in aclWarnings) warning.fingerprint: warning,
     }.values) {
-      if (!await restoreAclApproval(warning)) unapproved.add(warning);
+      if (!warning.canContinue || !await restoreAclApproval(warning)) {
+        unapproved.add(warning);
+      }
     }
     if (aclWarnings.isNotEmpty && unapproved.isEmpty) {
       await retryStartup();
@@ -237,6 +240,14 @@ Future<void> runStartup({
         preferencesWriteReason,
       ManagedWorkerFailure() when loadingPreferences =>
         e.preferencesOpenReason ?? e.preferencesReadReason,
+      FileSystemException()
+          when loadingPreferences && fileSystemAccessDenied(e) =>
+        ManagedPreferencesFailureReason.filesystemAccessDenied,
+      FileSystemException()
+          when loadingPreferences &&
+              e.path != null &&
+              Directory(e.path!).existsSync() =>
+        ManagedPreferencesFailureReason.fileType,
       ProfileChoiceReadFailure() when loadingPreferences =>
         e.malformed
             ? ManagedPreferencesFailureReason.profileChoiceInvalid
@@ -248,12 +259,15 @@ Future<void> runStartup({
     final canRetry =
         storageFailureReason == ManagedPreferencesFailureReason.busy ||
         e is ProfileChoiceReadFailure && e.busy ||
+        e is FileSystemException && storageFailureReason != null ||
         storageFailure != null &&
             storageFailure.kind != ManagedFsFailureKind.erasurePending;
     present(
       StartupFailedApp(
         preferencesReason: storageFailureReason,
-        storageRefusalPath: storageFailure?.path,
+        storageRefusalPath:
+            storageFailure?.path ??
+            (e is FileSystemException && loadingPreferences ? e.path : null),
         preferencesFormatFailed:
             loadingPreferences && e is ProfilePreferencesFormatFailure,
         preferencesUnsafeAncestor: unsafeAncestor,
@@ -281,7 +295,9 @@ Future<void> runStartup({
             ? retryStartup
             : null,
         aclWarnings: unapproved,
-        acceptAclWarning: unapproved.isEmpty
+        acceptAclWarning:
+            unapproved.isEmpty ||
+                unapproved.any((warning) => !warning.canContinue)
             ? null
             : (remember) async {
                 for (final warning in unapproved) {
@@ -594,7 +610,6 @@ Future<String> _claimStartupRuntime(
     uniqueSuffix: '$pid',
     windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
     windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
-    windowsRequireUnredirectedBase: runtimeBase != null,
     onWindowsRuntimeAttempt: (candidate, failure) => diagnosticJournal.record(
       switch (candidate) {
         0 when override != null => DiagnosticEvent.windowsRuntimeOverride,

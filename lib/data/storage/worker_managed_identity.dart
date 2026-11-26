@@ -73,7 +73,8 @@ final class _ManagedWorkerErr extends _Reply {
 }
 
 final class _ManagedReclaimReq extends _Req {
-  const _ManagedReclaimReq(this.force, super.reply);
+  const _ManagedReclaimReq(this.force, this.approvals, super.reply);
+  final Set<String> approvals;
   final bool force;
 }
 
@@ -108,7 +109,9 @@ abstract final class ManagedWorkerIdentity {
   static Future<ManagedReclaimReport> reclaim(
     WorkerKvLogStore worker, {
     bool force = false,
-  }) => worker._call((reply) => _ManagedReclaimReq(force, reply));
+  }) => worker._call(
+    (reply) => _ManagedReclaimReq(force, storageAclApprovalsForWorker(), reply),
+  );
   // Lexical only: actual path/ancestor admission remains in the worker.
   static String _profileKey(String profile) =>
       Directory(profile).absolute.uri.normalizePath().toFilePath();

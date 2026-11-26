@@ -8678,4 +8678,88 @@ class AppL10nEs extends AppL10n {
   @override
   String get masterAppendReplayBody =>
       'Continúa añadiendo la nueva identidad. Se conservarán los datos existentes.';
+
+  @override
+  String get storageAclPotentialGrants =>
+      'La lista de control incluye estos permisos. Las reglas de denegación y la pertenencia a grupos pueden limitar el acceso efectivo.';
+
+  @override
+  String get storageAclSettingsReadOnly =>
+      'xVeil puede leer estos ajustes. Podrá guardar cambios cuando el archivo pertenezca a tu cuenta y las demás cuentas carezcan de permiso de escritura.';
+
+  @override
+  String get storageAclUnlockReadRisk =>
+      'Otras cuentas podrían leer este almacenamiento. Revisa las cuentas y los permisos antes de decidir si quieres continuar.';
+
+  @override
+  String get folderSyncConfirmRoot => 'Confirmar carpeta';
+
+  @override
+  String folderSyncConfirmExistingRoot(String path) {
+    return 'Confirma que $path es la carpeta de este par. Se aplicarán el historial de sincronización y los ajustes de eliminación existentes.';
+  }
+
+  @override
+  String folderSyncWindowsRootRedirectable(String path) {
+    return 'Los permisos de Windows podrían permitir a otra cuenta redirigir $path. Elige una carpeta con una ruta protegida frente a redirecciones o pide a un administrador que revise sus permisos.';
+  }
+
+  @override
+  String get mediaCameraPermissionDenied =>
+      'Se denegó el acceso a la cámara. Permite que xVeil la use en los ajustes de privacidad del sistema y vuelve a intentarlo.';
+
+  @override
+  String get mediaMicrophonePermissionDenied =>
+      'Se denegó el acceso al micrófono. Permite que xVeil lo use en los ajustes de privacidad del sistema y vuelve a intentarlo.';
+
+  @override
+  String get mediaPermissionCheckUnavailable =>
+      'No se pudo comprobar el acceso al dispositivo. Abre los ajustes de privacidad del sistema o vuelve a intentarlo.';
+
+  @override
+  String get mediaScreenPermissionDeclined =>
+      'Se rechazó el permiso para compartir la pantalla o se cerró la solicitud. Inicia la función de nuevo y confirma la solicitud del sistema.';
+
+  @override
+  String get mediaScreenStartFailed =>
+      'No se pudo iniciar el uso compartido de pantalla. Cierra otras capturas de pantalla y vuelve a intentarlo.';
+
+  @override
+  String get notificationPermissionDenied =>
+      'Las notificaciones del sistema están desactivadas para xVeil. Puedes activarlas en los ajustes del sistema.';
+
+  @override
+  String get devicesPairLanDenied =>
+      'El sistema denegó el acceso a la red local. Revisa los permisos de red local o el cortafuegos para xVeil, o usa el otro método de vinculación.';
+
+  @override
+  String get quickUnlockAuthCancelled =>
+      'Se canceló la autenticación del sistema. Inténtalo de nuevo o usa tu contraseña.';
+
+  @override
+  String get quickUnlockAuthNotEnrolled =>
+      'Configura la biometría o el inicio de sesión del dispositivo en los ajustes del sistema y vuelve a intentarlo.';
+
+  @override
+  String get quickUnlockAuthLockedOut =>
+      'La autenticación del sistema está bloqueada. Usa tu contraseña y desbloquea la biometría en los ajustes del sistema.';
+
+  @override
+  String get quickUnlockAuthFailed =>
+      'El sistema no pudo autenticarte. Revisa los ajustes de inicio de sesión del dispositivo o usa tu contraseña.';
+
+  @override
+  String get storageAclMaintenanceBlocked =>
+      'Esta operación reemplaza un archivo cuyos permisos xVeil no puede conservar. Revisa sus permisos antes de volver a intentarlo.';
+
+  @override
+  String get storageAclRetryOperation =>
+      'Elección guardada. Repite la operación cuando quieras.';
+
+  @override
+  String get storageAclReview => 'Revisar permisos de acceso';
+
+  @override
+  String get startupRuntimeAccessDenied =>
+      'El sistema operativo denegó el acceso a la carpeta de control de conexiones. Revisa los permisos de tu cuenta o elige otra carpeta.';
 }

@@ -439,7 +439,11 @@ final class _ManagedIdentityResources {
 
   void admit(String directory) {
     owner._validate();
-    witness = ManagedDirectoryCatalog._privateDirectory(directory, owner._fs);
+    witness = ManagedDirectoryCatalog._privateDirectory(
+      directory,
+      owner._fs,
+      allowReadOnlyAclApproval: true,
+    );
     path = directory;
   }
 
@@ -448,7 +452,11 @@ final class _ManagedIdentityResources {
     if (path == null || witness == null) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.missing);
     }
-    ManagedDirectoryCatalog._privateDirectory(path!, owner._fs);
+    ManagedDirectoryCatalog._privateDirectory(
+      path!,
+      owner._fs,
+      allowReadOnlyAclApproval: true,
+    );
     ManagedDirectoryCatalog._assertSame(path!, witness!, owner._fs);
   }
 
@@ -459,8 +467,15 @@ final class _ManagedIdentityResources {
       owner._fs.reserveNewFile(target);
       owner._fs.restrictNewFile(target);
     }
-    final before = owner._fs.requirePrivateFile(target);
-    ManagedDirectoryCatalog._checkSqliteSidecars(target, owner._fs);
+    final before = owner._fs.requirePrivateFile(
+      target,
+      allowReadOnlyAclApproval: true,
+    );
+    ManagedDirectoryCatalog._checkSqliteSidecars(
+      target,
+      owner._fs,
+      allowReadOnlyAclApproval: true,
+    );
     final connection = ManagedSqliteConnection.openUnencrypted(target);
     try {
       validatePaths();
@@ -486,7 +501,10 @@ final class _ManagedIdentityResources {
     final target = file(name);
     ManagedPathWitness? before;
     if (!create) {
-      before = owner._fs.requirePrivateFile(target);
+      before = owner._fs.requirePrivateFile(
+        target,
+        allowReadOnlyAclApproval: true,
+      );
     } else if (ManagedIdentityFiles._exists(target)) {
       throw const ManagedIdentityFailure(ManagedIdentityFailureKind.exists);
     }
@@ -512,7 +530,7 @@ final class _ManagedIdentityResources {
       if (before == null) {
         owner._fs.requirePrivateNativeOutput(target);
       } else {
-        owner._fs.requirePrivateFile(target);
+        owner._fs.requirePrivateFile(target, allowReadOnlyAclApproval: true);
         ManagedDirectoryCatalog._assertSame(target, before, owner._fs);
       }
       return HvKvLogStore(space);
@@ -566,7 +584,10 @@ final class _ManagedIdentityResources {
   }
 
   void acquireLease() {
-    owner._fs.requirePrivateFile(file('identity.meta.lock'));
+    owner._fs.requirePrivateFile(
+      file('identity.meta.lock'),
+      allowReadOnlyAclApproval: true,
+    );
     lease = ManagedIdentityLease.openOwned(
       _sql('identity.meta'),
       expected: entry,
@@ -588,7 +609,11 @@ final class _ManagedIdentityResources {
       }
       ManagedIdentityFiles._sameMode(current, entry);
     }
-    ManagedDirectoryCatalog._privateDirectory(file('blobs'), owner._fs);
+    ManagedDirectoryCatalog._privateDirectory(
+      file('blobs'),
+      owner._fs,
+      allowReadOnlyAclApproval: true,
+    );
     if (entry.protection == StorageProtection.unencrypted) {
       final expected = _plainKeys();
       try {

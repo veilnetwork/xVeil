@@ -838,7 +838,8 @@ SendPort _serveWorker(
           reclamationFailed = false;
           return null;
         });
-      case _ManagedReclaimReq(:final force):
+      case _ManagedReclaimReq(:final force, :final approvals):
+        mergeStorageAclApprovals(approvals);
         if (reclaim == null) {
           msg.reply.send(
             const _ManagedWorkerErr(ManagedWorkerFailureKind.mode),
@@ -1127,6 +1128,7 @@ class WorkerKvLogStore
           mayHaveApplied: r.mayHaveApplied,
           recovery: r.recovery,
           warning: r.warning,
+          filesystemFailure: r.filesystemFailure,
         );
       }
       return (r as _Ok).value as T;

@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/document_export.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -18,8 +19,15 @@ import 'package:xveil/state/data_export.dart';
 import 'package:xveil/state/data_export_destination.dart';
 
 class _LocalPicker extends FilePickerPlatform {
-  _LocalPicker(this.path);
+  _LocalPicker(this.path, {this.directory});
   final String? path;
+  final String? directory;
+  @override
+  Future<String?> getDirectoryPath({
+    String? dialogTitle,
+    bool lockParentWindow = false,
+    String? initialDirectory,
+  }) async => directory;
   @override
   Future<String?> saveFile({
     String? dialogTitle,
@@ -351,5 +359,43 @@ void main() {
       expect(await target.readAsBytes(), [4, 5, 6]);
       expect(await dir.list().length, 1);
     },
+  );
+  test(
+    'a file-only grant preserves the old target and asks for a writable folder',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final workspace = await Directory.systemTemp.createTemp(
+        'xveil-file-only-grant-',
+      );
+      final restricted = Directory('${workspace.path}/restricted')
+        ..createSync();
+      final writable = Directory('${workspace.path}/writable')..createSync();
+      final target = File('${restricted.path}/archive.xveilbk')
+        ..writeAsStringSync('original');
+      addTearDown(() {
+        posixChmod(restricted.path, 0x1c0);
+        workspace.deleteSync(recursive: true);
+      });
+      if (posixEuid() == 0) return;
+      expect(posixChmod(restricted.path, 0x140), 0); // 0500
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+      expect(await openExportDocument(filename), isNull);
+      expect(target.readAsStringSync(), 'original');
+
+      FilePickerPlatform.instance = _LocalPicker(
+        target.path,
+        directory: writable.path,
+      );
+      final document = (await openExportDocument(filename))!;
+      await document.write([1, 2, 3]);
+      await document.finish();
+      expect(target.readAsStringSync(), 'original');
+      expect(File('${writable.path}/archive.xveilbk').readAsBytesSync(), [
+        1,
+        2,
+        3,
+      ]);
+    },
+    skip: !Platform.isMacOS,
   );
 }

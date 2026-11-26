@@ -2930,11 +2930,12 @@ class _CloudItemTileState extends State<_CloudItemTile> {
       if (!mounted || result == CloudExportResult.cancelled) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            result == CloudExportResult.done
-                ? l.cloudExportDone
-                : l.cloudExportFailed,
-          ),
+          content: Text(switch (result) {
+            CloudExportResult.done => l.cloudExportDone,
+            CloudExportResult.permissionDenied =>
+              l.chatFileSavePermissionDenied,
+            _ => l.cloudExportFailed,
+          }),
         ),
       );
     } finally {

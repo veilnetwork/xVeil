@@ -5,6 +5,11 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+
+import '../domain/file_names.dart';
+import '../data/storage/managed_fs_platform.dart';
+import 'filesystem_errors.dart';
 
 const documentExportChannel = MethodChannel('xveil/document_export');
 const kDocumentExportChunkBytes = 256 * 1024;
@@ -35,10 +40,7 @@ DocumentExportException _failure(String stage, Object error) {
       ? error.permissionDenied
       : error is PlatformException
       ? error.code == 'document_export_permission'
-      : error is FileSystemException &&
-            (error.osError?.errorCode == 1 ||
-                error.osError?.errorCode == 13 ||
-                (Platform.isWindows && error.osError?.errorCode == 5));
+      : error is FileSystemException && fileSystemAccessDenied(error);
   return DocumentExportException(stage, permissionDenied: denied);
 }
 
@@ -64,7 +66,23 @@ Future<ExportDocument?> openExportDocument(String name) async {
   try {
     final path = await FilePicker.saveFile(fileName: name);
     if (path == null) return null;
-    return await _FileExportDocument.open(File(path));
+    try {
+      return await _FileExportDocument.open(File(path));
+    } on FileSystemException catch (error) {
+      if (!Platform.isMacOS || !_failure('open', error).permissionDenied) {
+        rethrow;
+      }
+      // The save panel may grant access to the selected file only. Ask for a
+      // directory grant so the export can still be published in one step.
+      final directory = await FilePicker.getDirectoryPath(
+        initialDirectory: p.dirname(path),
+      );
+      if (directory == null) return null;
+      return await _FileExportDocument.open(
+        File(uncontestedPath(directory, p.basename(path))),
+        replaceExisting: false,
+      );
+    }
   } catch (error) {
     throw _failure('open', error);
   }
@@ -157,37 +175,45 @@ class _NativeExportDocument extends _SequentialDocument {
 }
 
 class _FileExportDocument extends _SequentialDocument {
-  _FileExportDocument(this.target, this.writingFile, this.handle);
+  _FileExportDocument(
+    this.target,
+    this.writingFile,
+    this.handle,
+    this.replaceExisting,
+  );
   final File target;
   final File writingFile;
   RandomAccessFile? handle;
+  final bool replaceExisting;
 
-  static Future<_FileExportDocument> open(File target) async {
+  static Future<_FileExportDocument> open(
+    File target, {
+    bool replaceExisting = true,
+  }) async {
     final random = Random.secure();
     final suffix = List.generate(
       16,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
     final sibling = File('${target.path}.xveil-part-$suffix');
+    await sibling.create(exclusive: true);
     try {
+      if (!replaceExisting) {
+        const ManagedFsPlatform().restrictNewFile(sibling.path);
+      }
       return _FileExportDocument(
         target,
         sibling,
         await sibling.open(mode: FileMode.writeOnly),
+        replaceExisting,
       );
-    } on FileSystemException catch (error) {
-      final code = error.osError?.errorCode;
-      if (code != 1 && code != 13 && !(Platform.isWindows && code == 5)) {
-        rethrow;
+    } catch (_) {
+      try {
+        await sibling.delete();
+      } on FileSystemException {
+        // Preserve the original open error.
       }
-      // NSSavePanel may grant only the chosen file, not its parent. As with
-      // writeStreamedFile, direct replacement is the sandbox fallback after
-      // the person has explicitly selected/confirmed that target.
-      return _FileExportDocument(
-        target,
-        target,
-        await target.open(mode: FileMode.writeOnly),
-      );
+      rethrow;
     }
   }
 
@@ -203,8 +229,13 @@ class _FileExportDocument extends _SequentialDocument {
       await handle!.flush();
       await handle!.close();
       handle = null;
-      if (writingFile.path != target.path) {
+      if (replaceExisting) {
         await writingFile.rename(target.path);
+      } else if (!const ManagedFsPlatform().publishFileNoReplace(
+        writingFile.path,
+        target.path,
+      )) {
+        throw const DocumentExportException('destination-changed');
       }
       state = _DocumentState.finished;
     } catch (error) {

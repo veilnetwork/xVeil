@@ -62,6 +62,7 @@ class AndroidScreenCapture
   bool _retired = false;
   Future<bool>? _starting;
   Future<void>? _stopping;
+  bool consentDeclined = false;
   bool _firstFrameLogged = false;
   bool _firstDeliveryLogged = false;
 
@@ -93,6 +94,7 @@ class AndroidScreenCapture
   }
 
   Future<bool> _start(I420FrameSink sink) async {
+    consentDeclined = false;
     final previous = _channels[_channel.name];
     if (previous != null && !identical(previous, this)) {
       final closing = previous._stopping;
@@ -125,8 +127,14 @@ class AndroidScreenCapture
       }
       _running = true;
       return true;
-    } catch (_) {
+    } catch (error) {
       _sink = null;
+      if (error is PlatformException &&
+          error.code == 'screen_capture_consent_declined') {
+        consentDeclined = true;
+        _releaseChannel();
+        return false;
+      }
       // A lost reply does not prove that the service did not start. Retain
       // ownership if the explicit native cleanup cannot be acknowledged.
       if (!_retired && _ownsChannel) {

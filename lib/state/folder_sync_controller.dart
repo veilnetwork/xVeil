@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/posix_file_facts.dart';
+import '../core/filesystem_errors.dart';
+import '../data/folder_publication.dart';
 import '../data/storage/folder_sync_store.dart';
 import '../data/storage/managed_fs_platform.dart';
 import '../data/storage/managed_fs_windows.dart' as windows;
@@ -234,6 +236,14 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     String id,
     FolderSyncRootApproval approval, {
     required IdentityLease owner,
+  }) =>
+      confirmPairRoot(id, approval.identity, owner: owner, approval: approval);
+
+  Future<FolderSyncRefusal?> confirmPairRoot(
+    String id,
+    String identity, {
+    required IdentityLease owner,
+    FolderSyncRootApproval? approval,
   }) async {
     final store = _store;
     FolderSyncRefusal? refusal;
@@ -253,22 +263,27 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       }
       final pair = pairs[index];
       if ((pair.rootIdentity ?? pair.rootApproval?.identity)
-          case final previous? when previous != approval.identity) {
+          case final previous? when previous != identity) {
         refusal = FolderSyncRefusal(
           FolderSyncRefusalCode.pathChanged,
           path: pair.localPath,
         );
         return null;
       }
-      refusal = folderSyncRootRefusal(pair.localPath, approval: approval);
+      refusal = folderSyncRootRefusal(
+        pair.localPath,
+        approval: approval,
+        expectedIdentity: identity,
+      );
       if (refusal != null) return null;
       return [...pairs]
         ..[index] = FolderSyncPair(
           id: pair.id,
           localPath: pair.localPath,
           cloudFolderId: pair.cloudFolderId,
-          deletePropagates: pair.deletePropagates && !approval.writeAccess,
-          rootIdentity: approval.identity,
+          deletePropagates:
+              pair.deletePropagates && approval?.writeAccess != true,
+          rootIdentity: identity,
           rootApproval: approval,
         );
     });
@@ -322,16 +337,16 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           expectedIdentity: current.rootIdentity,
           onVerifiedIdentity: (value) => identity = value,
         );
-        if (refusal != null || current.rootIdentity != null) return null;
-        final bound = configured = FolderSyncPair(
-          id: current.id,
-          localPath: current.localPath,
-          cloudFolderId: current.cloudFolderId,
-          deletePropagates: current.deletePropagates,
-          rootIdentity: identity,
-          rootApproval: current.rootApproval,
-        );
-        return [...pairs]..[index] = bound;
+        if (refusal == null &&
+            current.rootIdentity == null &&
+            current.rootApproval == null) {
+          refusal = FolderSyncRefusal(
+            FolderSyncRefusalCode.confirmationRequired,
+            path: current.localPath,
+            rootIdentity: identity,
+          );
+        }
+        return null;
       });
       if (configured == null || !identical(_store, store)) return null;
       pair = configured!;
@@ -370,7 +385,22 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         // B's cloud.
         return null;
       }
-      return await engine?.runOnce(pair);
+      return await engine?.runOnce(
+        pair,
+        verifyRoot: () {
+          final issue = folderSyncRootRefusal(
+            pair.localPath,
+            approval: pair.rootApproval,
+            expectedIdentity: pair.rootIdentity,
+          );
+          if (!identical(_store, store) || issue != null) {
+            if (issue != null && identical(_store, store)) {
+              _rootRefusals[pair.id] = issue;
+            }
+            throw const FolderFsFailure(FolderFsFailureKind.rootChanged);
+          }
+        },
+      );
     } finally {
       _running.remove(pair.id);
       await reload();
@@ -403,7 +433,9 @@ FolderSyncRefusal? folderSyncRootRefusal(
     canonical = Directory(absolute).resolveSymbolicLinksSync();
   } on FileSystemException catch (error) {
     return FolderSyncRefusal(
-      FolderSyncRefusalCode.unresolvable,
+      fileSystemAccessDenied(error)
+          ? FolderSyncRefusalCode.osAccessDenied
+          : FolderSyncRefusalCode.unresolvable,
       path: path,
       detail: error.osError?.message ?? error.message,
     );
@@ -478,8 +510,14 @@ FolderSyncRefusal? folderSyncRootRefusal(
               writeAccess: writeAccess,
             )
           : null;
+      final reparseRisk =
+          windowsHost &&
+          !facts.safeAncestor &&
+          windows.inspect(step, allowNetworkShare: true).safeAncestor;
       final refusal = FolderSyncRefusal(
-        !facts.safeAncestor || writeAccess
+        reparseRisk
+            ? FolderSyncRefusalCode.redirectableWindowsPath
+            : !facts.safeAncestor || writeAccess
             ? FolderSyncRefusalCode.writableByOtherAccounts
             : FolderSyncRefusalCode.readableByOtherAccounts,
         path: step,
@@ -491,7 +529,9 @@ FolderSyncRefusal? folderSyncRootRefusal(
     } on ManagedFsFailure catch (error) {
       final warning = error.aclWarnings.firstOrNull;
       return FolderSyncRefusal(
-        warning == null
+        error.unsafeReason == ManagedFsUnsafeReason.windowsPathAccessDenied
+            ? FolderSyncRefusalCode.osAccessDenied
+            : warning == null
             ? FolderSyncRefusalCode.permissionsUnreadable
             : FolderSyncRefusalCode.writableByOtherAccounts,
         path: step,
@@ -537,6 +577,12 @@ enum FolderSyncRefusalCode {
 
   pathChanged,
 
+  confirmationRequired,
+
+  redirectableWindowsPath,
+
+  osAccessDenied,
+
   /// The identity changed while the picker was open, so the folder chosen on
   /// one identity's screen would have become a pair of another's.
   ///
@@ -559,10 +605,12 @@ class FolderSyncRefusal {
     this.detail,
     this.aclWarning,
     this.approval,
+    this.rootIdentity,
   });
 
   final ManagedStorageAclWarning? aclWarning;
   final FolderSyncRootApproval? approval;
+  final String? rootIdentity;
 
   final FolderSyncRefusalCode code;
 

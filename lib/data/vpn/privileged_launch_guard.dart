@@ -159,10 +159,10 @@ class PrivilegedLaunchVerdict {
   /// the app instead of running it out of the folder it was unpacked into.
   String get detail {
     if (isAllowed) return '';
-    return 'the system VPN elevates this executable, and it is running from a '
-        'location an ordinary user can rewrite ($offendingPath: $reason) — '
-        'anything planted there would be elevated with it. Install xVeil to a '
-        'protected location instead of running an unpacked portable copy.';
+    return 'The system VPN elevates this executable. xVeil blocked this '
+        'launch because it could not establish a protected execution path '
+        '($offendingPath: $reason). Install xVeil to a protected location or '
+        'ask your administrator to check its permissions.';
   }
 }
 
