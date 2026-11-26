@@ -130,7 +130,10 @@ final class _AuxiliaryErasureScope {
         throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
       }
       final name = child.uri.pathSegments.where((p) => p.isNotEmpty).last;
-      if (_rewrite.hasMatch(name)) names.add(name);
+      if (_rewrite.hasMatch(name) ||
+          ProfilePreferencesLayout.isTemporary(name)) {
+        names.add(name);
+      }
     }
     validateBase(gate);
     return names;
@@ -138,7 +141,8 @@ final class _AuxiliaryErasureScope {
 
   bool allowed(List<String> p, bool directory) {
     if (p.isEmpty || p.any((v) => !_leaf(v))) return false;
-    if (ProfilePreferencesLayout.files.contains(p.first)) {
+    if (ProfilePreferencesLayout.files.contains(p.first) ||
+        ProfilePreferencesLayout.isTemporary(p.first)) {
       return p.length == 1 && !directory;
     }
     if (p.first == legacy || _rewrite.hasMatch(p.first)) {

@@ -61,7 +61,8 @@ class _RecoveryState extends ConsumerState<IdentityEraseRecoveryScreen> {
         return;
       }
       final l = AppL10n.of(context);
-      if (review == null) {
+      final reviewed = review;
+      if (reviewed == null) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l.identityEraseRecoveryFailed)));
@@ -83,13 +84,24 @@ class _RecoveryState extends ConsumerState<IdentityEraseRecoveryScreen> {
                 children: [
                   Text(
                     l.identityEraseReviewSummary(
-                      review!.files,
-                      review.directories,
-                      review.bytes,
+                      reviewed.files,
+                      reviewed.directories,
+                      reviewed.bytes,
                     ),
                   ),
                   const SizedBox(height: 16),
                   Text(l.identityEraseReviewWarning),
+                  if (reviewed.paths.isNotEmpty)
+                    SizedBox(
+                      width: 360,
+                      height: 160,
+                      child: ListView.builder(
+                        primary: false,
+                        itemCount: reviewed.paths.length,
+                        itemBuilder: (context, index) =>
+                            SelectableText(reviewed.paths[index]),
+                      ),
+                    ),
                 ],
               ),
               actions: [

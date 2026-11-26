@@ -29,6 +29,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/state/media_availability.dart';
 import 'package:xveil/state/media_ffi.dart';
 import 'package:xveil/state/vnote_play_controller.dart';
@@ -151,7 +152,9 @@ void main() {
         overrides: [
           // The only thing still stubbed is the OS permission prompt, which no
           // unit test can answer for real.
-          micPermissionProvider.overrideWithValue(() async => true),
+          micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
         ],
       );
       addTearDown(container.dispose);

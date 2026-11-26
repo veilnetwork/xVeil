@@ -356,7 +356,7 @@ class AppL10nEn extends AppL10n {
   String get startupAclClose => 'Do not start';
 
   @override
-  String get startupAclContinueOnce => 'Start once';
+  String get startupAclContinueOnce => 'Start and allow until restart';
 
   @override
   String get startupAclRemember => 'Start and remember my choice';
@@ -8726,4 +8726,61 @@ class AppL10nEn extends AppL10n {
   @override
   String get plainDownloadChooseDestinationAgain =>
       'The app could not verify the original download file. Choose a save location again.';
+
+  @override
+  String get profileAclAllowSession => 'Allow until restart';
+
+  @override
+  String get profileEraseExtraFiles =>
+      'These additional files will be deleted with this profile if you approve and retry. Deletion cannot be undone.';
+
+  @override
+  String get notificationPermissionPolicy =>
+      'System policy blocks xVeil notifications. Ask the administrator who manages this device.';
+
+  @override
+  String get notificationPermissionManifest =>
+      'This installation cannot post system notifications.';
+
+  @override
+  String get notificationPermissionUnknown =>
+      'xVeil could not check the system notification setting. Check your desktop notification settings.';
+
+  @override
+  String get networkBackgroundPermissionUnknown =>
+      'xVeil could not check the system battery exemption.';
+
+  @override
+  String get networkBackgroundSettingsUnavailable =>
+      'Android could not open the system settings for xVeil.';
+
+  @override
+  String get exportDirectoryAccessRisk =>
+      'Other accounts can change entries in this folder. They may be able to move or remove the exported file.';
+
+  @override
+  String downloadDestinationAccessDenied(String path) {
+    return 'The system denied access to the download destination $path. The download is paused. Check the permissions or choose a different destination.';
+  }
+
+  @override
+  String sendSourceAccessDenied(String path) {
+    return 'The system denied read access to $path.';
+  }
+
+  @override
+  String get mediaPermissionStatusUnavailable =>
+      'The app could not determine whether the system allows microphone or camera access.';
+
+  @override
+  String get storageAclInheritedFilesAndFolders => 'files and folders';
+
+  @override
+  String get storageAclInheritedFiles => 'files';
+
+  @override
+  String get storageAclInheritedFolders => 'folders';
+
+  @override
+  String get storageAclDirectChildrenOnly => 'direct children only';
 }

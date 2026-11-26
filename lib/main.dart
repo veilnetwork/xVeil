@@ -23,6 +23,8 @@ import 'data/node/bundled_seeds_prefs.dart' show bundledSeedsAllowed;
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
 import 'data/transport/fail_closed_transport.dart';
+import 'data/storage/storage_acl_approval.dart'
+    show persistStorageAclReplacement;
 import 'data/storage/app_profile.dart';
 import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
@@ -123,6 +125,7 @@ Future<void> runStartup({
       restoreRememberedStorageAcl,
 }) async {
   assert(boot == null || bootWithRuntimeBase == null);
+  persistStorageAclReplacement = rememberStorageAclReplacement;
   var loadingPreferences = false;
   var openOffline = bootOffline;
   var resumeBoot =
@@ -145,6 +148,7 @@ Future<void> runStartup({
     final storageFailure = switch (e) {
       ManagedWorkerFailure(:final filesystemFailure) => filesystemFailure,
       ManagedFsFailure() => e,
+      ProfileChoiceReadFailure(:final filesystemFailure) => filesystemFailure,
       _ => null,
     };
     final aclWarnings = switch (e) {

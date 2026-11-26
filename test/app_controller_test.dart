@@ -8,6 +8,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -2726,7 +2727,9 @@ void _vpnTeardownIsJournalledTests() {
       overrides: [
         vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
         voiceRecorderFactoryProvider.overrideWithValue(() => rec),
-        micPermissionProvider.overrideWithValue(() async => true),
+        micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
       ],
     );
     addTearDown(c.dispose);

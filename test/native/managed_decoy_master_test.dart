@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart'
     show kSovereignBundleSetting;
@@ -218,7 +219,9 @@ class _Stand {
           return router.storage;
         }),
         nodeControllerProvider.overrideWithValue(_Node()),
-        micPermissionProvider.overrideWithValue(() async => true),
+        micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
         voiceRecorderFactoryProvider.overrideWithValue(() {
           final recorder = _Recorder();
           recorders.add(recorder);

@@ -171,11 +171,8 @@ final class ManagedRootErasure {
   }) async {
     try {
       await _prepare(owner, unlockScopes, auxiliary, applicationRequest);
-    } on FileSystemException catch (_, trace) {
-      Error.throwWithStackTrace(
-        const ManagedFsFailure(ManagedFsFailureKind.io),
-        trace,
-      );
+    } on FileSystemException catch (error, trace) {
+      Error.throwWithStackTrace(managedFilesystemFailure(error), trace);
     }
   }
 
@@ -194,10 +191,7 @@ final class ManagedRootErasure {
         resources.erasing = true;
         resources.admit(owner.layout.directory(entry.id));
         resources.acquireLease();
-        final usage = await _ManagedUsageInventory(resources).measure();
-        if (usage.unrecognizedEntries != 0) {
-          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-        }
+        await _ManagedUsageInventory(resources).measure();
       } finally {
         resources.erasing = false;
         resources.close();
@@ -243,11 +237,8 @@ final class ManagedRootErasure {
             : await _AuxiliaryErasurePlan.capture(owner, auxiliary),
       );
       _publishPlan(owner, plan, requireHeld);
-    } on FileSystemException catch (_, trace) {
-      Error.throwWithStackTrace(
-        const ManagedFsFailure(ManagedFsFailureKind.io),
-        trace,
-      );
+    } on FileSystemException catch (error, trace) {
+      Error.throwWithStackTrace(managedFilesystemFailure(error), trace);
     }
   }
 
@@ -436,11 +427,8 @@ final class ManagedRootErasure {
           FileSystemEntityType.notFound) {
         throw const ManagedFsFailure(ManagedFsFailureKind.changed);
       }
-    } on FileSystemException catch (_, trace) {
-      Error.throwWithStackTrace(
-        const ManagedFsFailure(ManagedFsFailureKind.io),
-        trace,
-      );
+    } on FileSystemException catch (error, trace) {
+      Error.throwWithStackTrace(managedFilesystemFailure(error), trace);
     } finally {
       _operating = false;
     }
@@ -491,11 +479,8 @@ final class ManagedRootErasure {
       }
       _validate();
       auxiliary.scope.requireAbsent(_gate);
-    } on FileSystemException catch (_, trace) {
-      Error.throwWithStackTrace(
-        const ManagedFsFailure(ManagedFsFailureKind.io),
-        trace,
-      );
+    } on FileSystemException catch (error, trace) {
+      Error.throwWithStackTrace(managedFilesystemFailure(error), trace);
     } finally {
       _operating = false;
     }
@@ -572,11 +557,8 @@ final class ManagedRootErasure {
       completion.confirmUnlinked(_gate);
       _finished = true;
       await afterStage?.call(ManagedErasureFinishStage.completionRemoved);
-    } on FileSystemException catch (_, trace) {
-      Error.throwWithStackTrace(
-        const ManagedFsFailure(ManagedFsFailureKind.io),
-        trace,
-      );
+    } on FileSystemException catch (error, trace) {
+      Error.throwWithStackTrace(managedFilesystemFailure(error), trace);
     } finally {
       _operating = false;
       if (!_finished && _completion == null && !_releaseStarted) {
@@ -707,17 +689,26 @@ final class _RootEraseEntry {
     this.identity,
     this.directory,
     this.bytes,
-    this.modified,
-  );
+    this.modified, {
+    this.accessPolicy,
+  });
   final List<String> parts;
   final String identity;
   final bool directory;
   final int bytes, modified;
+  final String? accessPolicy;
   String get path => parts.join('/');
   String absolute(StorageProfileCoordinator gate) => File.fromUri(
     Directory(gate.profileDirectory).uri.resolveUri(Uri(pathSegments: parts)),
   ).path;
-  List<Object> encode() => [path, identity, directory, bytes, modified];
+  List<Object> encode() => [
+    path,
+    identity,
+    directory,
+    bytes,
+    modified,
+    ?accessPolicy,
+  ];
 }
 
 final class _RootErasePlan {
@@ -825,6 +816,62 @@ final class _RootErasePlan {
             p.length == 5 && !directory && _piece.hasMatch(p[4]));
   }
 
+  static bool _reviewablePath(List<String> parts) =>
+      parts.firstOrNull == 'identities' &&
+      parts.length >= 2 &&
+      parts.length <= 18 &&
+      parts.every(
+        (part) =>
+            part.isNotEmpty &&
+            part != '.' &&
+            part != '..' &&
+            !part.contains('/') &&
+            !part.contains('\\') &&
+            !part.contains('%') &&
+            !part.contains('\x00'),
+      ) &&
+      parts.join('/').length <= 2048;
+
+  static ManagedPathWitness _inspection(
+    String path,
+    ManagedFsPlatform fs, {
+    required bool strict,
+    required bool permitApprovedRead,
+    String? verifiedAccess,
+  }) {
+    final existing = fs.inspectAcl(path);
+    if (verifiedAccess != null &&
+        existing.accessPolicy == verifiedAccess &&
+        existing.ownedByCurrentUser &&
+        existing.safeAncestor &&
+        existing.otherUsersHaveReadOnlyAccess) {
+      return existing;
+    }
+    if (strict || existing.aclWarning?.extendedAcl != null) {
+      return existing.directory
+          ? ManagedDirectoryCatalog._privateDirectory(
+              path,
+              fs,
+              allowReadOnlyAclApproval: permitApprovedRead,
+            )
+          : fs.requirePrivateFile(
+              path,
+              allowReadOnlyAclApproval: permitApprovedRead,
+            );
+    }
+    if (!existing.ownedByCurrentUser || !existing.safeAncestor) {
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        path: path,
+        aclWarnings: [
+          if (existing.aclWarning case final warning?)
+            warning.withPolicy(canContinue: false),
+        ],
+      );
+    }
+    return existing;
+  }
+
   static Future<_RootErasePlan> capture(
     ManagedDirectoryCatalog owner,
     ManagedIdentityCatalog catalog,
@@ -833,14 +880,18 @@ final class _RootErasePlan {
     ManagedProfileErasureRequest? applicationRequest,
   ) async {
     final entries = <String, _RootEraseEntry>{};
+    final unknown = <_RootEraseEntry>[];
     Future<void> visit(String path, List<String> parts) async {
       owner.requireExclusiveMaintenance();
-      final witness = owner._fs.inspect(path);
-      if (!_allowed(parts, witness.directory, catalog) ||
-          !witness.ownedByCurrentUser ||
-          !witness.safeAncestor ||
-          parts.length <= 3 && !witness.ownerOnly) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      final witness = _inspection(
+        path,
+        owner._fs,
+        strict: parts.length <= 3,
+        permitApprovedRead: true,
+      );
+      final known = _allowed(parts, witness.directory, catalog);
+      if (!known && !_reviewablePath(parts)) {
+        throw ManagedFsFailure(ManagedFsFailureKind.unsafe, path: path);
       }
       final stat = File(path).statSync();
       final entry = _RootEraseEntry(
@@ -849,8 +900,10 @@ final class _RootErasePlan {
         witness.directory,
         witness.directory ? 0 : stat.size,
         witness.directory ? 0 : stat.modified.microsecondsSinceEpoch,
+        accessPolicy: witness.accessPolicy,
       );
       entries[entry.path] = entry;
+      if (!known) unknown.add(entry);
       if (entries.length > maxEntries) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
       }
@@ -863,6 +916,38 @@ final class _RootErasePlan {
     }
 
     await visit(owner.directory, ['identities']);
+    if (unknown.isNotEmpty) {
+      unknown.sort((a, b) => a.path.compareTo(b.path));
+      final reviewEntries = <String, _RootEraseEntry>{};
+      for (final item in unknown) {
+        for (var length = 1; length <= item.parts.length; length++) {
+          final path = item.parts.take(length).join('/');
+          reviewEntries[path] = entries[path]!;
+        }
+      }
+      final fingerprint = sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                'whole-profile-extra-entries-v1',
+                applicationRequest?._operation,
+                owner._rootWitness.identity,
+                owner._rootWitness.accessPolicy,
+                for (final entry in reviewEntries.values) entry.encode(),
+              ]),
+            ),
+          )
+          .toString();
+      if (!hasStorageAclApproval(fingerprint)) {
+        throw ManagedFsFailure(
+          ManagedFsFailureKind.unsafe,
+          erasureReview: ManagedErasureContentsReview(
+            fingerprint,
+            unknown.map((entry) => entry.path),
+          ),
+        );
+      }
+    }
     return _RootErasePlan(
       owner._profileWitness.identity,
       owner._coordinator._directoryWitness.identity,
@@ -881,7 +966,9 @@ final class _RootErasePlan {
     final result = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': 6,
+          'v': entries.isEmpty || entries.values.first.accessPolicy == null
+              ? 6
+              : 7,
           'applicationProfile': applicationProfile,
           'operation': operation,
           'profile': profile,
@@ -912,7 +999,7 @@ final class _RootErasePlan {
           raw['applicationProfile'] is! bool ||
           !raw.containsKey('auxiliary') ||
           raw['v'] is! int ||
-          raw['v'] != 6 ||
+          (raw['v'] != 6 && raw['v'] != 7) ||
           raw['operation'] is! String ||
           !_id.hasMatch(raw['operation'] as String) ||
           raw['profile'] is! String ||
@@ -938,10 +1025,12 @@ final class _RootErasePlan {
           list.isEmpty && catalog.identities.isNotEmpty) {
         throw const FormatException();
       }
+      final hasPolicy = raw['v'] == 7;
       final entries = <String, _RootEraseEntry>{};
       for (final row in list) {
         if (row is! List ||
-            row.length != 5 ||
+            row.length != (hasPolicy ? 6 : 5) ||
+            (hasPolicy && !identity(row[5])) ||
             row[0] is! String ||
             !identity(row[1]) ||
             row[2] is! bool ||
@@ -954,11 +1043,14 @@ final class _RootErasePlan {
           throw const FormatException();
         }
         final path = row[0] as String;
-        if (path.length > 256 || path.contains('\\') || path.contains('%')) {
+        if (path.length > (hasPolicy ? 2048 : 256) ||
+            path.contains('\\') ||
+            path.contains('%')) {
           throw const FormatException();
         }
         final parts = path.split('/');
-        if (!_allowed(parts, row[2] as bool, catalog) ||
+        if ((!_allowed(parts, row[2] as bool, catalog) &&
+                !(hasPolicy && _reviewablePath(parts))) ||
             entries.containsKey(path) ||
             row[2] == true && (row[3] != 0 || row[4] != 0)) {
           throw const FormatException();
@@ -969,6 +1061,7 @@ final class _RootErasePlan {
           row[2] as bool,
           row[3] as int,
           row[4] as int,
+          accessPolicy: hasPolicy ? row[5] as String : null,
         );
       }
       for (final e in entries.values) {
@@ -1013,13 +1106,19 @@ final class _RootErasePlan {
           FileSystemEntityType.notFound) {
         return false;
       }
-      final actual = gate._fs.inspect(path);
+      final actual = _inspection(
+        path,
+        gate._fs,
+        strict: i <= 3,
+        permitApprovedRead: expected.accessPolicy != null,
+        verifiedAccess: expected.accessPolicy,
+      );
       if (actual.identity != expected.identity ||
           actual.directory != expected.directory ||
           !actual.ownedByCurrentUser ||
-          !actual.safeAncestor ||
-          i <= 3 && !actual.ownerOnly) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+          (expected.accessPolicy != null &&
+              actual.accessPolicy != expected.accessPolicy)) {
+        throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
       }
       if (!actual.directory) {
         final stat = File(path).statSync();

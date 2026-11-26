@@ -51,7 +51,7 @@ class StorageWorkerInbox {
 
   /// Operations are served serially, including the round trip to the owner
   /// when it must release a grant or confirm an operation before publication.
-  Future<bool> requestAdmission(SendPort port) async {
+  Future<bool> requestAdmission(SendPort port, {Object? payload}) async {
     if (_ownerExited) return false;
     assert(_admission == null);
     final pending = Completer<bool>();
@@ -60,7 +60,7 @@ class StorageWorkerInbox {
     });
     _admission = pending;
     try {
-      port.send(reply.sendPort);
+      port.send(payload == null ? reply.sendPort : (payload, reply.sendPort));
       return await pending.future;
     } finally {
       _admission = null;

@@ -9,8 +9,6 @@ import 'package:path/path.dart' as p;
 
 import '../domain/file_names.dart';
 import '../data/storage/managed_fs_platform.dart';
-import '../data/storage/managed_fs_posix_acl.dart' show writePosixStorageAcl;
-import 'posix_file_facts.dart';
 import '../data/storage/profile_preferences_file.dart'
     show FileReplacementAccess;
 import '../data/storage/managed_fs_windows.dart' as windows;
@@ -135,7 +133,7 @@ Future<ExportDocument?> openExportDocument(
         File(path),
         reviewAccess: reviewAccess,
       );
-    } on FileSystemException catch (error) {
+    } on Object catch (error) {
       if (!Platform.isMacOS || !_failure('open', error).permissionDenied) {
         rethrow;
       }
@@ -148,6 +146,7 @@ Future<ExportDocument?> openExportDocument(
       return await _FileExportDocument.open(
         File(uncontestedPath(directory, p.basename(path))),
         replaceExisting: false,
+        reviewAccess: reviewAccess,
       );
     }
   } catch (error) {
@@ -242,17 +241,39 @@ class _NativeExportDocument extends _SequentialDocument {
 }
 
 class _FileExportDocument extends _SequentialDocument {
-  _FileExportDocument(this.target, this.writingFile, this.handle, this.access);
+  _FileExportDocument(
+    this.target,
+    this.writingFile,
+    this.handle,
+    this.access,
+    this.parentAccess,
+    this.stagedIdentity,
+  );
   final File target;
   final File writingFile;
   RandomAccessFile? handle;
   final FileReplacementAccess? access;
+  final ManagedDirectoryAccess parentAccess;
+  final ManagedPathWitness stagedIdentity;
 
   static Future<_FileExportDocument?> open(
     File target, {
     bool replaceExisting = true,
     Future<bool> Function(ManagedFsFailure)? reviewAccess,
   }) async {
+    final parentAccess = ManagedDirectoryAccess.capture(target.parent.path);
+    final parentWarnings = parentAccess.warnings.toList();
+    if (parentWarnings.isNotEmpty) {
+      final failure = ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        path: parentWarnings.first.path,
+        aclWarnings: parentWarnings,
+      );
+      if (reviewAccess == null) throw failure;
+      if (!await reviewAccess(failure)) return null;
+      parentAccess.verify();
+    }
+    target = File(p.join(parentAccess.canonicalPath, p.basename(target.path)));
     final type = FileSystemEntity.typeSync(target.path, followLinks: false);
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.notFound) {
@@ -286,6 +307,7 @@ class _FileExportDocument extends _SequentialDocument {
       if (!await reviewAccess(failure)) return null;
       access!.checkDestination(target);
     }
+    parentAccess.verify();
     if (Platform.isWindows) {
       if (!windows.createPrivateFile(sibling.path)) {
         throw const DocumentExportException('destination-changed');
@@ -293,31 +315,28 @@ class _FileExportDocument extends _SequentialDocument {
     } else {
       await sibling.create(exclusive: true);
     }
+    ManagedPathWitness? stagedIdentity;
     try {
-      // A Darwin directory can pass its own ACL to a newly created empty
-      // file. Remove the inherited ACL while the staging file is still empty.
-      if ((Platform.isMacOS ? posixLstat(sibling.path) : null) case final facts?
-          when facts.uid == posixEuid()) {
-        if (readDarwinStorageAcl(sibling.path, facts)?.isNotEmpty == true) {
-          posixSetModeForFile(
-            sibling.path,
-            facts,
-            0x180,
-            applyAcl: (fd) => writePosixStorageAcl(fd, ''),
-          );
-        }
-      }
-      const ManagedFsPlatform().restrictNewFile(sibling.path);
+      const ManagedFsPlatform().makeEmptyFilePrivate(sibling.path);
+      stagedIdentity = const ManagedFsPlatform().inspect(sibling.path);
+      parentAccess.verify();
       return _FileExportDocument(
         target,
         sibling,
         await sibling.open(mode: FileMode.writeOnlyAppend),
         access,
+        parentAccess,
+        stagedIdentity,
       );
     } catch (error) {
       try {
-        await sibling.delete();
-      } on FileSystemException {
+        if (stagedIdentity != null &&
+            const ManagedFsPlatform()
+                .inspectAcl(sibling.path)
+                .sameObject(stagedIdentity)) {
+          await sibling.delete();
+        }
+      } catch (_) {
         // Preserve the original open error.
       }
       if (error is ManagedFsFailure && error.aclWarnings.isNotEmpty) {
@@ -345,6 +364,7 @@ class _FileExportDocument extends _SequentialDocument {
           fingerprint: warning.fingerprint,
           grants: warning.grants,
           inheritedGrants: warning.inheritedGrants,
+          inheritedScopes: warning.inheritedScopes,
           directory: false,
           owner: warning.owner,
           extendedAcl: warning.extendedAcl,
@@ -366,6 +386,12 @@ class _FileExportDocument extends _SequentialDocument {
       await handle!.flush();
       await handle!.close();
       handle = null;
+      parentAccess.verify();
+      if (!const ManagedFsPlatform()
+          .inspect(writingFile.path)
+          .sameObject(stagedIdentity)) {
+        throw const DocumentExportException('destination-changed');
+      }
       if (access?.witness != null) {
         try {
           access!.prepareReplacement(target, writingFile);
@@ -408,7 +434,12 @@ class _FileExportDocument extends _SequentialDocument {
     }
     handle = null;
     try {
-      if (await writingFile.exists()) await writingFile.delete();
+      if (await writingFile.exists() &&
+          const ManagedFsPlatform()
+              .inspectAcl(writingFile.path)
+              .sameObject(stagedIdentity)) {
+        await writingFile.delete();
+      }
     } catch (_) {
       failed = true;
     }

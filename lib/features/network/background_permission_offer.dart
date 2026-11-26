@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:veil_flutter/veil_flutter.dart';
 
 import '../../data/storage/profile_preferences.dart';
 import '../../l10n/app_localizations.dart';
@@ -48,7 +47,7 @@ Future<void> maybeOfferBackgroundPermission(
   final enabled = prefs.getBool(kKeepNodeBackgroundPrefKey);
   final suppressed = prefs.getBool(kBackgroundOfferSuppressedPrefKey) ?? false;
   if (suppressed || enabled == false) return;
-  final exempt = await VeilBackground.isIgnoringBatteryOptimizations();
+  final exempt = await backgroundExemptionStatus() ?? false;
   if (!shouldOfferBackgroundPermission(
         onAndroid: true,
         exempt: exempt,
@@ -62,27 +61,46 @@ Future<void> maybeOfferBackgroundPermission(
     context,
     enableBackground: enableBackground,
     requestExemption: () => requestBackgroundExemption(context),
-    openSettings: VeilBackground.openBackgroundSettings,
+    openSettings: () => openBackgroundSettings(context),
+  );
+}
+
+const _backgroundLifecycle = MethodChannel('veil_flutter/lifecycle');
+const _backgroundPermissions = MethodChannel('xveil/background_permissions');
+
+Future<bool?> _backgroundPermissionCall(
+  String method, {
+  MethodChannel channel = _backgroundLifecycle,
+}) async {
+  try {
+    return await channel.invokeMethod<bool>(method);
+  } on PlatformException {
+    return null;
+  } on MissingPluginException {
+    return null;
+  }
+}
+
+Future<bool?> backgroundExemptionStatus() => Platform.isAndroid
+    ? _backgroundPermissionCall('status', channel: _backgroundPermissions)
+    : Future.value(true);
+
+Future<void> openBackgroundSettings(BuildContext context) async {
+  final opened = await _backgroundPermissionCall('openBackgroundSettings');
+  if (opened == true || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(AppL10n.of(context).networkBackgroundSettingsUnavailable),
+    ),
   );
 }
 
 Future<void> requestBackgroundExemption(BuildContext context) async {
   if (!Platform.isAndroid) return;
-  const lifecycle = MethodChannel('veil_flutter/lifecycle');
-  bool? opened;
-  try {
-    final exempt = await lifecycle.invokeMethod<bool>(
-      'isIgnoringBatteryOptimizations',
-    );
-    if (exempt == true || !context.mounted) return;
-    opened = await lifecycle.invokeMethod<bool>(
-      'requestIgnoreBatteryOptimizations',
-    );
-  } on PlatformException {
-    opened = false;
-  } on MissingPluginException {
-    opened = false;
-  }
+  if (await backgroundExemptionStatus() == true || !context.mounted) return;
+  final opened = await _backgroundPermissionCall(
+    'requestIgnoreBatteryOptimizations',
+  );
   if (opened == true || !context.mounted) return;
   final l = AppL10n.of(context);
   ScaffoldMessenger.of(context).showSnackBar(
@@ -90,7 +108,7 @@ Future<void> requestBackgroundExemption(BuildContext context) async {
       content: Text(l.networkBackgroundRequestUnavailable),
       action: SnackBarAction(
         label: l.networkBackgroundOpenSettings,
-        onPressed: VeilBackground.openBackgroundSettings,
+        onPressed: () => openBackgroundSettings(context),
       ),
     ),
   );

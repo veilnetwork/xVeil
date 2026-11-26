@@ -224,7 +224,12 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
         setState(_liveLevels.clear);
       }
       if (next.phase == VoiceRecordPhase.denied) {
-        _showCenterToast(l.chatVoiceMicDenied);
+        _showCenterToast(switch (next.permissionStatus) {
+          MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
+          MediaPermissionStatus.unavailable =>
+            l.mediaPermissionStatusUnavailable,
+          _ => l.chatVoiceMicDenied,
+        });
       } else if (next.phase == VoiceRecordPhase.error) {
         _showCenterToast(l.chatVoiceRecordFailed);
       }
@@ -232,7 +237,12 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
     // Video-note phases: toasts on failure + pick up the 60s auto-stop clip.
     ref.listen<VnoteRecordState>(vnoteRecordControllerProvider, (prev, next) {
       if (next.phase == VnoteRecordPhase.denied) {
-        _showCenterToast(l.chatVnoteDenied);
+        _showCenterToast(switch (next.permissionStatus) {
+          MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
+          MediaPermissionStatus.unavailable =>
+            l.mediaPermissionStatusUnavailable,
+          _ => l.chatVnoteDenied,
+        });
       } else if (next.phase == VnoteRecordPhase.error) {
         _showCenterToast(l.chatVoiceRecordFailed);
       }

@@ -54,7 +54,12 @@ typedef NotificationPost = ({
 /// WHETHER to notify and WHAT to put in the title/body (hidden vs full preview)
 /// lives in the controller above it — keep this layer dumb so the privacy policy
 /// has exactly one home.
+enum NotificationPermissionIssue { policy, manifest, unavailable }
+
 class NotificationService {
+  NotificationPermissionIssue? _permissionIssue;
+  NotificationPermissionIssue? get permissionIssue => _permissionIssue;
+
   final Map<int, Future<void>> _posts = {};
 
   /// Post only while the originating session/ticket is current. Operations for
@@ -365,19 +370,36 @@ class NotificationService {
   /// Recheck the system setting without showing a permission prompt.
   Future<bool?> permissionStatus() async {
     if (!_ready) return null;
+    _permissionIssue = null;
     try {
-      if (Platform.isWindows || Platform.isLinux) {
-        const channel = MethodChannel('xveil/notification_permissions');
-        return await channel.invokeMethod<bool>(
+      const channel = MethodChannel('xveil/notification_permissions');
+      if (Platform.isWindows) {
+        final status = await channel.invokeMethod<Object>(
           'status',
-          Platform.isWindows
-              ? windowsNotificationSettingsForNamespace(
-                  const String.fromEnvironment(
-                    'XVEIL_WINDOWS_NOTIFICATION_NAMESPACE',
-                  ),
-                ).appUserModelId
-              : null,
+          windowsNotificationSettingsForNamespace(
+            const String.fromEnvironment(
+              'XVEIL_WINDOWS_NOTIFICATION_NAMESPACE',
+            ),
+          ).appUserModelId,
         );
+        _permissionIssue = switch (status) {
+          'policy' => NotificationPermissionIssue.policy,
+          'manifest' => NotificationPermissionIssue.manifest,
+          'enabled' || 'disabled' || bool() => null,
+          _ => NotificationPermissionIssue.unavailable,
+        };
+        return switch (status) {
+          'enabled' || true => true,
+          'disabled' || 'policy' || 'manifest' || false => false,
+          _ => null,
+        };
+      }
+      if (Platform.isLinux) {
+        final enabled = await channel.invokeMethod<bool>('status');
+        if (enabled == null) {
+          _permissionIssue = NotificationPermissionIssue.unavailable;
+        }
+        return enabled;
       }
       if (Platform.isAndroid) {
         return await _plugin
@@ -403,6 +425,9 @@ class NotificationService {
           ? null
           : options.isEnabled || options.isProvisionalEnabled;
     } catch (_) {
+      if (Platform.isLinux || Platform.isWindows) {
+        _permissionIssue = NotificationPermissionIssue.unavailable;
+      }
       return null;
     }
   }

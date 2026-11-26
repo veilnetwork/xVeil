@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../core/filesystem_errors.dart';
 import '../core/async_tasks.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/error_journal.dart';
@@ -4225,6 +4226,9 @@ class MessagingService {
   /// a parked resume shows no progress, so the UI would otherwise look idle.
   /// The UI shows "resuming…" when a cid is here but has no live progress.
   Stream<Set<String>> get contentResuming => _downloadResume.resuming;
+  Stream<String> get contentDownloadDestinationAccessDenied =>
+      _downloadResume.destinationAccessDenied;
+
   Stream<String> get contentDownloadDestinationNeedsSelection =>
       _downloadResume.destinationNeedsSelection;
 

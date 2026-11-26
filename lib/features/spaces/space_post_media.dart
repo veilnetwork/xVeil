@@ -11,6 +11,7 @@ import '../../core/document_export.dart';
 import '../common/document_export_review.dart';
 import '../../core/ids.dart';
 import '../../state/app_controller.dart';
+import '../../core/filesystem_errors.dart';
 import '../../data/serve_source.dart';
 import '../../domain/chat_file_export.dart';
 import '../../domain/content_manifest.dart';
@@ -130,6 +131,7 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
   if (picked == null || !app.holdsIdentity(lease)) {
     return (media: const <MediaObject>[], rejected: 0);
   }
+  String? deniedPath;
   final media = <MediaObject>[];
   var rejected = picked.files.length > remaining
       ? picked.files.length - remaining
@@ -170,19 +172,27 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
           continue;
         }
         final absolutePath = File(path).absolute.path;
-        final source = await veilSourceOpener(absolutePath);
+        final source = await veilOpenSourceForSend(
+          absolutePath,
+          onAccessDenied: (error) => deniedPath ??= error.path ?? absolutePath,
+        );
         if (source == null) {
           rejected++;
           continue;
         }
+        size = source.size;
         contentId = await messaging.registerGroupContentStreaming(
           file.name,
-          size,
+          source.size,
           source.read,
           close: source.close,
           sourcePath: absolutePath,
         );
       }
+    } on FileSystemException catch (error) {
+      if (fileSystemAccessDenied(error)) deniedPath ??= error.path ?? file.path;
+      rejected++;
+      continue;
     } catch (_) {
       rejected++;
       continue;
@@ -199,6 +209,18 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
       continue;
     }
     media.add(reference);
+  }
+  if (deniedPath != null && app.holdsIdentity(lease)) {
+    final context = ref.context;
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            AppL10n.of(context).sendSourceAccessDenied(deniedPath!),
+          ),
+        ),
+      );
+    }
   }
   return (media: media, rejected: rejected);
 }

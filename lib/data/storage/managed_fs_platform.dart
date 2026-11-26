@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/posix_file_facts.dart';
 import 'managed_fs_contract.dart';
@@ -12,6 +15,18 @@ import 'managed_linux_rename.dart';
 import 'managed_fs_windows.dart' as windows;
 
 export 'managed_fs_contract.dart';
+
+ManagedFsFailure managedFilesystemFailure(FileSystemException error) {
+  final code = error.osError?.errorCode;
+  return ManagedFsFailure(
+    ManagedFsFailureKind.io,
+    path: error.path,
+    posixError: Platform.isWindows ? null : code,
+    unsafeReason: Platform.isWindows && code == 5
+        ? ManagedFsUnsafeReason.windowsPathAccessDenied
+        : null,
+  );
+}
 
 bool _isTrustedPosixOwner(int uid, int currentUid, bool android) =>
     uid == currentUid || uid == 0 || (android && uid == 1000);
@@ -75,6 +90,7 @@ class ManagedFsPlatform {
     String path, {
     required bool includeApprovedAcl,
     bool allowDirectoryContentGrants = false,
+    bool observeUnsafeDirectory = false,
   }) {
     // POSIX lstat("link/") follows the link despite lstat's usual contract.
     // Inspect the final component itself, retaining only the filesystem root.
@@ -176,7 +192,8 @@ class ManagedFsPlatform {
       // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
       // that property even for callers that use a witness only for identity.
       if (!appleAcl.safe &&
-          !(includeApprovedAcl ? reviewableAppleAcl : approved)) {
+          !(includeApprovedAcl ? reviewableAppleAcl : approved) &&
+          !(observeUnsafeDirectory && facts.isDirectory && warning != null)) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: facts.isDirectory
@@ -190,6 +207,19 @@ class ManagedFsPlatform {
         identity: '${facts.deviceId}:${facts.inode}:${facts.uid}',
         directory: facts.isDirectory,
         ownerOnly: ownerOnly,
+        permissionFingerprint: sha256
+            .convert(
+              utf8.encode(
+                jsonEncode([
+                  facts.uid,
+                  facts.gid,
+                  facts.mode,
+                  appleAcl.text,
+                  warning?.fingerprint,
+                ]),
+              ),
+            )
+            .toString(),
         ownedByCurrentUser: policy.ownedByCurrentUser,
         safeAncestor: safeAncestor,
         aclWarning: approved && !includeApprovedAcl ? null : warning,
@@ -220,16 +250,17 @@ class ManagedFsPlatform {
   /// The caller has already admitted the parent. Fails if any entry exists.
   bool createPrivateDirectory(String path) {
     if (Platform.isWindows) return windows.createPrivateDirectory(path);
-    final rc = posixMkdir(path, 0x1c0);
-    if (rc == null) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    final result = posixMkdirResult(path, 0x1c0);
+    if (result == null) {
+      throw ManagedFsFailure(ManagedFsFailureKind.unavailable, path: path);
     }
-    if (rc == 0) return true;
-    if (FileSystemEntity.typeSync(path, followLinks: false) !=
-        FileSystemEntityType.notFound) {
-      return false;
-    }
-    throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    if (result.code == 0) return true;
+    if (result.errno == 17) return false; // EEXIST
+    throw ManagedFsFailure(
+      ManagedFsFailureKind.io,
+      path: path,
+      posixError: result.errno,
+    );
   }
 
   /// Reserve a new leaf. On Windows explicitly set its owner and DACL at
@@ -261,6 +292,24 @@ class ManagedFsPlatform {
       }
     }
     requirePrivateFile(path);
+  }
+
+  void makeEmptyFilePrivate(String path) {
+    if (Platform.isMacOS) {
+      final facts = posixLstat(path);
+      if (facts != null &&
+          facts.isRegularFile &&
+          facts.uid == posixEuid() &&
+          readDarwinStorageAcl(path, facts)?.isNotEmpty == true) {
+        posixSetModeForFile(
+          path,
+          facts,
+          0x180,
+          applyAcl: (fd) => writePosixStorageAcl(fd, ''),
+        );
+      }
+    }
+    restrictNewFile(path);
   }
 
   ManagedPathWitness requirePrivateFile(
@@ -432,6 +481,72 @@ class ManagedFsPlatform {
       syncDirectory(path);
     }
     admit(inspect(path));
+  }
+}
+
+/// Resolve the selected directory and bind its canonical ancestors to their
+/// identities and access policy before admitting a named filesystem operation.
+final class ManagedDirectoryAccess {
+  ManagedDirectoryAccess._(this.requestedPath, this.canonicalPath, this._chain);
+
+  final String requestedPath;
+  final String canonicalPath;
+  final Map<String, ManagedPathWitness> _chain;
+
+  Iterable<ManagedStorageAclWarning> get warnings sync* {
+    for (final entry in _chain.entries) {
+      if (!entry.value.safeAncestor) {
+        yield entry.value.aclWarning!;
+      }
+    }
+  }
+
+  static ManagedDirectoryAccess capture(String path) {
+    final requested = p.normalize(p.absolute(path));
+    final String canonical;
+    try {
+      canonical = Directory(requested).resolveSymbolicLinksSync();
+    } on FileSystemException catch (error) {
+      throw managedFilesystemFailure(error);
+    }
+    final chain = <String, ManagedPathWitness>{};
+    var current = canonical;
+    while (true) {
+      final witness = Platform.isWindows
+          ? windows.inspect(
+              current,
+              includeApprovedAcl: true,
+              allowNetworkShare: true,
+            )
+          : const ManagedFsPlatform()._inspect(
+              current,
+              includeApprovedAcl: true,
+              observeUnsafeDirectory: true,
+            );
+      if (!witness.directory ||
+          !witness.safeAncestor && witness.aclWarning == null) {
+        throw ManagedFsFailure(ManagedFsFailureKind.unsafe, path: current);
+      }
+      chain[current] = witness;
+      final parent = p.dirname(current);
+      if (parent == current) break;
+      current = parent;
+    }
+    return ManagedDirectoryAccess._(requested, canonical, chain);
+  }
+
+  void verify() {
+    final current = capture(requestedPath);
+    if (current.canonicalPath != canonicalPath ||
+        current._chain.length != _chain.length ||
+        _chain.entries.any((entry) {
+          final now = current._chain[entry.key];
+          return now == null ||
+              !now.sameObject(entry.value) ||
+              now.accessPolicy != entry.value.accessPolicy;
+        })) {
+      throw ManagedFsFailure(ManagedFsFailureKind.changed, path: requestedPath);
+    }
   }
 }
 

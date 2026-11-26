@@ -109,6 +109,8 @@ const String kAcceptReadableSecretFilesFlag = '--accept-readable-secret-files';
 const String kAcceptReadableSecretFilesEnv =
     'XVEIL_ACCEPT_READABLE_SECRET_FILES';
 
+const String kAcceptSecretDirectoryAclFlag = '--accept-secret-directory-acl';
+
 /// Explanation for the explicit Windows fallback when the ACL probe fails.
 String? unverifiableSecretFileReason({required bool isWindows}) => isWindows
     ? 'the Windows ACL probe is unavailable, so ownership and access by '
@@ -126,6 +128,7 @@ Future<String> readSecretFile(
   String label, {
   bool acceptUnchecked = false,
   bool acceptReadable = false,
+  Set<String> acceptedDirectoryAcls = const {},
   bool? isWindows,
   void Function(String warning)? warn,
   PosixFileFacts? Function(String) readFacts = posixLstat,
@@ -134,7 +137,19 @@ Future<String> readSecretFile(
   // THE one call, when the host can answer it. `isWindows: true` deliberately
   // forgoes it even on a POSIX machine: that injection exists to exercise the
   // Windows branch, and a branch that quietly used libc would not be it.
-  final before = windows ? null : readFacts(path);
+  int? statError;
+  final before = windows
+      ? null
+      : identical(readFacts, posixLstat)
+      ? posixLstat(path, onError: (error) => statError = error)
+      : readFacts(path);
+  if (statError == 1 || statError == 13) {
+    throw FileSystemException(
+      'OS denied checking the $label file',
+      path,
+      OSError('Permission denied', statError!),
+    );
+  }
   final euid = windows ? null : posixEuid();
   final emitWarning = warn ?? ((String warning) => stderr.writeln(warning));
 
@@ -167,6 +182,12 @@ Future<String> readSecretFile(
     try {
       acl = win.inspect(windowsPath, includeApprovedAcl: true);
     } on ManagedFsFailure catch (error) {
+      if (error.accessDenied) {
+        throw FileSystemException(
+          'OS denied reading the $label file permissions',
+          path,
+        );
+      }
       if (error.unsafeReason != null) {
         throw StateError(
           '$label file $path could not be verified (${error.unsafeReason!.name}). '
@@ -263,6 +284,24 @@ Future<String> readSecretFile(
     }
   }
 
+  final parentAccess = isWindows == null && (before != null || acl != null)
+      ? ManagedDirectoryAccess.capture(File(path).absolute.parent.path)
+      : null;
+  for (final warning
+      in parentAccess?.warnings ?? const <ManagedStorageAclWarning>[]) {
+    final risk =
+        '$label file $path is under a directory whose entries may be '
+        'replaced by another account: ${warning.path}.${_secretAclDetails(warning)}';
+    if (!acceptedDirectoryAcls.contains(warning.fingerprint)) {
+      throw StateError(
+        '$risk Re-run with $kAcceptSecretDirectoryAclFlag ${warning.fingerprint} '
+        'to accept these exact permissions, or choose a different directory.',
+      );
+    }
+    emitWarning('xveil: WARNING: $risk You accepted these permissions.');
+  }
+  parentAccess?.verify();
+
   // The checks are against a NAME and so is the read: separate syscalls, not
   // one descriptor. Dart exposes neither `openat`/`O_NOFOLLOW` nor `fstat`, so
   // the file checked cannot be PROVEN to be the file read without dropping to
@@ -301,6 +340,7 @@ Future<String> readSecretFile(
         );
       }
     }
+    parentAccess?.verify();
     if (value.isEmpty) throw StateError('$label file is empty');
     return value;
   }
@@ -317,6 +357,7 @@ Future<String> readSecretFile(
         '$label file $path changed permissions while being read.',
       );
     }
+    parentAccess?.verify();
     if (value.isEmpty) throw StateError('$label file is empty');
     return value;
   }

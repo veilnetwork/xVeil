@@ -46,7 +46,9 @@ import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'storage/managed_fs_contract.dart'
     show ManagedFsFailure, ManagedFsUnsafeReason, ManagedStorageAclWarning;
-import 'storage/managed_fs_platform.dart' show ManagedFsPlatform;
+import 'storage/managed_fs_platform.dart'
+    show ManagedDirectoryAccess, ManagedFsPlatform, readDarwinStorageAcl;
+import 'storage/managed_fs_posix_acl.dart' show writePosixStorageAcl;
 import 'storage/managed_fs_windows.dart' as windows;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
@@ -326,7 +328,24 @@ bool _createExclusiveDir(String path) {
   }
   final result = posixMkdirResult(path, 0x1C0); // 0700
   if (result != null) {
-    if (result.code == 0) return true;
+    if (result.code == 0) {
+      if (Platform.isMacOS || Platform.isIOS) {
+        final facts = posixLstat(path);
+        if (facts != null &&
+            facts.isDirectory &&
+            facts.uid == posixEuid() &&
+            readDarwinStorageAcl(path, facts)?.isNotEmpty == true) {
+          posixSetModeForFile(
+            path,
+            facts,
+            0x1c0,
+            directory: true,
+            applyAcl: (fd) => writePosixStorageAcl(fd, ''),
+          );
+        }
+      }
+      return true;
+    }
     if (result.errno == 17) return false; // EEXIST
     throw FileSystemException(
       'could not create directory',
@@ -485,33 +504,65 @@ String _prepareWindowsRuntimeBase(
   }
 }
 
+ManagedDirectoryAccess? _admitPosixRuntimeBase(String base) {
+  if (!runtimeDirMustBePrivate()) return null;
+  final access = ManagedDirectoryAccess.capture(base);
+  if (access.warnings.firstOrNull case final warning?) {
+    throw RuntimeDirNotPrivate(
+      warning.path,
+      'runtime parent may be replaced',
+      refusal: RuntimeDirectoryRefusal.unsafeAncestor,
+      retryable: true,
+      aclWarning: warning.withPolicy(canContinue: false),
+    );
+  }
+  return access;
+}
+
+String _preparePosixRuntimeBase(String supplied) {
+  final directory = Directory(p.normalize(p.absolute(supplied)));
+  var existing = directory;
+  while (!existing.existsSync()) {
+    final type = FileSystemEntity.typeSync(existing.path, followLinks: false);
+    if (type != FileSystemEntityType.notFound ||
+        existing.parent.path == existing.path) {
+      throw RuntimeDirNotPrivate(
+        existing.path,
+        'runtime base is not a directory',
+        retryable: true,
+        refusal: RuntimeDirectoryRefusal.invalidPath,
+      );
+    }
+    existing = existing.parent;
+  }
+  try {
+    final parent = _admitPosixRuntimeBase(existing.path);
+    parent?.verify();
+    directory.createSync(recursive: true);
+    return _admitPosixRuntimeBase(directory.path)?.canonicalPath ??
+        directory.resolveSymbolicLinksSync();
+  } on ManagedFsFailure catch (error) {
+    throw RuntimeDirNotPrivate(
+      error.path ?? directory.path,
+      error.accessDenied
+          ? 'OS denied the directory check'
+          : 'directory could not be verified',
+      refusal: error.accessDenied
+          ? RuntimeDirectoryRefusal.accessDenied
+          : RuntimeDirectoryRefusal.cannotVerify,
+      retryable: true,
+      aclWarning: error.aclWarnings.firstOrNull?.withPolicy(canContinue: false),
+    );
+  }
+}
+
 /// The new directory is verified before any temporary secret is written.
 Directory createPrivateStagingDirectory(String base, String prefix) {
   try {
     if (Platform.isWindows) {
       base = _prepareWindowsRuntimeBase(base);
     } else {
-      final directory = Directory(base);
-      directory.createSync(recursive: true);
-      base = directory.resolveSymbolicLinksSync();
-      if (runtimeDirMustBePrivate()) {
-        var current = Directory(base);
-        while (true) {
-          final facts = const ManagedFsPlatform().inspectAcl(current.path);
-          if (!facts.directory || !facts.safeAncestor) {
-            throw RuntimeDirNotPrivate(
-              current.path,
-              'staging parent may be replaced',
-              refusal: RuntimeDirectoryRefusal.unsafeAncestor,
-              retryable: true,
-              aclWarning: facts.aclWarning,
-            );
-          }
-          final parent = current.parent;
-          if (parent.path == current.path) break;
-          current = parent;
-        }
-      }
+      base = _preparePosixRuntimeBase(base);
     }
     for (var attempt = 0; attempt < 8; attempt++) {
       final path = '$base/${_randomName(prefix)}';
@@ -773,8 +824,10 @@ Future<String> claimRuntimeDirUnder(
         refusal: RuntimeDirectoryRefusal.invalidPath,
       );
     }
-    await Directory(base).create(recursive: true);
-    return await _claimRuntimeChild(base, uniqueSuffix);
+    return await _claimRuntimeChild(
+      _preparePosixRuntimeBase(base),
+      uniqueSuffix,
+    );
   } on FileSystemException catch (error) {
     throw _runtimeCreationFailure(base, error);
   }
@@ -965,7 +1018,7 @@ class RuntimeDirLease {
           );
         }
       } else {
-        await Directory(base).create(recursive: true);
+        base = _preparePosixRuntimeBase(base);
       }
 
       for (var attempt = 0; attempt < 8; attempt++) {

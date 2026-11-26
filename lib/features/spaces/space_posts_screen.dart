@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
 import '../../domain/space_post.dart';
+import '../../state/mac_media_permissions.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
@@ -431,8 +432,9 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
               // `pinnedAtMs` is a local control-log reading; the fallback
               // takes the derived stamp so an unpinned publication claiming
               // 2027 cannot outrank every pin in the Space.
-              (left, right) => (left.pinnedAtMs ?? left.orderedAtMs)
-                  .compareTo(right.pinnedAtMs ?? right.orderedAtMs),
+              (left, right) => (left.pinnedAtMs ?? left.orderedAtMs).compareTo(
+                right.pinnedAtMs ?? right.orderedAtMs,
+              ),
             ),
           ];
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1246,7 +1248,12 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
       if (next.phase == VoiceRecordPhase.denied &&
           prev?.phase != VoiceRecordPhase.denied) {
         _ownsVoiceRecording = false;
-        _showRecordingError(l.chatVoiceMicDenied);
+        _showRecordingError(switch (next.permissionStatus) {
+          MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
+          MediaPermissionStatus.unavailable =>
+            l.mediaPermissionStatusUnavailable,
+          _ => l.chatVoiceMicDenied,
+        });
       } else if (next.phase == VoiceRecordPhase.error &&
           prev?.phase != VoiceRecordPhase.error) {
         _ownsVoiceRecording = false;
@@ -1267,7 +1274,12 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
       if (next.phase == VnoteRecordPhase.denied &&
           prev?.phase != VnoteRecordPhase.denied) {
         _ownsVnoteRecording = false;
-        _showRecordingError(l.chatVnoteDenied);
+        _showRecordingError(switch (next.permissionStatus) {
+          MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
+          MediaPermissionStatus.unavailable =>
+            l.mediaPermissionStatusUnavailable,
+          _ => l.chatVnoteDenied,
+        });
       } else if (next.phase == VnoteRecordPhase.error &&
           prev?.phase != VnoteRecordPhase.error) {
         _ownsVnoteRecording = false;

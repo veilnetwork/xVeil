@@ -1,4 +1,8 @@
-import '../core/storage_acl_vault.dart' show restoreRememberedStorageAcl;
+import '../core/storage_acl_vault.dart'
+    show rememberStorageAclReplacement, restoreRememberedStorageAcl;
+import '../data/storage/profile_preferences_file.dart'
+    show FileReplacementAccess;
+import '../data/storage/storage_acl_approval.dart' show StorageAclReplacement;
 import '../data/storage/managed_fs_contract.dart';
 
 import 'startup_unlock.dart';
@@ -848,7 +852,8 @@ class AppController extends Notifier<AppState> {
       requireCurrent();
       await _drainRetiringSessions();
       requireCurrent();
-      if (recovery == null && ref.read(deniableBootProvider)?.storePath != null) {
+      if (recovery == null &&
+          ref.read(deniableBootProvider)?.storePath != null) {
         // Rotate before an opener can add a space. Use the same random value
         // scheme for every setup attempt, regardless of what storage exists.
         final prefs = await ref.read(prefsProvider.future);
@@ -3099,6 +3104,52 @@ class AppController extends Notifier<AppState> {
     await _compactionInFlight;
   }
 
+  Future<void> _compactLegacyWithAccess(
+    String path,
+    List<Uint8List> passwords, {
+    required Future<void> Function(String) repairMetadata,
+  }) async {
+    final destination = File(path);
+    final access = FileReplacementAccess.capture(destination);
+    FileReplacementAccess? prepared;
+    StorageAclReplacement? replacement;
+    var published = false;
+    try {
+      await ref.read(preparedContainerCompactorProvider)(
+        path,
+        passwords,
+        dylibPath: _hvDylibPath(),
+        repairMetadata: (stagedPath) async {
+          await repairMetadata(stagedPath);
+          if (stagedPath != path) {
+            prepared = access.prepareReplacement(destination, File(stagedPath));
+            access.checkDestination(destination);
+          }
+        },
+      );
+      published = true;
+    } finally {
+      final ready = prepared;
+      if (ready != null) {
+        try {
+          if (!access.checkPublished(
+                destination,
+                ready,
+                (receipt) => replacement = receipt,
+              ) &&
+              published) {
+            throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
+          }
+        } catch (_) {
+          if (published) rethrow;
+        }
+        if (replacement case final receipt?) {
+          await rememberStorageAclReplacement(receipt);
+        }
+      }
+    }
+  }
+
   Future<({int before, int after})> _compactKeepingOwned({
     required List<Uint8List> passwords,
     required String reopenWith,
@@ -3225,10 +3276,9 @@ class AppController extends Notifier<AppState> {
           beforePublication: () async => requireCurrentSession(),
         );
       } else {
-        await ref.read(preparedContainerCompactorProvider)(
+        await _compactLegacyWithAccess(
           path,
           passwords,
-          dylibPath: _hvDylibPath(),
           repairMetadata: (stagedPath) async {
             requireCurrentSession();
             final staged = ref.read(compactionStagedStorageProvider)(
@@ -3331,7 +3381,9 @@ class AppController extends Notifier<AppState> {
     // both yield to lock and a subsequent unlock of a different space.
     if (ref.mounted && holdsIdentity(lease)) {
       try {
-        await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
+        await ref
+            .read(storageProvider)
+            .putSetting(_lastCompactSizeKey, '$after');
       } catch (_) {}
     }
     return (before: before, after: after);
@@ -3881,7 +3933,9 @@ class AppController extends Notifier<AppState> {
       await _withCompaction(() async {
         _autoCompactRunning = true;
         try {
-          if (!await _isStandaloneCompactionSpace(storage) || !current()) return;
+          if (!await _isStandaloneCompactionSpace(storage) || !current()) {
+            return;
+          }
           devLog(
             () =>
                 'xVeil[storage]: pre-session auto-compact triggered '
@@ -3892,10 +3946,9 @@ class AppController extends Notifier<AppState> {
           if (!current()) return;
           final secret = Uint8List.fromList(utf8.encode(password));
           try {
-            await ref.read(preparedContainerCompactorProvider)(
+            await _compactLegacyWithAccess(
               path,
               [secret],
-              dylibPath: _hvDylibPath(),
               repairMetadata: (stagedPath) async {
                 if (!current()) {
                   throw StateError('automatic compaction session ended');
@@ -3938,7 +3991,9 @@ class AppController extends Notifier<AppState> {
           if (!reopened) {
             throw StateError('container did not reopen after compaction');
           }
-          if (!await _isStandaloneCompactionSpace(storage) || !current()) return;
+          if (!await _isStandaloneCompactionSpace(storage) || !current()) {
+            return;
+          }
           reopenedViewNeedsValidation = false;
           final after = await File(path).length();
           if (!current()) return;
@@ -7786,7 +7841,9 @@ class AppController extends Notifier<AppState> {
       StorageProtection? childProtection;
       final marker = await storage.getSetting(kPendingIdentitySetupSetting);
       final masterMarker = await storage.getSetting(kPendingMasterSetupSetting);
-      if (!canInitialize && !hosted && masterMarker == '1' &&
+      if (!canInitialize &&
+          !hosted &&
+          masterMarker == '1' &&
           ref.read(profileStorageRouterProvider) != null) {
         MasterSetupIntent? masterIntent;
         void check() {

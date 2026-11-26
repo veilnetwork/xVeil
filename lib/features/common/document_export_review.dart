@@ -77,7 +77,9 @@ Future<bool> _review(
           content: _details(
             failure,
             mayContinue
-                ? l.startupAclFileWarningRisk
+                ? failure.aclWarnings.any((warning) => warning.directory)
+                      ? l.exportDirectoryAccessRisk
+                      : l.startupAclFileWarningRisk
                 : l.exportAccessPolicyCannotBePreserved,
           ),
           actions: [

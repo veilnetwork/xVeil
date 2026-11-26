@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+import '../../core/filesystem_errors.dart';
 
 import '../../core/log.dart';
 import '../../core/posix_file_facts.dart';
@@ -76,21 +79,16 @@ void _ensurePrivateDir(Directory dir) {
   }
   if (dir.existsSync()) return;
   _ensurePrivateDir(dir.parent);
-  final rc = posixMkdir(dir.path, _ownerOnlyDir);
-  if (rc == null && !prefsFilesMustBePrivate()) {
+  final result = posixMkdirResult(dir.path, _ownerOnlyDir);
+  if (result == null && !prefsFilesMustBePrivate()) {
     dir.createSync(recursive: true);
-  } else if (rc != 0 && !dir.existsSync()) {
+  } else if (result?.code != 0 && !dir.existsSync()) {
     throw FileSystemException(
       'Could not create a private profile directory',
       dir.path,
+      OSError('mkdir failed', result?.errno ?? OSError.noErrorCode),
     );
   }
-}
-
-bool _isPrivateFile(String path) {
-  if (!Platform.isWindows && !prefsFilesMustBePrivate()) return true;
-  final facts = const ManagedFsPlatform().inspectAcl(path);
-  return !facts.directory && facts.ownedByCurrentUser && facts.ownerOnly;
 }
 
 const _cannotPreservePolicy = ManagedFsFailure(
@@ -257,32 +255,55 @@ class FileReplacementAccess {
 }
 
 void _verifyPrivateTemporary(File file) {
+  if (!Platform.isWindows && !prefsFilesMustBePrivate()) return;
   try {
-    if (_isPrivateFile(file.path)) return;
+    const ManagedFsPlatform().requirePrivateFile(file.path);
   } on ManagedFsFailure catch (error) {
-    if (error.aclWarnings.isEmpty) rethrow;
+    if (error.accessDenied) rethrow;
+    throw ManagedFsFailure(
+      error.kind,
+      unsafeReason: ManagedFsUnsafeReason.preferencesStagingAccess,
+      path: file.path,
+      posixError: error.posixError,
+      aclWarnings: error.aclWarnings,
+    );
   }
-  throw const ManagedFsFailure(
-    ManagedFsFailureKind.unsafe,
-    unsafeReason: ManagedFsUnsafeReason.preferencesStagingAccess,
-  );
 }
 
-/// Never reuse an inherited-read temporary on Windows. Tightening its DACL
-/// does not revoke a reader's existing handle, which could then read the next
-/// payload. Remove only an owned stable leaf and reserve a fresh private file.
-/// A reader denying deletion makes the write fail before any payload changes.
-bool _prepareTemporary(File temp) {
-  if (FileSystemEntity.typeSync(temp.path, followLinks: false) !=
-      FileSystemEntityType.notFound) {
-    final facts = const ManagedFsPlatform().inspect(temp.path);
-    if (facts.directory || !facts.ownedByCurrentUser || !facts.safeAncestor) {
-      return false;
-    }
-    temp.deleteSync();
+File? _reserveTemporary(File file) {
+  final legacy = File('${file.path}.tmp');
+  final type = FileSystemEntity.typeSync(legacy.path, followLinks: false);
+  if (type == FileSystemEntityType.directory) {
+    throw ManagedFsFailure(
+      ManagedFsFailureKind.unsafe,
+      unsafeReason: ManagedFsUnsafeReason.preferencesStagingAccess,
+      path: legacy.path,
+    );
   }
-  if (Platform.isWindows) return windows.createPrivateFile(temp.path);
-  return PosixSidecarLock.reservePrivate(temp.path);
+  bool reserve(File candidate) => Platform.isWindows
+      ? windows.createPrivateFile(candidate.path)
+      : PosixSidecarLock.reservePrivate(candidate.path);
+  if (type == FileSystemEntityType.notFound && reserve(legacy)) return legacy;
+  final random = Random.secure();
+  for (var attempt = 0; attempt < 8; attempt++) {
+    final suffix = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final candidate = File('${legacy.path}-$suffix');
+    if (reserve(candidate)) return candidate;
+  }
+  return null;
+}
+
+String? _temporaryIdentity(File file) {
+  if (Platform.isWindows) {
+    return const ManagedFsPlatform().inspectAcl(file.path).identity;
+  }
+  final facts = posixLstat(file.path);
+  return facts == null || !facts.isRegularFile
+      ? null
+      : '${facts.deviceId}:${facts.inode}:${facts.uid}';
 }
 
 /// Inspect the installation-wide choice before using its contents to select
@@ -377,12 +398,17 @@ Future<Map<String, Object>> readDesktopLegacyPreferences(File file) async {
 
 /// A saved profile choice could not be read. The cause is safe for diagnostics.
 final class ProfileChoiceReadFailure implements Exception {
-  const ProfileChoiceReadFailure({required this.busy, this.fromLegacy = false})
-    : malformed = false;
+  const ProfileChoiceReadFailure({
+    required this.busy,
+    this.fromLegacy = false,
+    this.filesystemFailure,
+  }) : malformed = false;
   const ProfileChoiceReadFailure.malformed({this.fromLegacy = false})
     : busy = false,
-      malformed = true;
+      malformed = true,
+      filesystemFailure = null;
 
+  final ManagedFsFailure? filesystemFailure;
   final bool busy;
   final bool fromLegacy;
   final bool malformed;
@@ -436,7 +462,12 @@ Future<String?> readStartupProfileChoice(
     );
   } on FileSystemException catch (error, stack) {
     Error.throwWithStackTrace(
-      ProfileChoiceReadFailure(busy: isWindowsFileSharingViolation(error)),
+      ProfileChoiceReadFailure(
+        busy: isWindowsFileSharingViolation(error),
+        filesystemFailure: fileSystemAccessDenied(error)
+            ? managedFilesystemFailure(error)
+            : null,
+      ),
       stack,
     );
   }
@@ -650,8 +681,8 @@ Future<bool> writePrivateFileAtomically(
   bool requireExpectedAccess = false,
   void Function(StorageAclReplacement)? onAclReplaced,
 }) async {
-  final temp = File('${file.path}.tmp');
-  ManagedPathWitness? staged;
+  File? temporary;
+  String? staged;
   const fs = ManagedFsPlatform();
   try {
     _ensurePrivateDir(file.parent);
@@ -662,19 +693,15 @@ Future<bool> writePrivateFileAtomically(
                 access.witness?.aclWarning?.fingerprint)) {
       throw ManagedFsFailure(ManagedFsFailureKind.changed, path: file.path);
     }
-    // Never write THROUGH a link someone else planted at the temporary name:
-    // that is how a 0600 file ends up being somebody else's file, with our
-    // posture in it. A directory in the way is not something to clear out.
-    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
-    if (planted == FileSystemEntityType.link) {
-      await Link(temp.path).delete();
-    } else if (planted == FileSystemEntityType.directory) {
-      devLog(() => 'xVeil[prefs]: ${temp.path} is a directory, refusing');
-      return false;
+    final temp = temporary = _reserveTemporary(file);
+    if (temp == null) return false;
+    staged = _temporaryIdentity(temp);
+    try {
+      fs.makeEmptyFilePrivate(temp.path);
+    } on ManagedFsFailure {
+      _verifyPrivateTemporary(temp);
+      rethrow;
     }
-
-    if (!_prepareTemporary(temp)) return false;
-    staged = fs.inspectAcl(temp.path);
     _verifyPrivateTemporary(temp);
     final FileReplacementAccess prepared;
     if (Platform.isWindows) {
@@ -705,8 +732,10 @@ Future<bool> writePrivateFileAtomically(
     onFailure?.call(e);
     devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
     try {
-      if (staged?.sameObject(fs.inspectAcl(temp.path)) == true) {
-        temp.deleteSync();
+      if (temporary != null &&
+          staged != null &&
+          _temporaryIdentity(temporary) == staged) {
+        temporary.deleteSync();
       }
     } catch (_) {
       /* the temporary is litter, not a reason to fail differently */
@@ -724,20 +753,21 @@ bool writePrivateFileAtomicallySync(
   bool reportFailure = false,
   void Function(StorageAclReplacement)? onAclReplaced,
 }) {
-  final temp = File('${file.path}.tmp');
-  ManagedPathWitness? staged;
+  File? temporary;
+  String? staged;
   const fs = ManagedFsPlatform();
   try {
     _ensurePrivateDir(file.parent);
     final access = FileReplacementAccess.capture(file);
-    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
-    if (planted == FileSystemEntityType.link) {
-      Link(temp.path).deleteSync();
-    } else if (planted == FileSystemEntityType.directory) {
-      return false;
+    final temp = temporary = _reserveTemporary(file);
+    if (temp == null) return false;
+    staged = _temporaryIdentity(temp);
+    try {
+      fs.makeEmptyFilePrivate(temp.path);
+    } on ManagedFsFailure {
+      _verifyPrivateTemporary(temp);
+      rethrow;
     }
-    if (!_prepareTemporary(temp)) return false;
-    staged = fs.inspectAcl(temp.path);
     _verifyPrivateTemporary(temp);
     final FileReplacementAccess prepared;
     if (Platform.isWindows) {
@@ -760,8 +790,10 @@ bool writePrivateFileAtomicallySync(
         access.checkPublished(file, prepared, onAclReplaced);
   } catch (_) {
     try {
-      if (staged?.sameObject(fs.inspectAcl(temp.path)) == true) {
-        temp.deleteSync();
+      if (temporary != null &&
+          staged != null &&
+          _temporaryIdentity(temporary) == staged) {
+        temporary.deleteSync();
       }
     } catch (_) {}
     if (reportFailure) rethrow;

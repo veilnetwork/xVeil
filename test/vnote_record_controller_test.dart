@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/state/vnote_record_controller.dart';
 import 'package:xveil/state/voice_record_controller.dart'
     show micPermissionProvider;
@@ -62,8 +63,16 @@ ProviderContainer _container({
   return ProviderContainer(
     overrides: [
       vnoteRecorderFactoryProvider.overrideWithValue(() => recorder),
-      micPermissionProvider.overrideWithValue(() async => micGranted),
-      cameraPermissionProvider.overrideWithValue(() async => camGranted),
+      micPermissionProvider.overrideWithValue(
+        () async => micGranted
+            ? MediaPermissionStatus.allowed
+            : MediaPermissionStatus.denied,
+      ),
+      cameraPermissionProvider.overrideWithValue(
+        () async => camGranted
+            ? MediaPermissionStatus.allowed
+            : MediaPermissionStatus.denied,
+      ),
     ],
   );
 }
@@ -77,8 +86,16 @@ ProviderContainer _promptParkedContainer({
   return ProviderContainer(
     overrides: [
       vnoteRecorderFactoryProvider.overrideWithValue(() => recorder),
-      micPermissionProvider.overrideWithValue(() async => true),
-      cameraPermissionProvider.overrideWithValue(() => camPrompt.future),
+      micPermissionProvider.overrideWithValue(
+        () async => MediaPermissionStatus.allowed,
+      ),
+      cameraPermissionProvider.overrideWithValue(
+        () => camPrompt.future.then(
+          (granted) => granted
+              ? MediaPermissionStatus.allowed
+              : MediaPermissionStatus.denied,
+        ),
+      ),
     ],
   );
 }
@@ -111,8 +128,12 @@ void main() {
           built = true;
           return _FakeRecorder();
         }),
-        micPermissionProvider.overrideWithValue(() async => true),
-        cameraPermissionProvider.overrideWithValue(() async => false),
+        micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
+        cameraPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.denied,
+        ),
       ],
     );
     addTearDown(c.dispose);

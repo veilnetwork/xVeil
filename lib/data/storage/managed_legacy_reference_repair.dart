@@ -336,7 +336,10 @@ abstract final class ManagedLegacyReferenceRepair {
         owner.profileDirectory,
         sourceName,
       );
-      final sourceWitness = owner._fs.requirePrivateFile(source);
+      final sourceWitness = owner._fs.requirePrivateFile(
+        source,
+        allowReadOnlyAclApproval: true,
+      );
       void stableSource() {
         check();
         ManagedDirectoryCatalog._assertProfile(
@@ -344,8 +347,14 @@ abstract final class ManagedLegacyReferenceRepair {
           profile.witness,
           owner._fs,
         );
-        owner._fs.requirePrivateFile(source);
-        ManagedDirectoryCatalog._assertSame(source, sourceWitness, owner._fs);
+        final current = owner._fs.requirePrivateFile(
+          source,
+          allowReadOnlyAclApproval: true,
+        );
+        if (!current.sameObject(sourceWitness) ||
+            current.accessPolicy != sourceWitness.accessPolicy) {
+          throw ManagedFsFailure(ManagedFsFailureKind.changed, path: source);
+        }
       }
 
       final proofs = <String, bool>{};

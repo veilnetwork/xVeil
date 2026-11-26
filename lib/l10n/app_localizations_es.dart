@@ -358,7 +358,7 @@ class AppL10nEs extends AppL10n {
   String get startupAclClose => 'No iniciar';
 
   @override
-  String get startupAclContinueOnce => 'Iniciar una vez';
+  String get startupAclContinueOnce => 'Iniciar y permitir hasta reiniciar';
 
   @override
   String get startupAclRemember => 'Iniciar y recordar mi elección';
@@ -8834,4 +8834,61 @@ class AppL10nEs extends AppL10n {
   @override
   String get plainDownloadChooseDestinationAgain =>
       'La aplicación no pudo verificar el archivo original de la descarga. Vuelve a elegir dónde guardarlo.';
+
+  @override
+  String get profileAclAllowSession => 'Permitir hasta reiniciar';
+
+  @override
+  String get profileEraseExtraFiles =>
+      'Si apruebas y reintentas, estos archivos adicionales se eliminarán con el perfil. La eliminación es irreversible.';
+
+  @override
+  String get notificationPermissionPolicy =>
+      'La política del sistema bloquea las notificaciones de xVeil. Consulta al administrador del dispositivo.';
+
+  @override
+  String get notificationPermissionManifest =>
+      'Esta instalación no puede enviar notificaciones del sistema.';
+
+  @override
+  String get notificationPermissionUnknown =>
+      'xVeil no pudo comprobar las notificaciones del sistema. Revisa los ajustes del escritorio.';
+
+  @override
+  String get networkBackgroundPermissionUnknown =>
+      'xVeil no pudo comprobar la exención de batería del sistema.';
+
+  @override
+  String get networkBackgroundSettingsUnavailable =>
+      'Android no pudo abrir los ajustes del sistema de xVeil.';
+
+  @override
+  String get exportDirectoryAccessRisk =>
+      'Otras cuentas pueden cambiar las entradas de esta carpeta. Es posible que puedan mover o eliminar el archivo exportado.';
+
+  @override
+  String downloadDestinationAccessDenied(String path) {
+    return 'El sistema denegó el acceso al destino de descarga $path. La descarga está en pausa. Revisa los permisos o elige otro destino.';
+  }
+
+  @override
+  String sendSourceAccessDenied(String path) {
+    return 'El sistema denegó el acceso de lectura a $path.';
+  }
+
+  @override
+  String get mediaPermissionStatusUnavailable =>
+      'La aplicación no pudo determinar si el sistema permite el acceso al micrófono o la cámara.';
+
+  @override
+  String get storageAclInheritedFilesAndFolders => 'archivos y carpetas';
+
+  @override
+  String get storageAclInheritedFiles => 'archivos';
+
+  @override
+  String get storageAclInheritedFolders => 'carpetas';
+
+  @override
+  String get storageAclDirectChildrenOnly => 'solo elementos directos';
 }

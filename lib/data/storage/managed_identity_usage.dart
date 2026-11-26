@@ -97,7 +97,7 @@ final class _ManagedUsageInventory {
   }) {
     final current = _inspect(path, requirePrivate: requirePrivate);
     if (!expected.sameObject(current) ||
-        expected.aclWarning?.fingerprint != current.aclWarning?.fingerprint) {
+        expected.accessPolicy != current.accessPolicy) {
       throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
     }
   }

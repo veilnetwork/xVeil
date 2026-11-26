@@ -37,6 +37,7 @@ import 'managed_store_tag.dart';
 import 'native_handle_close.dart';
 import 'plain_sqlite_kv_log_store.dart';
 import 'profile_preferences_file.dart' show FileReplacementAccess;
+import 'storage_acl_approval.dart';
 import 'rollback_anchor.dart';
 
 part 'managed_identity_files.dart';
@@ -640,6 +641,8 @@ final class ManagedDirectoryCatalog {
       rethrow;
     } on ManagedSqliteFailure {
       rethrow;
+    } on FileSystemException catch (error) {
+      throw managedFilesystemFailure(error);
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.io);
     }

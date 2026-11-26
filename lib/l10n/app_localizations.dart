@@ -672,7 +672,7 @@ abstract class AppL10n {
   /// No description provided for @startupAclContinueOnce.
   ///
   /// In en, this message translates to:
-  /// **'Start once'**
+  /// **'Start and allow until restart'**
   String get startupAclContinueOnce;
 
   /// No description provided for @startupAclRemember.
@@ -15047,6 +15047,96 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The app could not verify the original download file. Choose a save location again.'**
   String get plainDownloadChooseDestinationAgain;
+
+  /// No description provided for @profileAclAllowSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow until restart'**
+  String get profileAclAllowSession;
+
+  /// No description provided for @profileEraseExtraFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'These additional files will be deleted with this profile if you approve and retry. Deletion cannot be undone.'**
+  String get profileEraseExtraFiles;
+
+  /// No description provided for @notificationPermissionPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'System policy blocks xVeil notifications. Ask the administrator who manages this device.'**
+  String get notificationPermissionPolicy;
+
+  /// No description provided for @notificationPermissionManifest.
+  ///
+  /// In en, this message translates to:
+  /// **'This installation cannot post system notifications.'**
+  String get notificationPermissionManifest;
+
+  /// No description provided for @notificationPermissionUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not check the system notification setting. Check your desktop notification settings.'**
+  String get notificationPermissionUnknown;
+
+  /// No description provided for @networkBackgroundPermissionUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not check the system battery exemption.'**
+  String get networkBackgroundPermissionUnknown;
+
+  /// No description provided for @networkBackgroundSettingsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Android could not open the system settings for xVeil.'**
+  String get networkBackgroundSettingsUnavailable;
+
+  /// No description provided for @exportDirectoryAccessRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Other accounts can change entries in this folder. They may be able to move or remove the exported file.'**
+  String get exportDirectoryAccessRisk;
+
+  /// No description provided for @downloadDestinationAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The system denied access to the download destination {path}. The download is paused. Check the permissions or choose a different destination.'**
+  String downloadDestinationAccessDenied(String path);
+
+  /// No description provided for @sendSourceAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The system denied read access to {path}.'**
+  String sendSourceAccessDenied(String path);
+
+  /// No description provided for @mediaPermissionStatusUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The app could not determine whether the system allows microphone or camera access.'**
+  String get mediaPermissionStatusUnavailable;
+
+  /// No description provided for @storageAclInheritedFilesAndFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'files and folders'**
+  String get storageAclInheritedFilesAndFolders;
+
+  /// No description provided for @storageAclInheritedFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'files'**
+  String get storageAclInheritedFiles;
+
+  /// No description provided for @storageAclInheritedFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'folders'**
+  String get storageAclInheritedFolders;
+
+  /// No description provided for @storageAclDirectChildrenOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'direct children only'**
+  String get storageAclDirectChildrenOnly;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

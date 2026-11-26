@@ -8,6 +8,20 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.113] - 2026-11-27
+
+### Fixed
+
+- Ask before using shared permissions for storage, folder sync and exports.
+  Show the affected path and access, and recheck permissions after consent.
+  The command-line client also explains risky secret-file locations.
+- Keep existing files intact when exports race, downloads resume, or settings
+  cannot be saved. Preserve approved read access when storage is repacked.
+- Show the exact additional entries before erasing a managed identity or its
+  profile. Refresh the review when entries or their access change.
+- Explain system refusals for files, background operation, camera, microphone
+  and notifications. Preserve partial-import results after a system read error.
+
 ## [0.13.112] - 2026-11-25
 
 ### Fixed

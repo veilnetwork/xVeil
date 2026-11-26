@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/state/voice_record_controller.dart';
 
 /// A fake recorder: no native lib, deterministic clip + level.
@@ -48,7 +49,11 @@ ProviderContainer _container({
   return ProviderContainer(
     overrides: [
       voiceRecorderFactoryProvider.overrideWithValue(() => recorder),
-      micPermissionProvider.overrideWithValue(() async => micGranted),
+      micPermissionProvider.overrideWithValue(
+        () async => micGranted
+            ? MediaPermissionStatus.allowed
+            : MediaPermissionStatus.denied,
+      ),
     ],
   );
 }
@@ -63,7 +68,13 @@ ProviderContainer _promptParkedContainer({
   return ProviderContainer(
     overrides: [
       voiceRecorderFactoryProvider.overrideWithValue(() => recorder),
-      micPermissionProvider.overrideWithValue(() => prompt.future),
+      micPermissionProvider.overrideWithValue(
+        () => prompt.future.then(
+          (granted) => granted
+              ? MediaPermissionStatus.allowed
+              : MediaPermissionStatus.denied,
+        ),
+      ),
     ],
   );
 }
@@ -97,7 +108,9 @@ void main() {
           built = true;
           return _FakeRecorder();
         }),
-        micPermissionProvider.overrideWithValue(() async => false),
+        micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.denied,
+        ),
       ],
     );
     addTearDown(c.dispose);

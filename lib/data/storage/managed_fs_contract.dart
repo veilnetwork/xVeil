@@ -50,6 +50,13 @@ enum ManagedAclRight {
 }
 
 typedef ManagedAclGrant = ({String account, Set<ManagedAclRight> rights});
+typedef ManagedInheritedAclGrant = ({
+  String account,
+  Set<ManagedAclRight> rights,
+  bool files,
+  bool directories,
+  bool directChildrenOnly,
+});
 
 /// Local UI evidence. Keep this out of reports, logs and app preferences.
 final class ManagedStorageAclWarning {
@@ -58,6 +65,7 @@ final class ManagedStorageAclWarning {
     required this.fingerprint,
     required Iterable<ManagedAclGrant> grants,
     Iterable<ManagedAclGrant> inheritedGrants = const [],
+    Iterable<ManagedInheritedAclGrant> inheritedScopes = const [],
     this.directory = true,
     this.owner,
     this.extendedAcl,
@@ -65,12 +73,14 @@ final class ManagedStorageAclWarning {
     this.readOnlyInApp = false,
     this.grantsArePotential = false,
   }) : grants = List.unmodifiable(grants),
-       inheritedGrants = List.unmodifiable(inheritedGrants);
+       inheritedGrants = List.unmodifiable(inheritedGrants),
+       inheritedScopes = List.unmodifiable(inheritedScopes);
 
   final String path;
   final String fingerprint;
   final List<ManagedAclGrant> grants;
   final List<ManagedAclGrant> inheritedGrants;
+  final List<ManagedInheritedAclGrant> inheritedScopes;
   final bool directory;
   final String? owner;
   final String? extendedAcl;
@@ -86,6 +96,7 @@ final class ManagedStorageAclWarning {
     fingerprint: fingerprint,
     grants: grants,
     inheritedGrants: inheritedGrants,
+    inheritedScopes: inheritedScopes,
     directory: directory,
     owner: owner,
     extendedAcl: extendedAcl,
@@ -97,6 +108,15 @@ final class ManagedStorageAclWarning {
 
 /// The exception text is safe to log. Permission details are local to
 /// the startup UI and must never be serialized with the exception.
+/// Exact local inventory requiring separate approval before whole-profile erasure.
+final class ManagedErasureContentsReview {
+  ManagedErasureContentsReview(this.fingerprint, Iterable<String> paths)
+    : paths = List.unmodifiable(paths);
+
+  final String fingerprint;
+  final List<String> paths;
+}
+
 final class ManagedFsFailure implements Exception {
   const ManagedFsFailure(
     this.kind, {
@@ -104,6 +124,7 @@ final class ManagedFsFailure implements Exception {
     this.ancestorRefusal,
     this.path,
     this.posixError,
+    this.erasureReview,
     this.aclWarnings = const [],
   });
   final ManagedFsFailureKind kind;
@@ -111,6 +132,7 @@ final class ManagedFsFailure implements Exception {
   final ManagedAncestorRefusal? ancestorRefusal;
   final String? path;
   final int? posixError;
+  final ManagedErasureContentsReview? erasureReview;
   bool get accessDenied =>
       posixError == 1 ||
       posixError == 13 ||
@@ -137,6 +159,7 @@ final class ManagedPathWitness {
     this.aclApproved = false,
     this.ownedByWindowsAdministrators = false,
     this.otherUsersHaveReadOnlyAccess = false,
+    this.permissionFingerprint,
   });
   final String identity;
   final bool directory;
@@ -149,6 +172,11 @@ final class ManagedPathWitness {
   bool get admitsAncestor => safeAncestor || aclApproved;
   final bool ownedByWindowsAdministrators;
   final bool otherUsersHaveReadOnlyAccess;
+  final String? permissionFingerprint;
+
+  String get accessPolicy =>
+      permissionFingerprint ??
+      '${aclWarning?.fingerprint}:$ownerOnly:$ownedByCurrentUser:$safeAncestor';
 
   bool sameObject(ManagedPathWitness other) => identity == other.identity;
 }

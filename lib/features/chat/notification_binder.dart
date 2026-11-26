@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
+import '../../data/notifications/notification_service.dart'
+    show NotificationPermissionIssue;
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
@@ -85,7 +87,7 @@ class NotificationBinder extends ConsumerStatefulWidget {
 class _NotificationBinderState extends ConsumerState<NotificationBinder>
     with WidgetsBindingObserver {
   StreamSubscription<IncomingNotice>? _sub;
-  StreamSubscription<String>? _downloadDestinationSub;
+  StreamSubscription<String>? _downloadDestinationSub, _downloadAccessSub;
   ProviderSubscription<MessagingService>? _serviceListener;
   StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
   StreamSubscription<({NodeId spaceId, GroupMessage message})>?
@@ -125,6 +127,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   int _clearRequestGeneration = 0;
   bool _permissionRequestPending = false;
   bool? _lastPermission;
+  NotificationPermissionIssue? _lastPermissionIssue;
   late bool _windowWasVisible;
 
   bool get _hasInputFocus =>
@@ -317,13 +320,27 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           ? await service.requestPermission()
           : await service.permissionStatus();
       if (granted != null) _lastPermission = granted;
-      if (granted == false &&
-          previous != false &&
+      final issue = service.permissionIssue;
+      final changed =
+          issue != _lastPermissionIssue ||
+          granted == false && previous != false;
+      _lastPermissionIssue = issue;
+      if (changed &&
+          (issue != null || granted == false) &&
           mounted &&
           ref.read(appControllerProvider).phase == AppPhase.ready) {
+        final l = AppL10n.of(context);
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
-            content: Text(AppL10n.of(context).notificationPermissionDenied),
+            content: Text(switch (issue) {
+              NotificationPermissionIssue.policy =>
+                l.notificationPermissionPolicy,
+              NotificationPermissionIssue.manifest =>
+                l.notificationPermissionManifest,
+              NotificationPermissionIssue.unavailable =>
+                l.notificationPermissionUnknown,
+              null => l.notificationPermissionDenied,
+            }),
           ),
         );
       }
@@ -364,6 +381,23 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             ),
           );
         });
+    _downloadAccessSub?.cancel();
+    _downloadAccessSub = service.contentDownloadDestinationAccessDenied.listen((
+      path,
+    ) {
+      if (!mounted ||
+          ref.read(appControllerProvider).phase != AppPhase.ready ||
+          !identical(ref.read(messagingServiceProvider), service)) {
+        return;
+      }
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            AppL10n.of(context).downloadDestinationAccessDenied(path),
+          ),
+        ),
+      );
+    });
   }
 
   void _subscribeGroups(GroupService? service) {
@@ -1567,6 +1601,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _clearRequestListener?.close();
     _sub?.cancel();
     _downloadDestinationSub?.cancel();
+    _downloadAccessSub?.cancel();
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/space_discovery_transport.dart';
@@ -238,9 +239,13 @@ Widget _host(
     if (vnoteRecorderFactory != null)
       vnoteRecorderFactoryProvider.overrideWithValue(vnoteRecorderFactory),
     if (voiceRecorderFactory != null || vnoteRecorderFactory != null)
-      micPermissionProvider.overrideWithValue(() async => true),
+      micPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
     if (vnoteRecorderFactory != null)
-      cameraPermissionProvider.overrideWithValue(() async => true),
+      cameraPermissionProvider.overrideWithValue(
+          () async => MediaPermissionStatus.allowed,
+        ),
   ],
   child: MaterialApp(
     localizationsDelegates: AppL10n.localizationsDelegates,

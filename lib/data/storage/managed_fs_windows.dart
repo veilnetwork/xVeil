@@ -42,21 +42,7 @@ String _currentSid() {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
     final sid = user.cast<Pointer<Void>>().value; // TOKEN_USER.User.Sid
-    final text = calloc<Pointer<Utf16>>();
-    try {
-      final convert = DynamicLibrary.open('advapi32.dll')
-          .lookupFunction<
-            Int32 Function(Pointer<Void>, Pointer<Pointer<Utf16>>),
-            int Function(Pointer<Void>, Pointer<Pointer<Utf16>>)
-          >('ConvertSidToStringSidW');
-      if (convert(sid, text) == 0 || text.value == nullptr) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
-      }
-      return text.value.toDartString();
-    } finally {
-      if (text.value != nullptr) win.LocalFree(text.value);
-      calloc.free(text);
-    }
+    return _sidString(sid);
   } finally {
     if (token.value != 0) win.CloseHandle(token.value);
     calloc.free(token);
@@ -64,6 +50,104 @@ String _currentSid() {
     if (user != nullptr) calloc.free(user);
   }
 }
+
+String _sidString(Pointer<Void> sid) => using((arena) {
+  final text = arena<Pointer<Utf16>>();
+  try {
+    final convert = DynamicLibrary.open('advapi32.dll')
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Pointer<Pointer<Utf16>>),
+          int Function(Pointer<Void>, Pointer<Pointer<Utf16>>)
+        >('ConvertSidToStringSidW');
+    if (sid == nullptr || convert(sid, text) == 0 || text.value == nullptr) {
+      throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+    }
+    return text.value.toDartString();
+  } finally {
+    if (text.value != nullptr) win.LocalFree(text.value);
+  }
+});
+
+ManagedFsFailure _windowsPathFailure(String path, int error) =>
+    ManagedFsFailure(
+      ManagedFsFailureKind.unsafe,
+      path: path,
+      unsafeReason:
+          error == win.ERROR_ACCESS_DENIED ||
+              error == win.ERROR_PRIVILEGE_NOT_HELD
+          ? ManagedFsUnsafeReason.windowsPathAccessDenied
+          : ManagedFsUnsafeReason.windowsPathOpenFailed,
+    );
+
+Map<String, Object?> _readHandleAcl(int handle, String path) => using((arena) {
+  final owner = arena<Pointer<Void>>();
+  final acl = arena<Pointer<Void>>();
+  final descriptor = arena<Pointer<Void>>();
+  final unreadable = ManagedFsFailure(
+    ManagedFsFailureKind.unavailable,
+    path: path,
+  );
+  try {
+    final error = _getFileSecurity(
+      handle,
+      1,
+      win.DACL_SECURITY_INFORMATION | win.OWNER_SECURITY_INFORMATION,
+      owner.cast(),
+      nullptr,
+      acl.cast(),
+      nullptr,
+      descriptor,
+    );
+    if (error != 0) throw _windowsPathFailure(path, error);
+    if (acl.value == nullptr) throw unreadable;
+    final header = acl.value.cast<Uint16>();
+    final aclSize = header[1];
+    final count = header[2];
+    if (aclSize < 8 || count > 4096) throw unreadable;
+    final entry = arena<Pointer<Uint8>>();
+    final rules = <Map<String, Object>>[];
+    final getAce = DynamicLibrary.open('advapi32.dll')
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Uint32, Pointer<Pointer<Uint8>>),
+          int Function(Pointer<Void>, int, Pointer<Pointer<Uint8>>)
+        >('GetAce');
+    for (var index = 0; index < count; index++) {
+      if (getAce(acl.value, index, entry) == 0 || entry.value == nullptr) {
+        throw unreadable;
+      }
+      final ace = entry.value;
+      final type = ace[0];
+      // These ACE types can only deny access or audit it.
+      if (const {2, 3, 6, 7, 8, 10, 13, 15, 16}.contains(type)) continue;
+      final size = ace.cast<Uint16>()[1];
+      final offset = ace.address - acl.value.address;
+      if (type > 1 ||
+          size < 16 ||
+          offset < 8 ||
+          offset + size > aclSize ||
+          16 + 4 * ace[9] > size) {
+        throw unreadable;
+      }
+      final flags = ace[1];
+      rules.add({
+        'sid': _sidString((ace + 8).cast()),
+        'rights': ace.cast<Uint32>()[1],
+        'allow': type == 0,
+        'inheritOnly': flags & 8 != 0,
+        if (flags & 7 != 0) 'inheritanceFlags': flags & 7,
+      });
+    }
+    return {
+      'owner': _sidString(owner.value),
+      'rules': rules,
+      'dacl': sha256
+          .convert(acl.value.cast<Uint8>().asTypedList(aclSize))
+          .toString(),
+    };
+  } finally {
+    if (descriptor.value != nullptr) win.LocalFree(descriptor.value);
+  }
+});
 
 /// A dedicated runtime base outside the profile tree. The name separates
 /// accounts, and callers must verify the owner and ACL before writing to it.
@@ -169,6 +253,7 @@ bool managedWindowsFinalPathMatches(
   String fingerprint,
   Map<String, int> grants,
   Map<String, int> inheritedGrants,
+  List<ManagedInheritedAclGrant> inheritedScopes,
 })?
 managedWindowsAclGrant({
   required Map<String, Object?> facts,
@@ -184,20 +269,37 @@ managedWindowsAclGrant({
   final rules = facts['rules'] as List;
   final accounts = <String, int>{};
   final inheritedAccounts = <String, int>{};
+  final scopes = <(String, int), int>{};
   for (final rule in rules.cast<Map>()) {
-    final inherited = rule['inheritOnly'] == true;
-    if (rule['allow'] != true || inherited && !includeInheritedContentAcl) {
-      continue;
-    }
+    final inheritOnly = rule['inheritOnly'] == true;
+    final inheritance = rule['inheritanceFlags'];
+    if (rule['allow'] != true) continue;
     if (rule['sid'] is! String || rule['rights'] is! int) return null;
     final sid = rule['sid'] as String;
     final rights = rule['rights'] as int;
     if (_isTrustedSid(sid, currentSid) || rights == 0) continue;
-    (inherited ? inheritedAccounts : accounts).update(
-      sid,
-      (existing) => existing | rights,
-      ifAbsent: () => rights,
-    );
+    if (!inheritOnly) {
+      accounts.update(
+        sid,
+        (existing) => existing | rights,
+        ifAbsent: () => rights,
+      );
+    }
+    if (includeInheritedContentAcl &&
+        (inheritance is int ? inheritance & 3 != 0 : inheritOnly)) {
+      inheritedAccounts.update(
+        sid,
+        (existing) => existing | rights,
+        ifAbsent: () => rights,
+      );
+      if (inheritance is int) {
+        scopes.update(
+          (sid, inheritance),
+          (value) => value | rights,
+          ifAbsent: () => rights,
+        );
+      }
+    }
   }
   if (policy.safeAncestor &&
       policy.ownedByCurrentUser &&
@@ -224,7 +326,13 @@ managedWindowsAclGrant({
             path,
             identity,
             owner,
-            rules,
+            if (!legacy) facts['dacl'],
+            legacy
+                ? [
+                    for (final rule in rules.cast<Map>())
+                      Map.of(rule)..remove('inheritanceFlags'),
+                  ]
+                : rules,
           ]),
         ),
       )
@@ -233,6 +341,16 @@ managedWindowsAclGrant({
     fingerprint: fingerprint,
     grants: accounts,
     inheritedGrants: inheritedAccounts,
+    inheritedScopes: [
+      for (final MapEntry(key: (sid, flags), value: rights) in scopes.entries)
+        (
+          account: sid,
+          rights: _displayRights(rights),
+          files: flags & 1 != 0,
+          directories: flags & 2 != 0,
+          directChildrenOnly: flags & 4 != 0,
+        ),
+    ],
   );
 }
 
@@ -262,9 +380,10 @@ ManagedPathWitness inspect(
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
   var handle = win.INVALID_HANDLE_VALUE;
   try {
+    win.GetLastError();
     handle = win.CreateFile(
       name,
-      win.FILE_READ_ATTRIBUTES,
+      win.FILE_READ_ATTRIBUTES | win.READ_CONTROL,
       win.FILE_SHARE_READ | win.FILE_SHARE_WRITE | win.FILE_SHARE_DELETE,
       nullptr,
       win.OPEN_EXISTING,
@@ -272,12 +391,7 @@ ManagedPathWitness inspect(
       0,
     );
     if (handle == win.INVALID_HANDLE_VALUE) {
-      throw ManagedFsFailure(
-        ManagedFsFailureKind.unsafe,
-        unsafeReason: win.GetLastError() == win.ERROR_ACCESS_DENIED
-            ? ManagedFsUnsafeReason.windowsPathAccessDenied
-            : ManagedFsUnsafeReason.windowsPathOpenFailed,
-      );
+      throw _windowsPathFailure(path, win.GetLastError());
     }
     if (win.GetFileInformationByHandle(handle, info) == 0) {
       throw const ManagedFsFailure(
@@ -291,16 +405,24 @@ ManagedPathWitness inspect(
         unsafeReason: ManagedFsUnsafeReason.windowsReparsePoint,
       );
     }
-    final facts = veilPathSecurityFacts(path);
+    final finalPath = using((arena) {
+      const capacity = 32768;
+      final buffer = arena<Uint16>(capacity).cast<Utf16>();
+      final count = win.GetFinalPathNameByHandle(handle, buffer, capacity, 0);
+      if (count == 0) throw _windowsPathFailure(path, win.GetLastError());
+      if (count >= capacity) {
+        throw ManagedFsFailure(ManagedFsFailureKind.unavailable, path: path);
+      }
+      return buffer.toDartString(length: count);
+    });
+    final facts = _readHandleAcl(handle, path);
     final currentSid = _currentSid();
     final policy = managedWindowsAclPolicy(
       facts,
       currentSid,
       protectFromReparseChanges: protectFromReparseChanges,
     );
-    final finalPath = facts?['finalPath'];
     if (policy == null ||
-        finalPath is! String ||
         !managedWindowsFinalPathMatches(
           path,
           finalPath,
@@ -308,7 +430,7 @@ ManagedPathWitness inspect(
         )) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
-    final owner = facts!['owner'] as String;
+    final owner = facts['owner'] as String;
     final f = info.ref;
     final identity = _fileIdentity(f, owner);
     final directory = f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0;
@@ -327,6 +449,9 @@ ManagedPathWitness inspect(
     return ManagedPathWitness(
       identity: identity,
       directory: directory,
+      permissionFingerprint: sha256
+          .convert(utf8.encode(jsonEncode([owner, facts['dacl']])))
+          .toString(),
       ownerOnly: policy.ownerOnly && inherited.isEmpty,
       ownedByCurrentUser: policy.ownedByCurrentUser,
       ownedByWindowsAdministrators: owner == _administratorsSid,
@@ -345,6 +470,15 @@ ManagedPathWitness inspect(
               grantsArePotential: true,
               fingerprint: grant.fingerprint,
               owner: owner == currentSid ? null : windowsAclAccountLabel(owner),
+              inheritedScopes: grant.inheritedScopes.map(
+                (scope) => (
+                  account: windowsAclAccountLabel(scope.account),
+                  rights: scope.rights,
+                  files: scope.files,
+                  directories: scope.directories,
+                  directChildrenOnly: scope.directChildrenOnly,
+                ),
+              ),
               inheritedGrants: inherited.entries.map(
                 (entry) => (
                   account: windowsAclAccountLabel(entry.key),
@@ -535,35 +669,36 @@ bool createPrivateFile(String path) {
 String readPreferenceDacl(String path, ManagedPathWitness expected) =>
     _withPreferenceFileHandle(path, expected, 0, _readPreferenceDescriptor);
 
+final _getFileSecurity = DynamicLibrary.open('advapi32.dll')
+    .lookupFunction<
+      Uint32 Function(
+        IntPtr,
+        Int32,
+        Uint32,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Pointer<Void>>,
+      ),
+      int Function(
+        int,
+        int,
+        int,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Void>,
+        Pointer<Pointer<Void>>,
+      )
+    >('GetSecurityInfo');
+
 String _readPreferenceDescriptor(int handle, Arena arena) {
   final advapi = DynamicLibrary.open('advapi32.dll');
   final descriptor = arena<Pointer<Void>>();
   final text = arena<Pointer<Utf16>>();
   const securityInfo =
       win.DACL_SECURITY_INFORMATION | win.OWNER_SECURITY_INFORMATION;
-  final read = advapi
-      .lookupFunction<
-        Uint32 Function(
-          IntPtr,
-          Int32,
-          Uint32,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Pointer<Void>>,
-        ),
-        int Function(
-          int,
-          int,
-          int,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Void>,
-          Pointer<Pointer<Void>>,
-        )
-      >('GetSecurityInfo');
   final stringify = advapi
       .lookupFunction<
         Int32 Function(
@@ -582,7 +717,7 @@ String _readPreferenceDescriptor(int handle, Arena arena) {
         )
       >('ConvertSecurityDescriptorToStringSecurityDescriptorW');
   try {
-    if (read(
+    if (_getFileSecurity(
               handle,
               1,
               securityInfo,

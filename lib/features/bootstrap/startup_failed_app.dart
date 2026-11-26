@@ -486,7 +486,7 @@ Future<bool?> showStorageAccessReview(
         if (canContinue) ...[
           OutlinedButton(
             onPressed: () => Navigator.pop(dialog, false),
-            child: Text(l.profileAclContinueOnce),
+            child: Text(l.profileAclAllowSession),
           ),
           OutlinedButton(
             onPressed: () => Navigator.pop(dialog, true),

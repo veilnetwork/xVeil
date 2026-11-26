@@ -75,6 +75,10 @@ class _MessagingDownloadResume {
 
   final _resuming = StreamController<Set<String>>.broadcast();
   final _destinationNeedsSelection = StreamController<String>.broadcast();
+  final _destinationAccessDenied = StreamController<String>.broadcast();
+  final _reportedAccessDenied = <String>{};
+
+  Stream<String> get destinationAccessDenied => _destinationAccessDenied.stream;
 
   Stream<String> get destinationNeedsSelection =>
       _destinationNeedsSelection.stream;
@@ -459,6 +463,7 @@ class _MessagingDownloadResume {
     _attempts.remove(contentId);
     _progressAt.remove(contentId);
     _parked.remove(contentId);
+    _reportedAccessDenied.remove(contentId);
     _persistedManifests.remove(contentId);
   }
 
@@ -801,6 +806,13 @@ class _MessagingDownloadResume {
     } catch (error, stack) {
       // A late failure belongs to the retired attempt, not the replacement.
       if (!isCurrent()) return;
+      if (error is FileSystemException && fileSystemAccessDenied(error)) {
+        if (_reportedAccessDenied.add(contentId) && error.path != null) {
+          _destinationAccessDenied.add(error.path!);
+        }
+        _schedule(contentId, backoff: true);
+        return;
+      }
       if (kDiagnosticReportEnabled) {
         errorJournal.record(
           kind: 'download-resume',
@@ -828,7 +840,8 @@ class _MessagingDownloadResume {
     final expected = intent.destinationIdentity;
     if (testOpener == null &&
         (expected == null ||
-            plainDownloadDestinationIdentity(path) != expected)) {
+            plainDownloadDestinationIdentity(path, reportFailure: true) !=
+                expected)) {
       await _removePending(
         contentId,
         matches: (current) => isCurrent() && identical(current, intent),
@@ -862,6 +875,7 @@ class _MessagingDownloadResume {
       // an opener that throws. A new user-selected path can replace this intent.
       throw StateError('Download destination unavailable');
     }
+    _reportedAccessDenied.remove(contentId);
     final result = await _owner._downloadContentToFileFromAny(
       peers,
       contentId,
@@ -892,5 +906,6 @@ class _MessagingDownloadResume {
     await _writeChain;
     await _resuming.close();
     await _destinationNeedsSelection.close();
+    await _destinationAccessDenied.close();
   }
 }

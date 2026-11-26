@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/managed_fs_windows.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart'
+    show ManagedInheritedAclGrant;
 
 void main() {
   const current =
@@ -244,6 +246,7 @@ void main() {
       String fingerprint,
       Map<String, int> grants,
       Map<String, int> inheritedGrants,
+      List<ManagedInheritedAclGrant> inheritedScopes,
     })?
     grant({
       List<Object>? entries,
@@ -288,6 +291,31 @@ void main() {
         expect(inherited.inheritedGrants, {account: 1});
       },
     );
+
+    test('shows inherited files and directories with their separate scope', () {
+      final facts = {
+        'owner': current,
+        'rules': [
+          {...rule(account, 1), 'inheritanceFlags': 1 | 4},
+          {...rule(account, 2, inheritOnly: true), 'inheritanceFlags': 2},
+        ],
+      };
+      final grant = managedWindowsAclGrant(
+        facts: facts,
+        path: support,
+        identity: 'fixture',
+        currentSid: current,
+        includeInheritedContentAcl: true,
+      )!;
+      expect(grant.grants, {account: 1});
+      expect(grant.inheritedGrants, {account: 3});
+      expect(
+        grant.inheritedScopes.map(
+          (entry) => (entry.files, entry.directories, entry.directChildrenOnly),
+        ),
+        [(true, false, true), (false, true, false)],
+      );
+    });
 
     test('binds consent to account, folder identity and ACL', () {
       final first = grant()!;

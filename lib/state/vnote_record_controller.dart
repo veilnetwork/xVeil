@@ -160,10 +160,10 @@ final vnoteRecorderFactoryProvider = Provider<VnoteRecorderFactory>(
 
 /// The camera-permission request, injectable for tests (the mic one is shared
 /// with voice via [micPermissionProvider] in voice_record_controller.dart).
-typedef CameraPermissionRequest = Future<bool> Function();
+typedef CameraPermissionRequest = Future<MediaPermissionStatus> Function();
 
 final cameraPermissionProvider = Provider<CameraPermissionRequest>(
-  (ref) => MacMediaPermissions.requestCamera,
+  (ref) => MacMediaPermissions.requestCameraAccess,
 );
 
 /// `preparing` is the camera warming up and the person getting ready: the
@@ -175,11 +175,13 @@ class VnoteRecordState {
     this.phase = VnoteRecordPhase.idle,
     this.elapsedMs = 0,
     this.level = 0,
+    this.permissionStatus,
   });
 
   final VnoteRecordPhase phase;
   final int elapsedMs;
   final double level;
+  final MediaPermissionStatus? permissionStatus;
 
   bool get isRecording => phase == VnoteRecordPhase.recording;
 
@@ -198,6 +200,7 @@ class VnoteRecordState {
     phase: phase ?? this.phase,
     elapsedMs: elapsedMs ?? this.elapsedMs,
     level: level ?? this.level,
+    permissionStatus: permissionStatus,
   );
 }
 
@@ -235,13 +238,17 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
   Future<void> start() async {
     if (state.isCapturing) return;
     final gen = ++_gen;
-    final micOk = await ref.read(micPermissionProvider)();
-    final camOk = await ref.read(cameraPermissionProvider)();
-    // Locked or switched while the prompts were up. Without this the camera
-    // and the microphone opened AFTERWARDS (report17 XV17-M5).
+    final mic = await ref.read(micPermissionProvider)();
     if (gen != _gen) return;
-    if (!micOk || !camOk) {
-      state = const VnoteRecordState(phase: VnoteRecordPhase.denied);
+    final permission = mic == MediaPermissionStatus.allowed
+        ? await ref.read(cameraPermissionProvider)()
+        : mic;
+    if (gen != _gen) return;
+    if (permission != MediaPermissionStatus.allowed) {
+      state = VnoteRecordState(
+        phase: VnoteRecordPhase.denied,
+        permissionStatus: permission,
+      );
       return;
     }
     final rec = ref.read(vnoteRecorderFactoryProvider)();

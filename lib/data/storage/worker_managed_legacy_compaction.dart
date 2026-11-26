@@ -272,6 +272,7 @@ void _wipeLegacyCompactionCredentials(
 void _managedLegacyCompactionEntry(
   _OpenManagedLegacyCompaction config,
   StorageWorkerInbox inbox,
+  Future<void> Function(StorageAclReplacement) reportReplacement,
 ) {
   ManagedDirectoryCatalog? root;
   var poisoned = false;
@@ -389,7 +390,10 @@ void _managedLegacyCompactionEntry(
       check();
     }
     // No HVS open-time migration/vacuum is allowed on the original source.
-    const ManagedFsPlatform().requirePrivateFile(source.path);
+    const ManagedFsPlatform().requirePrivateFile(
+      source.path,
+      allowReadOnlyAclApproval: true,
+    );
     for (final entry in config.credentials) {
       final store = HvKvLogStore(
         hv.HvSpace.open(
@@ -428,6 +432,8 @@ void _managedLegacyCompactionEntry(
     );
     await preflight();
     final before = source.lengthSync();
+    final access = FileReplacementAccess.capture(source);
+    FileReplacementAccess? ready;
     hv.HvPreparedCompaction? plan;
     final changes = <LegacyCompactionKeyChange>[];
     var externalStarted = false;
@@ -463,6 +469,7 @@ void _managedLegacyCompactionEntry(
         await staged.close();
       }
       check();
+      ready = access.prepareReplacement(source, File(plan.stagedPath));
       externalStarted = true;
       await ManagedLegacyReferenceRepair.prepare(
         owner: owner,
@@ -472,6 +479,7 @@ void _managedLegacyCompactionEntry(
       );
       await _awaitManagedEraseAdmission(inbox, publication);
       check();
+      access.checkDestination(source);
       publicationAttempted = true;
       try {
         plan.commit();
@@ -489,13 +497,32 @@ void _managedLegacyCompactionEntry(
           poisoned = true;
           rethrow;
         }
-        if (externalStarted) {
-          recovery = await ManagedLegacyReferenceRepair.resume(
-            owner: owner,
-            authorizations: config.authorizations,
-            sourceName: config.sourceName,
-          );
-          lastRecovery = recovery;
+        try {
+          if (ready != null && publicationAttempted) {
+            StorageAclReplacement? replacement;
+            final verified = access.checkPublished(
+              source,
+              ready,
+              (value) => replacement = value,
+            );
+            if (replacement case final receipt?)
+              await reportReplacement(receipt);
+            if (!verified && publicationSucceeded) {
+              throw ManagedFsFailure(
+                ManagedFsFailureKind.changed,
+                path: source.path,
+              );
+            }
+          }
+        } finally {
+          if (externalStarted) {
+            recovery = await ManagedLegacyReferenceRepair.resume(
+              owner: owner,
+              authorizations: config.authorizations,
+              sourceName: config.sourceName,
+            );
+            lastRecovery = recovery;
+          }
         }
       } finally {
         for (final change in changes) {

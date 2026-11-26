@@ -30,9 +30,23 @@ int _openWindowsDownload(String path, int access) => using((arena) {
   );
 });
 
-String? _windowsDownloadPathIdentity(String path) {
+String? _windowsDownloadPathIdentity(
+  String path, {
+  required bool reportFailure,
+}) {
+  win.GetLastError();
   final handle = _openWindowsDownload(path, win.FILE_READ_ATTRIBUTES);
-  if (handle == win.INVALID_HANDLE_VALUE) return null;
+  if (handle == win.INVALID_HANDLE_VALUE) {
+    final error = win.GetLastError();
+    if (reportFailure && error != 2) {
+      throw FileSystemException(
+        'Could not check the download destination',
+        path,
+        OSError('CreateFile failed', error),
+      );
+    }
+    return null;
+  }
   try {
     return _windowsDownloadHandleIdentity(handle);
   } finally {
@@ -45,7 +59,10 @@ typedef _DownloadPositionedIo =
 
 VeilPlainFileSink? _openPlainDownloadForResume(String path, String expected) {
   try {
-    if (plainDownloadDestinationIdentity(path) != expected) return null;
+    if (plainDownloadDestinationIdentity(path, reportFailure: true) !=
+        expected) {
+      return null;
+    }
     final io = Platform.isWindows
         ? _openWindowsDownloadIo(path, expected)
         : _openPosixDownloadIo(path, expected);
@@ -115,11 +132,22 @@ typedef _DownloadFileIo = ({
 });
 
 _DownloadFileIo? _openWindowsDownloadIo(String path, String expected) {
+  win.GetLastError();
   final handle = _openWindowsDownload(
     path,
     win.GENERIC_READ | win.GENERIC_WRITE,
   );
-  if (handle == win.INVALID_HANDLE_VALUE) return null;
+  if (handle == win.INVALID_HANDLE_VALUE) {
+    final error = win.GetLastError();
+    if (error == win.ERROR_ACCESS_DENIED) {
+      throw FileSystemException(
+        'Could not reopen the destination for writing',
+        path,
+        OSError('Access denied', error),
+      );
+    }
+    return null;
+  }
   if (_windowsDownloadHandleIdentity(handle) != expected) {
     win.CloseHandle(handle);
     return null;
@@ -172,10 +200,24 @@ _DownloadFileIo? _openPosixDownloadIo(String path, String expected) {
       >(largeOffsets ? 'pwrite64' : 'pwrite');
   final apple = Platform.isMacOS || Platform.isIOS;
   // O_RDWR | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, with no creation or truncation.
-  final fd = using(
-    (arena) =>
-        open(path.toNativeUtf8(allocator: arena), apple ? 0x1000106 : 0xa0802),
-  );
+  final errno = posixErrnoSlot();
+  final fd = using((arena) {
+    final fd = open(
+      path.toNativeUtf8(allocator: arena),
+      apple ? 0x1000106 : 0xa0802,
+    );
+    if (fd < 0) {
+      final error = errno?.value;
+      if (error == 1 || error == 13) {
+        throw FileSystemException(
+          'Could not reopen the destination for writing',
+          path,
+          OSError('Permission denied', error!),
+        );
+      }
+    }
+    return fd;
+  });
   if (fd < 0) return null;
   if (_posixDownloadIdentity(posixDescriptorFacts(fd)) != expected) {
     close(fd);

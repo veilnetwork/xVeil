@@ -12,6 +12,7 @@ import android.media.AudioManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
+import android.os.PowerManager
 import android.os.Build
 import android.os.Bundle
 import android.os.UserManager
@@ -112,6 +113,20 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "xveil/background_permissions",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "status") {
+                result.notImplemented()
+            } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                result.success(true)
+            } else {
+                val power = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                result.success(power?.isIgnoringBatteryOptimizations(packageName))
+            }
+        }
+
         defaultNetworkObserver?.dispose()
         defaultNetworkObserver = DefaultNetworkObserver(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         defaultNetworkEngine = flutterEngine

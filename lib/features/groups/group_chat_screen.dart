@@ -617,7 +617,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         diskSize = await File(path).length();
       } catch (_) {}
     }
-    if (!allowStreaming && diskSize != null && diskSize > kMaxIncomingFileBytes) {
+    if (!allowStreaming &&
+        diskSize != null &&
+        diskSize > kMaxIncomingFileBytes) {
       if (mounted) _snack(l.chatFileTooLarge);
       return;
     }
@@ -625,11 +627,21 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         path != null &&
         diskSize != null &&
         diskSize > kMaxIncomingFileBytes) {
-      final size = diskSize;
       final sourcePath = File(path).absolute.path;
-      final source = await veilSourceOpener(sourcePath);
+      var denied = false;
+      final source = await veilOpenSourceForSend(
+        sourcePath,
+        onAccessDenied: (_) => denied = true,
+      );
       if (source == null) {
-        if (mounted) _snack(l.chatFileUnreadable);
+        if (mounted) {
+          final l = AppL10n.of(context);
+          _snack(
+            denied
+                ? l.sendSourceAccessDenied(sourcePath)
+                : l.chatFileUnreadable,
+          );
+        }
         return;
       }
       final InlineImage? thumb = await makeInlineImageFromPath(
@@ -640,7 +652,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       try {
         cid = await _messaging.registerGroupContentStreaming(
           file.name,
-          size,
+          source.size,
           source.read,
           close: source.close,
           sourcePath: sourcePath,
@@ -660,7 +672,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           // bytes accessible as a normal file row instead of rejecting it.
           kind: thumb == null ? 'file' : 'image',
           dataB64: thumb?.b64 ?? 'QQ==',
-          w: thumb?.w ?? size,
+          w: thumb?.w ?? source.size,
           h: thumb?.h ?? 1,
           cid: cid,
           name: file.name,
@@ -774,15 +786,24 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final String cid;
     if (file.path != null && allowStreaming) {
       final path = File(file.path!).absolute.path;
-      final source = await veilSourceOpener(path);
+      var denied = false;
+      final source = await veilOpenSourceForSend(
+        path,
+        onAccessDenied: (_) => denied = true,
+      );
       if (source == null) {
-        if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+        if (mounted) {
+          final l = AppL10n.of(context);
+          _snack(
+            denied ? l.sendSourceAccessDenied(path) : l.chatFileUnreadable,
+          );
+        }
         return;
       }
       try {
         cid = await messaging.registerGroupContentStreaming(
           file.name,
-          size,
+          source.size,
           source.read,
           close: source.close,
           sourcePath: path,
@@ -1143,7 +1164,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ..push('/space/${_gid.hex}');
   }
 
-  Future<bool> _confirm(String title, String body, String action, Key key) async {
+  Future<bool> _confirm(
+    String title,
+    String body,
+    String action,
+    Key key,
+  ) async {
     final l = AppL10n.of(context);
     final ok = await showDialog<bool>(
       context: context,

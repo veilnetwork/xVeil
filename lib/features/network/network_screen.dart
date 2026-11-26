@@ -5,10 +5,13 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/help_label.dart';
-import 'background_permission_offer.dart' show requestBackgroundExemption;
+import 'background_permission_offer.dart'
+    show
+        backgroundExemptionStatus,
+        openBackgroundSettings,
+        requestBackgroundExemption;
 import '../bootstrap/startup_failed_app.dart' show RuntimeRefusalDetails;
 import '../common/shown_cause.dart';
 import '../calls/call_screen_permission.dart';
@@ -194,21 +197,26 @@ class NetworkScreen extends ConsumerWidget {
                     // to any Android API, so we can't know if it's set. Tap → the
                     // dialog (battery exemption + a deep-link to app settings).
                     if (on)
-                      FutureBuilder<bool>(
-                        future: VeilBackground.isIgnoringBatteryOptimizations(),
+                      FutureBuilder<bool?>(
+                        future: backgroundExemptionStatus(),
                         builder: (ctx, snap) {
-                          final exempt = snap.data ?? true;
+                          final exempt = snap.data;
                           return ListTile(
                             leading: Icon(
-                              exempt
+                              exempt == true
                                   ? Icons.info_outline
                                   : Icons.warning_amber_rounded,
-                              color: exempt
+                              color: exempt == true
                                   ? null
                                   : Theme.of(ctx).colorScheme.error,
                             ),
                             title: Text(l.networkBackgroundAllowTitle),
-                            subtitle: Text(l.networkBackgroundAllowBody),
+                            subtitle: Text(
+                              snap.connectionState == ConnectionState.done &&
+                                      exempt == null
+                                  ? l.networkBackgroundPermissionUnknown
+                                  : l.networkBackgroundAllowBody,
+                            ),
                             isThreeLine: true,
                             onTap: () => _promptBackgroundPermission(
                               ctx,
@@ -931,7 +939,7 @@ Future<void> _promptBackgroundPermission(
   // From the toggle we only nag when the exemption is missing; from the help
   // tile ([force]) we always show it — the dialog also deep-links to the OEM
   // "Autostart" screen, which no API can confirm is set.
-  if (!force && await VeilBackground.isIgnoringBatteryOptimizations()) return;
+  if (!force && await backgroundExemptionStatus() == true) return;
   if (!context.mounted) return;
   await showDialog<void>(
     context: context,
@@ -946,7 +954,7 @@ Future<void> _promptBackgroundPermission(
         TextButton(
           onPressed: () {
             Navigator.pop(ctx);
-            VeilBackground.openBackgroundSettings();
+            unawaited(openBackgroundSettings(context));
           },
           child: Text(l.networkBackgroundOpenSettings),
         ),

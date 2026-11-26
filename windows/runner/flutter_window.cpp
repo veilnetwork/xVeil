@@ -86,13 +86,17 @@ bool FlutterWindow::OnCreate() {
           : ToastNotificationManager::CreateToastNotifier(winrt::to_hstring(*app_id));
       switch (notifier.Setting()) {
         case NotificationSetting::Enabled:
-          result->Success(flutter::EncodableValue(true));
+          result->Success(flutter::EncodableValue(std::string("enabled")));
           return;
         case NotificationSetting::DisabledForApplication:
         case NotificationSetting::DisabledForUser:
+          result->Success(flutter::EncodableValue(std::string("disabled")));
+          return;
         case NotificationSetting::DisabledByGroupPolicy:
+          result->Success(flutter::EncodableValue(std::string("policy")));
+          return;
         case NotificationSetting::DisabledByManifest:
-          result->Success(flutter::EncodableValue(false));
+          result->Success(flutter::EncodableValue(std::string("manifest")));
           return;
       }
     } catch (const winrt::hresult_error&) {

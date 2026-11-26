@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:xveil/state/mac_media_permissions.dart';
 import 'package:xveil/state/startup_unlock.dart';
 import '../support/retirement_secret_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -146,7 +147,9 @@ void main() {
               quickUnlockSecretStoreProvider.overrideWithValue(
                 RetirementSecretStore(),
               ),
-              micPermissionProvider.overrideWithValue(() async => true),
+              micPermissionProvider.overrideWithValue(
+                () async => MediaPermissionStatus.allowed,
+              ),
               voiceRecorderFactoryProvider.overrideWithValue(() {
                 final recorder = _Recorder();
                 recorders.add(recorder);

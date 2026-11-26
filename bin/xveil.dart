@@ -72,6 +72,7 @@ Future<void> _run(List<String> args) async {
   var create = false;
   var acceptUnchecked = false;
   var acceptReadable = false;
+  final acceptedDirectoryAcls = <String>{};
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       // The operator asserting what this process could not check. Only
@@ -80,6 +81,12 @@ Future<void> _run(List<String> args) async {
         acceptUnchecked = true;
       case kAcceptReadableSecretFilesFlag:
         acceptReadable = true;
+      case kAcceptSecretDirectoryAclFlag:
+        final fingerprint = _next(args, ++i, kAcceptSecretDirectoryAclFlag);
+        if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(fingerprint)) {
+          throw const FormatException('expected a SHA-256 access fingerprint');
+        }
+        acceptedDirectoryAcls.add(fingerprint);
       case '--config':
         configPath = _next(args, ++i, '--config');
       case '--password-file':
@@ -134,6 +141,7 @@ Future<void> _run(List<String> args) async {
     label,
     acceptUnchecked: acceptUnchecked,
     acceptReadable: acceptReadable,
+    acceptedDirectoryAcls: acceptedDirectoryAcls,
     warn: stderr.writeln,
   );
 
@@ -286,6 +294,7 @@ xVeil headless daemon
             [--identity-credential-file PATH]
             [--api-token-file PATH] [--api-file-root DIR]...
             [--accept-unchecked-secret-files] [--accept-readable-secret-files]
+            [--accept-secret-directory-acl SHA256 ...]
 
 Secrets are never accepted in the JSON config or as literal command-line
 arguments. Preferred: run from a terminal with no --password-file and type the

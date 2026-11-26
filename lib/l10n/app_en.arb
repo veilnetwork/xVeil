@@ -104,7 +104,7 @@
   "startupProfileChoiceInvalid": "The saved profile choice contains an invalid profile name. Select an existing profile at launch or ask your administrator to correct the saved choice.",
   "startupAclApprovalFailed": "Could not save your choice. You can try again or close xVeil.",
   "startupAclClose": "Do not start",
-  "startupAclContinueOnce": "Start once",
+  "startupAclContinueOnce": "Start and allow until restart",
   "startupAclRemember": "Start and remember my choice",
   "startupAclRecheck": "Check permissions again",
   "startupRetry": "Try again",
@@ -3932,5 +3932,34 @@
       "reason": { "type": "String" }
     }
   },
-  "plainDownloadChooseDestinationAgain": "The app could not verify the original download file. Choose a save location again."
+  "plainDownloadChooseDestinationAgain": "The app could not verify the original download file. Choose a save location again.",
+  "profileAclAllowSession": "Allow until restart",
+  "profileEraseExtraFiles": "These additional files will be deleted with this profile if you approve and retry. Deletion cannot be undone.",
+  "notificationPermissionPolicy": "System policy blocks xVeil notifications. Ask the administrator who manages this device.",
+  "notificationPermissionManifest": "This installation cannot post system notifications.",
+  "notificationPermissionUnknown": "xVeil could not check the system notification setting. Check your desktop notification settings.",
+  "networkBackgroundPermissionUnknown": "xVeil could not check the system battery exemption.",
+  "networkBackgroundSettingsUnavailable": "Android could not open the system settings for xVeil.",
+  "exportDirectoryAccessRisk": "Other accounts can change entries in this folder. They may be able to move or remove the exported file.",
+  "downloadDestinationAccessDenied": "The system denied access to the download destination {path}. The download is paused. Check the permissions or choose a different destination.",
+  "@downloadDestinationAccessDenied": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "sendSourceAccessDenied": "The system denied read access to {path}.",
+  "@sendSourceAccessDenied": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaPermissionStatusUnavailable": "The app could not determine whether the system allows microphone or camera access.",
+  "storageAclInheritedFilesAndFolders": "files and folders",
+  "storageAclInheritedFiles": "files",
+  "storageAclInheritedFolders": "folders",
+  "storageAclDirectChildrenOnly": "direct children only"
 }

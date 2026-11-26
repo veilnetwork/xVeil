@@ -756,8 +756,10 @@ sealed class ManagedIdentityStore
   ManagedIdentityEntry get entry => _resources.entry;
   @override
   Future<StorageUsage> storageUsage() => _resources.measureUsage();
-  Future<ManagedReclaimReport> reclaim({bool force = false}) =>
-      _resources.reclaim(force: force);
+  Future<ManagedReclaimReport> reclaim({
+    bool force = false,
+    void Function(StorageAclReplacement)? onAclReplaced,
+  }) => _resources.reclaim(force: force, onAclReplaced: onAclReplaced);
 
   @visibleForTesting
   Future<ManagedReclaimReport> debugReclaim(

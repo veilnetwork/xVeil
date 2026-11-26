@@ -161,7 +161,7 @@ void main() {
       await tester.pumpAndSettle();
       final l = AppL10n.of(tester.element(find.byType(WipeReportHost)));
       expect(hasStorageAclApproval(fingerprint), isFalse);
-      await tester.tap(find.text(l.profileAclContinueOnce));
+      await tester.tap(find.text(l.profileAclAllowSession));
       await tester.pumpAndSettle();
       expect(hasStorageAclApproval(fingerprint), isTrue);
       expect(find.text(l.storageAclRetryOperation), findsOneWidget);

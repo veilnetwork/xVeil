@@ -40,6 +40,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   Future<ManagedReclaimReport> reclaim({
     required bool force,
     ManagedReclaimObserver? observer,
+    void Function(StorageAclReplacement)? onAclReplaced,
   }) async {
     try {
       requireOwned();
@@ -87,12 +88,14 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
       );
       reclaiming = true;
       try {
-        if (contentDue) await _repackContent(observer, contentAccess);
+        if (contentDue) {
+          await _repackContent(observer, contentAccess, onAclReplaced);
+        }
         maintenanceDue =
             maintenanceDue ||
             budget.maintenanceDue(File(file('maintenance.hv')).lengthSync());
         if (maintenanceDue) {
-          await _repackMaintenance(observer, maintenanceAccess);
+          await _repackMaintenance(observer, maintenanceAccess, onAclReplaced);
         }
         final next = ManagedReclaimBudget(
           contentBytes: contentDue
@@ -199,6 +202,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   Future<void> _repackContent(
     ManagedReclaimObserver? observer,
     FileReplacementAccess access,
+    void Function(StorageAclReplacement)? onAclReplaced,
   ) async {
     final destination = File(file('content.hv'));
     access.checkDestination(destination);
@@ -276,7 +280,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
       } finally {
         try {
           if (prepared != null &&
-              !access.checkPublished(destination, prepared!, null) &&
+              !access.checkPublished(destination, prepared!, onAclReplaced) &&
               published) {
             throw ManagedFsFailure(
               ManagedFsFailureKind.changed,
@@ -297,6 +301,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   Future<void> _repackMaintenance(
     ManagedReclaimObserver? observer,
     FileReplacementAccess access,
+    void Function(StorageAclReplacement)? onAclReplaced,
   ) async {
     final destination = File(file('maintenance.hv'));
     access.checkDestination(destination);
@@ -350,7 +355,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
       } finally {
         try {
           if (prepared != null &&
-              !access.checkPublished(destination, prepared!, null) &&
+              !access.checkPublished(destination, prepared!, onAclReplaced) &&
               published) {
             throw ManagedFsFailure(
               ManagedFsFailureKind.changed,

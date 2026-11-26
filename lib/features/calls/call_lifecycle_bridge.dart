@@ -5,11 +5,10 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import 'desktop_call_notification_bridge.dart';
 import '../network/background_permission_offer.dart'
-    show requestBackgroundExemption;
+    show backgroundExemptionStatus, requestBackgroundExemption;
 
 import '../../core/log.dart';
 import '../../core/background_service_lifetime.dart';
@@ -141,7 +140,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     try {
       final prefs = await ref.read(prefsProvider.future);
       if (prefs.getBool(_kBatteryPromptKey) ?? false) return;
-      if (await VeilBackground.isIgnoringBatteryOptimizations()) {
+      if (await backgroundExemptionStatus() == true) {
         await prefs.setBool(_kBatteryPromptKey, true);
         return;
       }

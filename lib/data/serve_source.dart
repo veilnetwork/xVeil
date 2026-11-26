@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart' as win;
 
 import '../core/posix_file_facts.dart';
+import '../core/filesystem_errors.dart';
 import 'fs_beneath.dart';
 
 part 'plain_download_resume_file.dart';
@@ -127,20 +128,25 @@ typedef VeilOpenedSource = ({
 ///
 /// Null when the file cannot be opened (moved, deleted, an expired mobile
 /// cache/SAF path) — the caller reports that as a missing source.
-Future<VeilOpenedSource?> veilOpenSourceForSend(String path) async {
+Future<VeilOpenedSource?> veilOpenSourceForSend(
+  String path, {
+  void Function(FileSystemException)? onAccessDenied,
+}) async {
   final RandomAccessFile raf;
   try {
     raf = await File(path).open();
-  } catch (_) {
+  } on FileSystemException catch (error) {
+    if (fileSystemAccessDenied(error)) onAccessDenied?.call(error);
     return null;
   }
   final int size;
   try {
     size = await raf.length();
-  } catch (_) {
+  } on FileSystemException catch (error) {
     try {
       await raf.close();
     } catch (_) {}
+    if (fileSystemAccessDenied(error)) onAccessDenied?.call(error);
     return null;
   }
   Future<void> gate = Future<void>.value();
@@ -223,8 +229,14 @@ Future<VeilPinnedOpen> veilOpenPinnedSource(
       if (strong.source == null) {
         return (
           source: null,
-          refusal: 'the path is not reachable inside the granted folder '
-              'without following a link',
+          refusal: switch (strong.refusal) {
+            VeilBeneathRefusal.accessDenied =>
+              'the OS denied reading the source',
+            VeilBeneathRefusal.missing => 'source not found',
+            _ =>
+              'the path is not reachable inside the granted folder '
+                  'without following a link',
+          },
           stamp: null,
         );
       }
@@ -236,9 +248,21 @@ Future<VeilPinnedOpen> veilOpenPinnedSource(
     }
   }
   final before = await veilSourceStamp(path);
-  final source = await (opener ?? veilOpenSourceForSend)(path);
+  var accessDenied = false;
+  final source = opener == null
+      ? await veilOpenSourceForSend(
+          path,
+          onAccessDenied: (_) => accessDenied = true,
+        )
+      : await opener(path);
   if (source == null) {
-    return (source: null, refusal: 'source not found', stamp: null);
+    return (
+      source: null,
+      refusal: accessDenied
+          ? 'the OS denied reading the source'
+          : 'source not found',
+      stamp: null,
+    );
   }
   final after = await veilSourceStamp(path);
   // Null on either side means there was nothing to compare — a source name
@@ -297,9 +321,25 @@ final class NewPlainDownload {
   void discard() => discardPlainDownloadDestination(_file.path, _identity);
 }
 
-String? plainDownloadDestinationIdentity(String path) {
-  if (Platform.isWindows) return _windowsDownloadPathIdentity(path);
-  return _posixDownloadIdentity(posixLstat(path));
+String? plainDownloadDestinationIdentity(
+  String path, {
+  bool reportFailure = false,
+}) {
+  if (Platform.isWindows) {
+    return _windowsDownloadPathIdentity(path, reportFailure: reportFailure);
+  }
+  int? error;
+  final facts = posixLstat(path, onError: (code) => error = code);
+  if (reportFailure &&
+      facts == null &&
+      (error != 2 || !File(path).parent.existsSync())) {
+    throw FileSystemException(
+      'Could not check the download destination',
+      path,
+      OSError('lstat failed', error ?? OSError.noErrorCode),
+    );
+  }
+  return _posixDownloadIdentity(facts);
 }
 
 void discardPlainDownloadDestination(String path, String? identity) {

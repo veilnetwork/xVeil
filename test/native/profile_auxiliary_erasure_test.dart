@@ -177,7 +177,7 @@ void main() {
         File(planPath()).readAsStringSync(),
         isNot(contains(fixture.path)),
       );
-      expect(raw['v'], 6);
+      expect(raw['v'], 7);
       expect(raw['applicationProfile'], isFalse);
       expect((raw['auxiliary'] as Map)['entries'], isNotEmpty);
       expect(

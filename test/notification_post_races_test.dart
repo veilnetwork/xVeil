@@ -95,6 +95,9 @@ class _Messaging implements MessagingService {
   Stream<IncomingNotice> get incoming => notices.stream;
 
   @override
+  Stream<String> get contentDownloadDestinationAccessDenied => const Stream.empty();
+
+  @override
   Stream<String> get contentDownloadDestinationNeedsSelection =>
       const Stream.empty();
   @override

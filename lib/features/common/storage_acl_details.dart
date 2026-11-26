@@ -30,11 +30,25 @@ class StorageAclDetails extends StatelessWidget {
         if (warning.inheritedGrants.isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(l.storageAclInheritedGrants),
-          for (final grant in warning.inheritedGrants)
+          if (warning.inheritedScopes.isEmpty)
+            for (final grant in warning.inheritedGrants)
+              Text(
+                l.startupAclGrant(
+                  grant.account.isEmpty ? l.startupAclEveryone : grant.account,
+                  grant.rights.map((right) => _rightLabel(l, right)).join(', '),
+                ),
+              ),
+          for (final scope in warning.inheritedScopes)
             Text(
               l.startupAclGrant(
-                grant.account.isEmpty ? l.startupAclEveryone : grant.account,
-                grant.rights.map((right) => _rightLabel(l, right)).join(', '),
+                scope.account,
+                '${scope.rights.map((right) => _rightLabel(l, right)).join(', ')} · '
+                '${switch ((scope.files, scope.directories)) {
+                  (true, true) => l.storageAclInheritedFilesAndFolders,
+                  (true, false) => l.storageAclInheritedFiles,
+                  _ => l.storageAclInheritedFolders,
+                }}'
+                '${scope.directChildrenOnly ? ' · ${l.storageAclDirectChildrenOnly}' : ''}',
               ),
             ),
         ],

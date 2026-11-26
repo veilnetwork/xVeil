@@ -6,4 +6,9 @@ abstract final class ProfilePreferencesLayout {
   static const temporary = '$file.tmp';
   static const lock = '$file.lock';
   static const files = <String>{file, temporary, lock};
+  static final _reservedTemporary = RegExp(
+    r'^xveil\.prefs\.json\.tmp-[0-9a-f]{32}$',
+  );
+
+  static bool isTemporary(String name) => _reservedTemporary.hasMatch(name);
 }

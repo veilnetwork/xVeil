@@ -94,10 +94,10 @@ final voiceRecorderFactoryProvider = Provider<VoiceRecorderFactory>(
 
 /// The mic-permission request, injectable for tests (defaults to the real
 /// platform prompt).
-typedef MicPermissionRequest = Future<bool> Function();
+typedef MicPermissionRequest = Future<MediaPermissionStatus> Function();
 
 final micPermissionProvider = Provider<MicPermissionRequest>(
-  (ref) => MacMediaPermissions.requestMicrophone,
+  (ref) => MacMediaPermissions.requestMicrophoneAccess,
 );
 
 enum VoiceRecordPhase { idle, recording, denied, error }
@@ -107,11 +107,13 @@ class VoiceRecordState {
     this.phase = VoiceRecordPhase.idle,
     this.elapsedMs = 0,
     this.level = 0,
+    this.permissionStatus,
   });
 
   final VoiceRecordPhase phase;
   final int elapsedMs;
   final double level;
+  final MediaPermissionStatus? permissionStatus;
 
   bool get isRecording => phase == VoiceRecordPhase.recording;
 
@@ -123,6 +125,7 @@ class VoiceRecordState {
     phase: phase ?? this.phase,
     elapsedMs: elapsedMs ?? this.elapsedMs,
     level: level ?? this.level,
+    permissionStatus: permissionStatus,
   );
 }
 
@@ -159,8 +162,11 @@ class VoiceRecordController extends Notifier<VoiceRecordState> {
     final gen = ++_gen;
     final granted = await ref.read(micPermissionProvider)();
     if (gen != _gen) return; // locked or switched while the prompt was up
-    if (!granted) {
-      state = const VoiceRecordState(phase: VoiceRecordPhase.denied);
+    if (granted != MediaPermissionStatus.allowed) {
+      state = VoiceRecordState(
+        phase: VoiceRecordPhase.denied,
+        permissionStatus: granted,
+      );
       return;
     }
     final rec = ref.read(voiceRecorderFactoryProvider)();

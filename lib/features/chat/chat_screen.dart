@@ -40,6 +40,7 @@ import '../../domain/file_download_policy.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/theme_spec.dart';
+import '../../state/mac_media_permissions.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
@@ -903,16 +904,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // or encrypt it — MessagingService reads chunks straight from disk on
         // request via this serialized source (a single-cursor RandomAccessFile,
         // so reads MUST be serialized) and OWNS it (closes it when serving ends).
-        final src = await veilSourceOpener(path);
+        var denied = false;
+        final src = await veilOpenSourceForSend(
+          path,
+          onAccessDenied: (_) => denied = true,
+        );
         if (src == null) {
-          if (mounted) _snack(l.chatFileUnreadable);
+          if (mounted) {
+            _snack(
+              denied ? l.sendSourceAccessDenied(path) : l.chatFileUnreadable,
+            );
+          }
           return;
         }
         try {
           await _messaging.sendFileStreaming(
             _peer,
             file.name,
-            size,
+            src.size,
             src.read,
             close: src.close,
             // Persist this path so a reoffer after a restart can re-open + re-serve
@@ -936,6 +945,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } on FileReadLimitExceeded {
       if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    } on FileSystemException catch (error) {
+      if (mounted) {
+        _snack(
+          path != null && fileSystemAccessDenied(error)
+              ? l.sendSourceAccessDenied(path)
+              : l.chatFileUnreadable,
+        );
+      }
       return;
     } catch (e) {
       devLog(

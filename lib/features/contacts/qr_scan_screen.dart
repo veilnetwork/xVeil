@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../state/mac_media_permissions.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Full-screen camera scanner for redeeming a contact's invite QR. Pops with
@@ -181,13 +182,19 @@ class _QrScanScreenState extends State<QrScanScreen>
                       children: [
                         const Icon(Icons.no_photography_outlined, size: 48),
                         const SizedBox(height: 16),
-                        Text(
-                          error.errorCode ==
-                                  MobileScannerErrorCode.permissionDenied
-                              ? l.mediaCameraPermissionDenied
-                              : l.scanUnavailable,
-                          textAlign: TextAlign.center,
-                        ),
+                        if (error.errorCode ==
+                            MobileScannerErrorCode.permissionDenied)
+                          FutureBuilder<String>(
+                            future: MacMediaPermissions.cameraStatus(),
+                            builder: (context, snapshot) => Text(
+                              snapshot.data == 'restricted'
+                                  ? l.mediaPermissionRestricted
+                                  : l.mediaCameraPermissionDenied,
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        else
+                          Text(l.scanUnavailable, textAlign: TextAlign.center),
                       ],
                     ),
                   ),

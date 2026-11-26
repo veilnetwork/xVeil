@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../core/storage_acl_vault.dart';
+import '../../data/storage/storage_acl_approval.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show managedStorageFailureReason;
 import '../../data/storage/managed_fs_contract.dart';
@@ -470,6 +471,13 @@ class WipeReportHost extends ConsumerWidget {
               stopped: report.stopped,
               storageAccessFailure: report.storageAccessFailure,
               onApprove: switch (report.storageAccessFailure) {
+                ManagedFsFailure(:final erasureReview?) => (_) async {
+                  if (!identical(ref.read(wipeReportProvider), report)) {
+                    return false;
+                  }
+                  approveStorageAcl(erasureReview.fingerprint);
+                  return true;
+                },
                 final failure?
                     when failure.aclWarnings.isNotEmpty &&
                         failure.aclWarnings.every(
@@ -555,6 +563,9 @@ class _WipeLeftoverDialogState extends State<_WipeLeftoverDialog> {
       _saving = false;
       _approved = approved;
     });
+    if (approved && widget.storageAccessFailure?.erasureReview != null) {
+      widget.onRetry();
+    }
   }
 
   @override
@@ -628,7 +639,20 @@ class _WipeLeftoverDialogState extends State<_WipeLeftoverDialog> {
                 SelectableText(failure.path!),
               for (final warning in failure.aclWarnings)
                 StorageAclDetails(warning),
-              if (widget.onApprove != null) Text(l.startupAclCorrectionHint),
+              if (failure.erasureReview case final review?) ...[
+                Text(l.profileEraseExtraFiles),
+                SizedBox(
+                  width: 360,
+                  height: 160,
+                  child: ListView.builder(
+                    primary: false,
+                    itemCount: review.paths.length,
+                    itemBuilder: (context, index) =>
+                        SelectableText(review.paths[index]),
+                  ),
+                ),
+              ] else if (widget.onApprove != null)
+                Text(l.startupAclCorrectionHint),
               if (_approved case final approved?)
                 Text(
                   approved
@@ -657,12 +681,17 @@ class _WipeLeftoverDialogState extends State<_WipeLeftoverDialog> {
         if (widget.onApprove != null && _approved != true) ...[
           OutlinedButton(
             onPressed: _saving ? null : () => _approve(false),
-            child: Text(l.profileAclContinueOnce),
+            child: Text(
+              widget.storageAccessFailure?.erasureReview == null
+                  ? l.profileAclAllowSession
+                  : l.profileAclContinueOnce,
+            ),
           ),
-          OutlinedButton(
-            onPressed: _saving ? null : () => _approve(true),
-            child: Text(l.profileAclRememberChoice),
-          ),
+          if (widget.storageAccessFailure?.erasureReview == null)
+            OutlinedButton(
+              onPressed: _saving ? null : () => _approve(true),
+              child: Text(l.profileAclRememberChoice),
+            ),
         ],
         FilledButton(
           onPressed: _saving ? null : widget.onRetry,

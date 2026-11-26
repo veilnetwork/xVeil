@@ -1,10 +1,26 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'windows_profile_delete_approval.dart';
 
 Set<String> _approvals = {};
 
 typedef StorageAclReplacement = ({String before, String after});
+
+Future<void> Function(StorageAclReplacement)? persistStorageAclReplacement;
+
+final _replacementReports = RawReceivePort((Object? message) async {
+  if (message case (StorageAclReplacement replacement, SendPort reply)) {
+    carryStorageAclApproval(replacement);
+    try {
+      await persistStorageAclReplacement?.call(replacement);
+    } finally {
+      reply.send(true);
+    }
+  }
+})..keepIsolateAlive = false;
+
+SendPort get storageAclReplacementPort => _replacementReports.sendPort;
 
 Set<String> storageAclApprovalsForWorker() => Set.of(_approvals);
 

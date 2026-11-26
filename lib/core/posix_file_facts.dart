@@ -382,12 +382,13 @@ PosixFileFacts? posixDescriptorFacts(int fd) {
   }
 }
 
-/// Apply a mode only to the expected regular file, through a no-follow handle.
+/// Apply a mode only to the expected object, through a no-follow handle.
 bool posixSetModeForFile(
   String path,
   PosixFileFacts expected,
   int mode, {
   bool Function(int fd)? applyAcl,
+  bool directory = false,
 }) {
   final libc = _resolveLibc();
   final open = libc?.open;
@@ -411,7 +412,7 @@ bool posixSetModeForFile(
       try {
         final actual = posixDescriptorFacts(fd);
         return actual != null &&
-            actual.isRegularFile &&
+            (directory ? actual.isDirectory : actual.isRegularFile) &&
             actual.sameObjectAs(expected) &&
             actual.uid == expected.uid &&
             actual.gid == expected.gid &&

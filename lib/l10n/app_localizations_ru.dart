@@ -357,7 +357,7 @@ class AppL10nRu extends AppL10n {
   String get startupAclClose => 'Не запускать';
 
   @override
-  String get startupAclContinueOnce => 'Запустить один раз';
+  String get startupAclContinueOnce => 'Запустить и разрешить до перезапуска';
 
   @override
   String get startupAclRemember => 'Запустить и запомнить выбор';
@@ -8796,4 +8796,61 @@ class AppL10nRu extends AppL10n {
   @override
   String get plainDownloadChooseDestinationAgain =>
       'Не удалось проверить исходный файл загрузки. Выберите место сохранения заново.';
+
+  @override
+  String get profileAclAllowSession => 'Разрешить до перезапуска';
+
+  @override
+  String get profileEraseExtraFiles =>
+      'Если подтвердить выбор и повторить попытку, эти дополнительные файлы будут удалены вместе с профилем. Удаление необратимо.';
+
+  @override
+  String get notificationPermissionPolicy =>
+      'Политика системы блокирует уведомления xVeil. Обратитесь к администратору устройства.';
+
+  @override
+  String get notificationPermissionManifest =>
+      'Эта установка xVeil не может отправлять системные уведомления.';
+
+  @override
+  String get notificationPermissionUnknown =>
+      'Не удалось проверить состояние системных уведомлений. Проверьте настройки уведомлений рабочего стола.';
+
+  @override
+  String get networkBackgroundPermissionUnknown =>
+      'Не удалось проверить системное исключение из оптимизации батареи.';
+
+  @override
+  String get networkBackgroundSettingsUnavailable =>
+      'Android не смог открыть системные настройки xVeil.';
+
+  @override
+  String get exportDirectoryAccessRisk =>
+      'Другие аккаунты могут менять записи в этой папке и могут переместить или удалить экспортированный файл.';
+
+  @override
+  String downloadDestinationAccessDenied(String path) {
+    return 'Система запретила доступ к месту загрузки «$path». Загрузка приостановлена. Проверьте права или выберите другое место.';
+  }
+
+  @override
+  String sendSourceAccessDenied(String path) {
+    return 'Система запретила чтение «$path».';
+  }
+
+  @override
+  String get mediaPermissionStatusUnavailable =>
+      'Не удалось определить, разрешает ли система доступ к микрофону или камере.';
+
+  @override
+  String get storageAclInheritedFilesAndFolders => 'файлы и папки';
+
+  @override
+  String get storageAclInheritedFiles => 'файлы';
+
+  @override
+  String get storageAclInheritedFolders => 'папки';
+
+  @override
+  String get storageAclDirectChildrenOnly => 'только непосредственные потомки';
 }

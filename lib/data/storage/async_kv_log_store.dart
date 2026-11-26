@@ -546,8 +546,10 @@ final class _WorkerBindingUnavailable extends hv.HvException {
     : super('Internal', error.toString());
 }
 
-Future<void> _workerEntry((Isolate, _OpenConfig, Set<String>) launch) async {
-  final (owner, config, approvals) = launch;
+Future<void> _workerEntry(
+  (Isolate, _OpenConfig, Set<String>, SendPort) launch,
+) async {
+  final (owner, config, approvals, replacements) = launch;
   restoreStorageAclApprovals(approvals);
   final inbox = StorageWorkerInbox(owner);
   try {
@@ -555,7 +557,11 @@ Future<void> _workerEntry((Isolate, _OpenConfig, Set<String>) launch) async {
       config.reply.send(const _Err('Internal', 'storage owner unavailable'));
       return;
     }
-    await _openAndServeWorker(config, inbox);
+    Future<void> reportReplacement(StorageAclReplacement replacement) async {
+      await inbox.requestAdmission(replacements, payload: replacement);
+    }
+
+    await _openAndServeWorker(config, inbox, reportReplacement);
   } finally {
     inbox.closeIfUnserved();
   }
@@ -564,9 +570,10 @@ Future<void> _workerEntry((Isolate, _OpenConfig, Set<String>) launch) async {
 Future<void> _openAndServeWorker(
   _OpenConfig cfg,
   StorageWorkerInbox inbox,
+  Future<void> Function(StorageAclReplacement) reportReplacement,
 ) async {
   if (cfg is _OpenManagedLegacyCompaction) {
-    _managedLegacyCompactionEntry(cfg, inbox);
+    _managedLegacyCompactionEntry(cfg, inbox, reportReplacement);
     return;
   }
   if (cfg is _OpenManagedErasure) {
@@ -633,7 +640,19 @@ Future<void> _openAndServeWorker(
       }
       store = opened.store!;
       closeOwner = opened.close;
-      reclaimOwner = (force) => opened.store!.reclaim(force: force);
+      reclaimOwner = (force) async {
+        final replacements = <StorageAclReplacement>[];
+        try {
+          return await opened.store!.reclaim(
+            force: force,
+            onAclReplaced: replacements.add,
+          );
+        } finally {
+          for (final replacement in replacements) {
+            await reportReplacement(replacement);
+          }
+        }
+      };
     } else {
       store = opened as KvLogStore;
     }
@@ -1014,10 +1033,14 @@ class WorkerKvLogStore
       isolate: isolate,
       watch: death,
       reply: first,
-    ) = await WorkerDeath.spawn<(Isolate, _OpenConfig, Set<String>)>(
+    ) = await WorkerDeath.spawn<(Isolate, _OpenConfig, Set<String>, SendPort)>(
       _workerEntry,
-      (reply) =>
-          (Isolate.current, build(reply), storageAclApprovalsForWorker()),
+      (reply) => (
+        Isolate.current,
+        build(reply),
+        storageAclApprovalsForWorker(),
+        storageAclReplacementPort,
+      ),
       worker: 'storage worker',
     );
     void abandon() {

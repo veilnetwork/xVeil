@@ -7,7 +7,9 @@ final class IdentityEraseReview {
     required this.files,
     required this.directories,
     required this.bytes,
+    this.paths = const [],
   });
   final String token;
   final int files, directories, bytes;
+  final List<String> paths;
 }

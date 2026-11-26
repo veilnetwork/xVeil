@@ -19,9 +19,11 @@ final class _ManagedUnknownEntry {
     parts,
     witness.identity,
     witness.directory,
+    witness.accessPolicy,
     bytes,
     modified,
-    for (final p in parents) [p.path, p.witness.identity],
+    for (final p in parents)
+      [p.path, p.witness.identity, p.witness.accessPolicy],
   ]);
   String path(_ManagedIdentityResources held) => File.fromUri(
     Directory(held.path!).uri.resolveUri(Uri(pathSegments: parts)),
@@ -29,27 +31,12 @@ final class _ManagedUnknownEntry {
 
   void validate(_ManagedIdentityResources held) {
     held.validatePaths();
+    final inventory = _ManagedUsageInventory(held);
     for (final parent in parents) {
-      final ancestor = held.owner._fs.inspect(parent.path);
-      if (!ancestor.directory ||
-          !ancestor.ownedByCurrentUser ||
-          !ancestor.safeAncestor) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-      }
-      ManagedDirectoryCatalog._assertSame(
-        parent.path,
-        parent.witness,
-        held.owner._fs,
-      );
+      inventory._verify(parent.path, parent.witness);
     }
     final target = path(held);
-    final current = held.owner._fs.inspect(target);
-    if (!current.sameObject(witness) ||
-        current.directory != witness.directory ||
-        !current.ownedByCurrentUser ||
-        !current.safeAncestor) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
-    }
+    inventory._verify(target, witness);
     if (!witness.directory) {
       final stat = File(target).statSync();
       if (stat.type != FileSystemEntityType.file ||
@@ -57,7 +44,7 @@ final class _ManagedUnknownEntry {
           stat.modified.microsecondsSinceEpoch != modified) {
         throw const ManagedFsFailure(ManagedFsFailureKind.changed);
       }
-      ManagedDirectoryCatalog._assertSame(target, witness, held.owner._fs);
+      inventory._verify(target, witness);
     }
   }
 }
@@ -151,6 +138,9 @@ final class _ManagedEraseConsent {
       files: snapshot.files,
       directories: snapshot.entries.length - snapshot.files,
       bytes: snapshot.bytes,
+      paths: List.unmodifiable(
+        snapshot.entries.map((entry) => entry.parts.join('/')),
+      ),
     );
   }
 
