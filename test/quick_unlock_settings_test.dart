@@ -69,6 +69,21 @@ class _Vault extends QuickUnlockVault {
   }
 }
 
+class _UnavailableVault extends _Vault {
+  int forgetRequests = 0;
+
+  @override
+  Future<StartupUnlockOptions> options() async {
+    throw StateError('OS storage unavailable');
+  }
+
+  @override
+  Future<void> forget() async {
+    forgetRequests++;
+    throw StateError('OS storage removal unavailable');
+  }
+}
+
 class _MemoryStore extends QuickUnlockSecretStore {
   final values = <String, String>{};
   String _slot(String key, bool biometric) => '$biometric:$key';
@@ -109,6 +124,89 @@ class _LockedApp extends AppController {
 }
 
 void main() {
+  testWidgets(
+    'screen biometrics save independently of an unavailable restart entry',
+    (tester) async {
+      tester.view.physicalSize = const Size(412, 892);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({kStartupUnlockOptIn: true});
+      final auth = _Auth()..answer.complete(true);
+      final vault = _UnavailableVault();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWithValue(_Storage()),
+          appControllerProvider.overrideWith(_App.new),
+          localScreenAuthenticationProvider.overrideWithValue(auth),
+          localScreenAuthenticationAvailableProvider.overrideWith(
+            (ref) async => true,
+          ),
+          quickUnlockVaultProvider.overrideWithValue(vault),
+        ],
+      );
+      addTearDown(c.dispose);
+      final controller = c.read(screenLockProvider.notifier);
+      await controller.reloadTimeout();
+      controller.rememberPassword('confirmed password');
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const QuickUnlockScreen(),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(QuickUnlockScreen)));
+      expect(find.text(l.startupUnlockReview), findsOneWidget);
+      await tester.ensureVisible(find.text(l.quickUnlockSystem));
+      await tester.tap(find.text(l.quickUnlockSystem));
+      await tester.pump();
+
+      Future<void> save() async {
+        await tester.ensureVisible(find.byType(TextField));
+        await tester.enterText(find.byType(TextField), 'confirmed password');
+        await tester.ensureVisible(find.text(l.actionSave));
+        await tester.tap(find.text(l.actionSave));
+        await tester.pumpAndSettle();
+      }
+
+      await save();
+      expect(find.byType(QuickUnlockScreen), findsNothing);
+      expect(c.read(screenLockProvider).systemAuthentication, isTrue);
+      expect(auth.requests, 1);
+      expect(vault.forgetRequests, 0);
+      expect(vault.saved, isNull);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.startupUnlockTitle));
+      await tester.pump();
+      await save();
+      expect(vault.forgetRequests, 1);
+      expect(find.text(l.startupUnlockDisableFailed), findsOneWidget);
+      expect(
+        (await c.read(prefsProvider.future)).getBool(kStartupUnlockOptIn),
+        isTrue,
+      );
+    },
+  );
+
   testWidgets('cold startup shows biometric entry without any pattern', (
     tester,
   ) async {

@@ -90,7 +90,7 @@ class ManagedFsPlatform {
       }
       var appleAcl = darwin
           ? _readDarwinAcl(path, facts)
-          : (safe: true, text: '');
+          : (safe: true, readOnly: true, text: '');
       if (appleAcl == null) {
         final refreshed = posixLstat(path);
         if (refreshed == null ||
@@ -111,7 +111,9 @@ class ManagedFsPlatform {
         currentUid: current,
         android: android,
       );
-      final safeAncestor = policy.safeAncestor && appleAcl.safe;
+      final safeAncestor =
+          policy.safeAncestor &&
+          (appleAcl.safe || includeApprovedAcl && appleAcl.readOnly);
       final ownerOnly = policy.ownerOnly && appleAcl.safe;
       final warning = safeAncestor && ownerOnly && policy.ownedByCurrentUser
           ? null
@@ -125,7 +127,8 @@ class ManagedFsPlatform {
           warning != null && hasStorageAclApproval(warning.fingerprint);
       // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
       // that property even for callers that use a witness only for identity.
-      if (!appleAcl.safe && (!approved || includeApprovedAcl)) {
+      if (!appleAcl.safe &&
+          !(includeApprovedAcl ? appleAcl.readOnly : approved)) {
         throw ManagedFsFailure(
           ManagedFsFailureKind.unsafe,
           unsafeReason: facts.isDirectory
@@ -319,12 +322,16 @@ class ManagedFsPlatform {
 /// independent of those bits. Conservatively accept only empty/deny-only ACLs,
 /// including the standard home-directory deny-delete entry; never ignore an
 /// allow just because chmod reports 0700. No owner UUID/name is logged.
-({bool safe, String text})? _readDarwinAcl(String path, PosixFileFacts before) {
+({bool safe, bool readOnly, String text})? _readDarwinAcl(
+  String path,
+  PosixFileFacts before,
+) {
   final lib = DynamicLibrary.process();
   final name = path.toNativeUtf8();
   Pointer<Void> acl = nullptr;
   final entry = calloc<Pointer<Void>>();
   final tag = calloc<Int32>();
+  final mask = calloc<Uint64>();
   final length = calloc<IntPtr>();
   Pointer<Utf8> text = nullptr;
   try {
@@ -359,7 +366,7 @@ class ManagedFsPlatform {
               before.uid == after.uid &&
               before.gid == after.gid &&
               before.mode == after.mode
-          ? (safe: true, text: '')
+          ? (safe: true, readOnly: true, text: '')
           : null;
     }
     final valid = lib
@@ -368,7 +375,16 @@ class ManagedFsPlatform {
           int Function(Pointer<Void>)
         >('acl_valid');
     if (valid(acl) != 0) return null;
+    final readMask = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Pointer<Uint64>),
+          int Function(Pointer<Void>, Pointer<Uint64>)
+        >('acl_get_permset_mask_np');
+    // Darwin ACL read data, execute/search, read attributes, read extended
+    // attributes, read security and synchronize.
+    const readRights = 0x100a8a;
     var hasAllow = false;
+    var readOnly = true;
     for (var index = 0; index <= 1024; index++) {
       final rc = next(acl, index == 0 ? 0 : -1, entry);
       // Darwin's end-of-list is EINVAL. Unreadable or unknown entries cannot
@@ -381,13 +397,21 @@ class ManagedFsPlatform {
               Pointer<Utf8> Function(Pointer<Void>, Pointer<IntPtr>)
             >('acl_to_text')(acl, length);
         if (text == nullptr || length.value < 0) return null;
-        return (safe: !hasAllow, text: text.toDartString(length: length.value));
+        return (
+          safe: !hasAllow,
+          readOnly: readOnly,
+          text: text.toDartString(length: length.value),
+        );
       }
       if (readTag(entry.value, tag) != 0 ||
           (tag.value != 1 && tag.value != 2)) {
         return null;
       }
-      if (tag.value == 1) hasAllow = true;
+      if (tag.value == 1) {
+        hasAllow = true;
+        if (readMask(entry.value, mask) != 0) return null;
+        if (mask.value & ~readRights != 0) readOnly = false;
+      }
     }
     return null;
   } catch (_) {
@@ -406,6 +430,7 @@ class ManagedFsPlatform {
         int Function(Pointer<Void>)
       >('acl_free')(acl);
     }
+    calloc.free(mask);
     calloc.free(tag);
     calloc.free(entry);
     calloc.free(name);

@@ -23,7 +23,11 @@
 ///     folder in the cloud, and a device may have several.
 library;
 
-typedef FolderSyncRootApproval = ({String identity, String fingerprint});
+typedef FolderSyncRootApproval = ({
+  String identity,
+  String fingerprint,
+  bool writeAccess,
+});
 
 /// One configured mapping: a local folder mirrored to a cloud folder.
 class FolderSyncPair {
@@ -44,6 +48,17 @@ class FolderSyncPair {
   final bool deletePropagates;
   final FolderSyncRootApproval? rootApproval;
 }
+
+enum FolderSyncReadRefusal { accessDenied, cannotVerify }
+
+/// A bounded failure in the local filesystem. The engine attaches the file
+/// name from its own plan, never raw text from the native library.
+class FolderSyncReadFailure implements Exception {
+  const FolderSyncReadFailure(this.reason);
+  final FolderSyncReadRefusal reason;
+}
+
+typedef FolderSyncReadIssue = ({String path, FolderSyncReadRefusal reason});
 
 /// One file as the local folder currently presents it.
 class LocalFile {

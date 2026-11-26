@@ -233,9 +233,9 @@ void main() {
     // the other is only half-wired.
     final tmp = tempRoot('xveil_sync_screen_overlap');
     final root = Directory('${tmp.path}/mirror')..createSync();
-    expect(posixChmod(root.path, _mode0755), 0);
+    expect(posixChmod(root.path, 0x1C0), 0);
     final nested = Directory('${root.path}/inside')..createSync();
-    expect(posixChmod(nested.path, _mode0755), 0);
+    expect(posixChmod(nested.path, 0x1C0), 0);
 
     // First add succeeds and closes nothing; the second overlaps it.
     late String picked;

@@ -15,6 +15,7 @@ class FolderSyncState {
     this.resolutionRevisions = const {},
     this.lastPassAtMs,
     this.lastRefusal,
+    this.readIssue,
   });
 
   static const empty = FolderSyncState(base: [], pendingConflicts: {});
@@ -43,6 +44,7 @@ class FolderSyncState {
   /// Why the last pass refused, if it did — kept so the reason can be shown
   /// instead of the folder just appearing to do nothing.
   final String? lastRefusal;
+  final FolderSyncReadIssue? readIssue;
 }
 
 /// Persists sync pairs and their state inside the encrypted container.
@@ -123,6 +125,7 @@ class FolderSyncStore {
           if (pair.rootApproval case final approval?) ...{
             'rootIdentity': approval.identity,
             'rootAcl': approval.fingerprint,
+            'rootAclWrite': approval.writeAccess,
           },
         },
     ]),
@@ -141,6 +144,10 @@ class FolderSyncStore {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return FolderSyncState.empty;
       final rows = decoded['base'];
+      final issuePath = decoded['readIssuePath'];
+      final issueReason = FolderSyncReadRefusal.values
+          .where((reason) => reason.name == decoded['readIssueReason'])
+          .firstOrNull;
       return FolderSyncState(
         base: [
           if (rows is List)
@@ -165,6 +172,9 @@ class FolderSyncStore {
             if (entry.key is String && entry.value is int)
               entry.key as String: entry.value as int,
         },
+        readIssue: issuePath is String && issueReason != null
+            ? (path: issuePath, reason: issueReason)
+            : null,
         lastPassAtMs: decoded['at'] is int ? decoded['at'] as int : null,
         lastRefusal: decoded['refused'] is String
             ? decoded['refused'] as String
@@ -197,6 +207,10 @@ class FolderSyncStore {
         'answerRevisions': state.resolutionRevisions,
       if (state.lastPassAtMs != null) 'at': state.lastPassAtMs,
       if (state.lastRefusal != null) 'refused': state.lastRefusal,
+      if (state.readIssue case final issue?) ...{
+        'readIssuePath': issue.path,
+        'readIssueReason': issue.reason.name,
+      },
     }),
   );
 
@@ -226,7 +240,11 @@ class FolderSyncStore {
     final identity = row['rootIdentity'];
     final fingerprint = row['rootAcl'];
     final approval = identity is String && fingerprint is String
-        ? (identity: identity, fingerprint: fingerprint)
+        ? (
+            identity: identity,
+            fingerprint: fingerprint,
+            writeAccess: row['rootAclWrite'] != false,
+          )
         : null;
     return FolderSyncPair(
       id: id,

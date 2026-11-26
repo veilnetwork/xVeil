@@ -190,7 +190,9 @@ class FolderSyncEngine {
       // Removing a local file currently uses a path. A shared writer could
       // exchange an intermediate directory during that operation.
       deletePropagates:
-          pair.deletePropagates && pair.rootApproval == null && trustworthy,
+          pair.deletePropagates &&
+          pair.rootApproval?.writeAccess != true &&
+          trustworthy,
       pendingConflicts: state.pendingConflicts,
     );
 
@@ -227,6 +229,14 @@ class FolderSyncEngine {
     final applied = <SyncAction>[];
     final failed = <(SyncAction, Object)>[];
     final conflicts = {...state.pendingConflicts};
+    FolderSyncReadIssue? readIssue = scan.unreadable.isEmpty
+        ? null
+        : (
+            path: scan.unreadable.first.isEmpty
+                ? pair.localPath
+                : scan.unreadable.first,
+            reason: FolderSyncReadRefusal.cannotVerify,
+          );
 
     for (final action in plan.actions) {
       try {
@@ -237,13 +247,13 @@ class FolderSyncEngine {
             conflicts.add(action.path);
           case SyncActionKind.upload:
             final version = await _disk.stat(pair.localPath, action.path);
-            if (version == null) continue;
             final source = await _disk.openRead(pair.localPath, action.path);
             if (source == null) {
               continue; // vanished mid-pass: next pass sees it
             }
             final RemoteFile stored;
             try {
+              if (version == null) continue;
               stored = await _cloud.upload(
                 path: action.path,
                 folderId: pair.cloudFolderId,
@@ -302,7 +312,8 @@ class FolderSyncEngine {
             // written: the next pass saw nothing to do, and the file never
             // arrived. Absent or short means not applied — leave base alone and
             // let the next pass retry.
-            if (published.path != action.path || published.size != source.size) {
+            if (published.path != action.path ||
+                published.size != source.size) {
               continue;
             }
             base[action.path] = SyncedFile(
@@ -341,6 +352,13 @@ class FolderSyncEngine {
         }
       } on FolderSyncLocalChanged {
         conflicts.add(action.path);
+      } on FolderSyncReadFailure catch (error) {
+        if (readIssue == null ||
+            error.reason == FolderSyncReadRefusal.accessDenied &&
+                readIssue.reason != FolderSyncReadRefusal.accessDenied) {
+          readIssue = (path: action.path, reason: error.reason);
+        }
+        failed.add((action, error));
       } catch (error) {
         // One file's failure is not the pass's failure. Its base row is left
         // exactly as it was, so nothing later reads the failure as a deletion.
@@ -357,6 +375,7 @@ class FolderSyncEngine {
         // Answers are consumed by the pass that acted on them; keeping one
         // would re-apply it against a base that has since moved on.
         lastPassAtMs: _now(),
+        readIssue: readIssue,
       ),
     );
     return FolderSyncReport(
@@ -391,6 +410,7 @@ class FolderSyncEngine {
       },
       lastPassAtMs: result.lastPassAtMs,
       lastRefusal: result.lastRefusal,
+      readIssue: result.readIssue,
     );
   });
 
@@ -449,6 +469,7 @@ class FolderSyncEngine {
         resolutionRevisions: {...state.resolutionRevisions, path: version},
         lastPassAtMs: state.lastPassAtMs,
         lastRefusal: state.lastRefusal,
+        readIssue: state.readIssue,
       );
     });
   }

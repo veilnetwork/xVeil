@@ -67,6 +67,9 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     final nodes = List<int>.unmodifiable(_first);
     final system = _system;
     final startupEnabled = _startup;
+    // An unavailable or incomplete OS entry is independent of screen lock.
+    // Modifying it requires an explicit choice in this form.
+    final updateStartup = _startupTouched || startupOptions.enabled;
     final locator = ref.read(storageAccessLocatorProvider);
     final managedSiblings = [
       for (final entry
@@ -81,7 +84,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
         system && grid != null && nodes.isEmpty && startupOptions.grid != grid
         ? null
         : grid;
-    if (startupEnabled && grid == null && !system) {
+    if (updateStartup && startupEnabled && grid == null && !system) {
       setState(() => _error = l.quickUnlockSaveFailed);
       return;
     }
@@ -111,6 +114,13 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
       return;
     }
     if (saved) {
+      if (!updateStartup) {
+        Navigator.of(context).pop();
+        return;
+      }
+      var startupError = startupEnabled
+          ? l.startupUnlockSaveFailed
+          : l.startupUnlockDisableFailed;
       try {
         final vault = ref.read(quickUnlockVaultProvider);
         if (startupEnabled) {
@@ -123,6 +133,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
             locator,
             managedSiblings: managedSiblings,
           )) {
+            startupError = l.startupUnlockConsentSaveFailed;
             throw StateError('Consent not saved');
           }
           await ref
@@ -148,6 +159,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
               locator,
               managedSiblings: managedSiblings,
             )) {
+              startupError = l.startupUnlockConsentRemoveFailed;
               throw StateError('Consent not removed');
             }
           }
@@ -157,7 +169,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
         if (mounted && ref.holdsIdentity(lease)) {
           setState(() {
             _busy = false;
-            _error = l.startupUnlockSaveFailed;
+            _error = startupError;
           });
         }
         return;
@@ -179,7 +191,9 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
         ref.watch(localScreenAuthenticationAvailableProvider).asData?.value ??
         false;
     final startup = ref.watch(startupUnlockOptionsProvider).asData?.value;
-    if (!_startupTouched && startup != null) _startup = startup.enabled;
+    if (!_startupTouched && startup != null) {
+      _startup = startup.enabled || startup.requiresReview;
+    }
     return SecureScreenGuard(
       child: Scaffold(
         appBar: AppBar(title: Text(l.quickUnlockTitle)),
@@ -197,7 +211,11 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
                     title: l.startupUnlockTitle,
                     help: l.startupUnlockHint,
                   ),
-                  subtitle: Text(l.startupUnlockBrief),
+                  subtitle: Text(
+                    startup?.requiresReview == true
+                        ? l.startupUnlockReview
+                        : l.startupUnlockBrief,
+                  ),
                   onChanged: _busy
                       ? null
                       : (v) => setState(() {

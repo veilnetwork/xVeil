@@ -142,7 +142,11 @@ managedWindowsAclPolicy(
 
 /// Separator/case normalization is required even for app-generated paths:
 /// Dart accepts '/', while GetFinalPathNameByHandle returns '\\'.
-bool managedWindowsFinalPathMatches(String requested, String actual) {
+bool managedWindowsFinalPathMatches(
+  String requested,
+  String actual, {
+  bool allowNetworkShare = false,
+}) {
   String normalize(String value) {
     value = stripExtendedLengthPrefix(value).replaceAll('/', r'\');
     while (value.length > 3 && value.endsWith(r'\')) {
@@ -151,8 +155,12 @@ bool managedWindowsFinalPathMatches(String requested, String actual) {
     return value.toLowerCase();
   }
 
-  return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(requested) &&
-      normalize(requested) == normalize(actual);
+  final path = normalize(requested);
+  final local = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(requested);
+  final network =
+      allowNetworkShare &&
+      RegExp(r'^\\\\[^?\\.][^\\]*\\[^\\]+(?:\\|$)').hasMatch(path);
+  return (local || network) && path == normalize(actual);
 }
 
 /// Bind consent to the observed object and its complete ACL. Keep the older
@@ -228,6 +236,7 @@ Set<ManagedAclRight> _displayRights(int mask) {
 ManagedPathWitness inspect(
   String path, {
   bool includeApprovedAcl = false,
+  bool allowNetworkShare = false,
   bool protectFromReparseChanges = false,
 }) {
   final name = path.toNativeUtf16();
@@ -273,7 +282,11 @@ ManagedPathWitness inspect(
     final finalPath = facts?['finalPath'];
     if (policy == null ||
         finalPath is! String ||
-        !managedWindowsFinalPathMatches(path, finalPath)) {
+        !managedWindowsFinalPathMatches(
+          path,
+          finalPath,
+          allowNetworkShare: allowNetworkShare,
+        )) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
     }
     final owner = facts!['owner'] as String;

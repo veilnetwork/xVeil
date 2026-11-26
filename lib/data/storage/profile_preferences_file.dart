@@ -66,94 +66,56 @@ const int _ownerOnlyDir = 0x1C0; // 0700
 /// chmod cannot establish that boundary.
 bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
-/// Create [dir] and make it owner-only.
-///
-/// Best effort on purpose: the file mode below is the check that decides, and
-/// for the default profile this directory is the app-support directory itself,
-/// which the platform already places inside the app's own tree.
-Future<void> _ensurePrivateDir(
-  Directory dir, {
-  bool acceptExistingAcl = false,
-}) async {
-  await dir.create(recursive: true);
-  if (Platform.isWindows) return;
-  if (acceptExistingAcl &&
-      const ManagedFsPlatform().inspect(dir.path).aclApproved) {
+/// New POSIX directories start private. Existing permissions belong to the
+/// operator and must survive saving or migrating preferences.
+void _ensurePrivateDir(Directory dir) {
+  if (Platform.isWindows) {
+    dir.createSync(recursive: true);
     return;
   }
-  final rc = posixChmod(dir.path, _ownerOnlyDir);
-  if (rc != null && rc != 0) {
-    devLog(() => 'xVeil[prefs]: could not restrict ${dir.path} to 0700');
+  if (dir.existsSync()) return;
+  _ensurePrivateDir(dir.parent);
+  final rc = posixMkdir(dir.path, _ownerOnlyDir);
+  if (rc == null && !prefsFilesMustBePrivate()) {
+    dir.createSync(recursive: true);
+  } else if (rc != 0 && !dir.existsSync()) {
+    throw FileSystemException(
+      'Could not create a private profile directory',
+      dir.path,
+    );
   }
 }
 
-/// Make [path] readable by its owner ONLY, and PROVE it.
-///
-/// Three separate things, none of which the other two cover:
-///
-///   * `chmod` exiting zero means the filesystem accepted the request. Mounted
-///     shares and some vendor mounts accept it and keep the old mode, so the
-///     mode is read back rather than assumed.
-///   * the read-back is an `lstat`, so a symlink swapped in at the name between
-///     the create and here is seen as a symlink instead of being followed.
-///   * the owner is checked against this process, which is what catches a file
-///     that is now somebody else's.
-///
-/// Goes through libc, not `Process.run('chmod', …)`: a bare command name is
-/// resolved through PATH, which is the substitutable oracle audit C-01 was
-/// about.
-bool _restrictToOwner(String path) {
+bool _isPrivateFile(String path) {
   if (Platform.isWindows) {
     final facts = windows.inspect(path);
     return !facts.directory && facts.ownedByCurrentUser && facts.ownerOnly;
   }
-  final rc = posixChmod(path, _ownerOnlyFile);
   if (!prefsFilesMustBePrivate()) return true;
-  if (rc == null || rc != 0) {
-    devLog(() => 'xVeil[prefs]: chmod 0600 refused $path');
-    return false;
-  }
   final facts = posixLstat(path);
-  if (facts == null) {
-    devLog(() => 'xVeil[prefs]: could not read the mode back for $path');
-    return false;
-  }
-  if (!facts.isRegularFile) {
-    devLog(
-      () => 'xVeil[prefs]: $path is not a regular file, refusing to write',
-    );
-    return false;
-  }
-  if (facts.permissions != _ownerOnlyFile) {
-    devLog(
-      () =>
-          'xVeil[prefs]: $path is ${facts.permissions.toRadixString(8)} after '
-          'chmod, not 600',
-    );
-    return false;
-  }
-  final euid = posixEuid();
-  if (euid != null && facts.uid != euid) {
-    devLog(() => 'xVeil[prefs]: $path is not owned by this process');
-    return false;
-  }
-  return true;
+  final uid = posixEuid();
+  return facts != null &&
+      facts.isRegularFile &&
+      facts.permissions == _ownerOnlyFile &&
+      (uid == null || facts.uid == uid);
 }
 
 /// Never reuse an inherited-read temporary on Windows. Tightening its DACL
 /// does not revoke a reader's existing handle, which could then read the next
 /// payload. Remove only an owned stable leaf and reserve a fresh private file.
 /// A reader denying deletion makes the write fail before any payload changes.
-bool _prepareWindowsTemporary(File temp) {
+bool _prepareTemporary(File temp) {
   if (FileSystemEntity.typeSync(temp.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    final facts = windows.inspect(temp.path);
+    final facts = const ManagedFsPlatform().inspect(temp.path);
     if (facts.directory || !facts.ownedByCurrentUser || !facts.safeAncestor) {
       return false;
     }
     temp.deleteSync();
   }
-  return windows.createPrivateFile(temp.path);
+  if (Platform.isWindows) return windows.createPrivateFile(temp.path);
+  PosixSidecarLock.reservePrivate(temp.path);
+  return _isPrivateFile(temp.path);
 }
 
 /// Read a valid installation-wide choice. A read failure on an existing entry
@@ -278,23 +240,19 @@ Future<bool> writeProfileChoiceAtomically(
 }) async {
   RandomAccessFile? lock;
   try {
-    await _ensurePrivateDir(file.parent);
+    _ensurePrivateDir(file.parent);
     final lockFile = File('${file.path}.lock');
     if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) ==
         FileSystemEntityType.notFound) {
       if (Platform.isWindows) {
         windows.createPrivateFile(lockFile.path);
       } else {
-        try {
-          lockFile.createSync(exclusive: true);
-        } on PathExistsException {
-          // Another process reserved the same file between the two checks.
-        }
+        PosixSidecarLock.reservePrivate(lockFile.path);
       }
     }
     if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) !=
             FileSystemEntityType.file ||
-        !_restrictToOwner(lockFile.path) ||
+        !_isPrivateFile(lockFile.path) ||
         lockFile.lengthSync() != 0) {
       return false;
     }
@@ -343,7 +301,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
   File file,
   FutureOr<T> Function() work,
 ) async {
-  await _ensurePrivateDir(file.parent, acceptExistingAcl: true);
+  _ensurePrivateDir(file.parent);
   final sidecar = File('${file.path}.lock');
   if (FileSystemEntity.typeSync(sidecar.path, followLinks: false) ==
       FileSystemEntityType.notFound) {
@@ -358,7 +316,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
   if (original.directory ||
       !original.ownedByCurrentUser ||
       sidecar.lengthSync() != 0 ||
-      (!original.ownerOnly && !_restrictToOwner(sidecar.path))) {
+      !original.ownerOnly) {
     throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
   }
 
@@ -446,7 +404,7 @@ Future<bool?> compareAndWritePrivatePreferences(
 Future<bool> writePrivateFileAtomically(File file, String contents) async {
   final temp = File('${file.path}.tmp');
   try {
-    await _ensurePrivateDir(file.parent);
+    _ensurePrivateDir(file.parent);
     // Never write THROUGH a link someone else planted at the temporary name:
     // that is how a 0600 file ends up being somebody else's file, with our
     // posture in it. A directory in the way is not something to clear out.
@@ -462,10 +420,10 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
     // values on disk at the umask for as long as the chmod takes to run, and
     // [_restrictToOwner]'s lstat is also what catches a link that won the race
     // between the type check above and this open.
-    if (Platform.isWindows && !_prepareWindowsTemporary(temp)) return false;
+    if (!_prepareTemporary(temp)) return false;
     final handle = await temp.open(mode: FileMode.writeOnly);
     try {
-      if (!_restrictToOwner(temp.path)) return false;
+      if (!_isPrivateFile(temp.path)) return false;
       await handle.writeString(contents);
       await handle.flush(); // fsync(2) on the file
     } finally {
@@ -475,7 +433,7 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
     await temp.rename(file.path);
     // The rename itself, made durable. Null just means no libc binding here.
     posixFsyncDir(file.parent.path);
-    if (!_restrictToOwner(file.path)) return false;
+    if (!_isPrivateFile(file.path)) return false;
 
     // Read it back. This is the difference between "no call reported an error"
     // and "the bytes are there".
@@ -498,24 +456,24 @@ Future<bool> writePrivateFileAtomically(File file, String contents) async {
 /// Worker-only synchronous counterpart. The native shared profile grant and
 /// these filesystem calls live in the SAME isolate. No async filesystem task
 /// can publish a late rename after the worker has exited and lost its grant.
-bool writePrivateFileAtomicallySync(File file, String contents) {
+bool writePrivateFileAtomicallySync(
+  File file,
+  String contents, {
+  bool reportFailure = false,
+}) {
   final temp = File('${file.path}.tmp');
   try {
-    file.parent.createSync(recursive: true);
-    if (!Platform.isWindows &&
-        !const ManagedFsPlatform().inspect(file.parent.path).aclApproved) {
-      posixChmod(file.parent.path, _ownerOnlyDir);
-    }
+    _ensurePrivateDir(file.parent);
     final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
     if (planted == FileSystemEntityType.link) {
       Link(temp.path).deleteSync();
     } else if (planted == FileSystemEntityType.directory) {
       return false;
     }
-    if (Platform.isWindows && !_prepareWindowsTemporary(temp)) return false;
+    if (!_prepareTemporary(temp)) return false;
     final handle = temp.openSync(mode: FileMode.writeOnly);
     try {
-      if (!_restrictToOwner(temp.path)) return false;
+      if (!_isPrivateFile(temp.path)) return false;
       handle.writeStringSync(contents);
       handle.flushSync();
     } finally {
@@ -523,11 +481,12 @@ bool writePrivateFileAtomicallySync(File file, String contents) {
     }
     temp.renameSync(file.path);
     posixFsyncDir(file.parent.path);
-    return _restrictToOwner(file.path) && file.readAsStringSync() == contents;
+    return _isPrivateFile(file.path) && file.readAsStringSync() == contents;
   } catch (_) {
     try {
       if (temp.existsSync()) temp.deleteSync();
     } catch (_) {}
+    if (reportFailure) rethrow;
     return false;
   }
 }

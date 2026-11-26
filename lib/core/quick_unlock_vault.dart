@@ -144,10 +144,14 @@ class StartupUnlockOptions {
     this.grid,
     this.system = false,
     this.patternBlocked = false,
+    this.requiresReview = false,
   });
   final int? grid;
   final bool system;
   final bool patternBlocked;
+
+  /// Consent exists, but there is no confirmed method for startup sign-in.
+  final bool requiresReview;
   bool get enabled => grid != null || system;
 }
 

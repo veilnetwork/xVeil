@@ -7052,6 +7052,20 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get folderSyncAclReadRisk =>
+      'The accounts below have access to this folder. Review who may see files synced from the cloud.';
+
+  @override
+  String folderSyncReadAccessDenied(String path) {
+    return 'The operating system denied access to $path. Check the file’s permissions or ask your administrator.';
+  }
+
+  @override
+  String folderSyncReadCannotVerify(String path) {
+    return 'xVeil could not verify a safe read of $path. Check that the folder is available and the file is inside it.';
+  }
+
+  @override
   String get folderSyncAclRisk =>
       'The accounts below can change files in this folder. Their edits may be synced to the cloud. Deletions will not propagate for this folder.';
 
@@ -8133,8 +8147,24 @@ class AppL10nEn extends AppL10n {
       'saved quick sign-in in the OS secure store (removal could not be verified)';
 
   @override
+  String get startupUnlockConsentSaveFailed =>
+      'Screen lock settings were saved. xVeil could not save your choice to allow sign-in after restart.';
+
+  @override
+  String get startupUnlockConsentRemoveFailed =>
+      'Screen lock settings were saved and the OS entry was removed. xVeil could not save the updated sign-in preference.';
+
+  @override
   String get startupUnlockSaveFailed =>
       'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.';
+
+  @override
+  String get startupUnlockDisableFailed =>
+      'Screen lock settings were saved. Could not confirm removal of quick sign-in after restart from OS storage.';
+
+  @override
+  String get startupUnlockReview =>
+      'Quick sign-in after restart was allowed, but xVeil could not confirm a saved sign-in method. To remove the saved entry, turn this off and save.';
 
   @override
   String get chatFileSavePermissionDenied =>

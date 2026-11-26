@@ -20,12 +20,14 @@ final class ManagedWorkerFailure implements Exception {
     this.kind, {
     this.preferencesOpenReason,
     this.preferencesReadReason,
+    this.preferencesWriteReason,
     this.ancestorRefusal,
     this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
+  final ManagedPreferencesFailureReason? preferencesWriteReason;
   final ManagedAncestorRefusal? ancestorRefusal;
   final List<ManagedStorageAclWarning> aclWarnings;
   @override
@@ -54,12 +56,14 @@ final class _ManagedWorkerErr extends _Reply {
     this.kind, {
     this.preferencesOpenReason,
     this.preferencesReadReason,
+    this.preferencesWriteReason,
     this.ancestorRefusal,
     this.aclWarnings = const [],
   });
   final ManagedWorkerFailureKind kind;
   final ManagedPreferencesFailureReason? preferencesOpenReason;
   final ManagedPreferencesFailureReason? preferencesReadReason;
+  final ManagedPreferencesFailureReason? preferencesWriteReason;
   final ManagedAncestorRefusal? ancestorRefusal;
   final List<ManagedStorageAclWarning> aclWarnings;
 }

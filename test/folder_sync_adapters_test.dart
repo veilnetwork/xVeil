@@ -1,16 +1,15 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
-import 'package:xveil/data/folder_scan.dart';
 import 'package:xveil/data/folder_publication.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/state/cloud_service.dart';
+import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
 
@@ -401,6 +400,19 @@ void main() {
       expect(await disk.openRead(root.path, 'nope.bin'), isNull);
     });
 
+    test('openRead reports a denied file separately from a missing file', () async {
+      final file = File('${root.path}/denied.bin')..writeAsStringSync('fixture');
+      final changed = Process.runSync('/bin/chmod', ['000', file.path]);
+      expect(changed.exitCode, 0);
+      final disk = folderDiskFixture();
+      await expectLater(
+        disk.openRead(root.path, 'denied.bin'),
+        throwsA(isA<FolderSyncReadFailure>().having(
+          (error) => error.reason, 'reason', FolderSyncReadRefusal.accessDenied,
+        )),
+      );
+    }, skip: !(Platform.isMacOS || Platform.isLinux));
+
     test('mirror reads require the native containment check', () {
       final source = File(
         'lib/state/folder_sync_adapters.dart',
@@ -430,18 +442,10 @@ void main() {
         return; // a platform without symlinks has nothing to prove here
       }
 
-      final source = await disk.openRead(root.path, 'link.txt');
-      if (source == null) return; // refused outright, which is the point
-      try {
-        final bytes = await source.read(0, source.size);
-        expect(
-          utf8.decode(bytes ?? Uint8List(0)),
-          isNot('not yours'),
-          reason: 'a link out of the folder was read and would be uploaded',
-        );
-      } finally {
-        await source.dispose();
-      }
+      await expectLater(
+        disk.openRead(root.path, 'link.txt'),
+        throwsA(isA<FolderSyncReadFailure>()),
+      );
     });
 
     test('writeFrom pulls in bounded hops, never the whole file', () async {

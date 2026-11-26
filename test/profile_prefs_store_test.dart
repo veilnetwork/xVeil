@@ -1006,6 +1006,13 @@ Future<void> main(List<String> args) async {
       );
     }, skip: skipReason);
 
+    test('keep permissions on an existing support directory', () async {
+      expect(posixChmod(support.path, 0x1ed), 0);
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(posixLstat(support.path)?.permissions, 0x1ed);
+      expect(posixLstat(activeProfilePath(support.path))?.permissions, 0x180);
+    }, skip: skipReason);
+
     test('are renamed into place, leaving no temporary behind', () async {
       expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
       expect(

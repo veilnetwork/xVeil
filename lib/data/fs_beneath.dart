@@ -132,7 +132,13 @@ bool veilOpenBeneathAvailable({DynamicLibrary? lib}) {
 /// the very file the walk just rejected, which is how the first version of the
 /// wiring here handed a caller a symlink out of the granted root. A test
 /// caught it immediately; nothing else would have.
-typedef VeilBeneathOpen = ({VeilOpenedSource? source, bool supported});
+enum VeilBeneathRefusal { missing, accessDenied, rejected, unavailable }
+
+typedef VeilBeneathOpen = ({
+  VeilOpenedSource? source,
+  bool supported,
+  VeilBeneathRefusal? refusal,
+});
 
 /// Open [relative] beneath [root] through the native walk.
 Future<VeilBeneathOpen> veilOpenBeneath(
@@ -140,7 +146,11 @@ Future<VeilBeneathOpen> veilOpenBeneath(
   String relative, {
   DynamicLibrary? lib,
 }) async {
-  const unsupported = (source: null, supported: false);
+  const unsupported = (
+    source: null,
+    supported: false,
+    refusal: VeilBeneathRefusal.unavailable,
+  );
   final DynamicLibrary dl;
   try {
     dl = lib ?? verifiedVeilLibrary();
@@ -171,21 +181,40 @@ Future<VeilBeneathOpen> veilOpenBeneath(
   try {
     handle = open(rootC, relC, lenOut, errOut);
     if (handle == nullptr) {
-      var supported = true;
+      var refusal = VeilBeneathRefusal.rejected;
       final err = errOut.value;
       if (err != nullptr) {
         final msg = err.toDartString();
         // The one refusal that is really an inability: a host with no `openat`
         // says so, and the caller may then use its own weaker check. Every
         // other message is a refusal ABOUT THIS PATH and is final.
-        supported = !msg.contains('POSIX-only');
+        // The SDK's existing ABI returns bounded categories through its
+        // message suffix. Keep the text local to diagnostics.
+        refusal = switch (msg) {
+          _ when msg.endsWith('is POSIX-only') =>
+            VeilBeneathRefusal.unavailable,
+          _
+              when msg.endsWith('(os error ${Platform.isWindows ? 5 : 13})') ||
+                  (!Platform.isWindows && msg.endsWith('(os error 1)')) ||
+                  msg.endsWith('(NTSTATUS 0xc0000022)') =>
+            VeilBeneathRefusal.accessDenied,
+          _
+              when msg.endsWith(' does not exist beneath the root') ||
+                  msg.endsWith('(os error 2)') =>
+            VeilBeneathRefusal.missing,
+          _ => VeilBeneathRefusal.rejected,
+        };
         // The reason is diagnostic only. It names a component, which is a path
         // fragment, so it goes to the log the build already gates rather than
         // to a caller that might surface it.
         devLog(() => 'xVeil[fs]: refused $relative beneath $root: $msg');
         freeStr(err);
       }
-      return (source: null, supported: supported);
+      return (
+        source: null,
+        supported: refusal != VeilBeneathRefusal.unavailable,
+        refusal: refusal,
+      );
     }
     size = lenOut.value;
   } finally {
@@ -195,7 +224,7 @@ Future<VeilBeneathOpen> veilOpenBeneath(
     calloc.free(errOut);
   }
 
-  return (source: reader.own(handle, size), supported: true);
+  return (source: reader.own(handle, size), supported: true, refusal: null);
 }
 
 /// Resolve before acquiring a descriptor so failed symbol lookup cannot leak

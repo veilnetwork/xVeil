@@ -7139,6 +7139,20 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String get folderSyncAclReadRisk =>
+      'Las cuentas indicadas tienen acceso a esta carpeta. Revisa quién puede ver los archivos sincronizados desde la nube.';
+
+  @override
+  String folderSyncReadAccessDenied(String path) {
+    return 'El sistema operativo denegó la lectura de $path. Revisa los permisos del archivo o consulta a tu administrador.';
+  }
+
+  @override
+  String folderSyncReadCannotVerify(String path) {
+    return 'xVeil no pudo verificar la lectura segura de $path. Comprueba que la carpeta esté disponible y que el archivo esté dentro.';
+  }
+
+  @override
   String get folderSyncAclRisk =>
       'Las cuentas indicadas pueden cambiar los archivos de esta carpeta. Sus cambios se pueden sincronizar con la nube. Las eliminaciones no se propagarán para esta carpeta.';
 
@@ -8233,8 +8247,24 @@ class AppL10nEs extends AppL10n {
       'acceso rápido guardado en el sistema (no se pudo verificar su eliminación)';
 
   @override
+  String get startupUnlockConsentSaveFailed =>
+      'Se guardaron los ajustes de bloqueo. xVeil no pudo guardar la autorización para iniciar sesión después de reiniciar.';
+
+  @override
+  String get startupUnlockConsentRemoveFailed =>
+      'Se guardaron los ajustes de bloqueo y se eliminó la entrada del sistema. xVeil no pudo guardar el cambio en el ajuste de inicio de sesión.';
+
+  @override
   String get startupUnlockSaveFailed =>
       'Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.';
+
+  @override
+  String get startupUnlockDisableFailed =>
+      'Se guardaron los ajustes de bloqueo de pantalla. No se pudo confirmar que se haya eliminado del almacenamiento del sistema el acceso rápido tras reiniciar.';
+
+  @override
+  String get startupUnlockReview =>
+      'Se autorizó el acceso rápido tras reiniciar, pero xVeil no pudo confirmar ningún método guardado. Para eliminar el acceso guardado, desactiva esta opción y guarda los cambios.';
 
   @override
   String get chatFileSavePermissionDenied =>

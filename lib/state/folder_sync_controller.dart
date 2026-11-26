@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../core/posix_file_facts.dart';
 import '../data/storage/folder_sync_store.dart';
@@ -27,6 +28,7 @@ class FolderSyncPairView {
     required this.lastRefusal,
     required this.busy,
     this.rootRefusal,
+    this.readIssue,
   });
 
   final FolderSyncPair pair;
@@ -35,6 +37,7 @@ class FolderSyncPairView {
   final String? lastRefusal;
   final bool busy;
   final FolderSyncRefusal? rootRefusal;
+  final FolderSyncReadIssue? readIssue;
 }
 
 /// Owns the configured pairs and runs their passes.
@@ -156,6 +159,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           lastRefusal: saved.lastRefusal,
           busy: _running.contains(pair.id),
           rootRefusal: _rootRefusals[pair.id],
+          readIssue: saved.readIssue,
         ),
       );
     }
@@ -203,7 +207,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           id: id,
           localPath: localPath,
           cloudFolderId: cloudFolderId,
-          deletePropagates: rootApproval == null,
+          deletePropagates: rootApproval?.writeAccess != true,
           rootApproval: rootApproval,
         ),
       ];
@@ -254,7 +258,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           id: pair.id,
           localPath: pair.localPath,
           cloudFolderId: pair.cloudFolderId,
-          deletePropagates: false,
+          deletePropagates: pair.deletePropagates && !approval.writeAccess,
           rootApproval: approval,
         );
     });
@@ -376,7 +380,11 @@ FolderSyncRefusal? folderSyncRootRefusal(
 
   final windowsHost = Platform.isWindows;
   if (windowsHost &&
-      !windows.managedWindowsFinalPathMatches(absolute, canonical)) {
+      !windows.managedWindowsFinalPathMatches(
+        absolute,
+        canonical,
+        allowNetworkShare: true,
+      )) {
     return FolderSyncRefusal(FolderSyncRefusalCode.unresolvable, path: path);
   }
 
@@ -384,11 +392,13 @@ FolderSyncRefusal? folderSyncRootRefusal(
   for (final step in {..._rootChain(canonical), ..._rootChain(absolute)}) {
     final leaf = step == canonical;
     try {
-      if (!windowsHost && posixLstat(step)?.isSymlink == true) continue;
+      final unix = windowsHost ? null : posixLstat(step);
+      if (unix?.isSymlink == true) continue;
       final facts = windowsHost
           ? windows.inspect(
               step,
               includeApprovedAcl: true,
+              allowNetworkShare: true,
               protectFromReparseChanges: true,
             )
           : const ManagedFsPlatform().inspectAcl(step);
@@ -405,33 +415,40 @@ FolderSyncRefusal? folderSyncRootRefusal(
         return FolderSyncRefusal(FolderSyncRefusalCode.pathChanged, path: step);
       }
 
-      if (!facts.safeAncestor ||
-          (windowsHost && leaf && !facts.otherUsersHaveReadOnlyAccess)) {
-        final warning = facts.aclWarning;
-        // Windows must also protect the root itself against DELETE, reparse
-        // changes and ACL changes. On POSIX a sibling cannot rename a leaf
-        // through an ancestor it cannot write. Extended Darwin ACLs that allow
-        // replacement still fail in the platform inspection.
-        final approvable =
-            leaf &&
-            facts.ownedByCurrentUser &&
-            warning != null &&
-            (windowsHost
-                ? facts.safeAncestor
-                : facts.unsafeAncestorCause ==
+      final writeAccess = windowsHost
+          ? !facts.otherUsersHaveReadOnlyAccess
+          : unix?.groupOrOtherWritable == true;
+      final foreignAccess = leaf && !facts.ownerOnly;
+      if (facts.safeAncestor && !foreignAccess) continue;
+
+      final warning = facts.aclWarning;
+      // Only access to the chosen directory's contents can be approved.
+      // A changed or redirectable path must still fail the identity check.
+      final approvable =
+          leaf &&
+          warning != null &&
+          (facts.safeAncestor ||
+              !windowsHost &&
+                  facts.ownedByCurrentUser &&
+                  facts.unsafeAncestorCause ==
                       ManagedAncestorRefusalCause.unsafePermissions);
-        final current = approvable
-            ? (identity: identity!, fingerprint: warning.fingerprint)
-            : null;
-        final refusal = FolderSyncRefusal(
-          FolderSyncRefusalCode.writableByOtherAccounts,
-          path: step,
-          aclWarning: warning,
-          approval: current,
-        );
-        if (!approvable) return refusal;
-        if (approval != current) rootRisk = refusal;
-      }
+      final current = approvable
+          ? (
+              identity: identity!,
+              fingerprint: warning.fingerprint,
+              writeAccess: writeAccess,
+            )
+          : null;
+      final refusal = FolderSyncRefusal(
+        !facts.safeAncestor || writeAccess
+            ? FolderSyncRefusalCode.writableByOtherAccounts
+            : FolderSyncRefusalCode.readableByOtherAccounts,
+        path: step,
+        aclWarning: warning,
+        approval: current,
+      );
+      if (!approvable) return refusal;
+      if (approval != current) rootRisk = refusal;
     } on ManagedFsFailure catch (error) {
       final warning = error.aclWarnings.firstOrNull;
       return FolderSyncRefusal(
@@ -472,6 +489,8 @@ enum FolderSyncRefusalCode {
   /// A step of the path may be written by group or by other, so another local
   /// account can redirect what is mirrored into it.
   writableByOtherAccounts,
+
+  readableByOtherAccounts,
 
   pathChanged,
 
@@ -520,8 +539,10 @@ class FolderSyncRefusal {
 List<String> _rootChain(String path) {
   final steps = <String>[];
   var current = Directory(path);
+  final root = p.rootPrefix(path);
   while (true) {
     steps.add(current.path);
+    if (p.equals(current.path, root)) return steps;
     final parent = current.parent;
     if (parent.path == current.path) return steps;
     current = parent;

@@ -112,6 +112,7 @@ String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
     ),
     FolderSyncRefusalCode.permissionsUnreadable =>
       l.folderSyncRefusedUnreadable(path),
+    FolderSyncRefusalCode.readableByOtherAccounts => l.folderSyncAclReadRisk,
     FolderSyncRefusalCode.writableByOtherAccounts =>
       l.folderSyncRefusedWritable(path),
   };
@@ -147,7 +148,9 @@ Future<void> _reviewRoot(
           children: [
             Text(
               approval != null
-                  ? l.folderSyncAclRisk
+                  ? approval.writeAccess
+                        ? l.folderSyncAclRisk
+                        : l.folderSyncAclReadRisk
                   : adding
                   ? l.folderSyncNotAdded(message)
                   : message,
@@ -189,11 +192,19 @@ class _PairCard extends ConsumerWidget {
     final controller = ref.read(folderSyncControllerProvider.notifier);
     final rootRefusal = view.rootRefusal;
     final lastRefusal = view.lastRefusal;
+    final readIssue = view.readIssue;
     final refusal = rootRefusal != null
         ? folderSyncRefusalText(l, rootRefusal)
         : FolderSyncRefusalCode.values.any((code) => code.name == lastRefusal)
         ? null
         : lastRefusal;
+    final readRefusal = switch (readIssue) {
+      (path: final path, reason: FolderSyncReadRefusal.accessDenied) =>
+        l.folderSyncReadAccessDenied(path),
+      (path: final path, reason: FolderSyncReadRefusal.cannotVerify) =>
+        l.folderSyncReadCannotVerify(path),
+      null => null,
+    };
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Column(
@@ -240,11 +251,11 @@ class _PairCard extends ConsumerWidget {
               onPressed: () => controller.removePair(view.pair.id),
             ),
           ),
-          if (refusal != null)
+          if (refusal != null || readRefusal != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                l.folderSyncRefused(refusal),
+                refusal == null ? readRefusal! : l.folderSyncRefused(refusal),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),

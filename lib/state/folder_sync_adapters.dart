@@ -290,7 +290,17 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // require the native walk even when the SDK cannot perform it.
     final beneath = await veilOpenBeneath(root, path, lib: library);
     final source = beneath.source;
-    if (source == null) return null;
+    if (source == null) {
+      return switch (beneath.refusal) {
+        VeilBeneathRefusal.missing => null,
+        VeilBeneathRefusal.accessDenied => throw const FolderSyncReadFailure(
+          FolderSyncReadRefusal.accessDenied,
+        ),
+        _ => throw const FolderSyncReadFailure(
+          FolderSyncReadRefusal.cannotVerify,
+        ),
+      };
+    }
     return RangeSource(
       size: source.size,
       read: source.read,

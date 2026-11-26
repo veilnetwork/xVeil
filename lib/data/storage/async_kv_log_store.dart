@@ -1111,6 +1111,7 @@ class WorkerKvLogStore
         throw ManagedWorkerFailure(
           r.kind,
           preferencesReadReason: r.preferencesReadReason,
+          preferencesWriteReason: r.preferencesWriteReason,
           ancestorRefusal: r.ancestorRefusal,
           aclWarnings: r.aclWarnings,
         );

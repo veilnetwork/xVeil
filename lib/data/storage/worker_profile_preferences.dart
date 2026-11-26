@@ -513,13 +513,25 @@ void _profilePreferencesEntry(
               () {
                 requireHeld();
                 final witness = inspectFile();
-                if (fileFailure(witness) != null) {
-                  throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+                final refusal = fileFailure(witness);
+                if (refusal != null) {
+                  throw ManagedWorkerFailure(
+                    ManagedWorkerFailureKind.invalid,
+                    preferencesWriteReason: refusal,
+                    aclWarnings: [
+                      if (refusal != ManagedPreferencesFailureReason.fileType)
+                        ?witness?.aclWarning,
+                    ],
+                  );
                 }
                 if (requireMatch && readSnapshot(witness) != expected) {
                   return null;
                 }
-                return writePrivateFileAtomicallySync(file, contents);
+                return writePrivateFileAtomicallySync(
+                  file,
+                  contents,
+                  reportFailure: true,
+                );
               },
             );
             requireHeld();
@@ -546,6 +558,17 @@ void _profilePreferencesEntry(
                   preferencesReadReason: managedStorageFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
                   aclWarnings: filesystem?.aclWarnings ?? const [],
+                )
+              : message is _PreferencesWriteReq
+              ? _ManagedWorkerErr(
+                  _managedFailureKind(error),
+                  preferencesWriteReason: error is ManagedWorkerFailure
+                      ? error.preferencesWriteReason
+                      : managedStorageFailureReason(error),
+                  ancestorRefusal: filesystem?.ancestorRefusal,
+                  aclWarnings: error is ManagedWorkerFailure
+                      ? error.aclWarnings
+                      : filesystem?.aclWarnings ?? const [],
                 )
               : _workerErrorReply(error, managed: true),
         );

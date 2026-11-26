@@ -225,6 +225,8 @@ Future<void> runStartup({
       startupPreferenceFailure: preferenceFailure,
     );
     final storageFailureReason = switch (e) {
+      ManagedWorkerFailure(:final preferencesWriteReason?) =>
+        preferencesWriteReason,
       ManagedWorkerFailure() when loadingPreferences =>
         e.preferencesOpenReason ?? e.preferencesReadReason,
       ManagedFsFailure() => managedStorageFailureReason(e),

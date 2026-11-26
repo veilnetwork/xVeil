@@ -340,20 +340,16 @@ bool _createExclusiveDir(String path) {
 /// Inspect only canonical Windows paths. Every parent must prevent replacement
 /// by an untrusted account; read-only shared bases remain valid. The child
 /// itself additionally needs current-user ownership and a private DACL.
-void _assertWindowsRuntimePath(
-  String path, {
-  bool private = false,
-  bool sharedReadOnly = false,
-}) {
+void _assertWindowsRuntimePath(String path, {bool private = false}) {
   var current = Directory(path);
   try {
     for (var depth = 0; depth < 256; depth++) {
-      final facts = windows.inspect(current.path, includeApprovedAcl: true);
-      final stable =
-          facts.safeAncestor &&
-          !(depth == 0 &&
-              sharedReadOnly &&
-              !facts.otherUsersHaveReadOnlyAccess);
+      final facts = windows.inspect(
+        current.path,
+        includeApprovedAcl: true,
+        protectFromReparseChanges: true,
+      );
+      final stable = facts.safeAncestor;
       if (!facts.directory ||
           !stable ||
           (depth == 0 &&
@@ -442,21 +438,13 @@ String _prepareWindowsRuntimeBase(
         windowsRefusal: WindowsRuntimeRefusal.invalidPath,
       );
     }
-    _assertWindowsRuntimePath(
-      canonical,
-      private: private && missing.isEmpty,
-      sharedReadOnly: requireUnredirected && missing.isEmpty,
-    );
+    _assertWindowsRuntimePath(canonical, private: private && missing.isEmpty);
     for (var index = missing.length - 1; index >= 0; index--) {
       canonical = p.join(canonical, missing[index]);
       // A racing trusted caller may create the same base. It still has to
       // satisfy the full directory policy; it is never claimed as our child.
       windows.createPrivateDirectory(canonical);
-      _assertWindowsRuntimePath(
-        canonical,
-        private: private && index == 0,
-        sharedReadOnly: requireUnredirected && index == 0,
-      );
+      _assertWindowsRuntimePath(canonical, private: private && index == 0);
     }
     return canonical;
   } on RuntimeDirNotPrivate {

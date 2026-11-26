@@ -84,8 +84,10 @@ final startupUnlockOptionsProvider =
         return const StartupUnlockOptions();
       }
       try {
-        return await vault.options();
+        final options = await vault.options();
+        if (options.enabled) return options;
       } catch (_) {
-        return const StartupUnlockOptions();
+        // The user's saved consent is still present after a read failure.
       }
+      return const StartupUnlockOptions(requiresReview: true);
     });

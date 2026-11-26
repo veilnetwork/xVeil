@@ -20,6 +20,24 @@ void main() {
     'rules': rules,
   };
 
+  test('folder sync requires the same canonical Windows network share', () {
+    const share = r'\\server\share\folder';
+    const verified = r'\\?\UNC\SERVER\share\folder';
+    expect(managedWindowsFinalPathMatches(share, verified), isFalse);
+    expect(
+      managedWindowsFinalPathMatches(share, verified, allowNetworkShare: true),
+      isTrue,
+    );
+    expect(
+      managedWindowsFinalPathMatches(
+        share,
+        r'\\?\UNC\server\different\folder',
+        allowNetworkShare: true,
+      ),
+      isFalse,
+    );
+  });
+
   test('private current-user/system/admin grants are accepted', () {
     expect(
       managedWindowsAclPolicy(

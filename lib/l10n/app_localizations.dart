@@ -12380,6 +12380,24 @@ abstract class AppL10n {
   /// **'the permissions of {path} could not be read'**
   String folderSyncRefusedUnreadable(String path);
 
+  /// No description provided for @folderSyncAclReadRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'The accounts below have access to this folder. Review who may see files synced from the cloud.'**
+  String get folderSyncAclReadRisk;
+
+  /// No description provided for @folderSyncReadAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'The operating system denied access to {path}. Check the file’s permissions or ask your administrator.'**
+  String folderSyncReadAccessDenied(String path);
+
+  /// No description provided for @folderSyncReadCannotVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not verify a safe read of {path}. Check that the folder is available and the file is inside it.'**
+  String folderSyncReadCannotVerify(String path);
+
   /// No description provided for @folderSyncAclRisk.
   ///
   /// In en, this message translates to:
@@ -14088,11 +14106,35 @@ abstract class AppL10n {
   /// **'saved quick sign-in in the OS secure store (removal could not be verified)'**
   String get wipeLeftQuickUnlock;
 
+  /// No description provided for @startupUnlockConsentSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen lock settings were saved. xVeil could not save your choice to allow sign-in after restart.'**
+  String get startupUnlockConsentSaveFailed;
+
+  /// No description provided for @startupUnlockConsentRemoveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen lock settings were saved and the OS entry was removed. xVeil could not save the updated sign-in preference.'**
+  String get startupUnlockConsentRemoveFailed;
+
   /// No description provided for @startupUnlockSaveFailed.
   ///
   /// In en, this message translates to:
   /// **'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.'**
   String get startupUnlockSaveFailed;
+
+  /// No description provided for @startupUnlockDisableFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen lock settings were saved. Could not confirm removal of quick sign-in after restart from OS storage.'**
+  String get startupUnlockDisableFailed;
+
+  /// No description provided for @startupUnlockReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick sign-in after restart was allowed, but xVeil could not confirm a saved sign-in method. To remove the saved entry, turn this off and save.'**
+  String get startupUnlockReview;
 
   /// No description provided for @chatFileSavePermissionDenied.
   ///

@@ -7108,6 +7108,20 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get folderSyncAclReadRisk =>
+      'У указанных учётных записей есть доступ к этой папке. Проверьте, кто сможет увидеть файлы, загруженные из облака.';
+
+  @override
+  String folderSyncReadAccessDenied(String path) {
+    return 'Операционная система запретила чтение файла $path. Проверьте права на файл или обратитесь к администратору.';
+  }
+
+  @override
+  String folderSyncReadCannotVerify(String path) {
+    return 'xVeil не смог подтвердить безопасное чтение файла $path. Проверьте, что папка доступна и файл находится внутри неё.';
+  }
+
+  @override
   String get folderSyncAclRisk =>
       'Указанные учётные записи могут менять файлы в этой папке. Их изменения могут попасть в облако. Удаления для этой папки синхронизироваться не будут.';
 
@@ -8203,8 +8217,24 @@ class AppL10nRu extends AppL10n {
       'быстрый вход в хранилище ОС — удаление не подтверждено';
 
   @override
+  String get startupUnlockConsentSaveFailed =>
+      'Настройки блокировки экрана сохранены. xVeil не смог сохранить разрешение на вход после перезапуска.';
+
+  @override
+  String get startupUnlockConsentRemoveFailed =>
+      'Настройки блокировки экрана сохранены, запись из хранилища ОС удалена. xVeil не смог сохранить изменение в настройках входа.';
+
+  @override
   String get startupUnlockSaveFailed =>
       'Настройки блокировки экрана сохранены, но настроить быстрый вход через хранилище ОС не удалось. Пароль контейнера по-прежнему работает.';
+
+  @override
+  String get startupUnlockDisableFailed =>
+      'Настройки блокировки экрана сохранены. Не удалось подтвердить удаление из хранилища ОС записи для быстрого входа после перезапуска.';
+
+  @override
+  String get startupUnlockReview =>
+      'Быстрый вход после перезапуска разрешён, но xVeil не смог подтвердить сохранённый способ входа. Чтобы удалить запись, выключите переключатель и сохраните настройки.';
 
   @override
   String get chatFileSavePermissionDenied =>

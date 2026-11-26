@@ -116,7 +116,7 @@ void main() {
     final tmp = tempRoot('xveil_gate_later');
     final parent = Directory('${tmp.path}/holder')..createSync();
     final root = Directory('${parent.path}/mirror')..createSync();
-    _chmod(root, _mode0755);
+    _chmod(root, _mode0700);
     _chmod(parent, _mode0755);
 
     late _CountingEngine engine;
@@ -279,6 +279,37 @@ void main() {
     },
   );
 
+  test('a readable shared folder needs consent and keeps deletion sync', () async {
+    final root = tempRoot('xveil_gate_readable');
+    _chmod(root, _mode0755);
+    final warning = await controller.addPair(localPath: root.path, id: 'readable');
+    expect(warning?.code, FolderSyncRefusalCode.readableByOtherAccounts);
+    expect(warning?.approval?.writeAccess, isFalse);
+    expect(
+      await controller.addPair(
+        localPath: root.path,
+        id: 'readable',
+        rootApproval: warning!.approval,
+      ),
+      isNull,
+    );
+    final saved = (await container.read(folderSyncStoreProvider).pairs()).single;
+    expect(saved.deletePropagates, isTrue);
+    expect(saved.rootApproval?.writeAccess, isFalse);
+  });
+
+  test('a macOS list and search ACL can be accepted', () {
+    final root = tempRoot('xveil_gate_darwin_readable');
+    final acl = Process.runSync('/bin/chmod', [
+      '+a', 'everyone allow list,search', root.path,
+    ]);
+    expect(acl.exitCode, 0, reason: acl.stderr.toString());
+    final warning = folderSyncRootRefusal(root.path);
+    expect(warning?.code, FolderSyncRefusalCode.readableByOtherAccounts);
+    expect(warning?.approval?.writeAccess, isFalse);
+    expect(folderSyncRootRefusal(root.path, approval: warning!.approval), isNull);
+  }, skip: !Platform.isMacOS);
+
   test('an ordinary private folder is accepted', () async {
     // The gate has to refuse reachability, not depth: a mirror that turned
     // down normal folders would be broken rather than safe. `Directory
@@ -287,7 +318,7 @@ void main() {
     final tmp = tempRoot('xveil_gate_ok');
     final parent = Directory('${tmp.path}/quiet')..createSync();
     final root = Directory('${parent.path}/mirror')..createSync();
-    _chmod(root, _mode0755);
+    _chmod(root, _mode0700);
     _chmod(parent, _mode0755);
 
     final refusal = await controller.addPair(

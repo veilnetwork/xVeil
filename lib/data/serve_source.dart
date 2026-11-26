@@ -402,5 +402,5 @@ Future<VeilBeneathOpen> _openBeneathAnyRoot(
   // No root contained the path, or none could be resolved. Reported as "not
   // supported" so the caller keeps its own check rather than refusing a send
   // it never asked this about — the containment decision is the API edge's.
-  return (source: null, supported: supported);
+  return (source: null, supported: supported, refusal: null);
 }
