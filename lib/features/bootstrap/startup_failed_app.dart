@@ -193,7 +193,7 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
             false when widget.preferencesFormatFailed =>
               l.startupPreferencesFormatFailed,
             false =>
-              _preferencesExplanation(l, widget.preferencesReason) ??
+              preferencesFailureText(l, widget.preferencesReason) ??
                   (retryPreferences == null
                       ? l.startupFailedAction
                       : l.startupPreferencesBusy),
@@ -419,7 +419,7 @@ String _rightLabel(AppL10n l, ManagedAclRight right) => switch (right) {
   ManagedAclRight.other => l.startupAclOther,
 };
 
-String? _preferencesExplanation(
+String? preferencesFailureText(
   AppL10n l,
   ManagedPreferencesFailureReason? reason,
 ) => switch (reason) {

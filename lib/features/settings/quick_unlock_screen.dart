@@ -128,14 +128,15 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           final prefs = await ref.read(prefsProvider.future);
           // Mark consent before touching the OS store, so crash/wipe can also
           // find a partially configured credential. No marker exists by default.
+          startupError = l.startupUnlockConsentSaveFailed;
           if (!await setStartupUnlockConsent(
             prefs,
             locator,
             managedSiblings: managedSiblings,
           )) {
-            startupError = l.startupUnlockConsentSaveFailed;
             throw StateError('Consent not saved');
           }
+          startupError = l.startupUnlockSaveFailed;
           await ref
               .read(screenLockProvider.notifier)
               .duringSystemPrompt(
@@ -154,12 +155,12 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           final prefs = await ref.read(prefsProvider.future);
           if (startupUnlockConsented(prefs, locator)) {
             await vault.forget();
+            startupError = l.startupUnlockConsentRemoveFailed;
             if (!await clearStartupUnlockConsent(
               prefs,
               locator,
               managedSiblings: managedSiblings,
             )) {
-              startupError = l.startupUnlockConsentRemoveFailed;
               throw StateError('Consent not removed');
             }
           }
@@ -167,6 +168,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
         ref.invalidate(startupUnlockOptionsProvider);
       } catch (_) {
         if (mounted && ref.holdsIdentity(lease)) {
+          ref.invalidate(startupUnlockOptionsProvider);
           setState(() {
             _busy = false;
             _error = startupError;

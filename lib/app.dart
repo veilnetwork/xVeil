@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/secure_screen.dart';
+import 'data/storage/async_kv_log_store.dart' show ManagedWorkerFailure;
+import 'data/storage/profile_prefs_store.dart' show ProfilePreferencesStore;
+import 'features/bootstrap/startup_failed_app.dart'
+    show StorageAclDetails, preferencesFailureText;
 import 'features/calls/call_overlay.dart';
 import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
@@ -77,11 +81,72 @@ class XVeilApp extends ConsumerWidget {
               // to send the app to onboarding, so the lock screen that asked
               // for it is gone before the answer arrives.
               const WipeReportHost(),
+              const _PreferenceWriteWarnings(),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+final _preferenceWriteFailures = StreamProvider<ManagedWorkerFailure>(
+  (ref) => ProfilePreferencesStore.writeFailures,
+);
+
+class _PreferenceWriteWarnings extends ConsumerWidget {
+  const _PreferenceWriteWarnings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(_preferenceWriteFailures, (_, next) {
+      final error = next.asData?.value;
+      if (error == null) return;
+      final l = AppL10n.of(context);
+      final details = preferencesFailureText(
+        l,
+        error.preferencesWriteReason ?? error.preferencesReadReason,
+      );
+      final warnings = error.aclWarnings;
+      if (details == null && warnings.isEmpty) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.hideCurrentSnackBar();
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(details ?? l.startupAclInsufficientPrivacy),
+          action: warnings.isEmpty
+              ? null
+              : SnackBarAction(
+                  label: l.startupAclDetails,
+                  onPressed: () {
+                    final dialogContext = rootNavigatorKey.currentContext;
+                    if (dialogContext == null) return;
+                    showDialog<void>(
+                      context: dialogContext,
+                      builder: (context) => AlertDialog(
+                        title: Text(l.startupAclWarningTitle),
+                        scrollable: true,
+                        content: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final warning in warnings)
+                              StorageAclDetails(warning),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: Text(l.actionDone),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      );
+    });
+    return const SizedBox.shrink();
   }
 }
 

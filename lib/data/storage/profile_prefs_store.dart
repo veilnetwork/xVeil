@@ -12,6 +12,7 @@ import 'package:shared_preferences_windows/shared_preferences_windows.dart';
 import '../../core/log.dart';
 import '../../domain/profile_preferences_layout.dart';
 import 'app_profile.dart';
+import 'async_kv_log_store.dart' show ManagedWorkerFailure;
 import 'profile_preferences_file.dart';
 import 'legacy_profile_preferences.dart';
 import 'profile_preferences_routing.dart';
@@ -73,6 +74,13 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   /// Schema tag, so a future format change can be recognised rather than
   /// guessed at.
   static const int _version = 1;
+
+  static final _writeFailures =
+      StreamController<ManagedWorkerFailure>.broadcast();
+
+  /// Local feedback for settings screens that share this preference backend.
+  static Stream<ManagedWorkerFailure> get writeFailures =>
+      _writeFailures.stream;
 
   final File _file;
   final ProfilePreferencesFile? _ownedFile;
@@ -263,7 +271,16 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
         if (elapsed.elapsed >= const Duration(seconds: 2)) return false;
       }
     });
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    _writes = next.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace _) {
+        if (error is ManagedWorkerFailure &&
+            (error.preferencesWriteReason != null ||
+                error.aclWarnings.isNotEmpty)) {
+          _writeFailures.add(error);
+        }
+      },
+    );
     return next;
   }
 

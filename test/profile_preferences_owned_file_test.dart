@@ -37,6 +37,26 @@ void main() {
     }
   });
 
+  test('reports a settings write refusal to local UI listeners', () async {
+    final store = await ProfilePreferencesStore.load(
+      local.path,
+      ownedFile: owner,
+    );
+    addTearDown(store.releaseFile);
+    const denied = ManagedWorkerFailure(
+      ManagedWorkerFailureKind.invalid,
+      preferencesWriteReason:
+          ManagedPreferencesFailureReason.filesystemAccessDenied,
+    );
+    owner.writeFailure = denied;
+    final warning = ProfilePreferencesStore.writeFailures.first;
+    await expectLater(
+      store.setValue('String', 'flutter.example', 'fixture'),
+      throwsA(same(denied)),
+    );
+    expect(await warning, same(denied));
+  });
+
   test('owned absence never falls through to an existing local file', () async {
     final store = await ProfilePreferencesStore.load(
       local.path,
