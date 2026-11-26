@@ -444,6 +444,55 @@ void main() {
     skip: !Platform.isMacOS,
   );
 
+  test(
+    'a macOS grant for the effective user is private to that user',
+    () {
+      final root = tempRoot('xveil_gate_darwin_self');
+      final username =
+          (Process.runSync('/usr/bin/id', ['-un']).stdout as String).trim();
+      final acl = Process.runSync('/bin/chmod', [
+        '+a',
+        'user:$username allow list,search',
+        root.path,
+      ]);
+      expect(acl.exitCode, 0, reason: acl.stderr.toString());
+      expect(folderSyncRootRefusal(root.path), isNull);
+    },
+    skip: !Platform.isMacOS,
+  );
+
+  test(
+    'a Linux default ACL is reviewed before syncing to a private root',
+    () {
+      final root = tempRoot('xveil_gate_linux_default_acl');
+      final acl = Process.runSync('setfacl', ['-m', 'd:o::r-x', root.path]);
+      expect(acl.exitCode, 0, reason: acl.stderr.toString());
+      final warning = folderSyncRootRefusal(root.path)!;
+      expect(warning.approval?.writeAccess, isFalse);
+      expect(warning.aclWarning!.grants, isEmpty);
+      expect(
+        warning.aclWarning!.inheritedGrants.single.rights,
+        contains(ManagedAclRight.read),
+      );
+      expect(
+        folderSyncRootRefusal(root.path, approval: warning.approval),
+        isNull,
+      );
+      final changed = Process.runSync('setfacl', ['-m', 'd:o::rwx', root.path]);
+      expect(changed.exitCode, 0, reason: changed.stderr.toString());
+      expect(
+        folderSyncRootRefusal(
+          root.path,
+          approval: warning.approval,
+        )?.approval?.writeAccess,
+        isTrue,
+      );
+    },
+    skip:
+        !Platform.isLinux ||
+        Process.runSync('/bin/sh', ['-c', 'command -v setfacl']).exitCode != 0,
+  );
+
   test('a macOS list and search ACL can be accepted', () {
     final root = tempRoot('xveil_gate_darwin_readable');
     final acl = Process.runSync('/bin/chmod', [

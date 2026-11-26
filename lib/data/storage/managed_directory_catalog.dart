@@ -36,6 +36,7 @@ import 'managed_sqlite_connection.dart';
 import 'managed_store_tag.dart';
 import 'native_handle_close.dart';
 import 'plain_sqlite_kv_log_store.dart';
+import 'profile_preferences_file.dart' show FileReplacementAccess;
 import 'rollback_anchor.dart';
 
 part 'managed_identity_files.dart';

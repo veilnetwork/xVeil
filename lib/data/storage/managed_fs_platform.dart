@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -91,9 +92,21 @@ class ManagedFsPlatform {
       // The witness compares libc and Dart observations. The first writer
       // can tighten an admitted profile directory between those calls.
       // Retry the complete check once before refusing the path.
-      var facts = posixLstat(path) ?? posixLstat(path);
+      int? posixError;
+      void recordError(int code) => posixError = code;
+      var facts = posixLstat(path, onError: recordError);
+      if (facts == null) {
+        posixError = null;
+        facts = posixLstat(path, onError: recordError);
+      }
       if (current == null || facts == null) {
-        throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
+        throw ManagedFsFailure(
+          posixError == 1 || posixError == 13
+              ? ManagedFsFailureKind.io
+              : ManagedFsFailureKind.unavailable,
+          path: path,
+          posixError: posixError,
+        );
       }
       if (!facts.isDirectory && !facts.isRegularFile) {
         throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
@@ -129,15 +142,35 @@ class ManagedFsPlatform {
       final safeAncestor =
           policy.safeAncestor &&
           (appleAcl.safe || includeApprovedAcl && reviewableAppleAcl);
-      final ownerOnly = policy.ownerOnly && appleAcl.safe;
-      final warning = safeAncestor && ownerOnly && policy.ownedByCurrentUser
+      final inspectInherited = allowDirectoryContentGrants && facts.isDirectory;
+      final inheritedAcl = inspectInherited && !darwin
+          ? readLinuxStorageAcl(path, defaultAcl: true)
+          : Uint8List(0);
+      if (inheritedAcl == null) {
+        throw ManagedFsFailure(ManagedFsFailureKind.unavailable, path: path);
+      }
+      final warning =
+          safeAncestor &&
+              policy.ownerOnly &&
+              policy.ownedByCurrentUser &&
+              appleAcl.safe &&
+              inheritedAcl.isEmpty
           ? null
           : managedPosixAclWarning(
               path,
               facts,
               currentUid: current,
               darwinAcl: appleAcl.text,
+              inheritedAcl: inheritedAcl,
             );
+      if (inspectInherited && inheritedAcl.isNotEmpty && warning == null) {
+        throw ManagedFsFailure(ManagedFsFailureKind.unavailable, path: path);
+      }
+      final inheritedGrants = inspectInherited
+          ? warning?.inheritedGrants ?? const <ManagedAclGrant>[]
+          : const <ManagedAclGrant>[];
+      final ownerOnly =
+          policy.ownerOnly && appleAcl.safe && inheritedGrants.isEmpty;
       final approved =
           warning != null && hasStorageAclApproval(warning.fingerprint);
       // Unapproved Darwin ACLs previously stopped inspection itself. Preserve
@@ -149,6 +182,7 @@ class ManagedFsPlatform {
           unsafeReason: facts.isDirectory
               ? ManagedFsUnsafeReason.unsafeAncestor
               : ManagedFsUnsafeReason.privateFile,
+          path: path,
           aclWarnings: [?warning],
         );
       }
@@ -161,7 +195,15 @@ class ManagedFsPlatform {
         aclWarning: approved && !includeApprovedAcl ? null : warning,
         aclApproved: approved,
         otherUsersHaveReadOnlyAccess:
-            !facts.groupOrOtherWritable && appleAcl.readOnly,
+            !facts.groupOrOtherWritable &&
+            appleAcl.readOnly &&
+            inheritedGrants.every(
+              (grant) => grant.rights.every(
+                (right) =>
+                    right == ManagedAclRight.read ||
+                    right == ManagedAclRight.execute,
+              ),
+            ),
         unsafeAncestorCause: safeAncestor
             ? null
             : _isTrustedPosixOwner(facts.uid, current, android)
@@ -411,6 +453,7 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
   final tag = calloc<Int32>();
   final flags = calloc<Pointer<Void>>();
   final mask = calloc<Uint64>();
+  final currentUser = calloc<Uint8>(16);
   final length = calloc<IntPtr>();
   Pointer<Utf8> text = nullptr;
   try {
@@ -419,6 +462,14 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
           Pointer<Void> Function(Pointer<Utf8>, Int32),
           Pointer<Void> Function(Pointer<Utf8>, int)
         >('acl_get_link_np');
+    final currentUid = Platform.isMacOS ? posixEuid() : null;
+    final haveCurrentUser =
+        currentUid != null &&
+        lib.lookupFunction<
+              Int32 Function(Uint32, Pointer<Uint8>),
+              int Function(int, Pointer<Uint8>)
+            >('mbr_uid_to_uuid')(currentUid, currentUser) ==
+            0;
     final next = lib
         .lookupFunction<
           Int32 Function(Pointer<Void>, Int32, Pointer<Pointer<Void>>),
@@ -501,6 +552,10 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
         return null;
       }
       if (tag.value == 1) {
+        if (haveCurrentUser &&
+            _darwinAclIsCurrentUser(lib, entry.value, currentUser)) {
+          continue;
+        }
         hasAllow = true;
         if (readMask(entry.value, mask) != 0) return null;
         if (mask.value & ~readRights != 0) readOnly = false;
@@ -530,10 +585,35 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
         int Function(Pointer<Void>)
       >('acl_free')(acl);
     }
+    calloc.free(currentUser);
     calloc.free(mask);
     calloc.free(tag);
     calloc.free(flags);
     calloc.free(entry);
     calloc.free(name);
+  }
+}
+
+bool _darwinAclIsCurrentUser(
+  DynamicLibrary lib,
+  Pointer<Void> entry,
+  Pointer<Uint8> currentUser,
+) {
+  final account = lib
+      .lookupFunction<
+        Pointer<Uint8> Function(Pointer<Void>),
+        Pointer<Uint8> Function(Pointer<Void>)
+      >('acl_get_qualifier')(entry);
+  if (account == nullptr) return false;
+  try {
+    for (var byte = 0; byte < 16; byte++) {
+      if (account[byte] != currentUser[byte]) return false;
+    }
+    return true;
+  } finally {
+    lib.lookupFunction<
+      Int32 Function(Pointer<Void>),
+      int Function(Pointer<Void>)
+    >('acl_free')(account.cast());
   }
 }

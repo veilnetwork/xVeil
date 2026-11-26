@@ -584,13 +584,14 @@ final class _ManagedIdentityResources {
   }
 
   void acquireLease() {
-    owner._fs.requirePrivateFile(
+    final sidecar = owner._fs.requirePrivateFile(
       file('identity.meta.lock'),
       allowReadOnlyAclApproval: true,
     );
     lease = ManagedIdentityLease.openOwned(
       _sql('identity.meta'),
       expected: entry,
+      sidecarAccess: sidecar,
     );
   }
 

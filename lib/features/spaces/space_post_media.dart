@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/document_export.dart';
+import '../common/document_export_review.dart';
 import '../../core/ids.dart';
 import '../../state/app_controller.dart';
 import '../../data/serve_source.dart';
@@ -384,10 +385,17 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
         size: size,
         read: (offset, count) => storage.readFileRange(cid, offset, count),
         stillOurs: current,
+        pick: (name) =>
+            openReviewedExportDocument(context, name, stillCurrent: current),
       );
       if (!saved) return;
       message = l.chatFileSaved;
     } on DocumentExportException catch (error) {
+      if (mounted &&
+          current() &&
+          await showDocumentExportAccessFailure(context, error)) {
+        return;
+      }
       message = documentExportFailureText(l, error, l.chatFileSaveFailed);
     } catch (_) {
       message = l.chatFileSaveFailed;

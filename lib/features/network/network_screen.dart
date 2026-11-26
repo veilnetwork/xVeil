@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/help_label.dart';
+import 'background_permission_offer.dart' show requestBackgroundExemption;
 import '../bootstrap/startup_failed_app.dart' show RuntimeRefusalDetails;
 import '../common/shown_cause.dart';
 import '../calls/call_screen_permission.dart';
@@ -952,7 +953,7 @@ Future<void> _promptBackgroundPermission(
         FilledButton(
           onPressed: () {
             Navigator.pop(ctx);
-            VeilBackground.requestIgnoreBatteryOptimizations();
+            unawaited(requestBackgroundExemption(context));
           },
           child: Text(l.networkBackgroundAllowGrant),
         ),

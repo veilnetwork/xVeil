@@ -14,13 +14,22 @@ ManagedStorageAclWarning? managedPosixAclWarning(
   PosixFileFacts facts, {
   required int currentUid,
   String darwinAcl = '',
+  Uint8List? inheritedAcl,
 }) {
   final linuxAcl = Platform.isLinux || Platform.isAndroid
       ? readLinuxStorageAcl(path)
       : Uint8List(0);
   if (linuxAcl == null) return null;
-  final grants = _posixGrants(facts, linuxAcl);
-  if (grants == null) return null;
+  final grants = _posixGrants(facts, linuxAcl, currentUid: currentUid);
+  final inherited = inheritedAcl == null || inheritedAcl.isEmpty
+      ? const <ManagedAclGrant>[]
+      : _posixGrants(
+          facts,
+          inheritedAcl,
+          defaults: true,
+          currentUid: currentUid,
+        );
+  if (grants == null || inherited == null) return null;
   final after = posixLstat(path);
   if (after == null ||
       !after.sameObjectAs(facts) ||
@@ -35,8 +44,11 @@ ManagedStorageAclWarning? managedPosixAclWarning(
     directory: facts.isDirectory,
     owner: facts.uid == currentUid ? null : _accountLabel(facts.uid),
     extendedAcl: darwinAcl.isEmpty ? null : darwinAcl,
-    grants: [...grants, ..._darwinDisplayGrants(darwinAcl)],
-    inheritedGrants: _darwinDisplayGrants(darwinAcl, inheritOnly: true),
+    grants: [...grants, ..._darwinDisplayGrants(darwinAcl, currentUid)],
+    inheritedGrants: [
+      ...inherited,
+      ..._darwinDisplayGrants(darwinAcl, currentUid, inherited: true),
+    ],
     grantsArePotential: darwinAcl.isNotEmpty,
     fingerprint: sha256
         .convert(
@@ -53,6 +65,7 @@ ManagedStorageAclWarning? managedPosixAclWarning(
               facts.mode,
               darwinAcl,
               base64Encode(linuxAcl),
+              if (inheritedAcl?.isNotEmpty == true) base64Encode(inheritedAcl!),
             ]),
           ),
         )
@@ -63,8 +76,9 @@ ManagedStorageAclWarning? managedPosixAclWarning(
 /// Interpret the human-readable entries for the local UI only. Admission and
 /// consent still use the native ACL masks and the exact serialized ACL.
 Iterable<ManagedAclGrant> _darwinDisplayGrants(
-  String acl, {
-  bool inheritOnly = false,
+  String acl,
+  int currentUid, {
+  bool inherited = false,
 }) sync* {
   for (final line in const LineSplitter().convert(acl)) {
     final fields = line.split(':');
@@ -73,11 +87,15 @@ Iterable<ManagedAclGrant> _darwinDisplayGrants(
     }
     final flags = fields[4].split(',');
     if (!flags.contains('allow') ||
-        flags.contains('only_inherit') != inheritOnly) {
+        (inherited
+            ? !flags.contains('file_inherit') &&
+                  !flags.contains('directory_inherit')
+            : flags.contains('only_inherit'))) {
       continue;
     }
     final name = fields[2];
     final id = int.tryParse(fields[3]);
+    if (fields[0] == 'user' && id == currentUid) continue;
     final account = name == 'everyone' && fields[0] == 'group'
         ? ''
         : name.isNotEmpty
@@ -117,32 +135,52 @@ Set<ManagedAclRight> _modeRights(int bits) => {
   if (bits & 1 != 0) ManagedAclRight.execute,
 };
 
-List<ManagedAclGrant>? _posixGrants(PosixFileFacts facts, Uint8List acl) {
-  final groupMask = (facts.permissions >> 3) & 7;
-  final other = facts.permissions & 7;
-  final grants = <ManagedAclGrant>[
-    if (other != 0) (account: '', rights: _modeRights(other)),
-  ];
+List<ManagedAclGrant>? _posixGrants(
+  PosixFileFacts facts,
+  Uint8List acl, {
+  bool defaults = false,
+  required int currentUid,
+}) {
+  var groupMask = (facts.permissions >> 3) & 7;
+  var other = facts.permissions & 7;
   if (acl.isEmpty) {
-    if (groupMask != 0) {
-      grants.add((
-        account: _accountLabel(facts.gid, group: true),
-        rights: _modeRights(groupMask),
-      ));
-    }
-    return grants;
+    return [
+      if (other != 0) (account: '', rights: _modeRights(other)),
+      if (groupMask != 0)
+        (
+          account: _accountLabel(facts.gid, group: true),
+          rights: _modeRights(groupMask),
+        ),
+    ];
   }
   // Linux UAPI POSIX ACL xattr, version 2, with fixed-width LE entries.
   if (acl.length < 4 || (acl.length - 4) % 8 != 0) return null;
   final data = ByteData.sublistView(acl);
   if (data.getUint32(0, Endian.little) != 2) return null;
+  final entries = <(int, int, int)>[];
+  int? defaultMask, defaultGroup;
   for (var offset = 4; offset < acl.length; offset += 8) {
     final tag = data.getUint16(offset, Endian.little);
     final permissions = data.getUint16(offset + 2, Endian.little);
     final id = data.getUint32(offset + 4, Endian.little);
     if (permissions > 7) return null;
+    if (defaults) {
+      if (tag == 16) defaultMask = permissions;
+      if (tag == 4) defaultGroup = permissions;
+      if (tag == 32) other = permissions;
+    }
+    entries.add((tag, permissions, id));
+  }
+  if (defaults) {
+    if (defaultMask == null && defaultGroup == null) return null;
+    groupMask = defaultMask ?? defaultGroup!;
+  }
+  final grants = <ManagedAclGrant>[
+    if (other != 0) (account: '', rights: _modeRights(other)),
+  ];
+  for (final (tag, permissions, id) in entries) {
     final account = switch (tag) {
-      2 => _accountLabel(id),
+      2 => id == currentUid ? null : _accountLabel(id),
       4 => _accountLabel(facts.gid, group: true),
       8 => _accountLabel(id, group: true),
       1 || 16 || 32 => null, // owner, mask, other
@@ -195,9 +233,9 @@ String _accountLabel(int id, {bool group = false}) {
   }
 }
 
-Uint8List? readLinuxStorageAcl(String path) {
+Uint8List? readLinuxStorageAcl(String path, {bool defaultAcl = false}) {
   try {
-    return _linuxAccessAcl(path);
+    return _linuxAccessAcl(path, defaultAcl: defaultAcl);
   } on ArgumentError {
     return null;
   }
@@ -258,9 +296,13 @@ bool writePosixStorageAcl(int fd, String acl) {
   });
 }
 
-Uint8List? _linuxAccessAcl(String path) => using((arena) {
+Uint8List? _linuxAccessAcl(String path, {required bool defaultAcl}) => using((
+  arena,
+) {
   final libc = DynamicLibrary.process();
-  final attribute = 'system.posix_acl_access'.toNativeUtf8(allocator: arena);
+  final attribute =
+      (defaultAcl ? 'system.posix_acl_default' : 'system.posix_acl_access')
+          .toNativeUtf8(allocator: arena);
   final filename = path.toNativeUtf8(allocator: arena);
   final get = libc
       .lookupFunction<

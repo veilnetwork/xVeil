@@ -15023,6 +15023,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again.'**
   String get startupUnlockVaultUnavailable;
+
+  /// No description provided for @networkBackgroundRequestUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Android could not open the battery exemption request. You can check this permission in system settings.'**
+  String get networkBackgroundRequestUnavailable;
+
+  /// No description provided for @mediaPermissionRestricted.
+  ///
+  /// In en, this message translates to:
+  /// **'A system restriction blocks access to the microphone or camera.'**
+  String get mediaPermissionRestricted;
+
+  /// No description provided for @transferArchiveReadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the archive at {path}. {reason}'**
+  String transferArchiveReadFailed(String path, String reason);
+
+  /// No description provided for @plainDownloadChooseDestinationAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'The app could not verify the original download file. Choose a save location again.'**
+  String get plainDownloadChooseDestinationAgain;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

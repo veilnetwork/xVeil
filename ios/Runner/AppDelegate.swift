@@ -220,14 +220,22 @@ final class ScreenPrivacyGuard {
         switch AVCaptureDevice.authorizationStatus(for: media) {
         case .authorized:
           result(true)
-        case .denied, .restricted:
+        case .denied:
           result(false)
+        case .restricted:
+          result("restricted")
         case .notDetermined:
           AVCaptureDevice.requestAccess(for: media) { granted in
-            DispatchQueue.main.async { result(granted) }
+            DispatchQueue.main.async {
+              if !granted && AVCaptureDevice.authorizationStatus(for: media) == .restricted {
+                result("restricted")
+              } else {
+                result(granted)
+              }
+            }
           }
         @unknown default:
-          result(false)
+          result(nil)
         }
       default:
         result(FlutterMethodNotImplemented)

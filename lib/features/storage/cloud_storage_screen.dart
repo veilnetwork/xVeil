@@ -1,3 +1,5 @@
+import '../common/document_export_review.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -2925,7 +2927,19 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _working = true);
     try {
-      final result = await exportCloudItem(widget.service, widget.item);
+      final result = await exportCloudItem(
+        widget.service,
+        widget.item,
+        pick: (name) => openReviewedExportDocument(
+          context,
+          name,
+          stillCurrent: () => mounted && !widget.service.isClosed,
+        ),
+        onExportFailure: (error) async =>
+            mounted &&
+            !widget.service.isClosed &&
+            await showDocumentExportAccessFailure(context, error),
+      );
       // Cancelling the save dialog is not a failure and gets no report.
       if (!mounted || result == CloudExportResult.cancelled) return;
       messenger.showSnackBar(

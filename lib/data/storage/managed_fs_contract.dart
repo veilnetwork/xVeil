@@ -103,12 +103,18 @@ final class ManagedFsFailure implements Exception {
     this.unsafeReason,
     this.ancestorRefusal,
     this.path,
+    this.posixError,
     this.aclWarnings = const [],
   });
   final ManagedFsFailureKind kind;
   final ManagedFsUnsafeReason? unsafeReason;
   final ManagedAncestorRefusal? ancestorRefusal;
   final String? path;
+  final int? posixError;
+  bool get accessDenied =>
+      posixError == 1 ||
+      posixError == 13 ||
+      unsafeReason == ManagedFsUnsafeReason.windowsPathAccessDenied;
   final List<ManagedStorageAclWarning> aclWarnings;
   @override
   String toString() => 'ManagedFsFailure(${kind.name})';

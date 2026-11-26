@@ -8709,4 +8709,21 @@ class AppL10nEn extends AppL10n {
   @override
   String get startupUnlockVaultUnavailable =>
       'The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again.';
+
+  @override
+  String get networkBackgroundRequestUnavailable =>
+      'Android could not open the battery exemption request. You can check this permission in system settings.';
+
+  @override
+  String get mediaPermissionRestricted =>
+      'A system restriction blocks access to the microphone or camera.';
+
+  @override
+  String transferArchiveReadFailed(String path, String reason) {
+    return 'Could not read the archive at $path. $reason';
+  }
+
+  @override
+  String get plainDownloadChooseDestinationAgain =>
+      'The app could not verify the original download file. Choose a save location again.';
 }

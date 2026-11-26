@@ -1115,10 +1115,14 @@ void verifyRuntimeDir(String dir) {
   } on ManagedFsFailure catch (error) {
     final warning = error.aclWarnings.firstOrNull;
     throw RuntimeDirNotPrivate(
-      dir,
-      'could not verify a private runtime directory',
+      error.path ?? dir,
+      error.accessDenied
+          ? 'operating system denied permission to inspect the runtime directory'
+          : 'could not verify a private runtime directory',
       retryable: true,
-      refusal: warning == null
+      refusal: error.accessDenied
+          ? RuntimeDirectoryRefusal.accessDenied
+          : warning == null
           ? RuntimeDirectoryRefusal.cannotVerify
           : RuntimeDirectoryRefusal.insufficientPrivacy,
       aclWarning: warning,

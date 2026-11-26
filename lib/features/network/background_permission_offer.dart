@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:veil_flutter/veil_flutter.dart';
 
 import '../../data/storage/profile_preferences.dart';
@@ -60,8 +61,38 @@ Future<void> maybeOfferBackgroundPermission(
   await showBackgroundPermissionOffer(
     context,
     enableBackground: enableBackground,
-    requestExemption: VeilBackground.requestIgnoreBatteryOptimizations,
+    requestExemption: () => requestBackgroundExemption(context),
     openSettings: VeilBackground.openBackgroundSettings,
+  );
+}
+
+Future<void> requestBackgroundExemption(BuildContext context) async {
+  if (!Platform.isAndroid) return;
+  const lifecycle = MethodChannel('veil_flutter/lifecycle');
+  bool? opened;
+  try {
+    final exempt = await lifecycle.invokeMethod<bool>(
+      'isIgnoringBatteryOptimizations',
+    );
+    if (exempt == true || !context.mounted) return;
+    opened = await lifecycle.invokeMethod<bool>(
+      'requestIgnoreBatteryOptimizations',
+    );
+  } on PlatformException {
+    opened = false;
+  } on MissingPluginException {
+    opened = false;
+  }
+  if (opened == true || !context.mounted) return;
+  final l = AppL10n.of(context);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(l.networkBackgroundRequestUnavailable),
+      action: SnackBarAction(
+        label: l.networkBackgroundOpenSettings,
+        onPressed: VeilBackground.openBackgroundSettings,
+      ),
+    ),
   );
 }
 

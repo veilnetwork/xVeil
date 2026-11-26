@@ -140,6 +140,54 @@ void main() {
     service = MessagingService(transport, s, plainFileStream: true);
   }
 
+  test(
+    'cold resume asks for a new destination after a file is replaced',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('xveil-resume-choice-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/destination';
+      final target = File(path)..writeAsStringSync('partial');
+      final contentId = cid(73);
+      await service.downloadContentToFile(
+        peer,
+        contentId,
+        path,
+        write: (_, _) async => fail('offline source'),
+        close: () async {},
+      );
+      expect(await service.pendingAutoResumeContentIds(), [contentId]);
+      await restart();
+      target.renameSync('${dir.path}/previous');
+      target.writeAsStringSync('keep this file');
+
+      service.downloadResumeStartDelay = Duration.zero;
+      final choice = service.contentDownloadDestinationNeedsSelection.first;
+      service.start();
+      expect(await choice.timeout(const Duration(seconds: 5)), contentId);
+      expect(await service.pendingAutoResumeContentIds(), isEmpty);
+      expect(target.readAsStringSync(), 'keep this file');
+    },
+  );
+
+  test('cancel leaves a replacement at the old path alone', () async {
+    final dir = Directory.systemTemp.createTempSync('xveil-resume-cancel-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final target = File('${dir.path}/destination')
+      ..writeAsStringSync('partial');
+    final contentId = cid(74);
+    await service.downloadContentToFile(
+      peer,
+      contentId,
+      target.path,
+      write: (_, _) async => fail('offline source'),
+      close: () async {},
+    );
+    target.renameSync('${dir.path}/previous');
+    target.writeAsStringSync('keep this file');
+    await service.cancelContentDownload(contentId, discardPartial: true);
+    expect(target.readAsStringSync(), 'keep this file');
+  });
+
   Future<void> seedResume() => s.putSetting(
     'pending_downloads',
     jsonEncode([

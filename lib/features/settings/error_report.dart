@@ -9,6 +9,7 @@ import '../../core/diagnostic_journal.dart';
 import '../../core/diagnostic_background.dart';
 import '../../core/diagnostic_audio_output.dart';
 import '../../core/document_export.dart';
+import '../common/document_export_review.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Version of the running build.
@@ -109,7 +110,11 @@ Future<void> saveErrorReport(
   final bytes = Uint8List.fromList(utf8.encode(buildErrorReport(phase: phase)));
   ExportDocument? document;
   try {
-    document = await openExportDocument('xveil-diagnostics.json');
+    document = await openReviewedExportDocument(
+      context,
+      'xveil-diagnostics.json',
+      stillCurrent: () => context.mounted,
+    );
     if (document == null) return;
     if (!context.mounted) {
       await document.abort();
@@ -129,7 +134,11 @@ Future<void> saveErrorReport(
       stack: stack,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
-    if (!context.mounted) return;
+    if (!context.mounted ||
+        await showDocumentExportAccessFailure(context, failure) ||
+        !context.mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

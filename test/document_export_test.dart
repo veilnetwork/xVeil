@@ -382,6 +382,99 @@ void main() {
   );
 
   test(
+    'a read grant is reviewed before replacing a desktop export',
+    () async {
+      debugDefaultTargetPlatformOverride = Platform.isMacOS
+          ? TargetPlatform.macOS
+          : TargetPlatform.linux;
+      final dir = Directory.systemTemp.createTempSync('xveil-export-review-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final target = File('${dir.path}/$filename')
+        ..writeAsStringSync('original');
+      expect(posixChmod(target.path, 0x1a0), 0);
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+
+      final declined = await openExportDocument(
+        filename,
+        reviewAccess: (failure) async {
+          expect(failure.path, target.path);
+          expect(failure.aclWarnings.single.canContinue, isTrue);
+          return false;
+        },
+      );
+      expect(declined, isNull);
+      expect(target.readAsStringSync(), 'original');
+
+      final approved = (await openExportDocument(
+        filename,
+        reviewAccess: (_) async => true,
+      ))!;
+      await approved.write([1, 2, 3]);
+      await approved.finish();
+      expect(posixLstat(target.path)?.permissions, 0x1a0);
+      expect(target.readAsBytesSync(), [1, 2, 3]);
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
+    'a new export stages privately under an inherited macOS ACL',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final dir = Directory.systemTemp.createTempSync(
+        'xveil-export-inheritance-',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final acl = Process.runSync('/bin/chmod', [
+        '+a',
+        'everyone allow file_inherit,only_inherit,read',
+        dir.path,
+      ]);
+      expect(acl.exitCode, 0, reason: acl.stderr.toString());
+      final target = File('${dir.path}/$filename');
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+      final document = (await openExportDocument(filename))!;
+      await document.write([1, 2, 3]);
+      await document.finish();
+      expect(posixLstat(target.path)?.permissions, 0x180);
+      expect(target.readAsBytesSync(), [1, 2, 3]);
+    },
+    skip: !Platform.isMacOS,
+  );
+
+  test(
+    'a desktop export describes a write grant while keeping the original',
+    () async {
+      debugDefaultTargetPlatformOverride = Platform.isMacOS
+          ? TargetPlatform.macOS
+          : TargetPlatform.linux;
+      final dir = Directory.systemTemp.createTempSync(
+        'xveil-export-foreign-write-',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final target = File('${dir.path}/$filename')
+        ..writeAsStringSync('original');
+      expect(posixChmod(target.path, 0x1b0), 0);
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+      await expectLater(
+        openExportDocument(filename),
+        throwsA(
+          isA<DocumentExportException>()
+              .having((e) => e.stage, 'stage', 'access-policy')
+              .having((e) => e.filesystemFailure?.path, 'path', target.path)
+              .having(
+                (e) => e.filesystemFailure?.aclWarnings.single.grants,
+                'access evidence',
+                isNotEmpty,
+              ),
+        ),
+      );
+      expect(target.readAsStringSync(), 'original');
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
     'a file that appears during a new export is kept',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;

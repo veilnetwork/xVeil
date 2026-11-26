@@ -2299,7 +2299,7 @@ class AppController extends Notifier<AppState> {
         if (recoveringDeletion &&
             _masterKeys != null &&
             _pendingRoster != null) {
-          _parkEraseRecovery();
+          _parkEraseRecovery(failure: appStorageFailure(e));
           return;
         }
         _clearMasterSession();
@@ -2321,7 +2321,9 @@ class AppController extends Notifier<AppState> {
 
   /// Logical file lengths for the active visible identity, or the shared
   /// legacy container size. Never estimates physically reclaimable blocks.
-  Future<int?> containerSizeBytes() async {
+  Future<int?> containerSizeBytes({
+    void Function(ManagedFsFailure)? onAccessFailure,
+  }) async {
     if (usesManagedStorage) {
       final storage = ref.read(storageProvider);
       if (storage is! StorageUsageSource) return null;
@@ -2331,8 +2333,12 @@ class AppController extends Notifier<AppState> {
           return null;
         }
         return usage?.totalBytes;
-      } catch (_) {
-        return null; // Incomplete/unsafe inventory must not look like 0 B.
+      } catch (error) {
+        if (appStorageFailure(error) case final failure?
+            when ref.mounted && identical(storage, ref.read(storageProvider))) {
+          onAccessFailure?.call(failure);
+        }
+        return null;
       }
     }
     final path = ref.read(deniableBootProvider)?.storePath;
@@ -5047,7 +5053,11 @@ class AppController extends Notifier<AppState> {
       } catch (_) {}
       edit.check();
       if (authenticated) {
-        _parkEraseRecovery(target: previous, hosted: hosted);
+        _parkEraseRecovery(
+          target: previous,
+          hosted: hosted,
+          failure: appStorageFailure(error),
+        );
         return false;
       }
       _endLifecycle();
@@ -5067,14 +5077,21 @@ class AppController extends Notifier<AppState> {
     _eraseRecoveryReturnLabel = null;
   }
 
-  void _parkEraseRecovery({String? target, bool hosted = false}) {
+  void _parkEraseRecovery({
+    String? target,
+    bool hosted = false,
+    ManagedFsFailure? failure,
+  }) {
     _endLifecycle();
     _stopMediaCapture();
     _activeLabel = null;
     _eraseRecoveryReturnLabel = target;
     _eraseRecoveryWasHosted = hosted;
     _restoreAccessVerifier();
-    state = const AppState(AppPhase.identityEraseRecovery);
+    state = AppState(
+      AppPhase.identityEraseRecovery,
+      storageAccessFailure: failure,
+    );
   }
 
   /// Reopens the authenticated parent only to locate the journaled target.
@@ -5153,8 +5170,12 @@ class AppController extends Notifier<AppState> {
             await parent?.close();
           } catch (_) {}
           edit.check();
-          // Keep return/hosting policy and existing authority; inspection errors
-          // never invoke ordinary cached-roster recovery.
+          if (appStorageFailure(error) case final failure?) {
+            state = AppState(
+              AppPhase.identityEraseRecovery,
+              storageAccessFailure: failure,
+            );
+          }
           return false;
         }
       },
@@ -5280,7 +5301,11 @@ class AppController extends Notifier<AppState> {
             await retiringParent?.close();
           } catch (_) {}
           edit.check();
-          _parkEraseRecovery(target: returnLabel, hosted: wasHosted);
+          _parkEraseRecovery(
+            target: returnLabel,
+            hosted: wasHosted,
+            failure: appStorageFailure(error),
+          );
           return false;
         }
       },

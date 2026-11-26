@@ -8817,4 +8817,21 @@ class AppL10nEs extends AppL10n {
   @override
   String get startupUnlockVaultUnavailable =>
       'El almacén del sistema o la autenticación biométrica no están disponibles. Revisa el dispositivo y los ajustes de seguridad antes de volver a guardar.';
+
+  @override
+  String get networkBackgroundRequestUnavailable =>
+      'Android no pudo abrir la solicitud de exención de batería. Puedes revisar este permiso en los ajustes del sistema.';
+
+  @override
+  String get mediaPermissionRestricted =>
+      'Una restricción del sistema bloquea el acceso al micrófono o a la cámara.';
+
+  @override
+  String transferArchiveReadFailed(String path, String reason) {
+    return 'No se pudo leer el archivo en $path. $reason';
+  }
+
+  @override
+  String get plainDownloadChooseDestinationAgain =>
+      'La aplicación no pudo verificar el archivo original de la descarga. Vuelve a elegir dónde guardarlo.';
 }

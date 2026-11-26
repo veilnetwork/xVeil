@@ -85,6 +85,7 @@ class NotificationBinder extends ConsumerStatefulWidget {
 class _NotificationBinderState extends ConsumerState<NotificationBinder>
     with WidgetsBindingObserver {
   StreamSubscription<IncomingNotice>? _sub;
+  StreamSubscription<String>? _downloadDestinationSub;
   ProviderSubscription<MessagingService>? _serviceListener;
   StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
   StreamSubscription<({NodeId spaceId, GroupMessage message})>?
@@ -347,6 +348,22 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _pendingSpaceComments.clear();
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
+    _downloadDestinationSub?.cancel();
+    _downloadDestinationSub = service.contentDownloadDestinationNeedsSelection
+        .listen((_) {
+          if (!mounted ||
+              ref.read(appControllerProvider).phase != AppPhase.ready ||
+              !identical(ref.read(messagingServiceProvider), service)) {
+            return;
+          }
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(
+                AppL10n.of(context).plainDownloadChooseDestinationAgain,
+              ),
+            ),
+          );
+        });
   }
 
   void _subscribeGroups(GroupService? service) {
@@ -1549,6 +1566,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _groupServiceListener?.close();
     _clearRequestListener?.close();
     _sub?.cancel();
+    _downloadDestinationSub?.cancel();
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();

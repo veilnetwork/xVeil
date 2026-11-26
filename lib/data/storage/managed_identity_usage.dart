@@ -65,12 +65,41 @@ final class _ManagedUsageInventory {
     );
   }
 
-  ManagedPathWitness _inspect(String path) {
-    final witness = resources.owner._fs.inspect(path);
+  ManagedPathWitness _inspect(String path, {bool requirePrivate = false}) {
+    final fs = resources.owner._fs;
+    final witness = fs.inspectAcl(path);
+    if (requirePrivate || witness.aclWarning?.extendedAcl != null) {
+      return witness.directory
+          ? ManagedDirectoryCatalog._privateDirectory(
+              path,
+              fs,
+              allowReadOnlyAclApproval: true,
+            )
+          : fs.requirePrivateFile(path, allowReadOnlyAclApproval: true);
+    }
     if (!witness.ownedByCurrentUser || !witness.safeAncestor) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        path: path,
+        aclWarnings: [
+          if (witness.aclWarning case final warning?)
+            warning.withPolicy(canContinue: false),
+        ],
+      );
     }
     return witness;
+  }
+
+  void _verify(
+    String path,
+    ManagedPathWitness expected, {
+    bool requirePrivate = false,
+  }) {
+    final current = _inspect(path, requirePrivate: requirePrivate);
+    if (!expected.sameObject(current) ||
+        expected.aclWarning?.fingerprint != current.aclWarning?.fingerprint) {
+      throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
+    }
   }
 
   Future<void> _directory(
@@ -84,22 +113,17 @@ final class _ManagedUsageInventory {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
     resources.validatePaths();
-    final before = _inspect(path);
+    final privateDirectory =
+        parts.isEmpty || parts.length == 1 && parts.single == 'blobs';
+    final before = _inspect(path, requirePrivate: privateDirectory);
     if (!before.directory) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
     await for (final entity in Directory(path).list(followLinks: false)) {
       resources.validatePaths();
-      ManagedDirectoryCatalog._assertSame(path, before, resources.owner._fs);
+      _verify(path, before, requirePrivate: privateDirectory);
       final name = entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
       final child = [...parts, name];
-      final witness = _inspect(entity.path);
-      if (parts.isEmpty && {..._metadata, ..._data, 'blobs'}.contains(name)) {
-        if (witness.directory != (name == 'blobs')) {
-          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-        }
-        seen.add(name);
-      }
       final metadataFile =
           parts.isEmpty &&
           (_metadata.contains(name) || _sqliteSidecar(name, 'identity.meta'));
@@ -108,6 +132,18 @@ final class _ManagedUsageInventory {
           (_data.contains(name) ||
               (_data.contains('data.store') &&
                   _sqliteSidecar(name, 'data.store')));
+      final privateEntry =
+          metadataFile || dataFile || parts.isEmpty && name == 'blobs';
+      final witness = _inspect(entity.path, requirePrivate: privateEntry);
+      if (parts.isEmpty && {..._metadata, ..._data, 'blobs'}.contains(name)) {
+        if (witness.directory != (name == 'blobs')) {
+          throw ManagedFsFailure(
+            ManagedFsFailureKind.unsafe,
+            path: entity.path,
+          );
+        }
+        seen.add(name);
+      }
       final blobDirectory =
           child.length == 1 && name == 'blobs' ||
           child.length == 2 && child[0] == 'blobs' && _blobName.hasMatch(name);
@@ -121,9 +157,6 @@ final class _ManagedUsageInventory {
           : metadataFile || dataFile || blobFile;
       if (!recognized) unknown++;
       if (witness.directory) {
-        if (child.length == 1 && name == 'blobs' && !witness.ownerOnly) {
-          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-        }
         if (!recognized) {
           unknownEntry?.call(
             _ManagedUnknownEntry(
@@ -144,28 +177,15 @@ final class _ManagedUsageInventory {
               : [...parents, (path: path, witness: before)],
         );
       } else {
-        if ((metadataFile || dataFile) && !witness.ownerOnly) {
-          throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-        }
         final length = await File(entity.path).length();
         // length() follows links; sandwich it between no-follow object checks.
-        ManagedDirectoryCatalog._assertSame(
-          entity.path,
-          witness,
-          resources.owner._fs,
-        );
-        _inspect(entity.path);
+        _verify(entity.path, witness, requirePrivate: privateEntry);
         if (length < 0 || length > 0x7fffffffffffffff - total) {
           throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
         }
         if (!recognized && unknownEntry != null) {
           final stat = await File(entity.path).stat();
-          ManagedDirectoryCatalog._assertSame(
-            entity.path,
-            witness,
-            resources.owner._fs,
-          );
-          _inspect(entity.path);
+          _verify(entity.path, witness, requirePrivate: privateEntry);
           if (stat.type != FileSystemEntityType.file || stat.size != length) {
             throw const ManagedFsFailure(ManagedFsFailureKind.changed);
           }
@@ -194,7 +214,6 @@ final class _ManagedUsageInventory {
         }
       }
     }
-    ManagedDirectoryCatalog._assertSame(path, before, resources.owner._fs);
-    _inspect(path);
+    _verify(path, before, requirePrivate: privateDirectory);
   }
 }

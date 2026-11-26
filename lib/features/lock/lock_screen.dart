@@ -9,7 +9,10 @@ import '../../data/storage/async_kv_log_store.dart'
     show managedStorageFailureReason;
 import '../../data/storage/managed_fs_contract.dart';
 import '../bootstrap/startup_failed_app.dart'
-    show showStorageAccessReview, preferencesFailureText, StorageAclDetails;
+    show
+        reviewStorageOperationAccess,
+        preferencesFailureText,
+        StorageAclDetails;
 import '../../state/app_controller.dart';
 import '../../core/error_journal.dart';
 import '../../domain/storage_locator.dart';
@@ -77,33 +80,15 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
   }
 
-  Future<void> _reviewStorageAccess(ManagedFsFailure failure) async {
-    final l = AppL10n.of(context);
-    final warnings = failure.aclWarnings;
-    final remember = await showStorageAccessReview(context, failure);
-    if (!mounted ||
-        remember == null ||
-        !identical(
+  Future<void> _reviewStorageAccess(ManagedFsFailure failure) =>
+      reviewStorageOperationAccess(
+        context,
+        failure,
+        stillCurrent: () => identical(
           ref.read(appControllerProvider).storageAccessFailure,
           failure,
-        )) {
-      return;
-    }
-    for (final warning in warnings) {
-      if (!await recordStorageAclApproval(warning, remember: remember)) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
-        }
-        return;
-      }
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l.storageAclRetryOperation)));
-  }
+        ),
+      );
 
   Future<void> _startOver() async {
     final l = AppL10n.of(context);
@@ -480,9 +465,31 @@ class WipeReportHost extends ConsumerWidget {
             // tap on the scrim must not be how it goes unread.
             const ModalBarrier(dismissible: false, color: Color(0x99000000)),
             _WipeLeftoverDialog(
+              key: ObjectKey(report),
               remaining: report.remaining,
               stopped: report.stopped,
               storageAccessFailure: report.storageAccessFailure,
+              onApprove: switch (report.storageAccessFailure) {
+                final failure?
+                    when failure.aclWarnings.isNotEmpty &&
+                        failure.aclWarnings.every(
+                          (warning) => warning.canContinue,
+                        ) =>
+                  (remember) async {
+                    for (final warning in failure.aclWarnings) {
+                      if (!context.mounted ||
+                          !identical(ref.read(wipeReportProvider), report) ||
+                          !await recordStorageAclApproval(
+                            warning,
+                            remember: remember,
+                          )) {
+                        return false;
+                      }
+                    }
+                    return true;
+                  },
+                _ => null,
+              },
               onDone: () => ref.read(wipeReportProvider.notifier).dismiss(),
               onRetry: () => ref.read(wipeReportProvider.notifier).runWipe(),
             ),
@@ -503,17 +510,20 @@ class WipeReportHost extends ConsumerWidget {
 ///
 /// Answers through callbacks rather than by popping a route: it is rendered
 /// directly by [WipeReportHost], which has no navigator of its own to pop.
-class _WipeLeftoverDialog extends StatelessWidget {
+class _WipeLeftoverDialog extends StatefulWidget {
   const _WipeLeftoverDialog({
+    super.key,
     required this.remaining,
     required this.stopped,
     this.storageAccessFailure,
+    this.onApprove,
     required this.onDone,
     required this.onRetry,
   });
 
   /// The person has read it; the report is cleared.
   final VoidCallback onDone;
+  final Future<bool> Function(bool remember)? onApprove;
 
   /// Run the whole wipe again. A user gesture with no bound on how many times
   /// it can be pressed, and each pass starts from a fresh call.
@@ -530,9 +540,29 @@ class _WipeLeftoverDialog extends StatelessWidget {
   final ManagedFsFailure? storageAccessFailure;
 
   @override
+  State<_WipeLeftoverDialog> createState() => _WipeLeftoverDialogState();
+}
+
+class _WipeLeftoverDialogState extends State<_WipeLeftoverDialog> {
+  bool _saving = false;
+  bool? _approved;
+
+  Future<void> _approve(bool remember) async {
+    setState(() => _saving = true);
+    final approved = await widget.onApprove!(remember);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _approved = approved;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final remaining = widget.remaining;
+    final stopped = widget.stopped;
     final container = remaining.contains('container');
     final files = remaining.contains('files');
     // One line per surviving thing rather than one sentence for the whole
@@ -587,7 +617,7 @@ class _WipeLeftoverDialog extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(line),
                 ),
-            if (storageAccessFailure case final failure?) ...[
+            if (widget.storageAccessFailure case final failure?) ...[
               if (preferencesFailureText(
                     l,
                     managedStorageFailureReason(failure),
@@ -598,6 +628,13 @@ class _WipeLeftoverDialog extends StatelessWidget {
                 SelectableText(failure.path!),
               for (final warning in failure.aclWarnings)
                 StorageAclDetails(warning),
+              if (widget.onApprove != null) Text(l.startupAclCorrectionHint),
+              if (_approved case final approved?)
+                Text(
+                  approved
+                      ? l.storageAclRetryOperation
+                      : l.startupAclApprovalFailed,
+                ),
             ],
             // Only when the wipe ran to the end. After a throw nothing was
             // verified, so "everything else was destroyed" would be a guess
@@ -613,8 +650,24 @@ class _WipeLeftoverDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        TextButton(onPressed: onDone, child: Text(l.actionDone)),
-        FilledButton(onPressed: onRetry, child: Text(l.lockWipeRetry)),
+        TextButton(
+          onPressed: _saving ? null : widget.onDone,
+          child: Text(l.actionDone),
+        ),
+        if (widget.onApprove != null && _approved != true) ...[
+          OutlinedButton(
+            onPressed: _saving ? null : () => _approve(false),
+            child: Text(l.profileAclContinueOnce),
+          ),
+          OutlinedButton(
+            onPressed: _saving ? null : () => _approve(true),
+            child: Text(l.profileAclRememberChoice),
+          ),
+        ],
+        FilledButton(
+          onPressed: _saving ? null : widget.onRetry,
+          child: Text(l.lockWipeRetry),
+        ),
       ],
     );
   }

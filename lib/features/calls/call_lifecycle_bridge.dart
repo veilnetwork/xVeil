@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import 'desktop_call_notification_bridge.dart';
+import '../network/background_permission_offer.dart'
+    show requestBackgroundExemption;
 
 import '../../core/log.dart';
 import '../../core/background_service_lifetime.dart';
@@ -166,7 +168,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
             FilledButton(
               onPressed: () {
                 Navigator.pop(dialogCtx);
-                VeilBackground.requestIgnoreBatteryOptimizations();
+                unawaited(requestBackgroundExemption(ctx));
               },
               child: Text(l.networkBackgroundAllowGrant),
             ),

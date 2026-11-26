@@ -28,6 +28,7 @@ import '../../domain/data_transfer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../common/shown_cause.dart';
+import '../common/document_export_review.dart';
 import '../../state/data_export.dart';
 import '../../state/data_import.dart';
 import '../../state/cloud_capability_service.dart';
@@ -36,7 +37,8 @@ import '../../state/device_settings_sync.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/device_sync_appliers.dart';
 import '../../state/messaging.dart';
-import '../../state/app_controller.dart' show IdentityLease, appControllerProvider;
+import '../../state/app_controller.dart'
+    show IdentityLease, appControllerProvider;
 import '../../state/identity_guard.dart';
 import '../../state/providers.dart';
 
@@ -105,7 +107,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   /// records went to whichever one was active when each was applied
   /// (report27 X02). `mounted` does not answer this: the widget is still
   /// mounted, which is why the continuation runs at all.
-  Future<({IdentityLease lease, Storage storage, String selfHex, String deviceHex})>
+  Future<
+    ({IdentityLease lease, Storage storage, String selfHex, String deviceHex})
+  >
   _operationOwner() async => (
     lease: ref.leaseIdentity(),
     storage: ref.read(storageProvider),
@@ -216,7 +220,13 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         exporter: exporter,
         name:
             'xveil-${DateTime.now().toIso8601String().split('T').first}.xveilbk',
-        pick: pick,
+        pick: identical(pick, openExportDocument)
+            ? (name) => openReviewedExportDocument(
+                context,
+                name,
+                stillCurrent: () => mounted && ref.holdsIdentity(owner.lease),
+              )
+            : pick,
         stillOurs: () => mounted && ref.holdsIdentity(owner.lease),
         includeIdentity: includeIdentity,
         includeFiles: includeFiles,
@@ -248,7 +258,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
             ? documentExportFailureText(l, e, l.transferExportFailed)
             : cause,
       );
-      _announce(_error!);
+      if (!await showDocumentExportAccessFailure(context, e) && mounted) {
+        _announce(_error!);
+      }
     } finally {
       _exportCancellation = null;
       if (mounted) {
@@ -274,7 +286,13 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     try {
       header = await DataImporter.inspect(file.openRead());
     } catch (e) {
-      setState(() => _error = shownCause(e, kind: 'transfer'));
+      if (mounted) {
+        setState(
+          () => _error = e is TransferReadFailure
+              ? _archiveReadFailure(l, path, e)
+              : shownCause(e, kind: 'transfer'),
+        );
+      }
       return;
     }
 
@@ -380,6 +398,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       // that trying again is safe (report27 X10).
       if (!mounted) return;
       final why = switch (e.cause) {
+        final TransferReadFailure error => _archiveReadFailure(l, path, error),
         TransferException(failure: TransferFailure.truncated) =>
           l.transferTruncated,
         TransferException(failure: TransferFailure.corrupt) =>
@@ -396,6 +415,12 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           e.partial.filesAdded,
           e.partial.settingsFilled,
         );
+      });
+    } on TransferReadFailure catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = null;
+        _error = _archiveReadFailure(l, path, error);
       });
     } on TransferException catch (e) {
       if (!mounted) return;
@@ -420,6 +445,15 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       }
     }
   }
+
+  String _archiveReadFailure(
+    AppL10n l,
+    String path,
+    TransferReadFailure failure,
+  ) => l.transferArchiveReadFailed(
+    path,
+    failure.error.osError?.message ?? failure.error.message,
+  );
 
   Future<String?> _askPassword({required String title}) => showDialog<String>(
     context: context,

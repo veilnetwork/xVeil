@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../common/help_label.dart';
 import '../../core/storage_acl_vault.dart';
-import '../bootstrap/startup_failed_app.dart' show showStorageAccessReview;
+import '../bootstrap/startup_failed_app.dart'
+    show reviewStorageOperationAccess, showStorageAccessReview;
+import '../../data/storage/managed_fs_contract.dart';
 import '../common/translation_models_tile.dart';
 import '../common/whisper_model_tile.dart';
 import 'compaction_offer_dialog.dart';
@@ -36,6 +38,7 @@ class StorageSettingsScreen extends ConsumerStatefulWidget {
 
 class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   int? _size;
+  ManagedFsFailure? _usageFailure;
 
   /// The maintenance readout, or null when there is nothing honest to report
   /// (no real container, several identities, a backing that cannot measure).
@@ -76,7 +79,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   Future<void> _load() async {
     final ctrl = ref.read(appControllerProvider.notifier);
     final lease = ctrl.leaseIdentity();
-    final size = await ctrl.containerSizeBytes();
+    ManagedFsFailure? usageFailure;
+    final size = await ctrl.containerSizeBytes(
+      onAccessFailure: (failure) => usageFailure = failure,
+    );
     final reclaim = await ctrl.storageReclaim();
     final autoCompact = await ctrl.autoCompactEnabled();
     final leanPadding = await ctrl.leanStoragePaddingEnabled();
@@ -94,6 +100,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     setState(() {
       _hardening = hardening;
       _size = size;
+      _usageFailure = usageFailure;
       _reclaim = reclaim;
       _autoCompact = autoCompact;
       _leanPadding = leanPadding;
@@ -101,6 +108,18 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
       _offerNow = offerNow;
       _loaded = true;
     });
+  }
+
+  Future<void> _reviewUsageAccess(ManagedFsFailure failure) async {
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final lease = ctrl.leaseIdentity();
+    final approved = await reviewStorageOperationAccess(
+      context,
+      failure,
+      stillCurrent: () =>
+          ctrl.holdsIdentity(lease) && identical(_usageFailure, failure),
+    );
+    if (approved && mounted && ctrl.holdsIdentity(lease)) await _load();
   }
 
   Future<void> _saveOffer(CompactionOfferSettings next) async {
@@ -439,6 +458,12 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                               '${l.settingsStorageReclaimable(fmtBytes(_reclaim!.reclaimableBytes))}',
                   ),
                 ),
+                if (_usageFailure case final failure?)
+                  ListTile(
+                    leading: const Icon(Icons.warning_amber_outlined),
+                    title: Text(l.storageAclReview),
+                    onTap: () => _reviewUsageAccess(failure),
+                  ),
                 if (_hardening != null)
                   ListTile(
                     leading: Icon(

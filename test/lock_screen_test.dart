@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
+import 'package:xveil/data/storage/storage_acl_approval.dart';
 import 'package:xveil/features/lock/lock_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/routing/router.dart';
@@ -32,10 +34,15 @@ Widget _appAround(Widget home) => MaterialApp(
 );
 
 class _RewriteWipeReport extends WipeReportController {
-  _RewriteWipeReport(this.code);
+  _RewriteWipeReport(this.code, {this.failure});
   final String code;
+  final ManagedFsFailure? failure;
   @override
-  WipeReport? build() => WipeReport(remaining: [code], stopped: false);
+  WipeReport? build() => WipeReport(
+    remaining: [code],
+    stopped: false,
+    storageAccessFailure: failure,
+  );
 }
 
 void main() {
@@ -122,6 +129,47 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets(
+    'the wipe report accepts a scoped choice above the router',
+    (tester) async {
+      const fingerprint = 'fixture-wipe-read-grant';
+      final previous = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(previous));
+      final failure = ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        aclWarnings: [
+          ManagedStorageAclWarning(
+            path: '/fixture/remaining-file',
+            fingerprint: fingerprint,
+            grants: [
+              (account: 'fixture', rights: {ManagedAclRight.read}),
+            ],
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            wipeReportProvider.overrideWith(
+              () => _RewriteWipeReport('files', failure: failure),
+            ),
+          ],
+          child: _appAround(const Scaffold()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(WipeReportHost)));
+      expect(hasStorageAclApproval(fingerprint), isFalse);
+      await tester.tap(find.text(l.profileAclContinueOnce));
+      await tester.pumpAndSettle();
+      expect(hasStorageAclApproval(fingerprint), isTrue);
+      expect(find.text(l.storageAclRetryOperation), findsOneWidget);
+      expect(find.text(l.lockWipeRetry), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    skip: Platform.isWindows,
+  );
 
   testWidgets('Start over confirms then returns to onboarding', (tester) async {
     late ProviderContainer container;

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/identity_erase_review.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../bootstrap/startup_failed_app.dart' show reviewStorageOperationAccess;
 import '../settings/error_report.dart';
 
 class IdentityEraseRecoveryScreen extends ConsumerStatefulWidget {
@@ -129,6 +130,9 @@ class _RecoveryState extends ConsumerState<IdentityEraseRecoveryScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final theme = Theme.of(context);
+    final accessFailure = ref.watch(
+      appControllerProvider.select((state) => state.storageAccessFailure),
+    );
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -170,6 +174,22 @@ class _RecoveryState extends ConsumerState<IdentityEraseRecoveryScreen> {
                           : const Icon(Icons.refresh),
                       label: Text(l.lockWipeRetry),
                     ),
+                    if (accessFailure != null)
+                      TextButton(
+                        onPressed: _busy || _confirming
+                            ? null
+                            : () => reviewStorageOperationAccess(
+                                context,
+                                accessFailure,
+                                stillCurrent: () => identical(
+                                  ref
+                                      .read(appControllerProvider)
+                                      .storageAccessFailure,
+                                  accessFailure,
+                                ),
+                              ),
+                        child: Text(l.storageAclReview),
+                      ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       key: const Key('identity-erase-review'),

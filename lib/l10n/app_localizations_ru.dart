@@ -8779,4 +8779,21 @@ class AppL10nRu extends AppL10n {
   @override
   String get startupUnlockVaultUnavailable =>
       'Системное хранилище или биометрия сейчас недоступны. Проверьте устройство и настройки безопасности, затем повторите сохранение.';
+
+  @override
+  String get networkBackgroundRequestUnavailable =>
+      'Android не смог открыть запрос на отключение оптимизации батареи. Разрешение можно проверить в настройках системы.';
+
+  @override
+  String get mediaPermissionRestricted =>
+      'Системное ограничение блокирует доступ к микрофону или камере.';
+
+  @override
+  String transferArchiveReadFailed(String path, String reason) {
+    return 'Не удалось прочитать архив по пути $path. $reason';
+  }
+
+  @override
+  String get plainDownloadChooseDestinationAgain =>
+      'Не удалось проверить исходный файл загрузки. Выберите место сохранения заново.';
 }

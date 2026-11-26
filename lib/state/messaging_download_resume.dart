@@ -74,6 +74,10 @@ class _MessagingDownloadResume {
   _receivedSub;
 
   final _resuming = StreamController<Set<String>>.broadcast();
+  final _destinationNeedsSelection = StreamController<String>.broadcast();
+
+  Stream<String> get destinationNeedsSelection =>
+      _destinationNeedsSelection.stream;
   Set<String> _lastResuming = const {};
 
   Duration startDelay = const Duration(seconds: 8);
@@ -81,8 +85,15 @@ class _MessagingDownloadResume {
   Duration backoffCap = const Duration(minutes: 10);
   Duration liveGrace = const Duration(seconds: 10);
 
+  Future<VeilPlainFileSink?> Function(String path, {bool resume})?
+  _testPlainFileSinkOpener;
+
   Future<VeilPlainFileSink?> Function(String path, {bool resume})
-  plainFileSinkOpener = veilPlainFileSinkOpener;
+  get plainFileSinkOpener =>
+      _testPlainFileSinkOpener ?? veilPlainFileSinkOpener;
+  set plainFileSinkOpener(
+    Future<VeilPlainFileSink?> Function(String path, {bool resume}) value,
+  ) => _testPlainFileSinkOpener = value;
 
   Stream<Set<String>> get resuming => _resuming.stream;
 
@@ -123,7 +134,10 @@ class _MessagingDownloadResume {
     );
   }
 
-  Future<String?> cancel(String contentId) async {
+  Future<String?> cancel(
+    String contentId, {
+    required bool discardPartial,
+  }) async {
     final pendingCancellation = _cancellations[contentId];
     if (pendingCancellation != null) {
       await pendingCancellation.future;
@@ -163,13 +177,27 @@ class _MessagingDownloadResume {
     }
 
     try {
-      // Enqueue the removal before any later request can enqueue its write.
-      await Future.wait([_removePending(contentId), closeCancelledPulls()]);
+      _PendingDownload? cancelledIntent;
+      final removal = _removePending(
+        contentId,
+        matches: (intent) {
+          cancelledIntent = intent;
+          return true;
+        },
+      );
+      _clearRetryState(contentId);
+      await Future.wait([removal, closeCancelledPulls()]);
       // The UI can delete a returned path. A newer attempt may have reused it
       // even if its transfer has already completed.
       if (!isCurrent()) return null;
       if (!_owner._contentCancelled.isClosed) {
         _owner._contentCancelled.add(contentId);
+      }
+      if (cancelledIntent?.externalPath case final path? when discardPartial) {
+        discardPlainDownloadDestination(
+          path,
+          cancelledIntent?.destinationIdentity,
+        );
       }
       _owner._signal();
       return savedPath;
@@ -340,6 +368,7 @@ class _MessagingDownloadResume {
     String contentId, {
     required String mode,
     String? savedPath,
+    String? destinationIdentity,
     required Iterable<NodeId> peers,
     required bool Function() isCurrent,
   }) async {
@@ -360,6 +389,9 @@ class _MessagingDownloadResume {
         contentId: contentId,
         mode: mode,
         savedPath: savedPath ?? prior?.savedPath,
+        destinationIdentity: savedPath == null
+            ? prior?.destinationIdentity
+            : destinationIdentity,
         peers: {...?prior?.peers, ...peerHexes}.toList(growable: false),
         requestedAt: prior?.requestedAt ?? DateTime.now(),
       );
@@ -792,7 +824,31 @@ class _MessagingDownloadResume {
   }) async {
     final contentId = intent.contentId;
     final path = intent.savedPath!;
-    final sink = await plainFileSinkOpener(path, resume: true);
+    final testOpener = _testPlainFileSinkOpener;
+    final expected = intent.destinationIdentity;
+    if (testOpener == null &&
+        (expected == null ||
+            plainDownloadDestinationIdentity(path) != expected)) {
+      await _removePending(
+        contentId,
+        matches: (current) => isCurrent() && identical(current, intent),
+      );
+      if (isCurrent()) {
+        _destinationNeedsSelection.add(contentId);
+        if (!_owner._contentCancelled.isClosed) {
+          _owner._contentCancelled.add(contentId);
+        }
+        _owner._signal();
+      }
+      return;
+    }
+    final sink = testOpener == null
+        ? await veilPlainFileSinkOpener(
+            path,
+            resume: true,
+            expectedIdentity: expected,
+          )
+        : await testOpener(path, resume: true);
     if (!isCurrent()) {
       // Openers cannot be cancelled. Retain ownership of their late handle,
       // but never give an obsolete destination back to the download engine.
@@ -813,6 +869,7 @@ class _MessagingDownloadResume {
       sink,
       userInitiated: false,
       localCopyOnly: localCopyOnly,
+      destinationIdentity: expected,
     );
     if (result == ContentDownloadResult.noOffer) {
       await sink.close();
@@ -834,5 +891,6 @@ class _MessagingDownloadResume {
     _receivedSub = null;
     await _writeChain;
     await _resuming.close();
+    await _destinationNeedsSelection.close();
   }
 }

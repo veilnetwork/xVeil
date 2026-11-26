@@ -1,6 +1,8 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <appmodel.h>
+#include <winrt/Windows.UI.Notifications.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -37,6 +39,7 @@ FlutterWindow::~FlutterWindow() {
   // destructor has nothing left to tear down. It exits in 3 s.
   //
   // Moving out leaves the member null for the whole of the deleter's work.
+  notification_channel_.reset();
   auto controller = std::move(flutter_controller_);
 }
 
@@ -56,6 +59,47 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  notification_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "xveil/notification_permissions",
+          &flutter::StandardMethodCodec::GetInstance());
+  notification_channel_->SetMethodCallHandler([](const auto& call, auto result) {
+    if (call.method_name() != "status") {
+      result->NotImplemented();
+      return;
+    }
+    const auto* args = call.arguments();
+    const auto* app_id = args ? std::get_if<std::string>(args) : nullptr;
+    if (!app_id || app_id->empty()) {
+      result->Success();
+      return;
+    }
+    try {
+      using winrt::Windows::UI::Notifications::NotificationSetting;
+      using winrt::Windows::UI::Notifications::ToastNotificationManager;
+      UINT32 length = 0;
+      const bool packaged =
+          GetCurrentPackageFullName(&length, nullptr) == ERROR_INSUFFICIENT_BUFFER;
+      const auto notifier = packaged
+          ? ToastNotificationManager::CreateToastNotifier()
+          : ToastNotificationManager::CreateToastNotifier(winrt::to_hstring(*app_id));
+      switch (notifier.Setting()) {
+        case NotificationSetting::Enabled:
+          result->Success(flutter::EncodableValue(true));
+          return;
+        case NotificationSetting::DisabledForApplication:
+        case NotificationSetting::DisabledForUser:
+        case NotificationSetting::DisabledByGroupPolicy:
+        case NotificationSetting::DisabledByManifest:
+          result->Success(flutter::EncodableValue(false));
+          return;
+      }
+    } catch (const winrt::hresult_error&) {
+      // An unregistered or unsupported backend has no permission result.
+    }
+    result->Success();
+  });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -71,6 +115,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  notification_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

@@ -240,7 +240,12 @@ void main() {
     const account = 'S-1-1-0';
     const delete = 0x10000;
     final rules = [rule(account, delete), rule(account, 1)];
-    ({String fingerprint, Map<String, int> grants})? grant({
+    ({
+      String fingerprint,
+      Map<String, int> grants,
+      Map<String, int> inheritedGrants,
+    })?
+    grant({
       List<Object>? entries,
       String path = support,
       String identity = 'fixture-1',
@@ -251,6 +256,37 @@ void main() {
       legacySupportPath: support,
       identity: identity,
       currentSid: current,
+    );
+
+    test(
+      'an inherit-only grant is reported for sync without granting directory access',
+      () {
+        final facts = {
+          'owner': current,
+          'rules': [
+            {'sid': account, 'rights': 1, 'allow': true, 'inheritOnly': true},
+          ],
+        };
+        expect(managedWindowsAclPolicy(facts, current)?.ownerOnly, isTrue);
+        expect(
+          managedWindowsAclGrant(
+            facts: facts,
+            path: support,
+            identity: 'fixture',
+            currentSid: current,
+          ),
+          isNull,
+        );
+        final inherited = managedWindowsAclGrant(
+          facts: facts,
+          path: support,
+          identity: 'fixture',
+          currentSid: current,
+          includeInheritedContentAcl: true,
+        )!;
+        expect(inherited.grants, isEmpty);
+        expect(inherited.inheritedGrants, {account: 1});
+      },
     );
 
     test('binds consent to account, folder identity and ACL', () {

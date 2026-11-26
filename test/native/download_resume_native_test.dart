@@ -8,7 +8,10 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/serve_source.dart'
-    show VeilPlainFileSink, veilPlainFileSinkOpener;
+    show
+        VeilPlainFileSink,
+        plainDownloadDestinationIdentity,
+        veilPlainFileSinkOpener;
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
@@ -148,9 +151,11 @@ void main() {
         final closed = Completer<void>();
         var closes = 0;
         var writes = 0;
+        final lateFile = File('${dir.path}/saved.bin')..createSync();
         lateSink = await veilPlainFileSinkOpener(
-          '${dir.path}/saved.bin',
+          lateFile.path,
           resume: true,
+          expectedIdentity: plainDownloadDestinationIdentity(lateFile.path),
         );
         expect(lateSink, isNotNull);
         final actualSink = lateSink!;

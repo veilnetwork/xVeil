@@ -76,6 +76,7 @@ import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
 import '../../core/document_export.dart';
+import '../common/document_export_review.dart';
 import '../../core/filesystem_errors.dart';
 import '../../domain/chat_file_export.dart';
 import '../../domain/file_names.dart';
@@ -119,15 +120,9 @@ String _safeDownloadName(String? value) => safeFileLeaf(value);
 /// content id, and the button that calls it lives in a message row whose ref
 /// is the one that drew it.
 Future<void> _cancelContentDownload(WidgetRef ref, String contentId) async {
-  final partialPath = await ref
+  await ref
       .read(messagingServiceProvider)
-      .cancelContentDownload(contentId);
-  if (partialPath == null) return;
-  try {
-    await File(partialPath).delete();
-  } catch (_) {
-    // Already absent or the platform revoked the picker grant.
-  }
+      .cancelContentDownload(contentId, discardPartial: true);
 }
 
 // A snackbar may outlive its originating page. Re-read only to validate the
@@ -1317,6 +1312,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _peer,
         cid,
         dest,
+        destinationIdentity: download.identity,
         write: (offset, bytes) async {
           await raf.setPosition(offset);
           await raf.writeFrom(bytes);
@@ -1353,10 +1349,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         size: knownSize,
         read: (offset, want) => storage.readFileRange(key, offset, want),
         stillOurs: _stillOurs,
+        pick: (name) =>
+            openReviewedExportDocument(context, name, stillCurrent: _stillOurs),
       );
       if (saved && _stillOurs()) _snack(l.chatFileSavedToChosenFolder);
     } catch (error) {
-      if (_stillOurs()) _snack(_fileSaveError(l, error));
+      if (mounted &&
+          _stillOurs() &&
+          !await showDocumentExportAccessFailure(context, error) &&
+          _stillOurs()) {
+        _snack(_fileSaveError(l, error));
+      }
     }
   }
 
@@ -1380,10 +1383,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return handle.read(want);
         },
         stillOurs: _stillOurs,
+        pick: (name) =>
+            openReviewedExportDocument(context, name, stillCurrent: _stillOurs),
       );
       if (saved && _stillOurs()) _snack(l.chatFileSavedToChosenFolder);
     } catch (error) {
-      if (_stillOurs()) _snack(_fileSaveError(l, error));
+      if (mounted &&
+          _stillOurs() &&
+          !await showDocumentExportAccessFailure(context, error) &&
+          _stillOurs()) {
+        _snack(_fileSaveError(l, error));
+      }
     } finally {
       await source?.close();
     }

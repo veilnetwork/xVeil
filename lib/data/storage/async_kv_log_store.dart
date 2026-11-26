@@ -405,7 +405,8 @@ sealed class _Req {
 }
 
 final class _StorageUsageReq extends _Req {
-  const _StorageUsageReq(super.reply);
+  const _StorageUsageReq(this.approvals, super.reply);
+  final Set<String> approvals;
 }
 
 class _CommitReq extends _Req {
@@ -848,7 +849,8 @@ SendPort _serveWorker(
           mutationDebt = 0;
           maintain(force, msg.reply);
         }
-      case _StorageUsageReq():
+      case _StorageUsageReq(:final approvals):
+        mergeStorageAclApprovals(approvals);
         // Preserve FIFO order with reads, maintenance and close while the
         // filesystem inventory yields. A caller abandoning its wait does not
         // cancel ownership or release the native lease underneath the walk.
@@ -1139,7 +1141,7 @@ class WorkerKvLogStore
 
   @override
   Future<StorageUsage?> storageUsage() =>
-      _call((reply) => _StorageUsageReq(reply));
+      _call((reply) => _StorageUsageReq(storageAclApprovalsForWorker(), reply));
 
   @override
   Future<int> commit(List<KvLogOp> ops) {

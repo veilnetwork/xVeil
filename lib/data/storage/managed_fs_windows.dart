@@ -165,31 +165,45 @@ bool managedWindowsFinalPathMatches(
 
 /// Bind consent to the observed object and its complete ACL. Keep the older
 /// fingerprint for the identical Windows app-support DELETE warning.
-({String fingerprint, Map<String, int> grants})? managedWindowsAclGrant({
+({
+  String fingerprint,
+  Map<String, int> grants,
+  Map<String, int> inheritedGrants,
+})?
+managedWindowsAclGrant({
   required Map<String, Object?> facts,
   required String path,
   required String identity,
   required String currentSid,
   String? legacySupportPath,
+  bool includeInheritedContentAcl = false,
 }) {
   final policy = managedWindowsAclPolicy(facts, currentSid);
-  if (policy == null ||
-      (policy.safeAncestor && policy.ownedByCurrentUser && policy.ownerOnly)) {
-    return null;
-  }
+  if (policy == null) return null;
   final owner = facts['owner'] as String;
   final rules = facts['rules'] as List;
   final accounts = <String, int>{};
+  final inheritedAccounts = <String, int>{};
   for (final rule in rules.cast<Map>()) {
-    if (rule['allow'] != true || rule['inheritOnly'] == true) continue;
+    final inherited = rule['inheritOnly'] == true;
+    if (rule['allow'] != true || inherited && !includeInheritedContentAcl) {
+      continue;
+    }
+    if (rule['sid'] is! String || rule['rights'] is! int) return null;
     final sid = rule['sid'] as String;
     final rights = rule['rights'] as int;
     if (_isTrustedSid(sid, currentSid) || rights == 0) continue;
-    accounts.update(
+    (inherited ? inheritedAccounts : accounts).update(
       sid,
       (existing) => existing | rights,
       ifAbsent: () => rights,
     );
+  }
+  if (policy.safeAncestor &&
+      policy.ownedByCurrentUser &&
+      policy.ownerOnly &&
+      inheritedAccounts.isEmpty) {
+    return null;
   }
   final legacy =
       legacySupportPath != null &&
@@ -215,7 +229,11 @@ bool managedWindowsFinalPathMatches(
         ),
       )
       .toString();
-  return (fingerprint: fingerprint, grants: accounts);
+  return (
+    fingerprint: fingerprint,
+    grants: accounts,
+    inheritedGrants: inheritedAccounts,
+  );
 }
 
 Set<ManagedAclRight> _displayRights(int mask) {
@@ -238,6 +256,7 @@ ManagedPathWitness inspect(
   bool includeApprovedAcl = false,
   bool allowNetworkShare = false,
   bool protectFromReparseChanges = false,
+  bool includeInheritedContentAcl = false,
 }) {
   final name = path.toNativeUtf16();
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
@@ -293,23 +312,22 @@ ManagedPathWitness inspect(
     final f = info.ref;
     final identity = _fileIdentity(f, owner);
     final directory = f.dwFileAttributes & win.FILE_ATTRIBUTE_DIRECTORY != 0;
-    final grant =
-        policy.safeAncestor && policy.ownerOnly && policy.ownedByCurrentUser
-        ? null
-        : managedWindowsAclGrant(
-            facts: facts,
-            path: finalPath,
-            legacySupportPath: directory && !policy.safeAncestor
-                ? windowsProfileSupportPath
-                : null,
-            identity: identity,
-            currentSid: currentSid,
-          );
+    final grant = managedWindowsAclGrant(
+      facts: facts,
+      path: finalPath,
+      legacySupportPath: directory && !policy.safeAncestor
+          ? windowsProfileSupportPath
+          : null,
+      identity: identity,
+      currentSid: currentSid,
+      includeInheritedContentAcl: directory && includeInheritedContentAcl,
+    );
+    final inherited = grant?.inheritedGrants ?? const <String, int>{};
     final approved = grant != null && hasStorageAclApproval(grant.fingerprint);
     return ManagedPathWitness(
       identity: identity,
       directory: directory,
-      ownerOnly: policy.ownerOnly,
+      ownerOnly: policy.ownerOnly && inherited.isEmpty,
       ownedByCurrentUser: policy.ownedByCurrentUser,
       ownedByWindowsAdministrators: owner == _administratorsSid,
       safeAncestor: policy.safeAncestor,
@@ -327,6 +345,12 @@ ManagedPathWitness inspect(
               grantsArePotential: true,
               fingerprint: grant.fingerprint,
               owner: owner == currentSid ? null : windowsAclAccountLabel(owner),
+              inheritedGrants: inherited.entries.map(
+                (entry) => (
+                  account: windowsAclAccountLabel(entry.key),
+                  rights: _displayRights(entry.value),
+                ),
+              ),
               grants: grant.grants.entries.map(
                 (entry) => (
                   account: windowsAclAccountLabel(entry.key),
@@ -334,7 +358,17 @@ ManagedPathWitness inspect(
                 ),
               ),
             ),
-      otherUsersHaveReadOnlyAccess: policy.otherUsersHaveReadOnlyAccess,
+      otherUsersHaveReadOnlyAccess:
+          policy.otherUsersHaveReadOnlyAccess &&
+          inherited.values.every(
+            (mask) =>
+                mask &
+                    ~(win.FILE_GENERIC_READ |
+                        win.FILE_GENERIC_EXECUTE |
+                        win.GENERIC_READ |
+                        win.GENERIC_EXECUTE) ==
+                0,
+          ),
     );
   } finally {
     if (handle != win.INVALID_HANDLE_VALUE) win.CloseHandle(handle);

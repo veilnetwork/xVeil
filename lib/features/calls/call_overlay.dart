@@ -184,6 +184,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                 camera
                     ? l.mediaCameraPermissionDenied
                     : l.mediaMicrophonePermissionDenied,
+              MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
               _ => l.mediaPermissionCheckUnavailable,
             }),
           ),
@@ -524,6 +525,9 @@ class _CallCaptureNotice extends StatelessWidget {
             l.mediaMicrophonePermissionDenied,
           if (value.camera == MediaPermissionStatus.denied)
             l.mediaCameraPermissionDenied,
+          if (value.microphone == MediaPermissionStatus.restricted ||
+              value.camera == MediaPermissionStatus.restricted)
+            l.mediaPermissionRestricted,
           if (value.microphone == MediaPermissionStatus.unavailable ||
               value.camera == MediaPermissionStatus.unavailable)
             l.mediaPermissionCheckUnavailable,

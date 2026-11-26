@@ -29,6 +29,44 @@ void main() {
     stillOurs: owner ?? () => true,
   );
 
+  test(
+    'resume uses the original file handle and refuses a replaced path',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('xveil-plain-resume-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final target = File('${dir.path}/download')..writeAsStringSync('partial');
+      final identity = plainDownloadDestinationIdentity(target.path);
+      expect(identity, isNotNull);
+      final sink = (await veilPlainFileSinkOpener(
+        target.path,
+        resume: true,
+        expectedIdentity: identity,
+      ))!;
+      try {
+        await sink.write(2, Uint8List.fromList('NEW'.codeUnits));
+        expect(await sink.read!(0, 7), 'paNEWal'.codeUnits);
+        final original = target.renameSync('${dir.path}/moved');
+        target.writeAsStringSync('replacement');
+        await expectLater(
+          sink.write(0, Uint8List(3)),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(target.readAsStringSync(), 'replacement');
+        expect(original.readAsStringSync(), 'paNEWal');
+        expect(
+          await veilPlainFileSinkOpener(
+            target.path,
+            resume: true,
+            expectedIdentity: identity,
+          ),
+          isNull,
+        );
+      } finally {
+        await sink.close();
+      }
+    },
+  );
+
   test('large download reserves a new name and leaves a replacement alone', () {
     final dir = Directory.systemTemp.createTempSync('xveil-plain-');
     addTearDown(() => dir.deleteSync(recursive: true));

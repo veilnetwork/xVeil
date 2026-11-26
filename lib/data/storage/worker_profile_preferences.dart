@@ -37,6 +37,9 @@ enum ManagedPreferencesFailureReason {
 
 ManagedPreferencesFailureReason managedStorageFailureReason(Object error) =>
     switch (error) {
+      ManagedFsFailure(:final posixError)
+          when posixError == 1 || posixError == 13 =>
+        ManagedPreferencesFailureReason.filesystemAccessDenied,
       ManagedFsFailure(:final kind, :final unsafeReason) => switch (kind) {
         ManagedFsFailureKind.unavailable =>
           ManagedPreferencesFailureReason.filesystemUnavailable,

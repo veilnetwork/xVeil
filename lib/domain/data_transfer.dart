@@ -39,6 +39,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -870,6 +871,14 @@ class DataTransferReader {
   }
 }
 
+final class TransferReadFailure implements Exception {
+  const TransferReadFailure(this.error);
+  final FileSystemException error;
+
+  @override
+  String toString() => 'Could not read archive';
+}
+
 /// Incremental reader over a byte stream: give me a line, give me N bytes.
 ///
 /// A QUEUE of arriving chunks with a cursor, not one growing buffer. The first
@@ -898,9 +907,14 @@ class _ByteFeed {
 
   Future<bool> _pull() async {
     if (_done) return false;
-    if (!await _it.moveNext()) {
+    try {
+      if (!await _it.moveNext()) {
+        _done = true;
+        return false;
+      }
+    } on FileSystemException catch (error) {
       _done = true;
-      return false;
+      throw TransferReadFailure(error);
     }
     final chunk = _it.current;
     if (chunk.isEmpty) return true;

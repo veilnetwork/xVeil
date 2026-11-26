@@ -75,7 +75,7 @@ class ImportInterrupted implements Exception {
   /// What had been applied when the archive stopped.
   final DataImportReport partial;
 
-  /// Why it stopped — a [TransferException] for a truncated or damaged file.
+  /// The archive format or read failure that interrupted the import.
   final Object cause;
 
   @override
@@ -660,7 +660,8 @@ class DataImporter {
       }
     }
 
-    } on TransferException catch (e) {
+    } catch (e) {
+      if (e is! TransferException && e is! TransferReadFailure) rethrow;
       // STOPPED PART-WAY, and it says so with what landed. A streaming import
       // applies as it reads — that is what lets an archive larger than memory
       // be merged — so a truncated or damaged file leaves real changes behind.

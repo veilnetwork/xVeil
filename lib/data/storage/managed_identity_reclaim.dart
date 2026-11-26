@@ -79,13 +79,21 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
           maintenanceRepacked: false,
         );
       }
+      final contentAccess = FileReplacementAccess.capture(
+        File(file('content.hv')),
+      );
+      final maintenanceAccess = FileReplacementAccess.capture(
+        File(file('maintenance.hv')),
+      );
       reclaiming = true;
       try {
-        if (contentDue) await _repackContent(observer);
+        if (contentDue) await _repackContent(observer, contentAccess);
         maintenanceDue =
             maintenanceDue ||
             budget.maintenanceDue(File(file('maintenance.hv')).lengthSync());
-        if (maintenanceDue) await _repackMaintenance(observer);
+        if (maintenanceDue) {
+          await _repackMaintenance(observer, maintenanceAccess);
+        }
         final next = ManagedReclaimBudget(
           contentBytes: contentDue
               ? File(file('content.hv')).lengthSync()
@@ -188,8 +196,14 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
     }
   }
 
-  Future<void> _repackContent(ManagedReclaimObserver? observer) async {
-    owner._fs.requirePrivateFile(file('content.hv'));
+  Future<void> _repackContent(
+    ManagedReclaimObserver? observer,
+    FileReplacementAccess access,
+  ) async {
+    final destination = File(file('content.hv'));
+    access.checkDestination(destination);
+    FileReplacementAccess? prepared;
+    var published = false;
     final random = Random.secure();
     final seal = Uint8List.fromList(
       List.generate(32, (_) => random.nextInt(256)),
@@ -254,12 +268,24 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
             }
             await observer?.call(ManagedReclaimStage.contentPrepared);
             _reclaimLease();
-            owner._fs.requirePrivateFile(file('content.hv'));
+            prepared = access.prepareReplacement(destination, File(stagedPath));
           },
         );
+        published = true;
         await observer?.call(ManagedReclaimStage.contentPublished);
       } finally {
-        _reattachReclaimPayloads(transfer, contentMayAdvance: true);
+        try {
+          if (prepared != null &&
+              !access.checkPublished(destination, prepared!, null) &&
+              published) {
+            throw ManagedFsFailure(
+              ManagedFsFailureKind.changed,
+              path: destination.path,
+            );
+          }
+        } finally {
+          _reattachReclaimPayloads(transfer, contentMayAdvance: true);
+        }
       }
     } finally {
       seal.fillRange(0, seal.length, 0);
@@ -268,8 +294,14 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
     }
   }
 
-  Future<void> _repackMaintenance(ManagedReclaimObserver? observer) async {
-    owner._fs.requirePrivateFile(file('maintenance.hv'));
+  Future<void> _repackMaintenance(
+    ManagedReclaimObserver? observer,
+    FileReplacementAccess access,
+  ) async {
+    final destination = File(file('maintenance.hv'));
+    access.checkDestination(destination);
+    FileReplacementAccess? prepared;
+    var published = false;
     final transfer = _detachReclaimPayloads();
     final password = keybox!.copyMaintenancePassword();
     Uint8List? expected;
@@ -310,12 +342,24 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
             }
             await observer?.call(ManagedReclaimStage.maintenancePrepared);
             _reclaimLease();
-            owner._fs.requirePrivateFile(file('maintenance.hv'));
+            prepared = access.prepareReplacement(destination, File(stagedPath));
           },
         );
+        published = true;
         await observer?.call(ManagedReclaimStage.maintenancePublished);
       } finally {
-        _reattachReclaimPayloads(transfer);
+        try {
+          if (prepared != null &&
+              !access.checkPublished(destination, prepared!, null) &&
+              published) {
+            throw ManagedFsFailure(
+              ManagedFsFailureKind.changed,
+              path: destination.path,
+            );
+          }
+        } finally {
+          _reattachReclaimPayloads(transfer);
+        }
       }
     } finally {
       password.fillRange(0, password.length, 0);

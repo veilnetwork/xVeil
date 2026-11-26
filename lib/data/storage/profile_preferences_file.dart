@@ -175,7 +175,10 @@ class FileReplacementAccess {
         current.witness?.aclWarning?.fingerprint !=
             witness?.aclWarning?.fingerprint ||
         !_samePolicy(current)) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
+      throw ManagedFsFailure(
+        ManagedFsFailureKind.changed,
+        path: destination.path,
+      );
     }
   }
 
@@ -279,8 +282,7 @@ bool _prepareTemporary(File temp) {
     temp.deleteSync();
   }
   if (Platform.isWindows) return windows.createPrivateFile(temp.path);
-  PosixSidecarLock.reservePrivate(temp.path);
-  return true;
+  return PosixSidecarLock.reservePrivate(temp.path);
 }
 
 /// Inspect the installation-wide choice before using its contents to select
@@ -461,12 +463,8 @@ Future<bool> writeProfileChoiceAtomically(
         PosixSidecarLock.reservePrivate(lockFile.path);
       }
     }
-    if (FileSystemEntity.typeSync(lockFile.path, followLinks: false) !=
-            FileSystemEntityType.file ||
-        lockFile.lengthSync() != 0) {
-      return false;
-    }
-    _verifyPrivateTemporary(lockFile);
+    const fs = ManagedFsPlatform();
+    final lockAccess = _preferencesLockAccess(lockFile, fs);
 
     lock = await lockFile.open(mode: FileMode.append);
     final elapsed = Stopwatch()..start();
@@ -485,6 +483,7 @@ Future<bool> writeProfileChoiceAtomically(
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
     }
+    _verifyPreferencesLock(lockFile, fs, lockAccess);
     // Migration may have resolved the old choice before another process saved
     // a new one. Read again while holding the same lock used by manual saves.
     if (onlyIfUnset &&
@@ -535,13 +534,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
     }
   }
   const fs = ManagedFsPlatform();
-  final original = fs.inspect(sidecar.path);
-  if (original.directory ||
-      !original.ownedByCurrentUser ||
-      sidecar.lengthSync() != 0 ||
-      !original.ownerOnly) {
-    throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
-  }
+  final original = _preferencesLockAccess(sidecar, fs);
 
   final elapsed = Stopwatch()..start();
   RandomAccessFile? windowsLock;
@@ -553,7 +546,7 @@ Future<T> withProfilePreferencesWriteLock<T>(
           windowsLock ??= sidecar.openSync(mode: FileMode.append);
           windowsLock.lockSync();
         } else {
-          posixLock = PosixSidecarLock.acquire(file.path)!;
+          posixLock = PosixSidecarLock.acquire(file.path, access: original)!;
         }
         break;
       } catch (error) {
@@ -570,13 +563,38 @@ Future<T> withProfilePreferencesWriteLock<T>(
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
     }
-    if (!original.sameObject(fs.requirePrivateFile(sidecar.path))) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.changed);
-    }
+    _verifyPreferencesLock(sidecar, fs, original);
     return await work();
   } finally {
     windowsLock?.closeSync();
     posixLock?.close();
+  }
+}
+
+ManagedPathWitness _preferencesLockAccess(File lock, ManagedFsPlatform fs) {
+  final access = fs.requirePrivateFile(
+    lock.path,
+    allowReadOnlyAclApproval: true,
+  );
+  if (lock.lengthSync() != 0) {
+    throw ManagedFsFailure(
+      ManagedFsFailureKind.unsafe,
+      unsafeReason: ManagedFsUnsafeReason.invalidLifetimeLock,
+      path: lock.path,
+    );
+  }
+  return access;
+}
+
+void _verifyPreferencesLock(
+  File lock,
+  ManagedFsPlatform fs,
+  ManagedPathWitness expected,
+) {
+  final current = _preferencesLockAccess(lock, fs);
+  if (!expected.sameObject(current) ||
+      expected.aclWarning?.fingerprint != current.aclWarning?.fingerprint) {
+    throw ManagedFsFailure(ManagedFsFailureKind.changed, path: lock.path);
   }
 }
 
@@ -633,6 +651,8 @@ Future<bool> writePrivateFileAtomically(
   void Function(StorageAclReplacement)? onAclReplaced,
 }) async {
   final temp = File('${file.path}.tmp');
+  ManagedPathWitness? staged;
+  const fs = ManagedFsPlatform();
   try {
     _ensurePrivateDir(file.parent);
     final access = FileReplacementAccess.capture(file);
@@ -654,6 +674,7 @@ Future<bool> writePrivateFileAtomically(
     }
 
     if (!_prepareTemporary(temp)) return false;
+    staged = fs.inspectAcl(temp.path);
     _verifyPrivateTemporary(temp);
     final FileReplacementAccess prepared;
     if (Platform.isWindows) {
@@ -670,6 +691,7 @@ Future<bool> writePrivateFileAtomically(
       prepared = access.prepareReplacement(file, temp);
     }
     await temp.rename(file.path);
+    staged = null;
     // The rename itself, made durable. Null just means no libc binding here.
     posixFsyncDir(file.parent.path);
     // Read it back. This is the difference between "no call reported an error"
@@ -683,7 +705,9 @@ Future<bool> writePrivateFileAtomically(
     onFailure?.call(e);
     devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
     try {
-      if (temp.existsSync()) await temp.delete();
+      if (staged?.sameObject(fs.inspectAcl(temp.path)) == true) {
+        temp.deleteSync();
+      }
     } catch (_) {
       /* the temporary is litter, not a reason to fail differently */
     }
@@ -701,6 +725,8 @@ bool writePrivateFileAtomicallySync(
   void Function(StorageAclReplacement)? onAclReplaced,
 }) {
   final temp = File('${file.path}.tmp');
+  ManagedPathWitness? staged;
+  const fs = ManagedFsPlatform();
   try {
     _ensurePrivateDir(file.parent);
     final access = FileReplacementAccess.capture(file);
@@ -711,6 +737,7 @@ bool writePrivateFileAtomicallySync(
       return false;
     }
     if (!_prepareTemporary(temp)) return false;
+    staged = fs.inspectAcl(temp.path);
     _verifyPrivateTemporary(temp);
     final FileReplacementAccess prepared;
     if (Platform.isWindows) {
@@ -727,12 +754,15 @@ bool writePrivateFileAtomicallySync(
       prepared = access.prepareReplacement(file, temp);
     }
     temp.renameSync(file.path);
+    staged = null;
     posixFsyncDir(file.parent.path);
     return file.readAsStringSync() == contents &&
         access.checkPublished(file, prepared, onAclReplaced);
   } catch (_) {
     try {
-      if (temp.existsSync()) temp.deleteSync();
+      if (staged?.sameObject(fs.inspectAcl(temp.path)) == true) {
+        temp.deleteSync();
+      }
     } catch (_) {}
     if (reportFailure) rethrow;
     return false;

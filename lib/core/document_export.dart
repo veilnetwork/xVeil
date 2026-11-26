@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 
 import '../domain/file_names.dart';
 import '../data/storage/managed_fs_platform.dart';
+import '../data/storage/managed_fs_posix_acl.dart' show writePosixStorageAcl;
+import 'posix_file_facts.dart';
 import '../data/storage/profile_preferences_file.dart'
     show FileReplacementAccess;
 import '../data/storage/managed_fs_windows.dart' as windows;
@@ -29,16 +31,19 @@ abstract interface class ExportDocument {
 
 typedef ExportDocumentPicker = Future<ExportDocument?> Function(String name);
 
-/// Deliberately contains no platform exception message, URI, path or filename.
+/// Native provider errors contain only stable codes. Managed filesystem
+/// evidence is available to local UI and never included in the log text.
 class DocumentExportException implements Exception {
   const DocumentExportException(
     this.stage, {
     this.permissionDenied = false,
     this.partialMayRemain = false,
+    this.filesystemFailure,
   });
   final String stage;
   final bool permissionDenied;
   final bool partialMayRemain;
+  final ManagedFsFailure? filesystemFailure;
   @override
   String toString() => 'Document export failed ($stage)';
 }
@@ -73,6 +78,7 @@ Future<Object> abortFailedDocument(
       failure.stage,
       permissionDenied: failure.permissionDenied,
       partialMayRemain: true,
+      filesystemFailure: failure.filesystemFailure,
     );
   }
 }
@@ -81,19 +87,28 @@ Future<Object> abortFailedDocument(
 DocumentExportException _failure(String stage, Object error) {
   if (error is DocumentExportException) return error;
   final platform = error is PlatformException ? error : null;
+  final filesystem = error is ManagedFsFailure ? error : null;
   return DocumentExportException(
-    stage,
+    filesystem == null || filesystem.accessDenied
+        ? stage
+        : filesystem.kind == ManagedFsFailureKind.changed
+        ? 'destination-changed'
+        : filesystem.aclWarnings.isNotEmpty
+        ? 'access-policy'
+        : stage,
     permissionDenied:
         platform?.code == 'document_export_permission' ||
-        error is ManagedFsFailure &&
-            error.unsafeReason ==
-                ManagedFsUnsafeReason.windowsPathAccessDenied ||
+        filesystem?.accessDenied == true ||
         error is FileSystemException && fileSystemAccessDenied(error),
     partialMayRemain: platform?.details == 'partial_may_remain',
+    filesystemFailure: filesystem,
   );
 }
 
-Future<ExportDocument?> openExportDocument(String name) async {
+Future<ExportDocument?> openExportDocument(
+  String name, {
+  Future<bool> Function(ManagedFsFailure)? reviewAccess,
+}) async {
   if (defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS) {
     try {
@@ -116,7 +131,10 @@ Future<ExportDocument?> openExportDocument(String name) async {
     final path = await FilePicker.saveFile(fileName: name);
     if (path == null) return null;
     try {
-      return await _FileExportDocument.open(File(path));
+      return await _FileExportDocument.open(
+        File(path),
+        reviewAccess: reviewAccess,
+      );
     } on FileSystemException catch (error) {
       if (!Platform.isMacOS || !_failure('open', error).permissionDenied) {
         rethrow;
@@ -230,9 +248,10 @@ class _FileExportDocument extends _SequentialDocument {
   RandomAccessFile? handle;
   final FileReplacementAccess? access;
 
-  static Future<_FileExportDocument> open(
+  static Future<_FileExportDocument?> open(
     File target, {
     bool replaceExisting = true,
+    Future<bool> Function(ManagedFsFailure)? reviewAccess,
   }) async {
     final type = FileSystemEntity.typeSync(target.path, followLinks: false);
     if (type != FileSystemEntityType.file &&
@@ -244,13 +263,28 @@ class _FileExportDocument extends _SequentialDocument {
       16,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final sibling = File('${target.path}.xveil-part-$suffix');
+    final sibling = File(
+      '${target.parent.path}${Platform.pathSeparator}.xveil-part-$suffix',
+    );
     final FileReplacementAccess? access;
     try {
       access = replaceExisting ? FileReplacementAccess.capture(target) : null;
     } on ManagedFsFailure catch (error) {
-      if (_failure('open', error).permissionDenied) rethrow;
-      throw const DocumentExportException('access-policy');
+      if (error.accessDenied) rethrow;
+      throw DocumentExportException(
+        'access-policy',
+        filesystemFailure: _destinationAccessFailure(target, error),
+      );
+    }
+    if (access?.witness case final witness?
+        when reviewAccess != null && witness.aclWarning != null) {
+      final failure = ManagedFsFailure(
+        ManagedFsFailureKind.unsafe,
+        path: target.path,
+        aclWarnings: [witness.aclWarning!.withPolicy(canContinue: true)],
+      );
+      if (!await reviewAccess(failure)) return null;
+      access!.checkDestination(target);
     }
     if (Platform.isWindows) {
       if (!windows.createPrivateFile(sibling.path)) {
@@ -260,6 +294,19 @@ class _FileExportDocument extends _SequentialDocument {
       await sibling.create(exclusive: true);
     }
     try {
+      // A Darwin directory can pass its own ACL to a newly created empty
+      // file. Remove the inherited ACL while the staging file is still empty.
+      if ((Platform.isMacOS ? posixLstat(sibling.path) : null) case final facts?
+          when facts.uid == posixEuid()) {
+        if (readDarwinStorageAcl(sibling.path, facts)?.isNotEmpty == true) {
+          posixSetModeForFile(
+            sibling.path,
+            facts,
+            0x180,
+            applyAcl: (fd) => writePosixStorageAcl(fd, ''),
+          );
+        }
+      }
       const ManagedFsPlatform().restrictNewFile(sibling.path);
       return _FileExportDocument(
         target,
@@ -267,15 +314,45 @@ class _FileExportDocument extends _SequentialDocument {
         await sibling.open(mode: FileMode.writeOnlyAppend),
         access,
       );
-    } catch (_) {
+    } catch (error) {
       try {
         await sibling.delete();
       } on FileSystemException {
         // Preserve the original open error.
       }
+      if (error is ManagedFsFailure && error.aclWarnings.isNotEmpty) {
+        throw DocumentExportException(
+          'access-policy',
+          filesystemFailure: _destinationAccessFailure(target, error),
+        );
+      }
       rethrow;
     }
   }
+
+  static ManagedFsFailure _destinationAccessFailure(
+    File target,
+    ManagedFsFailure error,
+  ) => ManagedFsFailure(
+    error.kind,
+    unsafeReason: error.unsafeReason,
+    path: target.path,
+    posixError: error.posixError,
+    aclWarnings: [
+      for (final warning in error.aclWarnings)
+        ManagedStorageAclWarning(
+          path: target.path,
+          fingerprint: warning.fingerprint,
+          grants: warning.grants,
+          inheritedGrants: warning.inheritedGrants,
+          directory: false,
+          owner: warning.owner,
+          extendedAcl: warning.extendedAcl,
+          canContinue: false,
+          grantsArePotential: warning.grantsArePotential,
+        ),
+    ],
+  );
 
   @override
   Future<void> writeChunk(Uint8List bytes) async {
@@ -294,11 +371,14 @@ class _FileExportDocument extends _SequentialDocument {
           access!.prepareReplacement(target, writingFile);
           access!.checkDestination(target);
         } on ManagedFsFailure catch (error) {
-          if (_failure('finish', error).permissionDenied) rethrow;
-          if (error.kind == ManagedFsFailureKind.changed) {
-            throw const DocumentExportException('destination-changed');
+          if (error.accessDenied ||
+              error.kind == ManagedFsFailureKind.changed) {
+            rethrow;
           }
-          throw const DocumentExportException('access-policy');
+          throw DocumentExportException(
+            'access-policy',
+            filesystemFailure: _destinationAccessFailure(target, error),
+          );
         }
         writingFile.renameSync(target.path);
       } else if (!const ManagedFsPlatform().publishFileNoReplace(

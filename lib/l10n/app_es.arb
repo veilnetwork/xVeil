@@ -3425,5 +3425,9 @@
   "startupUnlockVaultNotEnrolled": "El almacén requiere una biometría registrada. Configura una huella o el reconocimiento facial en los ajustes del sistema y vuelve a guardar.",
   "startupUnlockVaultLockedOut": "El sistema bloqueó temporalmente la autenticación biométrica. Desbloquea el dispositivo con su código y vuelve a guardar.",
   "startupUnlockVaultProtectionChanged": "El sistema invalidó la clave de inicio de sesión guardada. Revisa la configuración biométrica y vuelve a guardar con la contraseña del contenedor.",
-  "startupUnlockVaultUnavailable": "El almacén del sistema o la autenticación biométrica no están disponibles. Revisa el dispositivo y los ajustes de seguridad antes de volver a guardar."
+  "startupUnlockVaultUnavailable": "El almacén del sistema o la autenticación biométrica no están disponibles. Revisa el dispositivo y los ajustes de seguridad antes de volver a guardar.",
+  "networkBackgroundRequestUnavailable": "Android no pudo abrir la solicitud de exención de batería. Puedes revisar este permiso en los ajustes del sistema.",
+  "mediaPermissionRestricted": "Una restricción del sistema bloquea el acceso al micrófono o a la cámara.",
+  "transferArchiveReadFailed": "No se pudo leer el archivo en {path}. {reason}",
+  "plainDownloadChooseDestinationAgain": "La aplicación no pudo verificar el archivo original de la descarga. Vuelve a elegir dónde guardarlo."
 }

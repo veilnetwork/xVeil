@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-enum MediaPermissionStatus { allowed, denied, unavailable }
+enum MediaPermissionStatus { allowed, denied, restricted, unavailable }
 
 /// Apple/Android microphone and camera permission via a MethodChannel.
 ///
@@ -32,11 +32,12 @@ class MacMediaPermissions {
   static Future<MediaPermissionStatus> _request(String type) async {
     if (!hasPermissionBridge) return MediaPermissionStatus.allowed;
     try {
-      final granted = await _ch.invokeMethod<bool>('request', {'type': type});
+      final granted = await _ch.invokeMethod<Object>('request', {'type': type});
       return switch (granted) {
         true => MediaPermissionStatus.allowed,
         false => MediaPermissionStatus.denied,
-        null => MediaPermissionStatus.unavailable,
+        'restricted' => MediaPermissionStatus.restricted,
+        _ => MediaPermissionStatus.unavailable,
       };
     } catch (_) {
       return MediaPermissionStatus.unavailable;

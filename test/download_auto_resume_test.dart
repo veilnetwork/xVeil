@@ -7,7 +7,10 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/serve_source.dart'
-    show VeilPlainFileSink, veilPlainFileSinkOpener;
+    show
+        VeilPlainFileSink,
+        plainDownloadDestinationIdentity,
+        veilPlainFileSinkOpener;
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -789,7 +792,8 @@ void main() {
       final cid = await offerToB(data, 'complete-before-restart.bin');
       final dir = await Directory.systemTemp.createTemp('xveil-offline-resume');
       addTearDown(() => dir.delete(recursive: true));
-      final file = File('${dir.path}/destination.bin');
+      final file = File('${dir.path}/destination.bin')
+        ..createSync(exclusive: true);
       cutLink();
       await mB.downloadContentToFile(
         a,
@@ -881,7 +885,8 @@ void main() {
         final cid = await offerToB(data, 'another-destination.bin');
         final dir = await Directory.systemTemp.createTemp('xveil-resume-copy');
         addTearDown(() => dir.delete(recursive: true));
-        final destination = File('${dir.path}/selected.bin');
+        final destination = File('${dir.path}/selected.bin')
+          ..createSync(exclusive: true);
         final previous = File('${dir.path}/previous.bin');
         cutLink();
         await mB.downloadContentToFile(
@@ -926,7 +931,11 @@ void main() {
         if (lostAtOpen) {
           mB.plainFileSinkOpener = (path, {bool resume = false}) async {
             await sB.deleteStoredFile(cid);
-            return veilPlainFileSinkOpener(path, resume: resume);
+            return veilPlainFileSinkOpener(
+              path,
+              resume: resume,
+              expectedIdentity: plainDownloadDestinationIdentity(path),
+            );
           };
         }
         if (lostAtOpen || extraByte) {
@@ -966,7 +975,8 @@ void main() {
         'xveil-resume-live-copy',
       );
       addTearDown(() => dir.delete(recursive: true));
-      final file = File('${dir.path}/selected.bin');
+      final file = File('${dir.path}/selected.bin')
+        ..createSync(exclusive: true);
       cutLink();
       await mB.downloadContentToFile(
         a,
@@ -991,7 +1001,11 @@ void main() {
       mB.plainFileSinkOpener = (path, {bool resume = false}) async {
         if (!openEntered.isCompleted) openEntered.complete(path);
         await releaseOpen.future;
-        return veilPlainFileSinkOpener(path, resume: resume);
+        return veilPlainFileSinkOpener(
+          path,
+          resume: resume,
+          expectedIdentity: plainDownloadDestinationIdentity(path),
+        );
       };
       final arrivals = mB.contentReceived
           .where((event) => event.contentId == cid)

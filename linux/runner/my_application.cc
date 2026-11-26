@@ -19,6 +19,38 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+static void notification_permission_call(FlMethodChannel* channel,
+                                         FlMethodCall* call,
+                                         gpointer user_data) {
+  if (g_strcmp0(fl_method_call_get_name(call), "status") != 0) {
+    fl_method_call_respond_not_implemented(call, nullptr);
+    return;
+  }
+  const gchar* desktops = g_getenv("XDG_CURRENT_DESKTOP");
+  g_auto(GStrv) names = g_strsplit(desktops ? desktops : "", ":", -1);
+  if (!g_strv_contains(const_cast<const gchar* const*>(names), "GNOME")) {
+    fl_method_call_respond_success(call, nullptr, nullptr);
+    return;
+  }
+  GSettingsSchemaSource* source = g_settings_schema_source_get_default();
+  g_autoptr(GSettingsSchema) schema =
+      source == nullptr ? nullptr : g_settings_schema_source_lookup(
+          source, "org.gnome.desktop.notifications.application", TRUE);
+  if (schema == nullptr || !g_settings_schema_has_key(schema, "enable")) {
+    fl_method_call_respond_success(call, nullptr, nullptr);
+    return;
+  }
+  // GNOME converts the notification's desktop-entry ID to its settings path.
+  g_autofree gchar* app_key = g_ascii_strdown(APPLICATION_ID, -1);
+  g_strdelimit(app_key, "._", '-');
+  g_autofree gchar* path = g_strdup_printf(
+      "/org/gnome/desktop/notifications/application/%s/", app_key);
+  g_autoptr(GSettings) settings = g_settings_new_full(schema, nullptr, path);
+  g_autoptr(FlValue) allowed =
+      fl_value_new_bool(g_settings_get_boolean(settings, "enable"));
+  fl_method_call_respond_success(call, allowed, nullptr);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -74,6 +106,14 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  g_autoptr(FlMethodChannel) notifications = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "xveil/notification_permissions", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      notifications, notification_permission_call, nullptr, nullptr);
+  g_object_set_data_full(G_OBJECT(view), "notification-permissions",
+                         g_steal_pointer(&notifications), g_object_unref);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }

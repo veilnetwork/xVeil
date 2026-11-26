@@ -237,7 +237,10 @@ abstract final class _ManagedIdentityEraser {
         final witnesses = <String, ManagedPathWitness>{};
         for (final name in _meta) {
           if (ManagedIdentityFiles._exists(held.file(name))) {
-            witnesses[name] = owner._fs.requirePrivateFile(held.file(name));
+            witnesses[name] = owner._fs.requirePrivateFile(
+              held.file(name),
+              allowReadOnlyAclApproval: true,
+            );
             if (name == 'identity.meta.lock' &&
                 File(held.file(name)).lengthSync() != 0) {
               throw const ManagedIdentityFailure(
@@ -261,7 +264,11 @@ abstract final class _ManagedIdentityEraser {
         }
         final blobs = held.file('blobs');
         if (ManagedIdentityFiles._exists(blobs)) {
-          ManagedDirectoryCatalog._privateDirectory(blobs, owner._fs);
+          ManagedDirectoryCatalog._privateDirectory(
+            blobs,
+            owner._fs,
+            allowReadOnlyAclApproval: true,
+          );
           Directory(
             blobs,
           ).deleteSync(); // Nonrecursive: unknown/new content refuses.
@@ -299,8 +306,14 @@ abstract final class _ManagedIdentityEraser {
       }
       return;
     }
-    final before = held.owner._fs.requirePrivateFile(path);
-    if (expected != null && !expected.sameObject(before)) {
+    final before = held.owner._fs.requirePrivateFile(
+      path,
+      allowReadOnlyAclApproval: true,
+    );
+    if (expected != null &&
+        (!expected.sameObject(before) ||
+            expected.aclWarning?.fingerprint !=
+                before.aclWarning?.fingerprint)) {
       throw const ManagedFsFailure(ManagedFsFailureKind.changed);
     }
     ManagedDirectoryCatalog._assertSame(path, before, held.owner._fs);
@@ -311,12 +324,17 @@ abstract final class _ManagedIdentityEraser {
     final path = held.file('blobs');
     if (!ManagedIdentityFiles._exists(path)) return;
     final fs = held.owner._fs;
-    final rootWitness = ManagedDirectoryCatalog._privateDirectory(path, fs);
+    final inventory = _ManagedUsageInventory(held);
+    final rootWitness = ManagedDirectoryCatalog._privateDirectory(
+      path,
+      fs,
+      allowReadOnlyAclApproval: true,
+    );
     await for (final blob in Directory(path).list(followLinks: false)) {
       held.validatePaths();
-      ManagedDirectoryCatalog._assertSame(path, rootWitness, fs);
+      inventory._verify(path, rootWitness, requirePrivate: true);
       final name = blob.uri.pathSegments.where((s) => s.isNotEmpty).last;
-      final witness = fs.inspect(blob.path);
+      final witness = inventory._inspect(blob.path);
       if (!_ManagedUsageInventory._blobName.hasMatch(name) ||
           !witness.directory ||
           !witness.ownedByCurrentUser ||
@@ -327,12 +345,12 @@ abstract final class _ManagedIdentityEraser {
       }
       await for (final piece in Directory(blob.path).list(followLinks: false)) {
         held.validatePaths();
-        ManagedDirectoryCatalog._assertSame(path, rootWitness, fs);
-        ManagedDirectoryCatalog._assertSame(blob.path, witness, fs);
+        inventory._verify(path, rootWitness, requirePrivate: true);
+        inventory._verify(blob.path, witness);
         final pieceName = piece.uri.pathSegments
             .where((s) => s.isNotEmpty)
             .last;
-        final before = fs.inspect(piece.path);
+        final before = inventory._inspect(piece.path);
         if (!_ManagedUsageInventory._pieceName.hasMatch(pieceName) ||
             before.directory ||
             !before.ownedByCurrentUser ||
@@ -341,16 +359,16 @@ abstract final class _ManagedIdentityEraser {
             ManagedIdentityFailureKind.ambiguous,
           );
         }
-        ManagedDirectoryCatalog._assertSame(piece.path, before, fs);
+        inventory._verify(piece.path, before);
         File(piece.path).deleteSync();
       }
-      ManagedDirectoryCatalog._assertSame(path, rootWitness, fs);
-      ManagedDirectoryCatalog._assertSame(blob.path, witness, fs);
+      inventory._verify(path, rootWitness, requirePrivate: true);
+      inventory._verify(blob.path, witness);
       Directory(blob.path).deleteSync();
       fs.syncDirectory(path);
     }
     held.validatePaths();
-    ManagedDirectoryCatalog._assertSame(path, rootWitness, fs);
+    inventory._verify(path, rootWitness, requirePrivate: true);
     fs.syncDirectory(path);
   }
 }

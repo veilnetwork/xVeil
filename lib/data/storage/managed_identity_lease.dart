@@ -101,10 +101,14 @@ final class ManagedIdentityLease {
   static ManagedIdentityLease openOwned(
     ManagedSqliteConnection connection, {
     required ManagedIdentityEntry expected,
+    ManagedPathWitness? sidecarAccess,
   }) {
     final lease = ManagedIdentityLease._(connection, expected);
     try {
-      lease._posixLock = PosixSidecarLock.acquire(connection.filePath);
+      lease._posixLock = PosixSidecarLock.acquire(
+        connection.filePath,
+        access: sidecarAccess,
+      );
       lease._configure();
       lease._acquire();
       return lease;
@@ -219,7 +223,7 @@ final class PosixSidecarLock implements Finalizable {
 
   /// Publish a new empty sidecar with private permissions at creation. A
   /// concurrent publisher can open it as soon as its name becomes visible.
-  static void reservePrivate(String path) {
+  static bool reservePrivate(String path) {
     final apple = Platform.isMacOS || Platform.isIOS;
     final lib = DynamicLibrary.process();
     final open = lib
@@ -240,10 +244,13 @@ final class PosixSidecarLock implements Finalizable {
         if (close(fd) != 0) {
           throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
         }
-      } else if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        return true;
+      }
+      if (FileSystemEntity.typeSync(path, followLinks: false) ==
           FileSystemEntityType.notFound) {
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }
+      return false;
     } finally {
       calloc.free(name);
     }
@@ -333,8 +340,17 @@ final class PosixSidecarLock implements Finalizable {
       }
       final apple = Platform.isMacOS || Platform.isIOS;
       // O_RDWR | O_NOFOLLOW | O_CLOEXEC; the sidecar is never recreated on open.
+      final errorSlot = errno?.call();
       fd = open(name, 2 | (apple ? 0x100 | 0x1000000 : 0x20000 | 0x80000));
       if (fd < 0) {
+        final code = errorSlot?.value;
+        if (code == 1 || code == 13) {
+          throw ManagedFsFailure(
+            ManagedFsFailureKind.io,
+            path: path,
+            posixError: code,
+          );
+        }
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }
       if (admitted != null) {

@@ -46,6 +46,24 @@ void main() {
     expect(file.lengthSync(), 5000);
   });
 
+  test('automatic export preserves an arrival and uses a free name', () async {
+    final file = target('notes.txt');
+    final saved = await writeStreamedFile(
+      file: file,
+      size: 3,
+      replaceExisting: false,
+      onDestinationOccupied: () => File(uncontestedPath(dir.path, 'notes.txt')),
+      read: (_, _) async {
+        file.writeAsStringSync('other export');
+        return 'new'.codeUnits;
+      },
+    );
+    expect(saved, isTrue);
+    expect(file.readAsStringSync(), 'other export');
+    expect(target('notes (1).txt').readAsStringSync(), 'new');
+    expect(dir.listSync(), hasLength(2));
+  });
+
   test('a copy that stops short leaves NO file', () async {
     // A plausible-looking partial is worse than none: somebody opens it, sees
     // the first half of their document, and has no way to know the rest was

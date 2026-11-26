@@ -1,9 +1,14 @@
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
+import 'package:win32/win32.dart' as win;
+
 import '../core/posix_file_facts.dart';
 import 'fs_beneath.dart';
-import 'storage/managed_fs_windows.dart' as windows;
+
+part 'plain_download_resume_file.dart';
 
 /// A byte source the SENDER serves a large file from directly (the original file
 /// on disk) — read + close closures over a [RandomAccessFile]. Reads are
@@ -263,16 +268,18 @@ final class NewPlainDownload {
   final File _file;
   final String? _identity;
   final RandomAccessFile handle;
+  String? get identity => _identity;
 
   static NewPlainDownload open(String path) {
     final file = File(path);
     file.createSync(exclusive: true);
-    final identity = _plainDestinationIdentity(path);
+    final identity = plainDownloadDestinationIdentity(path);
     RandomAccessFile? handle;
     try {
       // Keep the exclusive reservation intact and support positioned writes.
       handle = file.openSync(mode: FileMode.append);
-      if (identity != null && identity != _plainDestinationIdentity(path)) {
+      if (identity != null &&
+          identity != plainDownloadDestinationIdentity(path)) {
         throw FileSystemException('Download destination changed', path);
       }
       return NewPlainDownload._(file, identity, handle);
@@ -282,35 +289,23 @@ final class NewPlainDownload {
       } on FileSystemException {
         // The admission error is more actionable than the close error.
       }
-      _discardPlainDestination(file, identity);
+      discardPlainDownloadDestination(file.path, identity);
       rethrow;
     }
   }
 
-  void discard() => _discardPlainDestination(_file, _identity);
+  void discard() => discardPlainDownloadDestination(_file.path, _identity);
 }
 
-String? _plainDestinationIdentity(String path) {
-  if (Platform.isWindows) {
-    try {
-      final facts = windows.inspect(
-        path,
-        includeApprovedAcl: true,
-        allowNetworkShare: true,
-      );
-      return facts.directory ? null : facts.identity;
-    } catch (_) {
-      return null;
-    }
-  }
-  final facts = posixLstat(path);
-  return facts?.isRegularFile == true
-      ? '${facts!.deviceId}:${facts.inode}'
-      : null;
+String? plainDownloadDestinationIdentity(String path) {
+  if (Platform.isWindows) return _windowsDownloadPathIdentity(path);
+  return _posixDownloadIdentity(posixLstat(path));
 }
 
-void _discardPlainDestination(File file, String? identity) {
-  if (identity == null || identity != _plainDestinationIdentity(file.path)) {
+void discardPlainDownloadDestination(String path, String? identity) {
+  final file = File(path);
+  if (identity == null ||
+      identity != plainDownloadDestinationIdentity(file.path)) {
     return;
   }
   try {
@@ -330,98 +325,56 @@ typedef VeilPlainFileSink = ({
   Future<Uint8List?> Function(int offset, int length)? read,
 });
 
-/// (Re)open [path] as a write sink for a plain-file download.
-///
-/// [resume]=false (default): TRUNCATE any prior content and start clean — a
-/// fresh user-initiated download. No [read] (nothing to verify).
-///
-/// [resume]=true: do NOT truncate — keep the bytes a previous run wrote so the
-/// swarm can hash-verify each piece off disk and skip the ones already present
-/// (byte-level resume across a restart). Exposes [read] backed by a second
-/// read-only handle (Dart's write handle can't also read). Best-effort: a
-/// missing file just yields an empty one and every piece re-pulls.
-///
-/// Null when the destination can't be opened — e.g. a sandboxed macOS release
-/// after a restart, where the NSSavePanel grant for the picked path is gone.
-/// Writes are serialized through a gate for the same single-cursor reason as
-/// [veilSourceOpener].
+/// Open a new sink, or reopen only the saved destination object for resume.
+/// The resume path uses an existing-file handle and checks its identity
+/// before returning a writer or reader to the transfer engine.
 Future<VeilPlainFileSink?> veilPlainFileSinkOpener(
   String path, {
   bool resume = false,
+  String? expectedIdentity,
 }) async {
+  if (resume) {
+    if (expectedIdentity == null) return null;
+    return _openPlainDownloadForResume(path, expectedIdentity);
+  }
   final RandomAccessFile raf;
-  RandomAccessFile? readRaf;
   try {
     await File(path).parent.create(recursive: true);
-    // append = write + create + NO truncate (preserves prior bytes); write =
-    // truncate. Reads need a separate handle — a write handle is write-only.
-    raf = await File(path).open(mode: resume ? FileMode.append : FileMode.write);
-    if (resume) {
-      try {
-        readRaf = await File(path).open(mode: FileMode.read);
-      } catch (_) {
-        readRaf = null; // no reader → resume simply re-pulls every piece
-      }
-    }
-  } catch (_) {
+    raf = await File(path).open(mode: FileMode.write);
+  } on FileSystemException {
     return null;
   }
   Future<void> gate = Future<void>.value();
   var closed = false;
-  Future<void> write(int offset, Uint8List bytes) {
-    final r = gate.then((_) async {
+
+  Future<void> enqueue(Future<void> Function() operation) {
+    final pending = gate.then((_) => operation());
+    gate = pending.then((_) {}, onError: (_) {});
+    return pending;
+  }
+
+  return (
+    write: (offset, bytes) => enqueue(() async {
       if (closed) return;
       await raf.setPosition(offset);
       await raf.writeFrom(bytes);
-    });
-    gate = r.then((_) {}, onError: (_) {});
-    return r;
-  }
-
-  Future<Uint8List?> Function(int offset, int length)? readFn;
-  if (readRaf != null) {
-    final rr = readRaf;
-    readFn = (int offset, int length) async {
-      // Serialize reads on the write gate too, so a concurrent write's
-      // setPosition can't interleave with a read's (shared file, and the read
-      // handle is independent — the gate is the single cursor of record).
-      Uint8List? out;
-      final r = gate.then((_) async {
-        if (closed) return;
-        try {
-          out = await _readFully(rr, offset, length);
-        } catch (_) {
-          out = null;
-        }
-      });
-      gate = r.then((_) {}, onError: (_) {});
-      await r;
-      return out;
-    };
-  }
-
-  Future<void> close() {
-    final r = gate.then((_) async {
+    }),
+    close: () => enqueue(() async {
       if (closed) return;
       closed = true;
       await raf.close();
-      if (readRaf != null) {
-        try {
-          await readRaf.close();
-        } catch (_) {}
-      }
-    });
-    gate = r.then((_) {}, onError: (_) {});
-    return r;
-  }
-
-  return (write: write, close: close, read: readFn);
+    }),
+    read: null,
+  );
 }
 
 /// Read EXACTLY [length] bytes at [offset], looping until satisfied or EOF
 /// ([RandomAccessFile.read] may return fewer than asked on some platforms).
 Future<Uint8List> _readFully(
-    RandomAccessFile raf, int offset, int length) async {
+  RandomAccessFile raf,
+  int offset,
+  int length,
+) async {
   await raf.setPosition(offset);
   final out = BytesBuilder(copy: false);
   var remaining = length;

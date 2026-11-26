@@ -1,3 +1,5 @@
+import '../common/document_export_review.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -146,7 +148,19 @@ class _CloudAttachmentChipState extends ConsumerState<CloudAttachmentChip> {
         say(ok ? l.cloudAttachmentFetched : l.cloudAttachmentFetchFailed);
         return;
       }
-      final result = await exportCloudItem(service, item);
+      final result = await exportCloudItem(
+        service,
+        item,
+        pick: (name) => openReviewedExportDocument(
+          context,
+          name,
+          stillCurrent: () => mounted && !service.isClosed,
+        ),
+        onExportFailure: (error) async =>
+            mounted &&
+            !service.isClosed &&
+            await showDocumentExportAccessFailure(context, error),
+      );
       if (!mounted || result == CloudExportResult.cancelled) return;
       say(cloudExportResultText(l, result));
     } finally {

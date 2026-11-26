@@ -3922,5 +3922,15 @@
   "startupUnlockVaultNotEnrolled": "The credential store requires an enrolled biometric. Set up fingerprint or face recognition in system settings and save again.",
   "startupUnlockVaultLockedOut": "The system temporarily blocked biometric authentication. Unlock your device with its passcode and try saving again.",
   "startupUnlockVaultProtectionChanged": "The system invalidated the saved sign-in key. Review your biometric setup in system settings and save again with the container password.",
-  "startupUnlockVaultUnavailable": "The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again."
+  "startupUnlockVaultUnavailable": "The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again.",
+  "networkBackgroundRequestUnavailable": "Android could not open the battery exemption request. You can check this permission in system settings.",
+  "mediaPermissionRestricted": "A system restriction blocks access to the microphone or camera.",
+  "transferArchiveReadFailed": "Could not read the archive at {path}. {reason}",
+  "@transferArchiveReadFailed": {
+    "placeholders": {
+      "path": { "type": "String" },
+      "reason": { "type": "String" }
+    }
+  },
+  "plainDownloadChooseDestinationAgain": "The app could not verify the original download file. Choose a save location again."
 }

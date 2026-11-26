@@ -85,8 +85,10 @@ Future<CloudItem?> importPickedCloudFile(
 /// one that makes the storage usable from the rest of the machine.
 Future<CloudExportResult> exportCloudItem(
   CloudService service,
-  CloudItem item,
-) async {
+  CloudItem item, {
+  ExportDocumentPicker pick = openExportDocument,
+  Future<bool> Function(Object)? onExportFailure,
+}) async {
   if (item.contentId == null || item.deleted) return CloudExportResult.failed;
   if (service.isClosed) return CloudExportResult.failed;
   try {
@@ -98,15 +100,16 @@ Future<CloudExportResult> exportCloudItem(
         ? Future.value(null)
         : service.readContentRange(item, offset, want);
     if (Platform.isAndroid || Platform.isIOS) {
-      final destination = uncontestedPath(
-        (await getApplicationDocumentsDirectory()).path,
-        name,
-      );
+      final directory = (await getApplicationDocumentsDirectory()).path;
+      File chooseDestination() => File(uncontestedPath(directory, name));
+      final destination = chooseDestination();
       if (service.isClosed) return CloudExportResult.failed;
       final complete = await writeStreamedFile(
-        file: File(destination),
+        file: destination,
         size: item.size,
         read: read,
+        replaceExisting: false,
+        onDestinationOccupied: chooseDestination,
       );
       return complete ? CloudExportResult.done : CloudExportResult.failed;
     }
@@ -115,9 +118,13 @@ Future<CloudExportResult> exportCloudItem(
       size: item.size,
       stillOurs: () => !service.isClosed,
       read: read,
+      pick: pick,
     );
     return saved ? CloudExportResult.done : CloudExportResult.cancelled;
   } on DocumentExportException catch (error) {
+    if (await onExportFailure?.call(error) == true) {
+      return CloudExportResult.cancelled;
+    }
     return switch ((
       error.permissionDenied,
       error.partialMayRemain,

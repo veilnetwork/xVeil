@@ -2,8 +2,9 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import '../network/background_permission_offer.dart'
+    show requestBackgroundExemption;
 import '../../desktop/desktop_tray.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -73,11 +74,13 @@ class ChatsSettingsScreen extends ConsumerWidget {
   /// user to grant the Doze battery exemption (the foreground service alone is
   /// not enough on Doze + aggressive OEMs); when already ignoring
   /// optimisations, the request is a no-op. On disable, just stop the service.
-  Future<void> _setKeepNodeBackground(WidgetRef ref, bool value) async {
+  Future<void> _setKeepNodeBackground(
+    BuildContext context,
+    WidgetRef ref,
+    bool value,
+  ) async {
     await ref.read(backgroundNodeProvider.notifier).set(value);
-    if (!value) return;
-    final exempt = await VeilBackground.isIgnoringBatteryOptimizations();
-    if (!exempt) await VeilBackground.requestIgnoreBatteryOptimizations();
+    if (value && context.mounted) await requestBackgroundExemption(context);
   }
 
   @override
@@ -145,7 +148,7 @@ class ChatsSettingsScreen extends ConsumerWidget {
               subtitle: Text(l.settingsKeepNodeBackgroundHint),
               isThreeLine: true,
               value: ref.watch(backgroundNodeProvider),
-              onChanged: (v) => _setKeepNodeBackground(ref, v),
+              onChanged: (v) => _setKeepNodeBackground(context, ref, v),
             ),
           // Reactions: a local display preference for 1:1 chats AND groups —
           // hides the chips under bubbles and the quick-react bar in the

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/document_export.dart';
+import '../common/document_export_review.dart';
 import '../../core/diagnostic_journal.dart';
 import '../../core/format.dart';
 import '../../data/folder_saved_versions.dart';
@@ -173,7 +174,13 @@ class _FolderSavedVersionsDialogState
         stillCurrent: _current,
         verifyRoot: _verifyRoot,
         cancellation: cancellation,
-        pick: picker,
+        pick: identical(picker, openExportDocument)
+            ? (name) => openReviewedExportDocument(
+                context,
+                name,
+                stillCurrent: _current,
+              )
+            : picker,
       );
       if (saved) message = l.chatFileSavedToChosenFolder;
     } on _SavedRootRefused catch (error) {
@@ -185,7 +192,11 @@ class _FolderSavedVersionsDialogState
       message = l.folderSyncSavedChanged;
     } on DocumentExportException catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.exporting);
-      message = documentExportFailureText(l, error, l.chatFileSaveFailed);
+      if (mounted &&
+          _current() &&
+          !await showDocumentExportAccessFailure(context, error)) {
+        message = documentExportFailureText(l, error, l.chatFileSaveFailed);
+      }
     } catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.exporting);
       message = error is FolderFsFailure && error.accessDenied

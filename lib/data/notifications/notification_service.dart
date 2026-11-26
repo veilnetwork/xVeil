@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+// The plugin's public customHints parameter uses these unexported types.
+// ignore: implementation_imports
+import 'package:flutter_local_notifications_linux/src/model/hint.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/diagnostic_journal.dart';
@@ -313,12 +317,13 @@ class NotificationService {
   }
 
   /// Ask the OS for permission to post notifications (iOS/macOS always; Android
-  /// 13+). Null means the backend could not report an OS decision. Platforms
-  /// without this permission request report success without invoking the OS.
+  /// 13+). Desktop platforms without a prompt query the system setting.
+  /// Null means the backend could not report an OS decision.
   Future<bool?> requestPermission() async {
     if (!_ready) return null;
+    if (Platform.isWindows || Platform.isLinux) return permissionStatus();
     if (!Platform.isIOS && !Platform.isMacOS && !Platform.isAndroid) {
-      return true;
+      return null;
     }
     bool? granted;
     try {
@@ -361,6 +366,19 @@ class NotificationService {
   Future<bool?> permissionStatus() async {
     if (!_ready) return null;
     try {
+      if (Platform.isWindows || Platform.isLinux) {
+        const channel = MethodChannel('xveil/notification_permissions');
+        return await channel.invokeMethod<bool>(
+          'status',
+          Platform.isWindows
+              ? windowsNotificationSettingsForNamespace(
+                  const String.fromEnvironment(
+                    'XVEIL_WINDOWS_NOTIFICATION_NAMESPACE',
+                  ),
+                ).appUserModelId
+              : null,
+        );
+      }
       if (Platform.isAndroid) {
         return await _plugin
             .resolvePlatformSpecificImplementation<
@@ -456,7 +474,14 @@ class NotificationService {
           ),
           iOS: const DarwinNotificationDetails(),
           macOS: const DarwinNotificationDetails(),
-          linux: const LinuxNotificationDetails(),
+          linux: LinuxNotificationDetails(
+            customHints: [
+              LinuxNotificationCustomHint(
+                name: 'desktop-entry',
+                value: LinuxHintStringValue('network.veil.xveil'),
+              ),
+            ],
+          ),
           windows: const WindowsNotificationDetails(),
         ),
         payload: payload,

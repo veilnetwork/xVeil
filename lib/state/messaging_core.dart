@@ -1818,15 +1818,12 @@ class MessagingService {
       (_) => _retryFlush(),
     );
     int? previousSessionCount;
-    _outboxOverlaySub = transport.sessionCount().listen(
-      (count) {
-        if (_disposed || count < 0) return;
-        final recovered = previousSessionCount == 0 && count > 0;
-        previousSessionCount = count;
-        if (recovered) _outbox.onOverlayRestored();
-      },
-      onError: (Object _) {},
-    );
+    _outboxOverlaySub = transport.sessionCount().listen((count) {
+      if (_disposed || count < 0) return;
+      final recovered = previousSessionCount == 0 && count > 0;
+      previousSessionCount = count;
+      if (recovered) _outbox.onOverlayRestored();
+    }, onError: (Object _) {});
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2). The transport-scoped broker keeps
     // exactly one native accept loop across synchronous identity/service
@@ -3842,7 +3839,9 @@ class MessagingService {
     String savedPath, {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
+    String? destinationIdentity,
   }) async {
+    destinationIdentity ??= plainDownloadDestinationIdentity(savedPath);
     Future<void>? closing;
     Future<void> closeSink() => closing ??= Future<void>.sync(close);
 
@@ -3880,6 +3879,7 @@ class MessagingService {
           preparation: preparation,
           mode: _PendingDownload.modeFile,
           savedPath: savedPath,
+          destinationIdentity: destinationIdentity,
           peers: [peer],
           failedClose: closeSink,
         ),
@@ -3986,11 +3986,16 @@ class MessagingService {
     // ones already written (see [_FetchSink.read]).
     Future<Uint8List?> Function(int offset, int length)? read,
     bool userInitiated = true,
-  }) => _downloadContentToFileFromAny(peers, contentId, savedPath, (
-    write: write,
-    close: close,
-    read: read,
-  ), userInitiated: userInitiated);
+    String? destinationIdentity,
+  }) => _downloadContentToFileFromAny(
+    peers,
+    contentId,
+    savedPath,
+    (write: write, close: close, read: read),
+    userInitiated: userInitiated,
+    destinationIdentity:
+        destinationIdentity ?? plainDownloadDestinationIdentity(savedPath),
+  );
 
   Future<ContentDownloadResult> _downloadContentToFileFromAny(
     Iterable<NodeId> peers,
@@ -3999,6 +4004,7 @@ class MessagingService {
     VeilPlainFileSink destination, {
     required bool userInitiated,
     bool localCopyOnly = false,
+    String? destinationIdentity,
   }) async {
     Future<void>? closing;
     Future<void> closeSink() =>
@@ -4057,6 +4063,7 @@ class MessagingService {
           preparation: preparation,
           mode: _PendingDownload.modeFile,
           savedPath: savedPath,
+          destinationIdentity: destinationIdentity,
           peers: sources,
           failedClose: closeSink,
         ),
@@ -4152,11 +4159,12 @@ class MessagingService {
     }
   }
 
-  /// Cancel an in-flight or parked user download. Returns the plaintext target
-  /// path, when this was a download-to-file, so the UI can delete partial clear
-  /// bytes (the transport/storage core deliberately has no dart:io access).
-  Future<String?> cancelContentDownload(String contentId) =>
-      _downloadResume.cancel(contentId);
+  /// Cancel an in-flight or parked download. The UI can request cleanup of
+  /// the partial file after the service verifies its stored identity.
+  Future<String?> cancelContentDownload(
+    String contentId, {
+    bool discardPartial = false,
+  }) => _downloadResume.cancel(contentId, discardPartial: discardPartial);
 
   // ------------------------------------------------------------------------
   // AUTO-RESUME of interrupted downloads (torrent-like).
@@ -4217,12 +4225,15 @@ class MessagingService {
   /// a parked resume shows no progress, so the UI would otherwise look idle.
   /// The UI shows "resuming…" when a cid is here but has no live progress.
   Stream<Set<String>> get contentResuming => _downloadResume.resuming;
+  Stream<String> get contentDownloadDestinationNeedsSelection =>
+      _downloadResume.destinationNeedsSelection;
 
   Future<bool> _recordPendingDownload(
     String contentId, {
     required String mode,
     required _DownloadPreparation preparation,
     String? savedPath,
+    String? destinationIdentity,
     required Iterable<NodeId> peers,
     Future<void> Function()? failedClose,
   }) async {
@@ -4231,6 +4242,7 @@ class MessagingService {
         contentId,
         mode: mode,
         savedPath: savedPath,
+        destinationIdentity: destinationIdentity,
         peers: peers,
         isCurrent: preparation.isCurrent,
       );
@@ -4986,6 +4998,7 @@ class _PendingDownload {
     required this.peers,
     required this.requestedAt,
     this.savedPath,
+    this.destinationIdentity,
   });
 
   static const modeStore = 'store'; // encrypted tier / in-volume
@@ -4994,6 +5007,7 @@ class _PendingDownload {
   final String contentId;
   final String mode;
   final String? savedPath;
+  final String? destinationIdentity;
   final List<String> peers; // node-id hexes known to hold the content
   final DateTime requestedAt;
 
@@ -5003,6 +5017,7 @@ class _PendingDownload {
     'cid': contentId,
     'mode': mode,
     if (savedPath != null) 'path': savedPath,
+    if (destinationIdentity != null) 'destinationIdentity': destinationIdentity,
     'peers': peers,
     'at': requestedAt.toIso8601String(),
   };
@@ -5016,6 +5031,7 @@ class _PendingDownload {
       contentId: cid,
       mode: mode == modeFile ? modeFile : modeStore,
       savedPath: json['path'] as String?,
+      destinationIdentity: json['destinationIdentity'] as String?,
       peers: [
         if (peers is List)
           for (final p in peers)

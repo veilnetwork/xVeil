@@ -156,6 +156,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                 camera
                     ? l.mediaCameraPermissionDenied
                     : l.mediaMicrophonePermissionDenied,
+              MediaPermissionStatus.restricted => l.mediaPermissionRestricted,
               _ => l.mediaPermissionCheckUnavailable,
             }),
           ),
@@ -412,6 +413,8 @@ class GroupCallRoomView extends StatelessWidget {
         ),
         if (microphonePermission == MediaPermissionStatus.denied ||
             cameraPermission == MediaPermissionStatus.denied ||
+            microphonePermission == MediaPermissionStatus.restricted ||
+            cameraPermission == MediaPermissionStatus.restricted ||
             microphonePermission == MediaPermissionStatus.unavailable ||
             cameraPermission == MediaPermissionStatus.unavailable)
           Padding(
@@ -422,6 +425,9 @@ class GroupCallRoomView extends StatelessWidget {
                   l.mediaMicrophonePermissionDenied,
                 if (cameraPermission == MediaPermissionStatus.denied)
                   l.mediaCameraPermissionDenied,
+                if (microphonePermission == MediaPermissionStatus.restricted ||
+                    cameraPermission == MediaPermissionStatus.restricted)
+                  l.mediaPermissionRestricted,
                 if (microphonePermission == MediaPermissionStatus.unavailable ||
                     cameraPermission == MediaPermissionStatus.unavailable)
                   l.mediaPermissionCheckUnavailable,

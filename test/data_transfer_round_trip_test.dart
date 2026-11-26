@@ -13,6 +13,7 @@
 //  * an archive carrying an identity is refused by a device that has one.
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -475,6 +476,41 @@ void main() {
       (thrown as ImportInterrupted).cause,
       isA<TransferException>(),
       reason: 'the reason it stopped has to travel with it',
+    );
+  });
+
+  test('an OS read refusal retains the archive import counters', () async {
+    final archive = await _exportOf(_deviceWithHistory());
+    final collector = _Collector();
+    const refused = FileSystemException(
+      'read failed',
+      '/chosen/archive',
+      OSError('Permission denied', 13),
+    );
+    Stream<List<int>> input() async* {
+      yield Uint8List.sublistView(archive, 0, (archive.length * 3) ~/ 4);
+      throw refused;
+    }
+
+    await expectLater(
+      DataImporter(
+        storage: _Space(),
+        appliers: collector.appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: input()),
+      throwsA(
+        isA<ImportInterrupted>()
+            .having(
+              (e) => e.partial.syncEvents,
+              'applied entries',
+              greaterThan(0),
+            )
+            .having(
+              (e) => (e.cause as TransferReadFailure).error,
+              'read refusal',
+              same(refused),
+            ),
+      ),
     );
   });
 

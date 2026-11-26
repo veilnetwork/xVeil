@@ -93,6 +93,10 @@ class _Messaging implements MessagingService {
   final notices = StreamController<IncomingNotice>.broadcast();
   @override
   Stream<IncomingNotice> get incoming => notices.stream;
+
+  @override
+  Stream<String> get contentDownloadDestinationNeedsSelection =>
+      const Stream.empty();
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

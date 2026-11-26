@@ -3,6 +3,7 @@ package network.veil.xveil
 import android.Manifest
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,6 +14,7 @@ import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.UserManager
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.OnBackPressedCallback
@@ -294,7 +296,11 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
             .setMethodCallHandler { call, result ->
                 val type = call.argument<String>("type") ?: "audio"
                 when (call.method) {
-                    "status" -> result.success(if (granted(type)) "authorized" else "notDetermined")
+                    "status" -> result.success(when {
+                        mediaRestricted(type) -> "restricted"
+                        granted(type) -> "authorized"
+                        else -> "notDetermined"
+                    })
                     "request" -> request(type, result)
                     else -> result.notImplemented()
                 }
@@ -853,8 +859,26 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         },
     )
 
+    private fun mediaRestricted(type: String): Boolean = try {
+        if (type == "video") {
+            val policy = getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            policy?.getCameraDisabled(null) == true
+        } else {
+            val users = getSystemService(Context.USER_SERVICE) as? UserManager
+            users?.hasUserRestriction(UserManager.DISALLOW_UNMUTE_MICROPHONE) == true
+        }
+    } catch (_: SecurityException) {
+        false
+    }
+
     private fun request(type: String, result: MethodChannel.Result) {
-        mediaPermissions.request(permFor(type)) { ok -> result.success(ok) }
+        if (mediaRestricted(type)) {
+            result.success("restricted")
+            return
+        }
+        mediaPermissions.request(permFor(type)) { ok ->
+            if (mediaRestricted(type)) result.success("restricted") else result.success(ok)
+        }
     }
 
     /**

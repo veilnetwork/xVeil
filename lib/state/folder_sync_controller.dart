@@ -497,6 +497,7 @@ FolderSyncRefusal? folderSyncRootRefusal(
               includeApprovedAcl: true,
               allowNetworkShare: true,
               protectFromReparseChanges: true,
+              includeInheritedContentAcl: leaf,
             )
           : const ManagedFsPlatform().inspectAcl(
               step,
@@ -578,7 +579,7 @@ FolderSyncRefusal? folderSyncRootRefusal(
     } on ManagedFsFailure catch (error) {
       final warning = error.aclWarnings.firstOrNull;
       return FolderSyncRefusal(
-        error.unsafeReason == ManagedFsUnsafeReason.windowsPathAccessDenied
+        error.accessDenied
             ? FolderSyncRefusalCode.osAccessDenied
             : warning == null
             ? FolderSyncRefusalCode.permissionsUnreadable

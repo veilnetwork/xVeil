@@ -322,12 +322,20 @@ _Libc? _resolveLibc() {
 /// Whether this host can answer any of the questions below.
 bool get posixFactsAvailable => _resolveLibc() != null;
 
-PosixFileFacts? _rawLstat(_Libc libc, String path) {
+PosixFileFacts? _rawLstat(
+  _Libc libc,
+  String path,
+  void Function(int)? onError,
+) {
   final layout = libc.layout;
   final pathPtr = path.toNativeUtf8();
   final buffer = calloc<Uint8>(layout.bufferBytes);
   try {
-    if (libc.lstat(pathPtr, buffer) != 0) return null;
+    final errno = libc.errnoLocation?.call();
+    if (libc.lstat(pathPtr, buffer) != 0) {
+      if (errno != null) onError?.call(errno.value);
+      return null;
+    }
     return _decodePosixFacts(buffer, layout);
   } finally {
     calloc.free(buffer);
@@ -426,10 +434,10 @@ bool posixSetModeForFile(
 /// the parsed answer disagrees with what Dart's own `stat` sees. That last one
 /// is the guard against a wrong [_StatLayout]: the two readings come from
 /// different code paths, so a layout that is off by a field cannot pass both.
-PosixFileFacts? posixLstat(String path) {
+PosixFileFacts? posixLstat(String path, {void Function(int)? onError}) {
   final libc = _resolveLibc();
   if (libc == null) return null;
-  final facts = _rawLstat(libc, path);
+  final facts = _rawLstat(libc, path, onError);
   if (facts == null) return null;
 
   final FileSystemEntityType dartType;

@@ -3,13 +3,17 @@ import 'dart:io' show exit;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/storage_acl_vault.dart';
 import '../../data/storage/managed_fs_contract.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show ManagedPreferencesFailureReason, managedStorageFailureReason;
 import '../../data/veil_stack.dart'
     show RuntimeDirNotPrivate, RuntimeDirectoryRefusal;
 import '../../l10n/app_localizations.dart';
+import '../common/storage_acl_details.dart';
 import '../settings/error_report.dart';
+
+export '../common/storage_acl_details.dart' show StorageAclDetails;
 
 /// The whole app, when startup threw before it could put anything on screen.
 ///
@@ -391,6 +395,35 @@ class RuntimeRefusalDetails extends StatelessWidget {
   }
 }
 
+/// Record approval for the grants the user reviewed for this operation.
+Future<bool> reviewStorageOperationAccess(
+  BuildContext context,
+  ManagedFsFailure failure, {
+  required bool Function() stillCurrent,
+}) async {
+  final remember = await showStorageAccessReview(context, failure);
+  if (remember == null || !context.mounted || !stillCurrent()) return false;
+  final l = AppL10n.of(context);
+  for (final warning in failure.aclWarnings) {
+    if (!context.mounted || !stillCurrent()) return false;
+    if (!await recordStorageAclApproval(warning, remember: remember)) {
+      if (context.mounted && stillCurrent()) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.startupAclApprovalFailed)));
+      }
+      return false;
+    }
+  }
+  if (context.mounted && stillCurrent()) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.storageAclRetryOperation)));
+    return true;
+  }
+  return false;
+}
+
 /// Returns the requested scope of an approval, or null when declined.
 Future<bool?> showStorageAccessReview(
   BuildContext context,
@@ -464,65 +497,6 @@ Future<bool?> showStorageAccessReview(
     ),
   );
 }
-
-class StorageAclDetails extends StatelessWidget {
-  const StorageAclDetails(this.warning, {super.key});
-
-  final ManagedStorageAclWarning warning;
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SelectableText(warning.path),
-        const SizedBox(height: 8),
-        if (warning.owner case final owner?) Text(l.startupAclOwner(owner)),
-        if (warning.grantsArePotential && warning.grants.isNotEmpty)
-          Text(l.storageAclPotentialGrants),
-        if (warning.readOnlyInApp) Text(l.storageAclSettingsReadOnly),
-        for (final grant in warning.grants)
-          Text(
-            l.startupAclGrant(
-              grant.account.isEmpty ? l.startupAclEveryone : grant.account,
-              grant.rights.map((right) => _rightLabel(l, right)).join(', '),
-            ),
-          ),
-        if (warning.inheritedGrants.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(l.storageAclInheritedGrants),
-          for (final grant in warning.inheritedGrants)
-            Text(
-              l.startupAclGrant(
-                grant.account.isEmpty ? l.startupAclEveryone : grant.account,
-                grant.rights.map((right) => _rightLabel(l, right)).join(', '),
-              ),
-            ),
-        ],
-        if (warning.extendedAcl case final acl?)
-          ExpansionTile(
-            title: Text(l.startupAclDetails),
-            initiallyExpanded:
-                warning.grants.isEmpty && warning.inheritedGrants.isEmpty,
-            children: [SelectableText(acl)],
-          ),
-      ],
-    );
-  }
-}
-
-String _rightLabel(AppL10n l, ManagedAclRight right) => switch (right) {
-  ManagedAclRight.read => l.startupAclRead,
-  ManagedAclRight.write => l.startupAclWrite,
-  ManagedAclRight.execute => l.startupAclExecute,
-  ManagedAclRight.delete => l.startupAclDelete,
-  ManagedAclRight.deleteChildren => l.startupAclDeleteChildren,
-  ManagedAclRight.changePermissions => l.startupAclChangePermissions,
-  ManagedAclRight.changeOwner => l.startupAclChangeOwner,
-  ManagedAclRight.fullControl => l.startupAclFullControl,
-  ManagedAclRight.other => l.startupAclOther,
-};
 
 String? preferencesFailureText(
   AppL10n l,
