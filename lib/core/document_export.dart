@@ -9,6 +9,10 @@ import 'package:path/path.dart' as p;
 
 import '../domain/file_names.dart';
 import '../data/storage/managed_fs_platform.dart';
+import '../data/storage/profile_preferences_file.dart'
+    show FileReplacementAccess;
+import '../data/storage/managed_fs_windows.dart' as windows;
+import '../l10n/app_localizations.dart';
 import 'filesystem_errors.dart';
 
 const documentExportChannel = MethodChannel('xveil/document_export');
@@ -27,21 +31,66 @@ typedef ExportDocumentPicker = Future<ExportDocument?> Function(String name);
 
 /// Deliberately contains no platform exception message, URI, path or filename.
 class DocumentExportException implements Exception {
-  const DocumentExportException(this.stage, {this.permissionDenied = false});
+  const DocumentExportException(
+    this.stage, {
+    this.permissionDenied = false,
+    this.partialMayRemain = false,
+  });
   final String stage;
   final bool permissionDenied;
+  final bool partialMayRemain;
   @override
   String toString() => 'Document export failed ($stage)';
 }
 
+String documentExportFailureText(AppL10n l, Object error, String fallback) {
+  if (error is! DocumentExportException) return fallback;
+  final message = error.permissionDenied
+      ? l.chatFileSavePermissionDenied
+      : switch (error.stage) {
+          'access-policy' => l.exportAccessPolicyCannotBePreserved,
+          'destination-changed' => l.exportDestinationChanged,
+          'destination-type' => l.exportDestinationNotFile,
+          _ => fallback,
+        };
+  return error.partialMayRemain
+      ? '$message ${l.exportPartialMayRemain}'
+      : message;
+}
+
+/// Preserve the original failure. Add the provider cleanup outcome without
+/// retaining paths or raw exception text.
+Future<Object> abortFailedDocument(
+  ExportDocument? document,
+  Object error,
+) async {
+  try {
+    await document?.abort();
+    return error;
+  } catch (_) {
+    final failure = _failure('abort', error);
+    return DocumentExportException(
+      failure.stage,
+      permissionDenied: failure.permissionDenied,
+      partialMayRemain: true,
+    );
+  }
+}
+
 /// Classify only stable codes. Never retain provider messages, URIs or paths.
 DocumentExportException _failure(String stage, Object error) {
-  final denied = error is DocumentExportException
-      ? error.permissionDenied
-      : error is PlatformException
-      ? error.code == 'document_export_permission'
-      : error is FileSystemException && fileSystemAccessDenied(error);
-  return DocumentExportException(stage, permissionDenied: denied);
+  if (error is DocumentExportException) return error;
+  final platform = error is PlatformException ? error : null;
+  return DocumentExportException(
+    stage,
+    permissionDenied:
+        platform?.code == 'document_export_permission' ||
+        error is ManagedFsFailure &&
+            error.unsafeReason ==
+                ManagedFsUnsafeReason.windowsPathAccessDenied ||
+        error is FileSystemException && fileSystemAccessDenied(error),
+    partialMayRemain: platform?.details == 'partial_may_remain',
+  );
 }
 
 Future<ExportDocument?> openExportDocument(String name) async {
@@ -175,37 +224,48 @@ class _NativeExportDocument extends _SequentialDocument {
 }
 
 class _FileExportDocument extends _SequentialDocument {
-  _FileExportDocument(
-    this.target,
-    this.writingFile,
-    this.handle,
-    this.replaceExisting,
-  );
+  _FileExportDocument(this.target, this.writingFile, this.handle, this.access);
   final File target;
   final File writingFile;
   RandomAccessFile? handle;
-  final bool replaceExisting;
+  final FileReplacementAccess? access;
 
   static Future<_FileExportDocument> open(
     File target, {
     bool replaceExisting = true,
   }) async {
+    final type = FileSystemEntity.typeSync(target.path, followLinks: false);
+    if (type != FileSystemEntityType.file &&
+        type != FileSystemEntityType.notFound) {
+      throw const DocumentExportException('destination-type');
+    }
     final random = Random.secure();
     final suffix = List.generate(
       16,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
     final sibling = File('${target.path}.xveil-part-$suffix');
-    await sibling.create(exclusive: true);
+    final FileReplacementAccess? access;
     try {
-      if (!replaceExisting) {
-        const ManagedFsPlatform().restrictNewFile(sibling.path);
+      access = replaceExisting ? FileReplacementAccess.capture(target) : null;
+    } on ManagedFsFailure catch (error) {
+      if (_failure('open', error).permissionDenied) rethrow;
+      throw const DocumentExportException('access-policy');
+    }
+    if (Platform.isWindows) {
+      if (!windows.createPrivateFile(sibling.path)) {
+        throw const DocumentExportException('destination-changed');
       }
+    } else {
+      await sibling.create(exclusive: true);
+    }
+    try {
+      const ManagedFsPlatform().restrictNewFile(sibling.path);
       return _FileExportDocument(
         target,
         sibling,
-        await sibling.open(mode: FileMode.writeOnly),
-        replaceExisting,
+        await sibling.open(mode: FileMode.writeOnlyAppend),
+        access,
       );
     } catch (_) {
       try {
@@ -229,8 +289,18 @@ class _FileExportDocument extends _SequentialDocument {
       await handle!.flush();
       await handle!.close();
       handle = null;
-      if (replaceExisting) {
-        await writingFile.rename(target.path);
+      if (access?.witness != null) {
+        try {
+          access!.prepareReplacement(target, writingFile);
+          access!.checkDestination(target);
+        } on ManagedFsFailure catch (error) {
+          if (_failure('finish', error).permissionDenied) rethrow;
+          if (error.kind == ManagedFsFailureKind.changed) {
+            throw const DocumentExportException('destination-changed');
+          }
+          throw const DocumentExportException('access-policy');
+        }
+        writingFile.renameSync(target.path);
       } else if (!const ManagedFsPlatform().publishFileNoReplace(
         writingFile.path,
         target.path,
@@ -262,6 +332,8 @@ class _FileExportDocument extends _SequentialDocument {
     } catch (_) {
       failed = true;
     }
-    if (failed) throw const DocumentExportException('abort');
+    if (failed) {
+      throw const DocumentExportException('abort', partialMayRemain: true);
+    }
   }
 }

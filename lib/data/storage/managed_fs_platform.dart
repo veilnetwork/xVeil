@@ -204,8 +204,19 @@ class ManagedFsPlatform {
 
   /// Only for a newly reserved, still-empty file, before writing any payload.
   void restrictNewFile(String path) {
-    if (!Platform.isWindows && posixChmod(path, 0x180) != 0) {
-      throw const ManagedFsFailure(ManagedFsFailureKind.io);
+    if (!Platform.isWindows) {
+      final outcome = posixChmodResult(path, 0x180);
+      if (outcome?.code != 0) {
+        final error = outcome?.errno;
+        if (error == 1 || error == 13) {
+          throw FileSystemException(
+            'Cannot protect the new file',
+            path,
+            OSError('Access denied', error!),
+          );
+        }
+        throw const ManagedFsFailure(ManagedFsFailureKind.io);
+      }
     }
     requirePrivateFile(path);
   }
@@ -241,12 +252,23 @@ class ManagedFsPlatform {
     if (facts.directory ||
         (!(canApprove && facts.aclApproved) &&
             (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
+      var warning = facts.aclWarning;
+      if (warning == null && facts.aclApproved) {
+        // A stricter operation still needs local evidence for an ACL accepted
+        // by another operation. Refresh only for the exact object.
+        try {
+          final current = inspectAcl(path);
+          if (current.sameObject(facts)) warning = current.aclWarning;
+        } on ManagedFsFailure catch (error) {
+          warning = error.aclWarnings.firstOrNull;
+        }
+      }
       throw ManagedFsFailure(
         ManagedFsFailureKind.unsafe,
         unsafeReason: ManagedFsUnsafeReason.privateFile,
         path: path,
         aclWarnings: [
-          if (facts.aclWarning case final warning? when !facts.directory)
+          if (warning != null && !facts.directory)
             warning.withPolicy(canContinue: canApprove),
         ],
       );
@@ -298,6 +320,7 @@ class ManagedFsPlatform {
     final to = destination.toNativeUtf8();
     try {
       final lib = DynamicLibrary.process();
+      final errno = posixErrnoSlot();
       final int rc;
       if (Platform.isMacOS || Platform.isIOS) {
         final rename = lib
@@ -312,12 +335,22 @@ class ManagedFsPlatform {
         throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
       }
       if (rc == 0) return true;
+      final error = errno?.value;
+      if (error == 1 || error == 13) {
+        throw FileSystemException(
+          'Cannot publish the private entry',
+          destination,
+          OSError('Access denied', error!),
+        );
+      }
       if (FileSystemEntity.typeSync(destination, followLinks: false) !=
           FileSystemEntityType.notFound) {
         return false;
       }
       throw const ManagedFsFailure(ManagedFsFailureKind.io);
     } on ManagedFsFailure {
+      rethrow;
+    } on FileSystemException {
       rethrow;
     } catch (_) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unavailable);
@@ -376,6 +409,7 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
   Pointer<Void> acl = nullptr;
   final entry = calloc<Pointer<Void>>();
   final tag = calloc<Int32>();
+  final flags = calloc<Pointer<Void>>();
   final mask = calloc<Uint64>();
   final length = calloc<IntPtr>();
   Pointer<Utf8> text = nullptr;
@@ -425,6 +459,16 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
           Int32 Function(Pointer<Void>, Pointer<Uint64>),
           int Function(Pointer<Void>, Pointer<Uint64>)
         >('acl_get_permset_mask_np');
+    final readFlagSet = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Pointer<Pointer<Void>>),
+          int Function(Pointer<Void>, Pointer<Pointer<Void>>)
+        >('acl_get_flagset_np');
+    final hasFlag = lib
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Uint32),
+          int Function(Pointer<Void>, int)
+        >('acl_get_flag_np');
     // Darwin ACL read data, execute/search, read attributes, read extended
     // attributes, read security and synchronize.
     const readRights = 0x100a8a;
@@ -460,7 +504,13 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
         hasAllow = true;
         if (readMask(entry.value, mask) != 0) return null;
         if (mask.value & ~readRights != 0) readOnly = false;
-        if (mask.value & ~(readRights | addEntries) != 0) contentOnly = false;
+        if (readFlagSet(entry.value, flags) != 0) return null;
+        const inheritOnlyFlag = 1 << 8;
+        final inheritOnly = hasFlag(flags.value, inheritOnlyFlag);
+        if (inheritOnly < 0) return null;
+        if (inheritOnly == 0 && mask.value & ~(readRights | addEntries) != 0) {
+          contentOnly = false;
+        }
       }
     }
     return null;
@@ -482,6 +532,7 @@ String? readDarwinStorageAcl(String path, PosixFileFacts facts) =>
     }
     calloc.free(mask);
     calloc.free(tag);
+    calloc.free(flags);
     calloc.free(entry);
     calloc.free(name);
   }

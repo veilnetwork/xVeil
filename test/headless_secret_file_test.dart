@@ -29,6 +29,43 @@ void main() {
     return file.path;
   }
 
+  test(
+    'a POSIX fallback needs consent even with owner-only mode',
+    () async {
+      final path = await writeSecret('owner-only', 'test credential', '600');
+      await expectLater(
+        readSecretFile(
+          path,
+          'password',
+          isWindows: false,
+          readFacts: (_) => null,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'reason',
+            contains(kAcceptUncheckedSecretFilesFlag),
+          ),
+        ),
+      );
+      final warnings = <String>[];
+      expect(
+        await readSecretFile(
+          path,
+          'password',
+          isWindows: false,
+          readFacts: (_) => null,
+          acceptUnchecked: true,
+          warn: warnings.add,
+        ),
+        'test credential',
+      );
+      expect(warnings.single, contains('POSIX ownership probe is unavailable'));
+      expect(warnings.single, isNot(contains('test credential')));
+    },
+    skip: Platform.isWindows,
+  );
+
   group('the read is bounded', () {
     // report9 X-04. Every check above is about WHO can read the file. None of
     // them is about how big it is, and `readAsString` read whatever was there

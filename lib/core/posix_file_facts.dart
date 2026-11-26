@@ -351,6 +351,29 @@ PosixFileFacts _decodePosixFacts(Pointer<Uint8> buffer, _StatLayout layout) {
   );
 }
 
+/// Inspect the opened object independently of its path.
+PosixFileFacts? posixDescriptorFacts(int fd) {
+  final layout = _resolveLibc()?.layout;
+  if (layout == null) return null;
+  try {
+    final stat = DynamicLibrary.process()
+        .lookupFunction<
+          Int32 Function(Int32, Pointer<Uint8>),
+          int Function(int, Pointer<Uint8>)
+        >(
+          Platform.isMacOS && Abi.current() == Abi.macosX64
+              ? 'fstat\$INODE64'
+              : 'fstat',
+        );
+    return using((arena) {
+      final buffer = arena<Uint8>(layout.bufferBytes);
+      return stat(fd, buffer) == 0 ? _decodePosixFacts(buffer, layout) : null;
+    });
+  } on ArgumentError {
+    return null;
+  }
+}
+
 /// Apply a mode only to the expected regular file, through a no-follow handle.
 bool posixSetModeForFile(
   String path,
@@ -368,15 +391,6 @@ bool posixSetModeForFile(
   final process = DynamicLibrary.process();
   final apple = Platform.isMacOS || Platform.isIOS;
   try {
-    final stat = process
-        .lookupFunction<
-          Int32 Function(Int32, Pointer<Uint8>),
-          int Function(int, Pointer<Uint8>)
-        >(
-          Platform.isMacOS && Abi.current() == Abi.macosX64
-              ? 'fstat\$INODE64'
-              : 'fstat',
-        );
     final chmod = process
         .lookupFunction<Int32 Function(Int32, Uint32), int Function(int, int)>(
           'fchmod',
@@ -387,10 +401,9 @@ bool posixSetModeForFile(
       final fd = open(path.toNativeUtf8(allocator: arena), flags);
       if (fd < 0) return false;
       try {
-        final buffer = arena<Uint8>(libc.layout.bufferBytes);
-        if (stat(fd, buffer) != 0) return false;
-        final actual = _decodePosixFacts(buffer, libc.layout);
-        return actual.isRegularFile &&
+        final actual = posixDescriptorFacts(fd);
+        return actual != null &&
+            actual.isRegularFile &&
             actual.sameObjectAs(expected) &&
             actual.uid == expected.uid &&
             actual.gid == expected.gid &&
@@ -447,17 +460,25 @@ PosixFileFacts? posixLstat(String path) {
 ///
 /// The point is not speed. `Process.run('chmod', …)` resolves the command
 /// through PATH, which is the same substitutable oracle C-01 was about.
-int? posixChmod(String path, int mode) {
+int? posixChmod(String path, int mode) => posixChmodResult(path, mode)?.code;
+
+({int code, int? errno})? posixChmodResult(String path, int mode) {
   final libc = _resolveLibc();
   final chmod = libc?.chmod;
   if (chmod == null) return null;
   final pathPtr = path.toNativeUtf8();
   try {
-    return chmod(pathPtr, mode);
+    final errno = libc?.errnoLocation?.call();
+    final code = chmod(pathPtr, mode);
+    return (code: code, errno: code == 0 ? null : errno?.value);
   } finally {
     calloc.free(pathPtr);
   }
 }
+
+/// Capture the current native thread's error slot immediately before an I/O
+/// call when its return value alone cannot distinguish access denial.
+Pointer<Int32>? posixErrnoSlot() => _resolveLibc()?.errnoLocation?.call();
 
 /// `mkdir(2)` — creates with [mode] and FAILS if the path already exists.
 ///

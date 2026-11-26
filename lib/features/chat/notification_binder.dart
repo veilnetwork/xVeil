@@ -123,7 +123,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   // message preview, but must not invalidate a pending destructive question.
   int _clearRequestGeneration = 0;
   bool _permissionRequestPending = false;
-  bool _permissionDecided = false;
+  bool? _lastPermission;
   late bool _windowWasVisible;
 
   bool get _hasInputFocus =>
@@ -295,7 +295,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   Future<void> _requestNotificationPermission() async {
-    if (_permissionDecided || _permissionRequestPending || !_hasInputFocus) {
+    if (_permissionRequestPending || !_hasInputFocus) {
       return;
     }
     _permissionRequestPending = true;
@@ -311,9 +311,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
       // The pending flag covers the prompt's own inactive/resumed transition.
       // Only a real OS decision suppresses attempts on later returns.
-      final granted = await service.requestPermission();
-      _permissionDecided = granted != null;
+      final previous = _lastPermission;
+      final granted = previous == null
+          ? await service.requestPermission()
+          : await service.permissionStatus();
+      if (granted != null) _lastPermission = granted;
       if (granted == false &&
+          previous != false &&
           mounted &&
           ref.read(appControllerProvider).phase == AppPhase.ready) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(

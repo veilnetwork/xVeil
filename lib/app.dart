@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/secure_screen.dart';
-import 'data/storage/async_kv_log_store.dart' show ManagedWorkerFailure;
+import 'core/storage_acl_vault.dart';
+import 'data/storage/managed_fs_contract.dart';
+import 'data/storage/async_kv_log_store.dart'
+    show ManagedWorkerFailure, managedStorageFailureReason;
 import 'data/storage/profile_prefs_store.dart' show ProfilePreferencesStore;
 import 'features/bootstrap/startup_failed_app.dart'
-    show StorageAclDetails, preferencesFailureText;
+    show showStorageAccessReview, preferencesFailureText;
 import 'features/calls/call_overlay.dart';
 import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
@@ -103,42 +106,59 @@ class _PreferenceWriteWarnings extends ConsumerWidget {
       final error = next.asData?.value;
       if (error == null) return;
       final l = AppL10n.of(context);
+      final filesystem = error.filesystemFailure;
       final details = preferencesFailureText(
         l,
-        error.preferencesWriteReason ?? error.preferencesReadReason,
+        error.preferencesWriteReason ??
+            error.preferencesReadReason ??
+            (filesystem != null
+                ? managedStorageFailureReason(filesystem)
+                : null),
       );
-      final warnings = error.aclWarnings;
+      final warnings = error.aclWarnings.isNotEmpty
+          ? error.aclWarnings
+          : filesystem?.aclWarnings ?? const <ManagedStorageAclWarning>[];
       if (details == null && warnings.isEmpty) return;
       final messenger = ScaffoldMessenger.maybeOf(context);
       messenger?.hideCurrentSnackBar();
       messenger?.showSnackBar(
         SnackBar(
           content: Text(details ?? l.startupAclInsufficientPrivacy),
-          action: warnings.isEmpty
+          action: warnings.isEmpty && filesystem?.path == null
               ? null
               : SnackBarAction(
                   label: l.startupAclDetails,
-                  onPressed: () {
+                  onPressed: () async {
                     final dialogContext = rootNavigatorKey.currentContext;
                     if (dialogContext == null) return;
-                    showDialog<void>(
-                      context: dialogContext,
-                      builder: (context) => AlertDialog(
-                        title: Text(l.startupAclWarningTitle),
-                        scrollable: true,
-                        content: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (final warning in warnings)
-                              StorageAclDetails(warning),
-                          ],
+                    final remember = await showStorageAccessReview(
+                      dialogContext,
+                      ManagedFsFailure(
+                        filesystem?.kind ?? ManagedFsFailureKind.unsafe,
+                        path: filesystem?.path,
+                        aclWarnings: warnings,
+                      ),
+                      explanation: details,
+                    );
+                    if (remember == null || !dialogContext.mounted) return;
+                    var accepted = true;
+                    for (final warning in warnings) {
+                      if (!await recordStorageAclApproval(
+                        warning,
+                        remember: remember,
+                      )) {
+                        accepted = false;
+                        break;
+                      }
+                    }
+                    if (!dialogContext.mounted || !messenger.mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          accepted
+                              ? l.storageAclRetryOperation
+                              : l.startupAclApprovalFailed,
                         ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: Text(l.actionDone),
-                          ),
-                        ],
                       ),
                     );
                   },

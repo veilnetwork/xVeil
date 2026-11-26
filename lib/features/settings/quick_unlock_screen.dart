@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/local_authentication.dart';
+import '../../core/quick_unlock_vault.dart'
+    show QuickUnlockVaultFailure, classifyQuickUnlockVaultFailure;
 import '../../core/secure_screen.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/identity_guard.dart';
@@ -121,8 +123,9 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
         return;
       }
       var startupError = startupEnabled
-          ? l.startupUnlockSaveFailed
+          ? l.startupUnlockConsentSaveFailed
           : l.startupUnlockDisableFailed;
+      var configuringVault = false;
       try {
         final vault = ref.read(quickUnlockVaultProvider);
         if (startupEnabled) {
@@ -130,7 +133,6 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           final prefs = await ref.read(prefsProvider.future);
           // Mark consent before touching the OS store, so crash/wipe can also
           // find a partially configured credential. No marker exists by default.
-          startupError = l.startupUnlockConsentSaveFailed;
           if (!await setStartupUnlockConsent(
             prefs,
             locator,
@@ -138,6 +140,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           )) {
             throw StateError('Consent not saved');
           }
+          configuringVault = true;
           startupError = l.startupUnlockSaveFailed;
           await ref
               .read(screenLockProvider.notifier)
@@ -168,7 +171,20 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
           }
         }
         ref.invalidate(startupUnlockOptionsProvider);
-      } catch (_) {
+      } catch (error) {
+        if (configuringVault) {
+          startupError = switch (classifyQuickUnlockVaultFailure(error)) {
+            QuickUnlockVaultFailure.cancelled => l.startupUnlockVaultCancelled,
+            QuickUnlockVaultFailure.notEnrolled =>
+              l.startupUnlockVaultNotEnrolled,
+            QuickUnlockVaultFailure.lockedOut => l.startupUnlockVaultLockedOut,
+            QuickUnlockVaultFailure.protectionChanged =>
+              l.startupUnlockVaultProtectionChanged,
+            QuickUnlockVaultFailure.unavailable =>
+              l.startupUnlockVaultUnavailable,
+            null => startupError,
+          };
+        }
         if (mounted && ref.holdsIdentity(lease)) {
           ref.invalidate(startupUnlockOptionsProvider);
           setState(() {

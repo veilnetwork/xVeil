@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/folder_sync_controller.dart';
@@ -345,10 +346,29 @@ void main() {
       final saved =
           (await container.read(folderSyncStoreProvider).pairs()).single;
       expect(saved.rootApproval, current);
+      expect(saved.deletePropagates, isTrue);
+      FolderSyncRootApproval? active;
       expect(
-        folderSyncRootRefusal(root.path, approval: saved.rootApproval),
+        folderSyncRootRefusal(
+          root.path,
+          approval: saved.rootApproval,
+          onVerifiedApproval: (approval) => active = approval,
+        ),
         isNull,
       );
+      expect(active?.writeAccess, isTrue);
+
+      _chmod(root, _mode0700);
+      active = null;
+      expect(
+        folderSyncRootRefusal(
+          root.path,
+          approval: saved.rootApproval,
+          onVerifiedApproval: (approval) => active = approval,
+        ),
+        isNull,
+      );
+      expect(active, isNull);
 
       root.renameSync('${tmp.path}/old-mirror');
       Directory(root.path).createSync();
@@ -384,6 +404,44 @@ void main() {
       expect(saved.deletePropagates, isTrue);
       expect(saved.rootApproval?.writeAccess, isFalse);
     },
+  );
+
+  test('a traversal-only folder reports search without read access', () {
+    final root = tempRoot('xveil_gate_traversal');
+    _chmod(root, 0x1c9); // 0711
+    final refusal = folderSyncRootRefusal(root.path)!;
+    expect(refusal.code, FolderSyncRefusalCode.traversalByOtherAccounts);
+    expect(refusal.approval?.writeAccess, isFalse);
+    expect(
+      refusal.aclWarning!.grants.every(
+        (grant) =>
+            grant.rights.length == 1 &&
+            grant.rights.contains(ManagedAclRight.execute),
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'inheritance-only write access is shown separately on macOS',
+    () {
+      final root = tempRoot('xveil_gate_inheritance');
+      _chmod(root, _mode0700);
+      final acl = Process.runSync('/bin/chmod', [
+        '+a',
+        'everyone allow directory_inherit,only_inherit,add_file',
+        root.path,
+      ]);
+      expect(acl.exitCode, 0, reason: acl.stderr.toString());
+      final refusal = folderSyncRootRefusal(root.path)!;
+      expect(refusal.approval?.writeAccess, isTrue);
+      expect(refusal.aclWarning!.grants, isEmpty);
+      expect(
+        refusal.aclWarning!.inheritedGrants.single.rights,
+        contains(ManagedAclRight.write),
+      );
+    },
+    skip: !Platform.isMacOS,
   );
 
   test('a macOS list and search ACL can be accepted', () {

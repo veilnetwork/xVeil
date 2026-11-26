@@ -8289,7 +8289,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get startupUnlockSaveFailed =>
-      'Настройки блокировки экрана сохранены, но настроить быстрый вход через хранилище ОС не удалось. Пароль контейнера по-прежнему работает.';
+      'Настройки блокировки экрана сохранены. Не удалось настроить вход после перезапуска через системное хранилище. Разблокируйте устройство и повторите сохранение. Пароль контейнера по-прежнему работает.';
 
   @override
   String get startupUnlockDisableFailed =>
@@ -8724,4 +8724,59 @@ class AppL10nRu extends AppL10n {
   @override
   String get startupRuntimeAccessDenied =>
       'Система запретила доступ к служебной папке управления подключением. Проверьте права своей учётной записи или выберите другую папку.';
+
+  @override
+  String get plainDownloadExistingDestination =>
+      'Файл с таким именем уже существует. Выберите другое имя, чтобы сохранить существующий файл.';
+
+  @override
+  String get exportAccessPolicyCannotBePreserved =>
+      'Не удалось сохранить права доступа к существующему файлу. Файл сохранён без изменений. Выберите другое имя.';
+
+  @override
+  String get exportDestinationChanged =>
+      'Место сохранения изменилось во время записи. Проверьте папку и снова выберите имя файла.';
+
+  @override
+  String get exportDestinationNotFile =>
+      'Выбранный путь указывает на папку или другой объект. Выберите имя обычного файла.';
+
+  @override
+  String get exportPartialMayRemain =>
+      'В выбранном месте мог остаться неполный файл.';
+
+  @override
+  String get folderSyncPropagateDeletions => 'Синхронизировать удаления';
+
+  @override
+  String get folderSyncPropagateDeletionsHelp =>
+      'Удаления приостанавливаются, пока другие учётные записи могут менять папку.';
+
+  @override
+  String get folderSyncAclTraversalRisk =>
+      'Другие учётные записи могут проходить через эту папку. Они могут открывать элементы по имени, если права самих элементов это позволяют.';
+
+  @override
+  String get storageAclInheritedGrants =>
+      'Права, которые могут наследовать файлы и подпапки';
+
+  @override
+  String get startupUnlockVaultCancelled =>
+      'Системная аутентификация отменена. Нажмите «Сохранить» ещё раз, чтобы настроить вход после перезапуска.';
+
+  @override
+  String get startupUnlockVaultNotEnrolled =>
+      'Для системного хранилища нужна зарегистрированная биометрия. Настройте отпечаток или распознавание лица в параметрах системы и повторите сохранение.';
+
+  @override
+  String get startupUnlockVaultLockedOut =>
+      'Система временно заблокировала биометрию. Разблокируйте устройство его кодом и повторите сохранение.';
+
+  @override
+  String get startupUnlockVaultProtectionChanged =>
+      'Система отозвала ключ быстрого входа. Проверьте настройки биометрии и повторите сохранение с паролем контейнера.';
+
+  @override
+  String get startupUnlockVaultUnavailable =>
+      'Системное хранилище или биометрия сейчас недоступны. Проверьте устройство и настройки безопасности, затем повторите сохранение.';
 }

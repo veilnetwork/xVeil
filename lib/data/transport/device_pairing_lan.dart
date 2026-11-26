@@ -240,7 +240,7 @@ class DevicePairingLanClient {
     if (hosts.isEmpty || hosts.length > 6) {
       throw StateError('invalid pairing endpoint count');
     }
-    Object? lastError;
+    SocketException? accessDenied;
     final packet = await _seal(code.ticket, request);
     final result = Completer<String>();
     final connections = <ConnectionTask<Socket>>{};
@@ -281,7 +281,9 @@ class DevicePairingLanClient {
         final clear = await _open(code.ticket, response);
         if (!result.isCompleted) result.complete(clear);
       } catch (error) {
-        lastError = error;
+        if (error is SocketException && isPairingLanAccessDenied(error)) {
+          accessDenied = error;
+        }
       } finally {
         connection?.cancel();
         connections.remove(connection);
@@ -289,7 +291,7 @@ class DevicePairingLanClient {
         sockets.remove(socket);
         if (--remaining == 0 && !result.isCompleted) {
           result.completeError(
-            StateError('pairing peer unreachable: $lastError'),
+            accessDenied ?? StateError('pairing peer unreachable'),
           );
         }
       }

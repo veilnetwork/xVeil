@@ -253,6 +253,7 @@ final class PosixSidecarLock implements Finalizable {
     String file, {
     bool create = false,
     bool shared = false,
+    ManagedPathWitness? access,
   }) {
     final path = '$file.lock';
     if (create) {
@@ -274,11 +275,19 @@ final class PosixSidecarLock implements Finalizable {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
     }
     if (Platform.isWindows) return null;
+    const fs = ManagedFsPlatform();
+    final admitted =
+        access != null &&
+            access.aclApproved &&
+            access.ownedByCurrentUser &&
+            access.otherUsersHaveReadOnlyAccess
+        ? access
+        : null;
     final facts = posixLstat(path);
     if (facts == null ||
         !facts.isRegularFile ||
         facts.uid != posixEuid() ||
-        facts.permissions & 0x3f != 0) {
+        (facts.permissions & 0x3f != 0 && admitted == null)) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
     }
     final name = path.toNativeUtf8();
@@ -328,6 +337,26 @@ final class PosixSidecarLock implements Finalizable {
       if (fd < 0) {
         throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);
       }
+      if (admitted != null) {
+        final opened = posixDescriptorFacts(fd);
+        final current = fs.requirePrivateFile(
+          path,
+          allowReadOnlyAclApproval: true,
+        );
+        if (opened == null ||
+            !opened.sameObjectAs(facts) ||
+            !opened.isRegularFile ||
+            opened.uid != facts.uid ||
+            opened.gid != facts.gid ||
+            opened.mode != facts.mode ||
+            admitted.identity !=
+                '${opened.deviceId}:${opened.inode}:${opened.uid}' ||
+            !admitted.sameObject(current) ||
+            admitted.aclWarning?.fingerprint !=
+                current.aclWarning?.fingerprint) {
+          throw ManagedFsFailure(ManagedFsFailureKind.changed, path: path);
+        }
+      }
       if (flock(fd, (shared ? 1 : 2) | 4) != 0) {
         final error = errno?.call().value;
         throw ManagedLeaseFailure(
@@ -351,6 +380,8 @@ final class PosixSidecarLock implements Finalizable {
       fd = -1; // FILE* owns it from here, including native finalization.
       return result;
     } on ManagedLeaseFailure {
+      rethrow;
+    } on ManagedFsFailure {
       rethrow;
     } catch (_) {
       throw const ManagedLeaseFailure(ManagedLeaseFailureKind.invalid);

@@ -24,9 +24,10 @@ final class DocumentExport: NSObject, UIDocumentPickerDelegate {
 
   deinit { session?.abort() }
 
-  private static func fail(_ result: @escaping FlutterResult, _ stage: String) {
+  private static func fail(_ result: @escaping FlutterResult, _ stage: String,
+    partial: Bool = false) {
     result(FlutterError(code: "document_export_\(stage)",
-      message: "Could not save the document.", details: nil))
+      message: "Could not save the document.", details: partial ? "partial_may_remain" : nil))
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -63,7 +64,7 @@ final class DocumentExport: NSObject, UIDocumentPickerDelegate {
     }
     let reply: CoordinatedExportSession.Reply = { error in
       DispatchQueue.main.async {
-        if let error { Self.fail(result, String(describing: error)) } else { result(nil) }
+        if let error { Self.fail(result, error.stage, partial: error.partialMayRemain) } else { result(nil) }
       }
     }
     switch call.method {
@@ -105,7 +106,7 @@ final class DocumentExport: NSObject, UIDocumentPickerDelegate {
           writer.abort(); return
         }
         self.pending = nil
-        if let error { Self.fail(result, String(describing: error)) }
+        if let error { Self.fail(result, error.stage, partial: error.partialMayRemain) }
         else { result(["id": id]) }
       }
     }

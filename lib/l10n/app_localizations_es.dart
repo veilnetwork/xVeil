@@ -8320,7 +8320,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupUnlockSaveFailed =>
-      'Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.';
+      'Se guardaron los ajustes de bloqueo. No se pudo configurar el inicio de sesión tras reiniciar en el almacén del sistema. Desbloquea el dispositivo y vuelve a guardar. La contraseña del contenedor sigue funcionando.';
 
   @override
   String get startupUnlockDisableFailed =>
@@ -8762,4 +8762,59 @@ class AppL10nEs extends AppL10n {
   @override
   String get startupRuntimeAccessDenied =>
       'El sistema operativo denegó el acceso a la carpeta de control de conexiones. Revisa los permisos de tu cuenta o elige otra carpeta.';
+
+  @override
+  String get plainDownloadExistingDestination =>
+      'Ya existe un archivo en ese lugar. Elige otro nombre para conservarlo.';
+
+  @override
+  String get exportAccessPolicyCannotBePreserved =>
+      'No se pudieron conservar los permisos del archivo existente. El archivo se conservó. Elige otro nombre.';
+
+  @override
+  String get exportDestinationChanged =>
+      'El destino cambió durante el guardado. Comprueba la carpeta y vuelve a elegir un nombre.';
+
+  @override
+  String get exportDestinationNotFile =>
+      'La ruta seleccionada apunta a una carpeta u otro objeto. Elige un nombre de archivo normal.';
+
+  @override
+  String get exportPartialMayRemain =>
+      'Es posible que quede un archivo incompleto en la ubicación seleccionada.';
+
+  @override
+  String get folderSyncPropagateDeletions => 'Sincronizar eliminaciones';
+
+  @override
+  String get folderSyncPropagateDeletionsHelp =>
+      'Las eliminaciones se pausan mientras otras cuentas puedan modificar la carpeta.';
+
+  @override
+  String get folderSyncAclTraversalRisk =>
+      'Otras cuentas pueden atravesar esta carpeta. Pueden acceder a elementos por su nombre si sus permisos lo permiten.';
+
+  @override
+  String get storageAclInheritedGrants =>
+      'Permisos que pueden heredar los elementos de esta carpeta';
+
+  @override
+  String get startupUnlockVaultCancelled =>
+      'Se canceló la autenticación del sistema. Vuelve a guardar para configurar el inicio de sesión tras reiniciar.';
+
+  @override
+  String get startupUnlockVaultNotEnrolled =>
+      'El almacén requiere una biometría registrada. Configura una huella o el reconocimiento facial en los ajustes del sistema y vuelve a guardar.';
+
+  @override
+  String get startupUnlockVaultLockedOut =>
+      'El sistema bloqueó temporalmente la autenticación biométrica. Desbloquea el dispositivo con su código y vuelve a guardar.';
+
+  @override
+  String get startupUnlockVaultProtectionChanged =>
+      'El sistema invalidó la clave de inicio de sesión guardada. Revisa la configuración biométrica y vuelve a guardar con la contraseña del contenedor.';
+
+  @override
+  String get startupUnlockVaultUnavailable =>
+      'El almacén del sistema o la autenticación biométrica no están disponibles. Revisa el dispositivo y los ajustes de seguridad antes de volver a guardar.';
 }

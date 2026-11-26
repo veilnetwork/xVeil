@@ -65,7 +65,6 @@ Future<bool> exportFolderSavedVersion({
   check();
   final file = await access.open(root, version, verifyRoot: verifyRoot);
   ExportDocument? document;
-  var finished = false;
   try {
     check();
     document = await pick(version.exportName);
@@ -82,14 +81,14 @@ Future<bool> exportFolderSavedVersion({
     verifyRoot?.call();
     if (!file.unchanged()) throw const FolderSavedVersionChanged();
     await document.finish();
-    finished = true;
     return true;
+  } catch (error, stack) {
+    Error.throwWithStackTrace(
+      await abortFailedDocument(document, error),
+      stack,
+    );
   } finally {
-    try {
-      if (!finished) await document?.abort();
-    } finally {
-      if (cancellation != null) cancellation._document = null;
-      await file.source.dispose();
-    }
+    if (cancellation != null) cancellation._document = null;
+    await file.source.dispose();
   }
 }

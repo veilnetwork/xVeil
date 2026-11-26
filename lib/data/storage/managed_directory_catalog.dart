@@ -307,18 +307,23 @@ final class ManagedDirectoryCatalog {
     _checkSqliteSidecars(catalogPath, fs, allowReadOnlyAclApproval: true);
     final rolePath = _child(root, ManagedProfileLease.fileName);
     final leaseWitnesses = <String, ManagedPathWitness>{
-      ManagedProfileLease.fileName: fs.requirePrivateFile(rolePath),
+      ManagedProfileLease.fileName: fs.requirePrivateFile(
+        rolePath,
+        allowReadOnlyAclApproval: true,
+      ),
       '${ManagedProfileLease.fileName}.lock': fs.requirePrivateFile(
         '$rolePath.lock',
+        allowReadOnlyAclApproval: true,
       ),
     };
-    _checkSqliteSidecars(rolePath, fs);
+    _checkSqliteSidecars(rolePath, fs, allowReadOnlyAclApproval: true);
     if (File('$rolePath.lock').lengthSync() != 0) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
     final profileLease = ManagedProfileLease.openOwned(
       ManagedSqliteConnection.openUnencrypted(rolePath),
       exclusive: exclusive,
+      sidecarAccess: leaseWitnesses['${ManagedProfileLease.fileName}.lock'],
     );
     ManagedSqliteConnection? connection;
     ManagedCatalogStore? catalog;
@@ -381,7 +386,10 @@ final class ManagedDirectoryCatalog {
     _privateDirectory(directory, _fs, allowReadOnlyAclApproval: true);
     _assertSame(directory, _rootWitness, _fs);
     for (final entry in _leaseWitnesses.entries) {
-      _fs.requirePrivateFile(_child(directory, entry.key));
+      _fs.requirePrivateFile(
+        _child(directory, entry.key),
+        allowReadOnlyAclApproval: true,
+      );
       _assertSame(_child(directory, entry.key), entry.value, _fs);
     }
     if (File(
@@ -390,6 +398,11 @@ final class ManagedDirectoryCatalog {
         0) {
       throw const ManagedFsFailure(ManagedFsFailureKind.unsafe);
     }
+    _checkSqliteSidecars(
+      _child(directory, ManagedProfileLease.fileName),
+      _fs,
+      allowReadOnlyAclApproval: true,
+    );
     _checkSqliteSidecars(_catalogPath, _fs, allowReadOnlyAclApproval: true);
     _fs.requirePrivateFile(_catalogPath, allowReadOnlyAclApproval: true);
     _assertSame(_catalogPath, _catalogWitness, _fs);

@@ -296,7 +296,7 @@ A credential file is the unattended fallback. xVeil checks the owner and ACL
 on macOS, Linux and Windows. To accept verified read-only access for other
 accounts, pass --accept-readable-secret-files (or set
 XVEIL_ACCEPT_READABLE_SECRET_FILES=1). xVeil reports the grant before reading.
-If the Windows ACL probe is unavailable, check the file and folder permissions
+If the ownership or ACL probe is unavailable, check the file and folder permissions
 yourself. Pass --accept-unchecked-secret-files (or set
 XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1) to record your decision to use the file
 without a verified ACL.

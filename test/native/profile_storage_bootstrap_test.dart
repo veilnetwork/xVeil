@@ -26,7 +26,22 @@ class _PublishAfterInspection extends ManagedFsPlatform {
   int reads = 0, publications = 0;
   @override
   ManagedPathWitness inspect(String path) {
-    final result = super.inspect(path);
+    return _afterInspection(path, super.inspect(path));
+  }
+
+  @override
+  ManagedPathWitness inspectAcl(
+    String path, {
+    bool allowDirectoryContentGrants = false,
+  }) => _afterInspection(
+    path,
+    super.inspectAcl(
+      path,
+      allowDirectoryContentGrants: allowDirectoryContentGrants,
+    ),
+  );
+
+  ManagedPathWitness _afterInspection(String path, ManagedPathWitness result) {
     if (path == coordinator && ++reads == 2) {
       Directory('$coordinator/${ManagedRootErasure.pendingName}').createSync();
       publications++;
@@ -50,13 +65,64 @@ void main() {
     );
   }
 
-  test('opening a group-readable catalog asks for the exact permission grant',
-      () {
-    ManagedDirectoryCatalog.createOrOpen(profile).close();
-    final file = File('$profile/identities/catalog.sqlite3');
-    expect(posixChmod(file.path, 0x1a0), 0);
-    final before = storageAclApprovalsForWorker();
-    addTearDown(() => restoreStorageAclApprovals(before));
+  test(
+    'an approved read-only profile lock keeps its ACL evidence',
+    () {
+      final catalog = ManagedDirectoryCatalog.createOrOpen(profile);
+      final path = '${catalog.directory}/profile.meta.lock';
+      catalog.close();
+      expect(posixChmod(path, 0x1a0), 0);
+      final before = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(before));
+      expect(
+        () => ManagedDirectoryCatalog.openExisting(profile),
+        throwsA(
+          isA<ManagedFsFailure>().having(
+            (failure) => failure.aclWarnings.single.canContinue,
+            'user can accept read access',
+            true,
+          ),
+        ),
+      );
+      final warning = fs.inspectAcl(path).aclWarning!;
+      approveStorageAcl(warning.fingerprint);
+      ManagedDirectoryCatalog.openExisting(profile)!.close();
+      expect(
+        () => fs.requirePrivateFile(path),
+        throwsA(
+          isA<ManagedFsFailure>().having(
+            (failure) => failure.aclWarnings.single.canContinue,
+            'strict use still shows the grant',
+            false,
+          ),
+        ),
+      );
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
+    'erasure intent inspection honors approved read access to its directory',
+    () {
+      StorageProfileCoordinator.createOrOpen(profile).close();
+      expect(posixChmod(coordinator, 0x1e8), 0); // 0750
+      final before = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(before));
+      final warning = fs.inspectAcl(coordinator).aclWarning!;
+      approveStorageAcl(warning.fingerprint);
+      expect(StorageProfileCoordinator.hasErasureIntent(profile), isFalse);
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
+    'opening a group-readable catalog asks for the exact permission grant',
+    () {
+      ManagedDirectoryCatalog.createOrOpen(profile).close();
+      final file = File('$profile/identities/catalog.sqlite3');
+      expect(posixChmod(file.path, 0x1a0), 0);
+      final before = storageAclApprovalsForWorker();
+      addTearDown(() => restoreStorageAclApprovals(before));
 
     expect(
       () => ManagedDirectoryCatalog.openExisting(profile),

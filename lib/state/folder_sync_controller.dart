@@ -217,7 +217,6 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           id: id,
           localPath: localPath,
           cloudFolderId: cloudFolderId,
-          deletePropagates: rootApproval?.writeAccess != true,
           rootIdentity: identity,
           rootApproval: rootApproval,
         ),
@@ -281,8 +280,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           id: pair.id,
           localPath: pair.localPath,
           cloudFolderId: pair.cloudFolderId,
-          deletePropagates:
-              pair.deletePropagates && approval?.writeAccess != true,
+          deletePropagates: pair.deletePropagates,
           rootIdentity: identity,
           rootApproval: approval,
         );
@@ -292,6 +290,30 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       await reload();
     }
     return refusal;
+  }
+
+  Future<void> setDeletePropagation(
+    String id,
+    bool enabled, {
+    required IdentityLease owner,
+  }) async {
+    final store = _store;
+    await store.updatePairs((pairs) {
+      if (!_holdsPairStore(store, owner) || _running.contains(id)) return null;
+      final index = pairs.indexWhere((pair) => pair.id == id);
+      if (index < 0) return null;
+      final pair = pairs[index];
+      return [...pairs]
+        ..[index] = FolderSyncPair(
+          id: pair.id,
+          localPath: pair.localPath,
+          cloudFolderId: pair.cloudFolderId,
+          deletePropagates: enabled,
+          rootIdentity: pair.rootIdentity,
+          rootApproval: pair.rootApproval,
+        );
+    });
+    if (_holdsPairStore(store, owner)) await reload();
   }
 
   Future<void> removePair(String id) async {
@@ -324,6 +346,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       // Reload the pair after taking the per-pair lane. A scheduled pass may
       // have captured its old permissions or a pair that was since removed.
       FolderSyncPair? configured;
+      FolderSyncRootApproval? activeApproval;
       FolderSyncRefusal? refusal;
       await store.updatePairs((pairs) {
         if (!identical(_store, store)) return null;
@@ -336,6 +359,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
           approval: current.rootApproval,
           expectedIdentity: current.rootIdentity,
           onVerifiedIdentity: (value) => identity = value,
+          onVerifiedApproval: (value) => activeApproval = value,
         );
         if (refusal == null &&
             current.rootIdentity == null &&
@@ -386,12 +410,19 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         return null;
       }
       return await engine?.runOnce(
-        pair,
+        FolderSyncPair(
+          id: pair.id,
+          localPath: pair.localPath,
+          cloudFolderId: pair.cloudFolderId,
+          deletePropagates: pair.deletePropagates,
+          rootIdentity: pair.rootIdentity,
+          rootApproval: activeApproval,
+        ),
         verifyRoot: () {
           final issue = folderSyncRootRefusal(
             pair.localPath,
-            approval: pair.rootApproval,
-            expectedIdentity: pair.rootIdentity,
+            approval: activeApproval,
+            expectedIdentity: pair.rootIdentity ?? pair.rootApproval?.identity,
           );
           if (!identical(_store, store) || issue != null) {
             if (issue != null && identical(_store, store)) {
@@ -425,6 +456,7 @@ FolderSyncRefusal? folderSyncRootRefusal(
   FolderSyncRootApproval? approval,
   String? expectedIdentity,
   void Function(String)? onVerifiedIdentity,
+  void Function(FolderSyncRootApproval)? onVerifiedApproval,
 }) {
   expectedIdentity ??= approval?.identity;
   final absolute = Directory(path).absolute.path;
@@ -452,6 +484,7 @@ FolderSyncRefusal? folderSyncRootRefusal(
   }
 
   FolderSyncRefusal? rootRisk;
+  FolderSyncRootApproval? activeApproval;
   String? verifiedIdentity;
   for (final step in {..._rootChain(canonical), ..._rootChain(absolute)}) {
     final leaf = step == canonical;
@@ -514,18 +547,34 @@ FolderSyncRefusal? folderSyncRootRefusal(
           windowsHost &&
           !facts.safeAncestor &&
           windows.inspect(step, allowNetworkShare: true).safeAncestor;
+      final traversalOnly =
+          warning != null &&
+          warning.owner == null &&
+          warning.inheritedGrants.isEmpty &&
+          warning.grants.isNotEmpty &&
+          warning.grants.every(
+            (grant) =>
+                grant.rights.length == 1 &&
+                grant.rights.contains(ManagedAclRight.execute),
+          );
       final refusal = FolderSyncRefusal(
         reparseRisk
             ? FolderSyncRefusalCode.redirectableWindowsPath
             : !facts.safeAncestor || writeAccess
             ? FolderSyncRefusalCode.writableByOtherAccounts
+            : traversalOnly
+            ? FolderSyncRefusalCode.traversalByOtherAccounts
             : FolderSyncRefusalCode.readableByOtherAccounts,
         path: step,
         aclWarning: warning,
         approval: current,
       );
       if (!approvable) return refusal;
-      if (approval != current) rootRisk = refusal;
+      if (approval == current) {
+        activeApproval = current;
+      } else {
+        rootRisk = refusal;
+      }
     } on ManagedFsFailure catch (error) {
       final warning = error.aclWarnings.firstOrNull;
       return FolderSyncRefusal(
@@ -542,7 +591,10 @@ FolderSyncRefusal? folderSyncRootRefusal(
   if (verifiedIdentity == null) {
     return FolderSyncRefusal(FolderSyncRefusalCode.unresolvable, path: path);
   }
-  if (rootRisk == null) onVerifiedIdentity?.call(verifiedIdentity);
+  if (rootRisk == null) {
+    onVerifiedIdentity?.call(verifiedIdentity);
+    if (activeApproval != null) onVerifiedApproval?.call(activeApproval);
+  }
   return rootRisk;
 }
 
@@ -574,6 +626,8 @@ enum FolderSyncRefusalCode {
   writableByOtherAccounts,
 
   readableByOtherAccounts,
+
+  traversalByOtherAccounts,
 
   pathChanged,
 

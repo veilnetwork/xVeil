@@ -361,6 +361,82 @@ void main() {
     },
   );
   test(
+    'replacing a private export preserves its permission mode',
+    () async {
+      debugDefaultTargetPlatformOverride = Platform.isMacOS
+          ? TargetPlatform.macOS
+          : TargetPlatform.linux;
+      final dir = Directory.systemTemp.createTempSync('xveil-export-policy-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final target = File('${dir.path}/$filename')
+        ..writeAsStringSync('original');
+      expect(posixChmod(target.path, 0x180), 0);
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+      final doc = (await openExportDocument(filename))!;
+      await doc.write([1, 2, 3]);
+      await doc.finish();
+      expect(target.readAsBytesSync(), [1, 2, 3]);
+      expect(posixLstat(target.path)?.permissions, 0x180);
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
+    'a file that appears during a new export is kept',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final dir = Directory.systemTemp.createTempSync(
+        'xveil-export-collision-',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final target = File('${dir.path}/$filename');
+      FilePickerPlatform.instance = _LocalPicker(target.path);
+      final doc = (await openExportDocument(filename))!;
+      await doc.write([1, 2, 3]);
+      target.writeAsStringSync('another file');
+      await expectLater(
+        doc.finish(),
+        throwsA(
+          isA<DocumentExportException>().having(
+            (failure) => failure.stage,
+            'refusal',
+            'destination-changed',
+          ),
+        ),
+      );
+      await doc.abort();
+      expect(target.readAsStringSync(), 'another file');
+      expect(dir.listSync(), hasLength(1));
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux,
+  );
+
+  test(
+    'native provider permission and incomplete output survive together',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      messenger.setMockMethodCallHandler(documentExportChannel, (call) async {
+        throw PlatformException(
+          code: 'document_export_permission',
+          details: 'partial_may_remain',
+        );
+      });
+      await expectLater(
+        openExportDocument(filename),
+        throwsA(
+          isA<DocumentExportException>()
+              .having((e) => e.permissionDenied, 'denied', true)
+              .having(
+                (e) => e.partialMayRemain,
+                'possible partial output',
+                true,
+              ),
+        ),
+      );
+    },
+  );
+
+  test(
     'a file-only grant preserves the old target and asks for a writable folder',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;

@@ -97,6 +97,17 @@ ManagedPreferencesFailureReason managedStorageFailureReason(Object error) =>
       _ => ManagedPreferencesFailureReason.other,
     };
 
+ManagedFsFailure? _preferencesFilesystemFailure(Object error) =>
+    switch (error) {
+      ManagedFsFailure() => error,
+      ManagedWorkerFailure(:final filesystemFailure) => filesystemFailure,
+      FileSystemException(:final path?) => ManagedFsFailure(
+        ManagedFsFailureKind.io,
+        path: path,
+      ),
+      _ => null,
+    };
+
 final class _OpenProfilePreferences extends _OpenConfig {
   const _OpenProfilePreferences({
     required super.path,
@@ -405,7 +416,7 @@ void _profilePreferencesEntry(
     );
   } catch (error) {
     final reason = managedStorageFailureReason(error);
-    final filesystem = error is ManagedFsFailure ? error : null;
+    final filesystem = _preferencesFilesystemFailure(error);
     try {
       gate?.close();
     } catch (_) {
@@ -631,7 +642,7 @@ void _profilePreferencesEntry(
       } on ProfilePreferencesFormatFailure catch (error) {
         message.reply.send(error);
       } catch (error) {
-        final filesystem = error is ManagedFsFailure ? error : null;
+        final filesystem = _preferencesFilesystemFailure(error);
         message.reply.send(
           message is _PreferencesReadReq
               ? _ManagedWorkerErr(
@@ -640,6 +651,7 @@ void _profilePreferencesEntry(
                       : _managedFailureKind(error),
                   preferencesReadReason: managedStorageFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
+                  filesystemFailure: filesystem,
                   aclWarnings: filesystem?.aclWarnings ?? const [],
                 )
               : message is _PreferencesWriteReq
@@ -649,6 +661,7 @@ void _profilePreferencesEntry(
                       ? error.preferencesWriteReason
                       : managedStorageFailureReason(error),
                   ancestorRefusal: filesystem?.ancestorRefusal,
+                  filesystemFailure: filesystem,
                   aclWarnings: error is ManagedWorkerFailure
                       ? error.aclWarnings
                       : filesystem?.aclWarnings ?? const [],

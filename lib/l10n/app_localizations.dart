@@ -14217,7 +14217,7 @@ abstract class AppL10n {
   /// No description provided for @startupUnlockSaveFailed.
   ///
   /// In en, this message translates to:
-  /// **'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.'**
+  /// **'Screen lock settings were saved. Could not set up sign-in after restart in the system credential store. Unlock the device, then try saving again. Your container password still works.'**
   String get startupUnlockSaveFailed;
 
   /// No description provided for @startupUnlockDisableFailed.
@@ -14939,6 +14939,90 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The operating system denied access to the folder used for connection control. Check your account’s permissions or choose another folder.'**
   String get startupRuntimeAccessDenied;
+
+  /// No description provided for @plainDownloadExistingDestination.
+  ///
+  /// In en, this message translates to:
+  /// **'A file already exists there. Pick a different name to keep that file.'**
+  String get plainDownloadExistingDestination;
+
+  /// No description provided for @exportAccessPolicyCannotBePreserved.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not preserve the existing file’s permissions. The existing file was kept. Choose a different name.'**
+  String get exportAccessPolicyCannotBePreserved;
+
+  /// No description provided for @exportDestinationChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The destination changed while saving. Check the folder and choose a file name again.'**
+  String get exportDestinationChanged;
+
+  /// No description provided for @exportDestinationNotFile.
+  ///
+  /// In en, this message translates to:
+  /// **'The selected path points to a directory or another object. Choose a regular file name.'**
+  String get exportDestinationNotFile;
+
+  /// No description provided for @exportPartialMayRemain.
+  ///
+  /// In en, this message translates to:
+  /// **'An incomplete file may remain in the selected location.'**
+  String get exportPartialMayRemain;
+
+  /// No description provided for @folderSyncPropagateDeletions.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync deletions'**
+  String get folderSyncPropagateDeletions;
+
+  /// No description provided for @folderSyncPropagateDeletionsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Deletions are paused while other accounts can modify the folder.'**
+  String get folderSyncPropagateDeletionsHelp;
+
+  /// No description provided for @folderSyncAclTraversalRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Other accounts can traverse this folder. They may access items by name if the item’s own permissions allow it.'**
+  String get folderSyncAclTraversalRisk;
+
+  /// No description provided for @storageAclInheritedGrants.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions that may be inherited by items inside this folder'**
+  String get storageAclInheritedGrants;
+
+  /// No description provided for @startupUnlockVaultCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'System authentication was cancelled. Save again to set up sign-in after restart.'**
+  String get startupUnlockVaultCancelled;
+
+  /// No description provided for @startupUnlockVaultNotEnrolled.
+  ///
+  /// In en, this message translates to:
+  /// **'The credential store requires an enrolled biometric. Set up fingerprint or face recognition in system settings and save again.'**
+  String get startupUnlockVaultNotEnrolled;
+
+  /// No description provided for @startupUnlockVaultLockedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'The system temporarily blocked biometric authentication. Unlock your device with its passcode and try saving again.'**
+  String get startupUnlockVaultLockedOut;
+
+  /// No description provided for @startupUnlockVaultProtectionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The system invalidated the saved sign-in key. Review your biometric setup in system settings and save again with the container password.'**
+  String get startupUnlockVaultProtectionChanged;
+
+  /// No description provided for @startupUnlockVaultUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again.'**
+  String get startupUnlockVaultUnavailable;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

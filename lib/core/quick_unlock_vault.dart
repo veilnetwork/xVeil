@@ -22,6 +22,59 @@ import '../data/storage/async_kv_log_store.dart' show ManagedErasureScopeLease;
 part 'quick_unlock_retirement_impl.dart';
 part 'quick_unlock_absence_witness.dart';
 
+enum QuickUnlockVaultFailure {
+  cancelled,
+  notEnrolled,
+  lockedOut,
+  protectionChanged,
+  unavailable,
+}
+
+QuickUnlockVaultFailure? classifyQuickUnlockVaultFailure(Object error) {
+  if (error is! PlatformException) return null;
+  if (error.code == 'Unexpected security result code') {
+    return switch (error.details) {
+      -128 => QuickUnlockVaultFailure.cancelled, // errSecUserCanceled
+      -25291 || -25308 || -34018 => QuickUnlockVaultFailure.unavailable,
+      _ => null,
+    };
+  }
+  if (error.code == 'INIT_FAILED') return QuickUnlockVaultFailure.unavailable;
+  if (error.code != 'Exception encountered') return null;
+
+  // flutter_secure_storage's Android backend forwards the prompt number in a
+  // fixed prefix, followed by localized system text. Discard the latter.
+  final message = error.message ?? '';
+  final match = RegExp(
+    r'^Biometric authentication error \[(\d+)\]:',
+  ).firstMatch(message);
+  if (match != null) {
+    return switch (int.parse(match[1]!)) {
+      3 || 5 || 10 || 13 => QuickUnlockVaultFailure.cancelled,
+      7 || 9 => QuickUnlockVaultFailure.lockedOut,
+      11 || 14 => QuickUnlockVaultFailure.notEnrolled,
+      1 || 12 || 15 => QuickUnlockVaultFailure.unavailable,
+      _ => null,
+    };
+  }
+  if (message.startsWith(
+    'BIOMETRIC_UNAVAILABLE: No fingerprint or face enrolled.',
+  )) {
+    return QuickUnlockVaultFailure.notEnrolled;
+  }
+  if (message.startsWith('BIOMETRIC_UNAVAILABLE:')) {
+    return QuickUnlockVaultFailure.unavailable;
+  }
+  final details = error.details;
+  if (details is String &&
+      details.contains(
+        'android.security.keystore.KeyPermanentlyInvalidatedException',
+      )) {
+    return QuickUnlockVaultFailure.protectionChanged;
+  }
+  return null;
+}
+
 /// Separate namespaces prevent changing cipher policy for an existing key.
 /// This port also makes cancellation, write refusal and restart testable without
 /// touching a developer's real Keychain/Keystore.

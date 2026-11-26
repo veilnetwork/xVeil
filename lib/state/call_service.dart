@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +13,7 @@ import '../data/transport/veil_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_log.dart';
 import '../domain/call_signal.dart';
+import 'mac_media_permissions.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
 import 'call_noise_suppression.dart';
@@ -155,6 +157,12 @@ typedef CallReceiveRepairRequest = ({
   Future<bool> Function() rebuild,
 });
 
+typedef CallCapturePermissions = ({
+  String callId,
+  MediaPermissionStatus? microphone,
+  MediaPermissionStatus? camera,
+});
+
 /// Media-plane hook for the call FSM. Started when a call reaches
 /// [CallStatus.connecting]; the FSM promotes to [CallStatus.active] once [start]
 /// succeeds. Injected (nullable) so the control-plane FSM stays fully testable
@@ -173,6 +181,13 @@ abstract class CallMediaController {
   /// Input was unavailable at startup or a later unmute failed. Reflect the
   /// effective mute locally/to the peer until capture can successfully resume.
   bool get startedWithoutMicrophone => false;
+  ValueListenable<CallCapturePermissions?>? get capturePermissions => null;
+
+  void reportCapturePermission(
+    String callId,
+    MediaPermissionStatus status, {
+    required bool camera,
+  }) {}
 
   /// Call-scoped local input failure, e.g. a permission resolved after start.
   /// Producers must reject stale engine callbacks; the FSM also checks call id
@@ -405,6 +420,9 @@ class CallService {
   final MessagingService _messaging;
   final DateTime Function() _now;
   final CallMediaController? _media;
+  ValueListenable<CallCapturePermissions?>? get capturePermissions =>
+      _media?.capturePermissions;
+
   final CallSlot? _callSlot;
   final bool _startMuted;
   final int _signalProtocolVersion;
@@ -1631,6 +1649,16 @@ class CallService {
       _sendControl(c.peer, c.callId, CallSignalType.end, CallEndReason.hangup),
     );
     _end(CallEndReason.hangup, origin: origin);
+  }
+
+  void reportCapturePermission(
+    String callId,
+    MediaPermissionStatus status, {
+    required bool camera,
+  }) {
+    final call = _current;
+    if (call?.callId != callId || call?.isLive != true) return;
+    _media?.reportCapturePermission(callId, status, camera: camera);
   }
 
   /// Toggle the local mic on/off during a live call (the in-call mic button).

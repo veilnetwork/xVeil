@@ -431,6 +431,13 @@ bool createPrivateDirectory(String path) {
     if (error == win.ERROR_ALREADY_EXISTS || error == win.ERROR_FILE_EXISTS) {
       return false;
     }
+    if (error == win.ERROR_ACCESS_DENIED) {
+      throw FileSystemException(
+        'Directory creation denied',
+        path,
+        OSError('Access denied', error),
+      );
+    }
     throw const ManagedFsFailure(ManagedFsFailureKind.io);
   } finally {
     if (descriptor.value != nullptr) win.LocalFree(descriptor.value);
@@ -473,6 +480,13 @@ bool createPrivateFile(String path) {
           FileSystemEntity.typeSync(path, followLinks: false) !=
               FileSystemEntityType.notFound) {
         return false;
+      }
+      if (error == win.ERROR_ACCESS_DENIED) {
+        throw FileSystemException(
+          'Cannot create file',
+          path,
+          OSError('Access denied', error),
+        );
       }
       throw const ManagedFsFailure(ManagedFsFailureKind.io);
     });
@@ -863,6 +877,13 @@ bool publishNoReplace(String source, String destination) {
         FileSystemEntity.typeSync(destination, followLinks: false) !=
             FileSystemEntityType.notFound) {
       return false;
+    }
+    if (error == win.ERROR_ACCESS_DENIED) {
+      throw FileSystemException(
+        'Cannot publish file',
+        destination,
+        OSError('Access denied', error),
+      );
     }
     throw const ManagedFsFailure(ManagedFsFailureKind.io);
   } finally {

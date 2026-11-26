@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../core/posix_file_facts.dart';
 import 'fs_beneath.dart';
+import 'storage/managed_fs_windows.dart' as windows;
 
 /// A byte source the SENDER serves a large file from directly (the original file
 /// on disk) — read + close closures over a [RandomAccessFile]. Reads are
@@ -252,6 +253,71 @@ Future<VeilPinnedOpen> veilOpenPinnedSource(
     );
   }
   return (source: source, refusal: null, stamp: before);
+}
+
+/// A fresh download owns just the file it created. Keep the selected name
+/// for resume and verify the object before cleaning up a failed download.
+final class NewPlainDownload {
+  NewPlainDownload._(this._file, this._identity, this.handle);
+
+  final File _file;
+  final String? _identity;
+  final RandomAccessFile handle;
+
+  static NewPlainDownload open(String path) {
+    final file = File(path);
+    file.createSync(exclusive: true);
+    final identity = _plainDestinationIdentity(path);
+    RandomAccessFile? handle;
+    try {
+      // Keep the exclusive reservation intact and support positioned writes.
+      handle = file.openSync(mode: FileMode.append);
+      if (identity != null && identity != _plainDestinationIdentity(path)) {
+        throw FileSystemException('Download destination changed', path);
+      }
+      return NewPlainDownload._(file, identity, handle);
+    } catch (_) {
+      try {
+        handle?.closeSync();
+      } on FileSystemException {
+        // The admission error is more actionable than the close error.
+      }
+      _discardPlainDestination(file, identity);
+      rethrow;
+    }
+  }
+
+  void discard() => _discardPlainDestination(_file, _identity);
+}
+
+String? _plainDestinationIdentity(String path) {
+  if (Platform.isWindows) {
+    try {
+      final facts = windows.inspect(
+        path,
+        includeApprovedAcl: true,
+        allowNetworkShare: true,
+      );
+      return facts.directory ? null : facts.identity;
+    } catch (_) {
+      return null;
+    }
+  }
+  final facts = posixLstat(path);
+  return facts?.isRegularFile == true
+      ? '${facts!.deviceId}:${facts.inode}'
+      : null;
+}
+
+void _discardPlainDestination(File file, String? identity) {
+  if (identity == null || identity != _plainDestinationIdentity(file.path)) {
+    return;
+  }
+  try {
+    file.deleteSync();
+  } on FileSystemException {
+    // A removed or no longer writable name must not trigger further cleanup.
+  }
 }
 
 /// A plaintext WRITE sink over a destination file — offset writes + close,

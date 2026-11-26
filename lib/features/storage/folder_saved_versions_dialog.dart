@@ -185,9 +185,7 @@ class _FolderSavedVersionsDialogState
       message = l.folderSyncSavedChanged;
     } on DocumentExportException catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.exporting);
-      message = error.permissionDenied
-          ? l.chatFileSavePermissionDenied
-          : l.chatFileSaveFailed;
+      message = documentExportFailureText(l, error, l.chatFileSaveFailed);
     } catch (error) {
       _recordError(error, FolderSavedDiagnosticAction.exporting);
       message = error is FolderFsFailure && error.accessDenied

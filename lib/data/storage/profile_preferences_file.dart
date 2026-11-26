@@ -98,19 +98,19 @@ const _cannotPreservePolicy = ManagedFsFailure(
   unsafeReason: ManagedFsUnsafeReason.preferencesAccessPolicy,
 );
 
-/// Copy only a known, owner-controlled read-only sharing policy. Staging
+/// Preserve a verified, owner-controlled read-only sharing policy on replacement. Staging
 /// starts private, and both objects are checked before and after publication.
-class _PreferenceFileAccess {
-  _PreferenceFileAccess(this.witness, this.posix, [this.acl = '']);
+class FileReplacementAccess {
+  FileReplacementAccess(this.witness, this.posix, [this.acl = '']);
   final ManagedPathWitness? witness;
   final PosixFileFacts? posix;
   final String acl;
 
-  static _PreferenceFileAccess capture(File file) {
+  static FileReplacementAccess capture(File file) {
     final type = FileSystemEntity.typeSync(file.path, followLinks: false);
     if (type == FileSystemEntityType.notFound ||
         (!Platform.isWindows && !prefsFilesMustBePrivate())) {
-      return _PreferenceFileAccess(null, null);
+      return FileReplacementAccess(null, null);
     }
     if (type != FileSystemEntityType.file) throw _cannotPreservePolicy;
     final facts = const ManagedFsPlatform().inspectAcl(file.path);
@@ -132,7 +132,7 @@ class _PreferenceFileAccess {
           verified.aclWarning?.fingerprint != facts.aclWarning?.fingerprint) {
         throw const ManagedFsFailure(ManagedFsFailureKind.changed);
       }
-      return _PreferenceFileAccess(facts, null, acl);
+      return FileReplacementAccess(facts, null, acl);
     }
     final posix = posixLstat(file.path);
     if (posix == null ||
@@ -154,10 +154,10 @@ class _PreferenceFileAccess {
             acl != (facts.aclWarning!.extendedAcl ?? '')) {
       throw _cannotPreservePolicy;
     }
-    return _PreferenceFileAccess(facts, posix, acl);
+    return FileReplacementAccess(facts, posix, acl);
   }
 
-  bool _samePolicy(_PreferenceFileAccess current) {
+  bool _samePolicy(FileReplacementAccess current) {
     final previous = posix;
     final actual = current.posix;
     if (previous == null) return actual == null && acl == current.acl;
@@ -169,7 +169,7 @@ class _PreferenceFileAccess {
         acl == current.acl;
   }
 
-  void _checkDestination(File destination) {
+  void checkDestination(File destination) {
     final current = capture(destination);
     if (current.witness?.identity != witness?.identity ||
         current.witness?.aclWarning?.fingerprint !=
@@ -179,8 +179,8 @@ class _PreferenceFileAccess {
     }
   }
 
-  _PreferenceFileAccess prepareReplacement(File destination, File temp) {
-    _checkDestination(destination);
+  FileReplacementAccess prepareReplacement(File destination, File temp) {
+    checkDestination(destination);
     final previous = posix;
     final staging = capture(temp);
     if (staging.witness?.ownerOnly == false) throw _cannotPreservePolicy;
@@ -213,7 +213,7 @@ class _PreferenceFileAccess {
     return ready;
   }
 
-  _PreferenceFileAccess writeWindowsReplacement(
+  FileReplacementAccess writeWindowsReplacement(
     File destination,
     File temp,
     String contents,
@@ -225,13 +225,13 @@ class _PreferenceFileAccess {
       prepared.acl,
       contents,
     );
-    _checkDestination(destination);
+    checkDestination(destination);
     return prepared;
   }
 
   bool checkPublished(
     File file,
-    _PreferenceFileAccess prepared,
+    FileReplacementAccess prepared,
     void Function(StorageAclReplacement)? onAclReplaced,
   ) {
     final result = capture(file);
@@ -635,7 +635,7 @@ Future<bool> writePrivateFileAtomically(
   final temp = File('${file.path}.tmp');
   try {
     _ensurePrivateDir(file.parent);
-    final access = _PreferenceFileAccess.capture(file);
+    final access = FileReplacementAccess.capture(file);
     if (requireExpectedAccess &&
         (expectedAccess?.identity != access.witness?.identity ||
             expectedAccess?.aclWarning?.fingerprint !=
@@ -655,7 +655,7 @@ Future<bool> writePrivateFileAtomically(
 
     if (!_prepareTemporary(temp)) return false;
     _verifyPrivateTemporary(temp);
-    final _PreferenceFileAccess prepared;
+    final FileReplacementAccess prepared;
     if (Platform.isWindows) {
       prepared = access.writeWindowsReplacement(file, temp, contents);
     } else {
@@ -703,7 +703,7 @@ bool writePrivateFileAtomicallySync(
   final temp = File('${file.path}.tmp');
   try {
     _ensurePrivateDir(file.parent);
-    final access = _PreferenceFileAccess.capture(file);
+    final access = FileReplacementAccess.capture(file);
     final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
     if (planted == FileSystemEntityType.link) {
       Link(temp.path).deleteSync();
@@ -712,7 +712,7 @@ bool writePrivateFileAtomicallySync(
     }
     if (!_prepareTemporary(temp)) return false;
     _verifyPrivateTemporary(temp);
-    final _PreferenceFileAccess prepared;
+    final FileReplacementAccess prepared;
     if (Platform.isWindows) {
       prepared = access.writeWindowsReplacement(file, temp, contents);
     } else {

@@ -404,7 +404,7 @@ Future<bool?> showStorageAccessReview(
   final hasWritableGrant = warnings.any(
     (warning) =>
         warning.readOnlyInApp ||
-        warning.grants.any(
+        [...warning.grants, ...warning.inheritedGrants].any(
           (grant) => grant.rights.any(
             (right) =>
                 right != ManagedAclRight.read &&
@@ -489,10 +489,22 @@ class StorageAclDetails extends StatelessWidget {
               grant.rights.map((right) => _rightLabel(l, right)).join(', '),
             ),
           ),
+        if (warning.inheritedGrants.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(l.storageAclInheritedGrants),
+          for (final grant in warning.inheritedGrants)
+            Text(
+              l.startupAclGrant(
+                grant.account.isEmpty ? l.startupAclEveryone : grant.account,
+                grant.rights.map((right) => _rightLabel(l, right)).join(', '),
+              ),
+            ),
+        ],
         if (warning.extendedAcl case final acl?)
           ExpansionTile(
             title: Text(l.startupAclDetails),
-            initiallyExpanded: warning.grants.isEmpty,
+            initiallyExpanded:
+                warning.grants.isEmpty && warning.inheritedGrants.isEmpty,
             children: [SelectableText(acl)],
           ),
       ],

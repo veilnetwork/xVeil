@@ -86,6 +86,7 @@ final class ManagedProfileLease {
   static ManagedProfileLease openOwned(
     ManagedSqliteConnection connection, {
     bool exclusive = false,
+    ManagedPathWitness? sidecarAccess,
     ManagedProfileLeaseRole role = ManagedProfileLeaseRole.publishedRoot,
   }) {
     final lease = ManagedProfileLease._(
@@ -98,6 +99,7 @@ final class ManagedProfileLease {
       lease._posixLock = PosixSidecarLock.acquire(
         connection.filePath,
         shared: !exclusive,
+        access: sidecarAccess,
       );
       lease._acquire();
       return lease;

@@ -48,7 +48,6 @@ Future<DataExportReport?> exportDataArchive({
   final document = await pick(name);
   if (document == null) return null;
   cancellation?.attach(document);
-  var finished = false;
   try {
     checkOwner();
     final report = await exporter.run(
@@ -64,13 +63,13 @@ Future<DataExportReport?> exportDataArchive({
     );
     checkOwner();
     await document.finish();
-    finished = true;
     return report;
+  } catch (error, stack) {
+    Error.throwWithStackTrace(
+      await abortFailedDocument(document, error),
+      stack,
+    );
   } finally {
-    try {
-      if (!finished) await document.abort();
-    } finally {
-      cancellation?.detach();
-    }
+    cancellation?.detach();
   }
 }

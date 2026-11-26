@@ -8219,7 +8219,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get startupUnlockSaveFailed =>
-      'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.';
+      'Screen lock settings were saved. Could not set up sign-in after restart in the system credential store. Unlock the device, then try saving again. Your container password still works.';
 
   @override
   String get startupUnlockDisableFailed =>
@@ -8654,4 +8654,59 @@ class AppL10nEn extends AppL10n {
   @override
   String get startupRuntimeAccessDenied =>
       'The operating system denied access to the folder used for connection control. Check your account’s permissions or choose another folder.';
+
+  @override
+  String get plainDownloadExistingDestination =>
+      'A file already exists there. Pick a different name to keep that file.';
+
+  @override
+  String get exportAccessPolicyCannotBePreserved =>
+      'Could not preserve the existing file’s permissions. The existing file was kept. Choose a different name.';
+
+  @override
+  String get exportDestinationChanged =>
+      'The destination changed while saving. Check the folder and choose a file name again.';
+
+  @override
+  String get exportDestinationNotFile =>
+      'The selected path points to a directory or another object. Choose a regular file name.';
+
+  @override
+  String get exportPartialMayRemain =>
+      'An incomplete file may remain in the selected location.';
+
+  @override
+  String get folderSyncPropagateDeletions => 'Sync deletions';
+
+  @override
+  String get folderSyncPropagateDeletionsHelp =>
+      'Deletions are paused while other accounts can modify the folder.';
+
+  @override
+  String get folderSyncAclTraversalRisk =>
+      'Other accounts can traverse this folder. They may access items by name if the item’s own permissions allow it.';
+
+  @override
+  String get storageAclInheritedGrants =>
+      'Permissions that may be inherited by items inside this folder';
+
+  @override
+  String get startupUnlockVaultCancelled =>
+      'System authentication was cancelled. Save again to set up sign-in after restart.';
+
+  @override
+  String get startupUnlockVaultNotEnrolled =>
+      'The credential store requires an enrolled biometric. Set up fingerprint or face recognition in system settings and save again.';
+
+  @override
+  String get startupUnlockVaultLockedOut =>
+      'The system temporarily blocked biometric authentication. Unlock your device with its passcode and try saving again.';
+
+  @override
+  String get startupUnlockVaultProtectionChanged =>
+      'The system invalidated the saved sign-in key. Review your biometric setup in system settings and save again with the container password.';
+
+  @override
+  String get startupUnlockVaultUnavailable =>
+      'The system credential store or biometric authentication is unavailable. Check your device and security settings before saving again.';
 }

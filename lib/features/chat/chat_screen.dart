@@ -76,6 +76,7 @@ import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
 import '../../core/document_export.dart';
+import '../../core/filesystem_errors.dart';
 import '../../domain/chat_file_export.dart';
 import '../../domain/file_names.dart';
 import '../../domain/media_object.dart' show kInlineImageMaxBytes;
@@ -1161,11 +1162,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// After a re-advertise REQUEST, react if it times out (the sender no longer
   /// serves the file): tell the user to ask for a re-send, and delete the empty
   /// destination file an unencrypted download had already created.
-  void _watchDownloadFailure(
-    String cid, {
-    String? deletePath,
-    Iterable<String> deletePaths = const [],
-  }) {
+  void _watchDownloadFailure(String cid, {VoidCallback? discard}) {
     final messaging = _messaging;
     final terminal = Completer<bool>();
     late final StreamSubscription<String> failureSubscription;
@@ -1189,13 +1186,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           await failureSubscription.cancel();
           await cancellationSubscription.cancel();
           if (!failed) return;
-          for (final path in [?deletePath, ...deletePaths]) {
-            try {
-              await File(path).delete();
-            } catch (_) {
-              /* already gone */
-            }
-          }
+          discard?.call();
           if (mounted) _snack(AppL10n.of(context).fileReofferFailed);
         })
         .catchError((_) {
@@ -1269,58 +1260,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     final name = _safeDownloadName(m.fileName);
     String? dest;
-    late final RandomAccessFile raf;
+    late final NewPlainDownload download;
     try {
       if (!Platform.isAndroid && !Platform.isIOS) {
         dest = await FilePicker.saveFile(fileName: name);
       } else {
-        // NO PICKER on mobile, so nothing asked before overwriting (audit
-        // XV-17): the desktop branch goes through a save panel that confirms a
-        // collision, but here the name comes straight off the message and
-        // `FileMode.write` TRUNCATES whatever is already there. Two files sharing
-        // a name — common enough for `photo.jpg` — silently destroyed the first.
-        // Pick a free name instead; the desktop path keeps its user-confirmed
-        // overwrite, and the direct-to-destination write the macOS sandbox
-        // requires is untouched.
+        // Mobile saves in the app documents directory. Choose a free name
+        // here and still reserve it exclusively against concurrent downloads.
         dest = _uncontestedPath(
           (await getApplicationDocumentsDirectory()).path,
           name,
         );
       }
-      if (dest == null) return; // cancelled
-      // Write STRAIGHT to the chosen path — no `.part-` sibling. On a sandboxed
-      // macOS release build the NSSavePanel grants a read-write exception for the
-      // exact selected path ONLY; a sibling temp file (`dest.part-…`) is outside
-      // the sandbox and its open() fails with "Operation not permitted", which
-      // silently stranded every large-file save (worked in the sandbox-off debug
-      // build, hid the bug). A partial file on failure is cleaned by
-      // _watchDownloadFailure(deletePath: dest).
-      raf = await File(dest).open(mode: FileMode.write);
+      if (dest == null || !_stillOurs()) return;
+      download = NewPlainDownload.open(dest);
     } catch (error) {
       if (_stillOurs()) {
-        final code = error is FileSystemException
-            ? error.osError?.errorCode
-            : null;
         _snack(
-          code == 1 || code == 13 || (Platform.isWindows && code == 5)
+          error is PathExistsException
+              ? l.plainDownloadExistingDestination
+              : error is FileSystemException && fileSystemAccessDenied(error)
               ? l.chatFileSavePermissionDenied
               : l.chatFileSaveFailed,
         );
       }
       return;
     }
-    if (!_stillOurs()) {
-      await raf.close();
-      try {
-        await File(dest).delete();
-      } catch (_) {}
-      return;
-    }
+    final raf = download.handle;
     final svc = _messaging;
-    _watchDownloadFailure(
-      cid,
-      deletePath: dest,
-    ); // clean up empty/partial files
+    _watchDownloadFailure(cid, discard: download.discard);
     // Snackbar once the streamed plaintext file is fully written.
     svc.contentReceived
         .firstWhere((e) => e.contentId == cid && e.savedToPath != null)
@@ -1357,7 +1325,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           await raf.close();
         },
       );
-      if (mounted && r == ContentDownloadResult.requestedReoffer) {
+      if (_stillOurs() && r == ContentDownloadResult.requestedReoffer) {
         _snack(l.fileRequestingResend);
       }
     } catch (_) {
@@ -1396,9 +1364,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       mounted && identical(ref.read(storageProvider), _storage);
 
   String _fileSaveError(AppL10n l, Object error) =>
-      error is DocumentExportException && error.permissionDenied
-      ? l.chatFileSavePermissionDenied
-      : l.chatFileSaveFailed;
+      documentExportFailureText(l, error, l.chatFileSaveFailed);
 
   Future<void> _exportSavedFile(String path, String name) async {
     final l = AppL10n.of(context);

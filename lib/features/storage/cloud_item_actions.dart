@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../core/document_export.dart';
 import '../../core/filesystem_errors.dart';
 import '../../domain/chat_file_export.dart';
@@ -19,7 +20,31 @@ import '../../state/cloud_service.dart';
 /// body renders single items too — an attachment chip has to import and export
 /// through exactly the same path, not a second one that drifts.
 
-enum CloudExportResult { done, cancelled, permissionDenied, failed }
+enum CloudExportResult {
+  done,
+  cancelled,
+  permissionDenied,
+  permissionDeniedWithPartial,
+  partial,
+  accessPolicy,
+  destinationChanged,
+  destinationType,
+  failed,
+}
+
+String cloudExportResultText(AppL10n l, CloudExportResult result) =>
+    switch (result) {
+      CloudExportResult.done => l.cloudExportDone,
+      CloudExportResult.permissionDenied => l.chatFileSavePermissionDenied,
+      CloudExportResult.permissionDeniedWithPartial =>
+        '${l.chatFileSavePermissionDenied} ${l.exportPartialMayRemain}',
+      CloudExportResult.partial =>
+        '${l.cloudExportFailed} ${l.exportPartialMayRemain}',
+      CloudExportResult.accessPolicy => l.exportAccessPolicyCannotBePreserved,
+      CloudExportResult.destinationChanged => l.exportDestinationChanged,
+      CloudExportResult.destinationType => l.exportDestinationNotFile,
+      _ => l.cloudExportFailed,
+    };
 
 /// Pick a file and import it into [service]. Returns the new row, or null when
 /// the picker was dismissed; import failures throw, as [CloudService] reports
@@ -93,9 +118,19 @@ Future<CloudExportResult> exportCloudItem(
     );
     return saved ? CloudExportResult.done : CloudExportResult.cancelled;
   } on DocumentExportException catch (error) {
-    return error.permissionDenied
-        ? CloudExportResult.permissionDenied
-        : CloudExportResult.failed;
+    return switch ((
+      error.permissionDenied,
+      error.partialMayRemain,
+      error.stage,
+    )) {
+      (true, true, _) => CloudExportResult.permissionDeniedWithPartial,
+      (true, false, _) => CloudExportResult.permissionDenied,
+      (false, true, _) => CloudExportResult.partial,
+      (_, _, 'access-policy') => CloudExportResult.accessPolicy,
+      (_, _, 'destination-changed') => CloudExportResult.destinationChanged,
+      (_, _, 'destination-type') => CloudExportResult.destinationType,
+      _ => CloudExportResult.failed,
+    };
   } on FileSystemException catch (error) {
     return fileSystemAccessDenied(error)
         ? CloudExportResult.permissionDenied

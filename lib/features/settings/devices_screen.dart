@@ -2161,8 +2161,10 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       } else if (reply['k'] == 'pending') {
         _armPairTrouble(code);
       }
-    } catch (_) {
-      // Try direct LAN again until the bounded no-response timer reports it.
+    } catch (error) {
+      if (mounted && _pairCode == code && isPairingLanAccessDenied(error)) {
+        _endPairingWithError(AppL10n.of(context).devicesPairLanDenied);
+      }
     } finally {
       _requestSending = false;
     }

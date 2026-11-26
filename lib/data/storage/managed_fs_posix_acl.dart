@@ -36,6 +36,7 @@ ManagedStorageAclWarning? managedPosixAclWarning(
     owner: facts.uid == currentUid ? null : _accountLabel(facts.uid),
     extendedAcl: darwinAcl.isEmpty ? null : darwinAcl,
     grants: [...grants, ..._darwinDisplayGrants(darwinAcl)],
+    inheritedGrants: _darwinDisplayGrants(darwinAcl, inheritOnly: true),
     grantsArePotential: darwinAcl.isNotEmpty,
     fingerprint: sha256
         .convert(
@@ -61,14 +62,20 @@ ManagedStorageAclWarning? managedPosixAclWarning(
 
 /// Interpret the human-readable entries for the local UI only. Admission and
 /// consent still use the native ACL masks and the exact serialized ACL.
-Iterable<ManagedAclGrant> _darwinDisplayGrants(String acl) sync* {
+Iterable<ManagedAclGrant> _darwinDisplayGrants(
+  String acl, {
+  bool inheritOnly = false,
+}) sync* {
   for (final line in const LineSplitter().convert(acl)) {
     final fields = line.split(':');
     if (fields.length != 6 || (fields[0] != 'user' && fields[0] != 'group')) {
       continue;
     }
     final flags = fields[4].split(',');
-    if (!flags.contains('allow') || flags.contains('only_inherit')) continue;
+    if (!flags.contains('allow') ||
+        flags.contains('only_inherit') != inheritOnly) {
+      continue;
+    }
     final name = fields[2];
     final id = int.tryParse(fields[3]);
     final account = name == 'everyone' && fields[0] == 'group'
@@ -82,14 +89,17 @@ Iterable<ManagedAclGrant> _darwinDisplayGrants(String acl) sync* {
       for (final right in fields[5].split(','))
         switch (right) {
           'read' ||
+          'list' ||
           'readattr' ||
           'readextattr' ||
           'readsecurity' => ManagedAclRight.read,
           'write' ||
+          'add_file' ||
+          'add_subdirectory' ||
           'append' ||
           'writeattr' ||
           'writeextattr' => ManagedAclRight.write,
-          'execute' => ManagedAclRight.execute,
+          'execute' || 'search' => ManagedAclRight.execute,
           'delete' => ManagedAclRight.delete,
           'delete_child' => ManagedAclRight.deleteChildren,
           'writesecurity' => ManagedAclRight.changePermissions,

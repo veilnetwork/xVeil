@@ -13,6 +13,7 @@ import '../../core/storage_acl_vault.dart';
 import 'async_kv_log_store.dart';
 import 'legacy_profile_preferences.dart';
 import 'managed_directory_catalog.dart';
+import 'managed_fs_contract.dart';
 import 'managed_profile_wipe.dart';
 import 'profile_prefs_store.dart';
 
@@ -102,8 +103,16 @@ final class ColdProfileErasureRecovery {
       try {
         await _resume();
         done.complete();
-      } catch (_) {
-        done.completeError(const ManagedProfileWipeFailure());
+      } catch (error, stack) {
+        final access = switch (error) {
+          ManagedFsFailure() => error,
+          ManagedWorkerFailure(:final filesystemFailure) ||
+          ManagedProfileWipeFailure(
+            :final filesystemFailure,
+          ) => filesystemFailure,
+          _ => null,
+        };
+        done.completeError(ManagedProfileWipeFailure(access), stack);
       } finally {
         _pending = null;
       }

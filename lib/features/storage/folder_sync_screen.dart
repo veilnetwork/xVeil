@@ -118,6 +118,8 @@ String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
     FolderSyncRefusalCode.permissionsUnreadable =>
       l.folderSyncRefusedUnreadable(path),
     FolderSyncRefusalCode.readableByOtherAccounts => l.folderSyncAclReadRisk,
+    FolderSyncRefusalCode.traversalByOtherAccounts =>
+      l.folderSyncAclTraversalRisk,
     FolderSyncRefusalCode.writableByOtherAccounts =>
       l.folderSyncRefusedWritable(path),
   };
@@ -155,7 +157,7 @@ Future<void> _reviewRoot(
               approval != null
                   ? approval.writeAccess
                         ? l.folderSyncAclRisk
-                        : l.folderSyncAclReadRisk
+                        : message
                   : adding
                   ? l.folderSyncNotAdded(message)
                   : message,
@@ -341,6 +343,18 @@ class _PairCard extends ConsumerWidget {
                 child: Text(l.folderSyncConfirmRoot),
               ),
             ),
+          SwitchListTile(
+            title: Text(l.folderSyncPropagateDeletions),
+            subtitle: Text(l.folderSyncPropagateDeletionsHelp),
+            value: view.pair.deletePropagates,
+            onChanged: view.busy
+                ? null
+                : (enabled) => controller.setDeletePropagation(
+                    view.pair.id,
+                    enabled,
+                    owner: ref.leaseIdentity(),
+                  ),
+          ),
           if (rootRefusal?.aclWarning != null)
             Align(
               alignment: AlignmentDirectional.centerStart,

@@ -122,21 +122,25 @@ Future<void> saveErrorReport(
       context,
     ).showSnackBar(SnackBar(content: Text(l.settingsDiagnosticsSaved)));
   } catch (error, stack) {
-    try {
-      await document?.abort();
-    } catch (_) {
-      // The original export failure remains observable; cleanup is best effort.
-    }
+    final failure = await abortFailedDocument(document, error);
     errorJournal.record(
       kind: 'diagnostic-export',
-      error: error,
+      error: failure,
       stack: stack,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l.settingsDiagnosticsSaveFailed)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          documentExportFailureText(
+            l,
+            failure,
+            l.settingsDiagnosticsSaveFailed,
+          ),
+        ),
+      ),
+    );
   }
 }
 

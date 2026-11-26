@@ -57,17 +57,20 @@ final class ManagedStorageAclWarning {
     required this.path,
     required this.fingerprint,
     required Iterable<ManagedAclGrant> grants,
+    Iterable<ManagedAclGrant> inheritedGrants = const [],
     this.directory = true,
     this.owner,
     this.extendedAcl,
     this.canContinue = true,
     this.readOnlyInApp = false,
     this.grantsArePotential = false,
-  }) : grants = List.unmodifiable(grants);
+  }) : grants = List.unmodifiable(grants),
+       inheritedGrants = List.unmodifiable(inheritedGrants);
 
   final String path;
   final String fingerprint;
   final List<ManagedAclGrant> grants;
+  final List<ManagedAclGrant> inheritedGrants;
   final bool directory;
   final String? owner;
   final String? extendedAcl;
@@ -82,6 +85,7 @@ final class ManagedStorageAclWarning {
     path: path,
     fingerprint: fingerprint,
     grants: grants,
+    inheritedGrants: inheritedGrants,
     directory: directory,
     owner: owner,
     extendedAcl: extendedAcl,

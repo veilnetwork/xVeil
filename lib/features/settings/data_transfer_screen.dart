@@ -245,9 +245,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         () => _error = e is DataExportCancelled
             ? l.transferIdentitySwitched
             : e is DocumentExportException
-            ? (e.permissionDenied
-                  ? l.chatFileSavePermissionDenied
-                  : l.transferExportFailed)
+            ? documentExportFailureText(l, e, l.transferExportFailed)
             : cause,
       );
       _announce(_error!);

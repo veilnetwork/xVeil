@@ -118,7 +118,7 @@ String? unverifiableSecretFileReason({required bool isWindows}) => isWindows
 /// Read a bounded credential after checking file type, ownership and access.
 /// Windows uses the native ACL probe when available. Known read-only grants
 /// require explicit consent. The caller may separately accept an unavailable
-/// Windows probe, and receives a warning before the unverified read.
+/// ownership or ACL probe, and receives a warning before the unverified read.
 ///
 /// [isWindows] and [warn] allow tests to exercise the unavailable-probe path.
 Future<String> readSecretFile(
@@ -128,12 +128,15 @@ Future<String> readSecretFile(
   bool acceptReadable = false,
   bool? isWindows,
   void Function(String warning)? warn,
+  PosixFileFacts? Function(String) readFacts = posixLstat,
 }) async {
   final windows = isWindows ?? Platform.isWindows;
   // THE one call, when the host can answer it. `isWindows: true` deliberately
   // forgoes it even on a POSIX machine: that injection exists to exercise the
   // Windows branch, and a branch that quietly used libc would not be it.
-  final before = windows ? null : posixLstat(path);
+  final before = windows ? null : readFacts(path);
+  final euid = windows ? null : posixEuid();
+  final emitWarning = warn ?? ((String warning) => stderr.writeln(warning));
 
   if (before != null) {
     if (before.isSymlink) {
@@ -173,16 +176,19 @@ Future<String> readSecretFile(
       // Compatibility for systems where the SDK probe cannot read an ACL.
     }
   }
-  final unverifiable = acl == null
-      ? unverifiableSecretFileReason(isWindows: windows)
-      : null;
+  final unverifiable = switch ((windows, acl, before, euid)) {
+    (true, null, _, _) => unverifiableSecretFileReason(isWindows: true),
+    (false, _, null, _) ||
+    (false, _, _, null) => 'the POSIX ownership probe is unavailable',
+    _ => null,
+  };
   if (acl != null) {
     _checkSecretGrant(
       path,
       label,
       acl,
       acceptReadable: acceptReadable,
-      warn: warn,
+      warn: emitWarning,
     );
   }
   if (unverifiable != null) {
@@ -198,7 +204,7 @@ Future<String> readSecretFile(
         'private, it does not make it so.',
       );
     }
-    warn?.call(
+    emitWarning(
       'xveil: WARNING: $label file $path is being read UNCHECKED '
       '($unverifiable). You asserted it is private; nothing here verified it.',
     );
@@ -213,14 +219,13 @@ Future<String> readSecretFile(
     );
   }
   if (before != null) {
-    final euid = posixEuid();
     if (euid != null && before.uid != euid) {
       throw StateError(
         '$label file $path is owned by uid ${before.uid}, not by this process '
         '(uid $euid). Use a file you own or type the secret at the prompt.',
       );
     }
-    if (Platform.isMacOS || Platform.isLinux) {
+    if (euid != null && (Platform.isMacOS || Platform.isLinux)) {
       try {
         acl = fs.inspectAcl(path);
       } on ManagedFsFailure catch (error) {
@@ -239,7 +244,7 @@ Future<String> readSecretFile(
         label,
         acl,
         acceptReadable: acceptReadable,
-        warn: warn,
+        warn: emitWarning,
         mode: before.mode & 0x1ff,
       );
     } else if (before.mode & 0x3F != 0) {
@@ -272,7 +277,7 @@ Future<String> readSecretFile(
     final value = utf8
         .decode(await _readBounded(path, label, kSecretFileMaxBytes))
         .trim();
-    final after = posixLstat(path);
+    final after = readFacts(path);
     if (after == null ||
         !before.sameObjectAs(after) ||
         before.mode != after.mode ||
@@ -320,12 +325,19 @@ Future<String> readSecretFile(
   // time are all Dart offers. Weaker — both are writable by anyone who can
   // write the file — but it is what these platforms had, and nothing here makes
   // it worse.
-  final beforeStat = await File(path).stat();
+  final beforeStat = File(path).statSync();
+  if (FileSystemEntity.typeSync(path, followLinks: false) !=
+          FileSystemEntityType.file ||
+      !windows && beforeStat.mode & 0x3f != 0) {
+    throw StateError('$label file $path changed during the permission check.');
+  }
   final value = utf8
       .decode(await _readBounded(path, label, kSecretFileMaxBytes))
       .trim();
   final afterStat = await File(path).stat();
-  if (beforeStat.type != afterStat.type ||
+  if (FileSystemEntity.typeSync(path, followLinks: false) !=
+          FileSystemEntityType.file ||
+      beforeStat.type != afterStat.type ||
       beforeStat.mode != afterStat.mode ||
       beforeStat.size != afterStat.size ||
       beforeStat.modified != afterStat.modified) {

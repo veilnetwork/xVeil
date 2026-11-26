@@ -2002,6 +2002,10 @@ void main() {
         final grant = Completer<void>();
         messenger.setMockMethodCallHandler(channel, (call) async {
           attempts.add(call.method);
+          if (call.method == 'checkPermissions') {
+            return {'isEnabled': false};
+          }
+          if (call.method == 'areNotificationsEnabled') return false;
           if (attempts.length > 1) return false;
           if (firstResult == 'granted') await grant.future;
           return switch (firstResult) {
@@ -2039,10 +2043,22 @@ void main() {
               'state': retries ? -1 : (firstResult == 'granted' ? 1 : 0),
             });
           }
+          final recheck = Platform.isAndroid
+              ? 'areNotificationsEnabled'
+              : 'checkPermissions';
           for (var i = 0; i < 2; i++) {
             await lifecycle(tester, background);
             await lifecycle(tester, foreground);
-            expect(attempts, [method, if (retries) method]);
+            expect(attempts, [
+              method,
+              if (retries) method,
+              for (var check = 0; check <= i - (retries ? 1 : 0); check++)
+                recheck,
+            ]);
+            if (firstResult == 'granted') {
+              final l = AppL10n.of(tester.element(find.byType(Scaffold).first));
+              expect(find.text(l.notificationPermissionDenied), findsOneWidget);
+            }
           }
           if (diagnosticJournal.enabled) {
             final report = diagnosticJournal.toJson();

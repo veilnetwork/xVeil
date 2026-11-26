@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.DocumentsContract
+import android.system.ErrnoException
+import android.system.OsConstants
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -45,10 +47,19 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
 
     init { channel.setMethodCallHandler(::handle) }
 
-    private fun error(result: MethodChannel.Result, stage: String) {
+    private fun error(result: MethodChannel.Result, stage: String, partial: Boolean = false) {
         // Provider exceptions often include account-bearing URIs and paths.
-        result.error("document_export_$stage", "Could not save the document.", null)
+        result.error(
+            "document_export_$stage", "Could not save the document.",
+            if (partial) "partial_may_remain" else null,
+        )
     }
+
+    private fun isAccessDenied(failure: Exception): Boolean =
+        generateSequence<Throwable>(failure) { it.cause }.take(8).any {
+            it is SecurityException ||
+                it is ErrnoException && (it.errno == OsConstants.EACCES || it.errno == OsConstants.EPERM)
+        }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         if (disposed) { error(result, "closed"); return }
@@ -88,7 +99,7 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                 val removed = discard(session)
                 main.post {
                     working--
-                    if (removed) result.success(null) else error(result, "abort")
+                    if (removed) result.success(null) else error(result, "abort", partial = true)
                     settleDisposed()
                 }
             }
@@ -107,6 +118,7 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
         io.execute {
             var succeeded = false
             var denied = false
+            var removed = true
             try {
                 check(!session.aborted.get())
                 val out = checkNotNull(session.output)
@@ -118,15 +130,17 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                     session.committed = true
                 }
                 succeeded = true
-            } catch (_: SecurityException) { denied = true; discard(session) }
-            catch (_: Exception) { discard(session) }
+            } catch (failure: Exception) {
+                denied = isAccessDenied(failure)
+                removed = discard(session)
+            }
             main.post {
                 working--
                 session.busy = false
                 if (!succeeded || call.method == "finish") {
                     if (current === session) current = null
                 }
-                if (succeeded) result.success(null) else error(result, if (denied) "permission" else call.method)
+                if (succeeded) result.success(null) else error(result, if (denied) "permission" else call.method, partial = !removed)
                 settleDisposed()
             }
         }
@@ -148,11 +162,14 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
             val session = Session(uri, null)
             var succeeded = false
             var denied = false
+            var removed = true
             try {
                 session.output = checkNotNull(resolver.openOutputStream(uri, "w"))
                 succeeded = true
-            } catch (_: SecurityException) { denied = true; discard(session) }
-            catch (_: Exception) { discard(session) }
+            } catch (failure: Exception) {
+                denied = isAccessDenied(failure)
+                removed = discard(session)
+            }
             main.post {
                 working--
                 if (disposed || pending !== result) {
@@ -161,7 +178,7 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                 } else {
                     pending = null
                     if (succeeded) { current = session; result.success(mapOf("id" to session.id)) }
-                    else error(result, if (denied) "permission" else "open")
+                    else error(result, if (denied) "permission" else "open", partial = !removed)
                 }
                 settleDisposed()
             }

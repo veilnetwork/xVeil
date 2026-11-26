@@ -69,6 +69,7 @@ final class StorageProfileCoordinator {
       path,
       fs,
       allowAclApproval: allowAclApproval,
+      allowReadOnlyAclApproval: true,
     );
     final pending =
         [
@@ -247,6 +248,7 @@ final class StorageProfileCoordinator {
     final lease = ManagedProfileLease.openOwned(
       ManagedSqliteConnection.openUnencrypted(role),
       exclusive: exclusive,
+      sidecarAccess: files['${ManagedProfileLease.fileName}.lock'],
       role: ManagedProfileLeaseRole.storageProfile,
     );
     try {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/document_export.dart';
 import 'package:xveil/domain/chat_file_export.dart';
+import 'package:xveil/data/serve_source.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +28,31 @@ void main() {
     read: read ?? (offset, want) async => List.filled(want, 42),
     stillOurs: owner ?? () => true,
   );
+
+  test('large download reserves a new name and leaves a replacement alone', () {
+    final dir = Directory.systemTemp.createTempSync('xveil-plain-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final target = File('${dir.path}/target')..writeAsStringSync('original');
+    expect(
+      () => NewPlainDownload.open(target.path),
+      throwsA(isA<PathExistsException>()),
+    );
+    expect(target.readAsStringSync(), 'original');
+
+    final path = '${dir.path}/incoming';
+    final download = NewPlainDownload.open(path);
+    download.handle
+      ..setPositionSync(2)
+      ..writeByteSync(99)
+      ..setPositionSync(0)
+      ..writeByteSync(97)
+      ..closeSync();
+    expect(File(path).readAsBytesSync(), [97, 0, 99]);
+    File(path).renameSync('${dir.path}/saved');
+    File(path).writeAsStringSync('replacement');
+    download.discard();
+    expect(File(path).readAsStringSync(), 'replacement');
+  });
 
   test(
     'Android large attachment uses picker, bounded writes and awaited close',

@@ -18,7 +18,6 @@ Future<bool> exportChatFile({
   if (size < 0) throw const DocumentExportException('size');
   final document = await pick(name);
   if (document == null) return false;
-  var finished = false;
   try {
     checkOwner();
     var offset = 0;
@@ -34,15 +33,11 @@ Future<bool> exportChatFile({
       offset += bytes.length;
     }
     await document.finish();
-    finished = true;
     return true;
-  } finally {
-    if (!finished) {
-      // Keep the original refusal (especially permission denied) if cleanup
-      // also fails. The provider's abort remains best effort in that case.
-      try {
-        await document.abort();
-      } catch (_) {}
-    }
+  } catch (error, stack) {
+    Error.throwWithStackTrace(
+      await abortFailedDocument(document, error),
+      stack,
+    );
   }
 }

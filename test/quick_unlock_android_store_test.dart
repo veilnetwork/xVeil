@@ -28,6 +28,36 @@ class _ReadStore extends QuickUnlockSecretStore {
 }
 
 void main() {
+  test('protected store failures use bounded biometric reasons', () {
+    final cases = {
+      5: QuickUnlockVaultFailure.cancelled,
+      9: QuickUnlockVaultFailure.lockedOut,
+      11: QuickUnlockVaultFailure.notEnrolled,
+      12: QuickUnlockVaultFailure.unavailable,
+    };
+    for (final entry in cases.entries) {
+      expect(
+        classifyQuickUnlockVaultFailure(
+          PlatformException(
+            code: 'Exception encountered',
+            message:
+                'Biometric authentication error [${entry.key}]: localized text',
+          ),
+        ),
+        entry.value,
+      );
+    }
+    expect(
+      classifyQuickUnlockVaultFailure(
+        PlatformException(
+          code: 'Unexpected security result code',
+          details: -128,
+        ),
+      ),
+      QuickUnlockVaultFailure.cancelled,
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
   final messenger =

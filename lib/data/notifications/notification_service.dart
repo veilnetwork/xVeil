@@ -357,6 +357,38 @@ class NotificationService {
     return granted;
   }
 
+  /// Recheck the system setting without showing a permission prompt.
+  Future<bool?> permissionStatus() async {
+    if (!_ready) return null;
+    try {
+      if (Platform.isAndroid) {
+        return await _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.areNotificationsEnabled();
+      }
+      final options = Platform.isIOS
+          ? await _plugin
+                .resolvePlatformSpecificImplementation<
+                  IOSFlutterLocalNotificationsPlugin
+                >()
+                ?.checkPermissions()
+          : Platform.isMacOS
+          ? await _plugin
+                .resolvePlatformSpecificImplementation<
+                  MacOSFlutterLocalNotificationsPlugin
+                >()
+                ?.checkPermissions()
+          : null;
+      return options == null
+          ? null
+          : options.isEnabled || options.isProvisionalEnabled;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Post a notification. [id] is the OS notification id — message callers
   /// reuse one id globally so startup/mailbox bursts replace instead of stack.
   /// When

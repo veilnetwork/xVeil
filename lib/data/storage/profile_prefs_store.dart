@@ -19,7 +19,7 @@ import 'async_kv_log_store.dart'
         ManagedPreferencesFailureReason,
         ManagedWorkerFailure,
         ManagedWorkerFailureKind;
-import 'managed_fs_contract.dart' show ManagedFsFailure;
+import 'managed_fs_contract.dart' show ManagedFsFailure, ManagedFsFailureKind;
 import 'profile_preferences_file.dart';
 import 'legacy_profile_preferences.dart';
 import 'profile_preferences_routing.dart';
@@ -259,6 +259,10 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           _writeFailures.add(
             ManagedWorkerFailure(
               ManagedWorkerFailureKind.invalid,
+              filesystemFailure: ManagedFsFailure(
+                ManagedFsFailureKind.io,
+                path: error.path ?? _file.path,
+              ),
               preferencesWriteReason: fileSystemAccessDenied(error)
                   ? ManagedPreferencesFailureReason.filesystemAccessDenied
                   : FileSystemEntity.typeSync(_file.path, followLinks: false) ==
@@ -304,7 +308,9 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
       onError: (Object error, StackTrace _) {
         if (error is ManagedWorkerFailure &&
             (error.preferencesWriteReason != null ||
-                error.aclWarnings.isNotEmpty)) {
+                error.preferencesReadReason != null ||
+                error.aclWarnings.isNotEmpty ||
+                error.filesystemFailure != null)) {
           _writeFailures.add(error);
         }
       },

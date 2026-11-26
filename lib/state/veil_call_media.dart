@@ -459,7 +459,11 @@ class VeilCallMediaController implements CallMediaController {
        // ignore: prefer_initializing_formals
        _audioProcessingReady = audioProcessingReady,
        _engineFactory = engineFactory ?? VeilMediaEngine.create,
-       _requestCamera = requestCamera ?? MacMediaPermissions.requestCamera,
+       _requestCamera = requestCamera == null
+           ? MacMediaPermissions.requestCameraAccess
+           : (() async => await requestCamera()
+                 ? MediaPermissionStatus.allowed
+                 : MediaPermissionStatus.denied),
        _statsNow = statsNow ?? DateTime.now,
        _androidCameraCapture = androidCameraCapture ?? Platform.isAndroid,
        _nativeCameraFactory = nativeCameraFactory ?? AndroidNativeCallCamera.new,
@@ -468,7 +472,7 @@ class VeilCallMediaController implements CallMediaController {
            microphonePermissionFactory ?? _platformMicrophonePermission;
 
   final CallMediaEngineFactory _engineFactory;
-  final Future<bool> Function() _requestCamera;
+  final Future<MediaPermissionStatus> Function() _requestCamera;
   final DateTime Function() _statsNow;
   final Future<void>? _audioProcessingReady;
   final bool _androidCameraCapture;
@@ -499,6 +503,50 @@ class VeilCallMediaController implements CallMediaController {
       StreamController<CallReceiveRepairRequest>.broadcast(sync: true);
   final _microphoneUnavailable = StreamController<String>.broadcast();
   final _cameraUnavailable = StreamController<String>.broadcast();
+  final _capturePermissions = ValueNotifier<CallCapturePermissions?>(null);
+
+  @override
+  ValueListenable<CallCapturePermissions?> get capturePermissions =>
+      _capturePermissions;
+
+  @override
+  void reportCapturePermission(
+    String callId,
+    MediaPermissionStatus status, {
+    required bool camera,
+  }) {
+    if (_activeCall?.callId != callId) return;
+    _reportCapturePermission(callId, status, camera: camera);
+    if (!camera && status == MediaPermissionStatus.allowed) {
+      // The explicit system recheck supersedes the initial Android prompt.
+      _microphonePermission = null;
+      final epoch = _mediaEpoch;
+      unawaited(
+        _microphoneForeground.activateWhenMicrophoneGranted(
+          Future<bool>.value(true),
+          isCurrent: () => _mediaEpoch == epoch && _activeCall?.callId == callId,
+        ),
+      );
+    }
+  }
+
+  void _reportCapturePermission(
+    String callId,
+    MediaPermissionStatus status, {
+    required bool camera,
+  }) {
+    final previous = _capturePermissions.value;
+    _capturePermissions.value = (
+      callId: callId,
+      microphone: camera
+          ? (previous?.callId == callId ? previous?.microphone : null)
+          : status,
+      camera: camera
+          ? status
+          : (previous?.callId == callId ? previous?.camera : null),
+    );
+  }
+
   Timer? _controlPollTimer;
 
   @override
@@ -1865,26 +1913,38 @@ class VeilCallMediaController implements CallMediaController {
     _microphonePermission = null;
     if (call.media.audio) {
       diagnosticJournal.recordMediaPermission(video: false);
-      final microphonePermission = MacMediaPermissions.requestMicrophone().then(
-        (granted) async {
-          devLog(() => 'xVeil[call-media]: mic permission=$granted');
-          diagnosticJournal.recordMediaPermission(video: false, granted: granted);
-          await _microphoneForeground.activateWhenMicrophoneGranted(
-            Future<bool>.value(granted),
-            isCurrent: () =>
-                _mediaEpoch == epoch &&
-                _activeCall?.callId == call.callId &&
-                _microphoneState.belongsToCall(call.callId),
-          );
-          return granted;
-        },
+      final microphonePermission = MacMediaPermissions.requestMicrophoneAccess()
+          .then((status) async {
+            if (currentStart()) {
+              _reportCapturePermission(call.callId, status, camera: false);
+            }
+            final granted = status == MediaPermissionStatus.allowed;
+            devLog(() => 'xVeil[call-media]: mic permission=$granted');
+            diagnosticJournal.recordMediaPermission(
+              video: false,
+              granted: granted,
+            );
+            await _microphoneForeground.activateWhenMicrophoneGranted(
+              Future<bool>.value(granted),
+              isCurrent: () =>
+                  _mediaEpoch == epoch &&
+                  _activeCall?.callId == call.callId &&
+                  _microphoneState.belongsToCall(call.callId),
+            );
+            return granted;
+          });
+      _microphonePermission = _microphonePermissionFactory(
+        microphonePermission,
       );
-      _microphonePermission = _microphonePermissionFactory(microphonePermission);
       permissionRequests.add(microphonePermission.then<void>((_) {}));
     }
     if (call.media.video) {
       diagnosticJournal.recordMediaPermission(video: true);
-      cameraPermission = _requestCamera().then((granted) {
+      cameraPermission = _requestCamera().then((status) {
+        if (currentStart()) {
+          _reportCapturePermission(call.callId, status, camera: true);
+        }
+        final granted = status == MediaPermissionStatus.allowed;
         devLog(() => 'xVeil[call-media]: camera permission=$granted');
         diagnosticJournal.recordMediaPermission(video: true, granted: granted);
         return granted;
@@ -2527,6 +2587,7 @@ class VeilCallMediaController implements CallMediaController {
     if (microphonePermission != null) {
       bool isCurrent() =>
           _mediaEpoch == epoch &&
+          identical(_microphonePermission, microphonePermission) &&
           _engine == engine &&
           _activeCall?.callId == call.callId &&
           _microphoneState.belongsToCall(call.callId);
@@ -2841,11 +2902,13 @@ class VeilCallMediaController implements CallMediaController {
         _activeCall?.mediaIdentity == call.mediaIdentity;
     // Same bounded Apple TCC pre-prompt as a video call's start(): never let
     // the permission sheet hold the route-repair queue of the running call.
-    final granted = await _requestCamera().timeout(
+    final status = await _requestCamera().timeout(
       const Duration(seconds: 5),
-      onTimeout: () => false,
+      onTimeout: () => MediaPermissionStatus.unavailable,
     );
     if (!sameCall()) return false;
+    _reportCapturePermission(call.callId, status, camera: true);
+    final granted = status == MediaPermissionStatus.allowed;
     devLog(() => 'xVeil[call-media]: mid-call camera permission=$granted');
     return operations.runForCall(
       call.callId,
@@ -3007,6 +3070,7 @@ class VeilCallMediaController implements CallMediaController {
       _startedWithoutMicrophone = false;
       _startedWithoutCamera = false;
       _activeCall = null;
+      if (clearMicrophoneState) _capturePermissions.value = null;
       _microphonePermission = null;
       _bitrateAdapter = null;
       if (clearMicrophoneState) {
@@ -3169,6 +3233,11 @@ class VeilCallMediaController implements CallMediaController {
           // A successful retry (including one during startup) supersedes the
           // old capture failure; the FSM must not remute a now-working input.
           _startedWithoutMicrophone = false;
+          _reportCapturePermission(
+            call.callId,
+            MediaPermissionStatus.allowed,
+            camera: false,
+          );
         } else if (applied == false) {
           if (!captureMuted) {
             // A failed unmute may already have changed native intent before

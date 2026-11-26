@@ -148,11 +148,7 @@ class _CloudAttachmentChipState extends ConsumerState<CloudAttachmentChip> {
       }
       final result = await exportCloudItem(service, item);
       if (!mounted || result == CloudExportResult.cancelled) return;
-      say(switch (result) {
-        CloudExportResult.done => l.cloudExportDone,
-        CloudExportResult.permissionDenied => l.chatFileSavePermissionDenied,
-        _ => l.cloudExportFailed,
-      });
+      say(cloudExportResultText(l, result));
     } finally {
       if (mounted) setState(() => _working = false);
     }

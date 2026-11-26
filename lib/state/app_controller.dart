@@ -4304,9 +4304,10 @@ class AppController extends Notifier<AppState> {
         devLog(() => 'xVeil[identity]: selection failed: $error');
         _endLifecycle();
         _clearMasterSession();
-        state = const AppState(
+        state = AppState(
           AppPhase.locked,
-          unlockFailure: UnlockFailure.storageUnavailable,
+          unlockFailure: _storageUnlockFailure(error),
+          storageAccessFailure: appStorageFailure(error),
         );
       }
     } finally {

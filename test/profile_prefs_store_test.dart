@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/managed_fs_platform.dart' show ManagedFsPlatf
 import 'package:xveil/data/storage/storage_acl_approval.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/app_profile.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
 
@@ -35,6 +36,34 @@ void main() {
     SharedPreferencesStorePlatform.instance = original;
     if (support.existsSync()) support.deleteSync(recursive: true);
   });
+
+  test(
+    'CAS settings save reports OS denial from the read before writing',
+    () async {
+      final path = profilePrefsPath(support.path, AppProfiles.defaultName);
+      final owner = await ManagedProfilePreferencesFile.open(path);
+      expect(await owner.write('{"v":1,"e":{}}'), isTrue);
+      final store = await ProfilePreferencesStore.load(path, ownedFile: owner);
+      addTearDown(store.releaseFile);
+      final warning = ProfilePreferencesStore.writeFailures.first;
+      expect(posixChmod(path, 0), 0);
+      try {
+        await expectLater(
+          store.setValue('String', 'flutter.locale', 'ru'),
+          throwsA(isA<ManagedWorkerFailure>()),
+        );
+        final failure = await warning.timeout(const Duration(seconds: 3));
+        expect(
+          failure.preferencesReadReason,
+          ManagedPreferencesFailureReason.filesystemAccessDenied,
+        );
+        expect(failure.filesystemFailure?.path, endsWith('/xveil.prefs.json'));
+      } finally {
+        expect(posixChmod(path, 0x180), 0);
+      }
+    },
+    skip: !Platform.isMacOS && !Platform.isLinux || posixEuid() == 0,
+  );
 
   group('the preference file', () {
     test(

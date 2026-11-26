@@ -174,6 +174,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                 onTimeout: () => MediaPermissionStatus.unavailable,
               );
       if (!mounted || !_ownsDeviceAction(svc, call.callId)) return;
+      svc.reportCapturePermission(call.callId, status, camera: camera);
       if (status != MediaPermissionStatus.allowed) {
         final l = AppL10n.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -501,6 +502,45 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   }
 }
 
+class _CallCaptureNotice extends StatelessWidget {
+  const _CallCaptureNotice({required this.call, required this.service});
+
+  final Call call;
+  final CallService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final permissions = service.capturePermissions;
+    if (permissions == null) return const SizedBox.shrink();
+    final l = AppL10n.of(context);
+    return ValueListenableBuilder<CallCapturePermissions?>(
+      valueListenable: permissions,
+      builder: (context, value, _) {
+        if (value == null || value.callId != call.callId) {
+          return const SizedBox.shrink();
+        }
+        final messages = [
+          if (value.microphone == MediaPermissionStatus.denied)
+            l.mediaMicrophonePermissionDenied,
+          if (value.camera == MediaPermissionStatus.denied)
+            l.mediaCameraPermissionDenied,
+          if (value.microphone == MediaPermissionStatus.unavailable ||
+              value.camera == MediaPermissionStatus.unavailable)
+            l.mediaPermissionCheckUnavailable,
+        ];
+        if (messages.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(messages.join('\n'), textAlign: TextAlign.center),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _CallBody extends ConsumerWidget {
   const _CallBody(
     this.call, {
@@ -591,6 +631,7 @@ class _CallBody extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   _MediaChips(call.media),
+                  _CallCaptureNotice(call: call, service: svc),
                   if (call.transport != null) ...[
                     const SizedBox(height: 10),
                     _TransportBadge(
@@ -640,6 +681,7 @@ class _CallBody extends ConsumerWidget {
                 onMinimize: onMinimize,
                 onSettings: () => onShowDevices(svc),
               ),
+              _CallCaptureNotice(call: call, service: svc),
               if (call.transport != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),

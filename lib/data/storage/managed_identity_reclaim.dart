@@ -27,8 +27,14 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
       file('keybox.hv'),
       allowReadOnlyAclApproval: true,
     );
-    owner._fs.requirePrivateFile(file('content.hv'));
-    owner._fs.requirePrivateFile(file('maintenance.hv'));
+    owner._fs.requirePrivateFile(
+      file('content.hv'),
+      allowReadOnlyAclApproval: true,
+    );
+    owner._fs.requirePrivateFile(
+      file('maintenance.hv'),
+      allowReadOnlyAclApproval: true,
+    );
   }
 
   Future<ManagedReclaimReport> reclaim({
@@ -183,6 +189,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   }
 
   Future<void> _repackContent(ManagedReclaimObserver? observer) async {
+    owner._fs.requirePrivateFile(file('content.hv'));
     final random = Random.secure();
     final seal = Uint8List.fromList(
       List.generate(32, (_) => random.nextInt(256)),
@@ -247,6 +254,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
             }
             await observer?.call(ManagedReclaimStage.contentPrepared);
             _reclaimLease();
+            owner._fs.requirePrivateFile(file('content.hv'));
           },
         );
         await observer?.call(ManagedReclaimStage.contentPublished);
@@ -261,6 +269,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
   }
 
   Future<void> _repackMaintenance(ManagedReclaimObserver? observer) async {
+    owner._fs.requirePrivateFile(file('maintenance.hv'));
     final transfer = _detachReclaimPayloads();
     final password = keybox!.copyMaintenancePassword();
     Uint8List? expected;
@@ -301,6 +310,7 @@ extension _ManagedIdentityReclamation on _ManagedIdentityResources {
             }
             await observer?.call(ManagedReclaimStage.maintenancePrepared);
             _reclaimLease();
+            owner._fs.requirePrivateFile(file('maintenance.hv'));
           },
         );
         await observer?.call(ManagedReclaimStage.maintenancePublished);

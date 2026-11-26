@@ -388,9 +388,7 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
       if (!saved) return;
       message = l.chatFileSaved;
     } on DocumentExportException catch (error) {
-      message = error.permissionDenied
-          ? l.chatFileSavePermissionDenied
-          : l.chatFileSaveFailed;
+      message = documentExportFailureText(l, error, l.chatFileSaveFailed);
     } catch (_) {
       message = l.chatFileSaveFailed;
     }

@@ -2929,14 +2929,7 @@ class _CloudItemTileState extends State<_CloudItemTile> {
       // Cancelling the save dialog is not a failure and gets no report.
       if (!mounted || result == CloudExportResult.cancelled) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(switch (result) {
-            CloudExportResult.done => l.cloudExportDone,
-            CloudExportResult.permissionDenied =>
-              l.chatFileSavePermissionDenied,
-            _ => l.cloudExportFailed,
-          }),
-        ),
+        SnackBar(content: Text(cloudExportResultText(l, result))),
       );
     } finally {
       if (mounted) setState(() => _working = false);

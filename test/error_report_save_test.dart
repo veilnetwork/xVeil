@@ -120,7 +120,7 @@ void main() {
     },
   );
   desktopTest(
-    'failed publication shows failure and removes its staging file',
+    'a directory at the destination is explained without creating a file',
     TargetPlatform.macOS,
     (tester) async {
       final directory = Directory.systemTemp.createTempSync(
@@ -135,7 +135,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(AppL10n.of(ctx).settingsDiagnosticsSaved), findsNothing);
       expect(
-        find.text(AppL10n.of(ctx).settingsDiagnosticsSaveFailed),
+        find.text(AppL10n.of(ctx).exportDestinationNotFile),
         findsOneWidget,
       );
       expect(directory.listSync().whereType<File>(), isEmpty);
