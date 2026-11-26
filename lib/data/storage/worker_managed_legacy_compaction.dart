@@ -505,8 +505,9 @@ void _managedLegacyCompactionEntry(
               ready,
               (value) => replacement = value,
             );
-            if (replacement case final receipt?)
+            if (replacement case final receipt?) {
               await reportReplacement(receipt);
+            }
             if (!verified && publicationSucceeded) {
               throw ManagedFsFailure(
                 ManagedFsFailureKind.changed,
