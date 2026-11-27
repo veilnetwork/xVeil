@@ -78,39 +78,45 @@ void main() {
   setUp(() => store = _Store());
 
   for (final consent in [false, true]) {
-    testWidgets('startup buttons are independent of saved consent ($consent)', (
-      tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({kStartupUnlockOptIn: consent});
-      await vault().configure(password: password, system: true);
-      final readsBefore = store.reads;
-      final app = _LockedApp();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appControllerProvider.overrideWith(() => app),
-            quickUnlockVaultProvider.overrideWith((ref) => vault()),
-          ],
-          child: const MaterialApp(
-            localizationsDelegates: AppL10n.localizationsDelegates,
-            supportedLocales: AppL10n.supportedLocales,
-            home: LockScreen(),
+    testWidgets(
+      'startup prompts automatically only with saved consent ($consent)',
+      (tester) async {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        SharedPreferences.setMockInitialValues({kStartupUnlockOptIn: consent});
+        await vault().configure(password: password, system: true);
+        final readsBefore = store.reads;
+        final app = _LockedApp();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appControllerProvider.overrideWith(() => app),
+              quickUnlockVaultProvider.overrideWith((ref) => vault()),
+            ],
+            child: const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: LockScreen(),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final l = AppL10n.of(tester.element(find.byType(LockScreen)));
-      expect(find.text(l.quickUnlockPattern), findsOneWidget);
-      expect(find.text(l.quickUnlockSystem), findsOneWidget);
-      expect(store.reads, readsBefore);
-      await tester.tap(find.text(l.quickUnlockSystem));
-      await tester.pumpAndSettle();
-      expect(app.submittedPassword, consent ? password : isNull);
-      if (!consent) {
-        expect(store.reads, readsBefore);
-        expect(find.text(l.startupUnlockFailed), findsOneWidget);
-      }
-    });
+        );
+        await tester.pumpAndSettle();
+        final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+        expect(find.text(l.quickUnlockPattern), findsOneWidget);
+        expect(find.text(l.quickUnlockSystem), findsOneWidget);
+        if (consent) {
+          expect(app.submittedPassword, password);
+        } else {
+          expect(store.reads, readsBefore);
+          await tester.tap(find.text(l.quickUnlockSystem));
+          await tester.pumpAndSettle();
+          expect(app.submittedPassword, isNull);
+          expect(store.reads, readsBefore);
+          expect(find.text(l.startupUnlockBiometricFailed), findsOneWidget);
+        }
+      },
+    );
   }
 
   test(

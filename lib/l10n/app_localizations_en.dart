@@ -8228,6 +8228,10 @@ class AppL10nEn extends AppL10n {
       'Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.';
 
   @override
+  String get startupUnlockBiometricFailed =>
+      'Biometric sign-in requires a saved sign-in method. Enter your password and check the after-restart option and biometrics in Quick unlock settings.';
+
+  @override
   String get wipeLeftQuickUnlock =>
       'saved quick sign-in in the OS secure store (removal could not be verified)';
 

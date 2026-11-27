@@ -1,6 +1,7 @@
 import 'pattern_pad.dart';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +10,7 @@ import '../../core/secure_screen.dart';
 import '../../domain/screen_lock.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/screen_lock_controller.dart';
+import 'android_biometric_prompt.dart';
 
 /// Drives the screen lock from the app's lifecycle, and covers the app when it
 /// engages.
@@ -135,6 +137,7 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   Timer? _ticker;
   String? _quickFailure;
   bool _authBusy = false;
+  bool _interacted = false;
 
   @override
   void initState() {
@@ -155,6 +158,7 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   }
 
   void _submit() {
+    _chooseAlternative();
     if (_quickFailure != null) setState(() => _quickFailure = null);
     if (ref.read(screenLockProvider.notifier).tryUnlock(_controller.text)) {
       _controller.clear();
@@ -162,6 +166,10 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     // Either way: a success clears the debt and a failure creates or extends
     // one, and both have to be on screen before the next frame.
     _syncOwed();
+  }
+
+  void _chooseAlternative() {
+    if (!_interacted) setState(() => _interacted = true);
   }
 
   void _unlockPattern(int grid, List<int> nodes) {
@@ -173,12 +181,13 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     _syncOwed();
   }
 
-  Future<void> _unlockSystem() async {
+  Future<void> _unlockSystem({bool automatic = false}) async {
     if (_authBusy) return;
     final l = AppL10n.of(context);
     final authentication = ref.read(localScreenAuthenticationProvider);
     setState(() {
       _authBusy = true;
+      _interacted = true;
       _quickFailure = null;
     });
     authentication.lastFailure = null;
@@ -190,7 +199,8 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
       _authBusy = false;
       if (!unlocked) {
         _quickFailure = switch (authentication.lastFailure) {
-          LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
+          LocalAuthenticationFailure.cancelled =>
+            automatic ? null : l.quickUnlockAuthCancelled,
           LocalAuthenticationFailure.notEnrolled =>
             l.quickUnlockAuthNotEnrolled,
           LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
@@ -226,6 +236,12 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final wrong = ref.watch(screenLockProvider.select((s) => s.wrongPassword));
+    final offerAutomatically =
+        defaultTargetPlatform == TargetPlatform.android &&
+        !_interacted &&
+        ref.watch(
+          screenLockProvider.select((s) => s.locked && s.systemAuthentication),
+        );
     // The prompt is a screen with a password field on it; the same reasoning
     // that guards the recovery phrase applies to the moment it is typed.
     return SecureScreenGuard(
@@ -267,7 +283,11 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                               key: const ValueKey('screen-lock-password'),
                               controller: _controller,
                               obscureText: true,
-                              autofocus: true,
+                              autofocus:
+                                  defaultTargetPlatform !=
+                                  TargetPlatform.android,
+                              onTap: _chooseAlternative,
+                              onChanged: (_) => _chooseAlternative(),
                               onSubmitted: (_) => _submit(),
                               decoration: InputDecoration(
                                 labelText: l.lockPasswordHint,
@@ -310,15 +330,22 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                               onPressed: waiting ? null : _submit,
                               child: Text(l.lockUnlock),
                             ),
-                            OutlinedButton.icon(
-                              icon: const Icon(Icons.fingerprint),
-                              label: Text(l.quickUnlockSystem),
-                              onPressed: waiting || _authBusy
-                                  ? null
-                                  : _unlockSystem,
+                            AndroidBiometricPrompt(
+                              enabled:
+                                  offerAutomatically && !waiting && !_authBusy,
+                              authenticate: () =>
+                                  _unlockSystem(automatic: true),
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.fingerprint),
+                                label: Text(l.quickUnlockSystem),
+                                onPressed: waiting || _authBusy
+                                    ? null
+                                    : _unlockSystem,
+                              ),
                             ),
                             UnlockPattern(
                               enabled: !waiting && !_authBusy,
+                              onOpened: _chooseAlternative,
                               submit: _unlockPattern,
                             ),
                             if (_quickFailure case final failure?)

@@ -1,5 +1,6 @@
 import 'startup_quick_unlock.dart';
 import 'storage_wipe_confirmation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -32,6 +33,7 @@ class LockScreen extends ConsumerStatefulWidget {
 class _LockScreenState extends ConsumerState<LockScreen> {
   final _ctrl = TextEditingController();
   bool _busy = false;
+  bool _typingPassword = false;
 
   // Managed storage needs the whole-profile erasure owner, even when its
   // visible catalog is empty: it may still hold hidden data. A bare router
@@ -66,6 +68,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  void _choosePassword() {
+    if (!_typingPassword) setState(() => _typingPassword = true);
+  }
+
   Future<void> _select(IdentityStorageLocator? locator) async {
     if (locator == null || _busy) return;
     setState(() => _busy = true);
@@ -74,7 +80,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         .selectStorageIdentity(locator);
     if (!mounted) return;
     _ctrl.clear();
-    setState(() => _busy = false);
+    setState(() {
+      _busy = false;
+      _typingPassword = false;
+    });
     if (!selected) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).storageSelectionFailed)),
@@ -279,7 +288,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       TextField(
                         controller: _ctrl,
                         obscureText: true,
-                        autofocus: true,
+                        autofocus:
+                            defaultTargetPlatform != TargetPlatform.android,
+                        onTap: _choosePassword,
+                        onChanged: (_) => _choosePassword(),
                         onSubmitted: (_) => _unlock(),
                         decoration: InputDecoration(
                           labelText: l.lockPasswordHint,
@@ -321,7 +333,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                           : Text(plain ? l.storageOpenPlain : l.lockUnlock),
                     ),
                     if (!plain && !choiceRequired)
-                      StartupQuickUnlock(key: ValueKey(access)),
+                      StartupQuickUnlock(
+                        key: ValueKey(access),
+                        allowAutomatic: !_busy && !_typingPassword,
+                      ),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: _busy ? null : _startOver,

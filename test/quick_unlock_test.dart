@@ -112,6 +112,7 @@ void main() {
   testWidgets('screen lock offers biometrics without a configured pattern', (
     tester,
   ) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     controller.onLeftForeground();
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -131,14 +132,31 @@ void main() {
     expect(auth.requests, 0);
     expect(find.text(l.startupUnlockFailed), findsOneWidget);
     expect(controller.tryUnlock('strong container password'), isTrue);
+    await tester.pumpAndSettle();
 
     expect(await configure(system: true), isTrue);
-    controller.onLeftForeground();
+    auth.pending = Completer<bool>();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pumpAndSettle();
+    expect(auth.requests, 1); // Enrollment only while in the background.
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(auth.requests, 2);
     expect(find.text(l.quickUnlockPattern), findsOneWidget);
+    auth.lastFailure = LocalAuthenticationFailure.cancelled;
+    auth.pending!.complete(false);
+    auth.pending = null;
+    await tester.pumpAndSettle();
+    expect(find.text(l.quickUnlockAuthCancelled), findsNothing);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(auth.requests, 2); // The same screen will not reopen the prompt.
     await tester.tap(find.text(l.quickUnlockSystem));
     await tester.pumpAndSettle();
-    expect(auth.requests, 2); // Enrollment and unlock.
+    expect(auth.requests, 3);
     expect(find.byType(ScreenLockCover), findsNothing);
   });
 

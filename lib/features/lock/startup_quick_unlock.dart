@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,19 +10,28 @@ import '../../state/identity_guard.dart';
 import '../../state/providers.dart' show prefsProvider;
 import '../../state/startup_unlock.dart';
 import '../../state/storage_router_providers.dart';
+import 'android_biometric_prompt.dart';
 import 'pattern_pad.dart';
 
 class StartupQuickUnlock extends ConsumerStatefulWidget {
-  const StartupQuickUnlock({super.key});
+  const StartupQuickUnlock({super.key, this.allowAutomatic = true});
+
+  final bool allowAutomatic;
+
   @override
   ConsumerState<StartupQuickUnlock> createState() => _StartupQuickUnlockState();
 }
 
 class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
   bool _busy = false;
+  bool _interacted = false;
   String? _failure;
 
-  Future<void> _unlock({int? grid, List<int> nodes = const []}) async {
+  Future<void> _unlock({
+    int? grid,
+    List<int> nodes = const [],
+    bool automatic = false,
+  }) async {
     if (_busy) return;
     final lease = ref.leaseIdentity();
     final app = ref.read(appControllerProvider.notifier);
@@ -36,18 +46,20 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
         ref.holdsIdentity(lease) &&
         ref.read(storageAccessLocatorProvider) == locator &&
         ref.read(appControllerProvider).phase == AppPhase.locked;
-    String failureMessage(LocalAuthenticationFailure? failure) =>
-        switch (failure) {
-          LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
-          LocalAuthenticationFailure.notEnrolled =>
-            l.quickUnlockAuthNotEnrolled,
-          LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
-          LocalAuthenticationFailure.unavailable => l.quickUnlockUnavailable,
-          LocalAuthenticationFailure.failed => l.quickUnlockAuthFailed,
-          null => l.startupUnlockFailed,
-        };
+    String? failureMessage(
+      LocalAuthenticationFailure? failure,
+    ) => switch (failure) {
+      LocalAuthenticationFailure.cancelled =>
+        automatic ? null : l.quickUnlockAuthCancelled,
+      LocalAuthenticationFailure.notEnrolled => l.quickUnlockAuthNotEnrolled,
+      LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
+      LocalAuthenticationFailure.unavailable => l.quickUnlockUnavailable,
+      LocalAuthenticationFailure.failed => l.quickUnlockAuthFailed,
+      null => system ? l.startupUnlockBiometricFailed : l.startupUnlockFailed,
+    };
     setState(() {
       _busy = true;
+      _interacted = true;
       _failure = null;
     });
     try {
@@ -96,25 +108,35 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: Column(
-        children: [
-          OutlinedButton.icon(
-            onPressed: _busy ? null : () => _unlock(),
-            icon: const Icon(Icons.fingerprint),
-            label: Text(l.quickUnlockSystem),
-          ),
-          UnlockPattern(
-            enabled: !_busy,
-            submit: (grid, nodes) => _unlock(grid: grid, nodes: nodes),
-          ),
-          if (_failure case final failure?)
-            Text(
-              failure,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+    final offerAutomatically =
+        defaultTargetPlatform == TargetPlatform.android &&
+        widget.allowAutomatic &&
+        !_interacted &&
+        (ref.watch(startupUnlockOptionsProvider).asData?.value.system ?? false);
+    return AndroidBiometricPrompt(
+      enabled: offerAutomatically,
+      authenticate: () => _unlock(automatic: true),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          children: [
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _unlock(),
+              icon: const Icon(Icons.fingerprint),
+              label: Text(l.quickUnlockSystem),
             ),
-        ],
+            UnlockPattern(
+              enabled: !_busy,
+              onOpened: () => setState(() => _interacted = true),
+              submit: (grid, nodes) => _unlock(grid: grid, nodes: nodes),
+            ),
+            if (_failure case final failure?)
+              Text(
+                failure,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
       ),
     );
   }

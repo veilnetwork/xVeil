@@ -6,10 +6,16 @@ import '../../l10n/app_localizations.dart';
 /// The grid is chosen by the person unlocking, so the prompt never displays
 /// the grid size saved for a particular identity.
 class UnlockPattern extends StatefulWidget {
-  const UnlockPattern({super.key, required this.enabled, required this.submit});
+  const UnlockPattern({
+    super.key,
+    required this.enabled,
+    required this.submit,
+    this.onOpened,
+  });
 
   final bool enabled;
   final void Function(int grid, List<int> nodes) submit;
+  final VoidCallback? onOpened;
 
   @override
   State<UnlockPattern> createState() => _UnlockPatternState();
@@ -26,7 +32,9 @@ class _UnlockPatternState extends State<UnlockPattern> {
     return ExpansionTile(
       title: Text(l.quickUnlockPattern),
       onExpansionChanged: (expanded) {
-        if (!expanded) {
+        if (expanded) {
+          widget.onOpened?.call();
+        } else {
           setState(() {
             _nodes = const [];
             _attempt++;

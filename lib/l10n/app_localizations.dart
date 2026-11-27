@@ -14232,6 +14232,12 @@ abstract class AppL10n {
   /// **'Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.'**
   String get startupUnlockFailed;
 
+  /// No description provided for @startupUnlockBiometricFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric sign-in requires a saved sign-in method. Enter your password and check the after-restart option and biometrics in Quick unlock settings.'**
+  String get startupUnlockBiometricFailed;
+
   /// No description provided for @wipeLeftQuickUnlock.
   ///
   /// In en, this message translates to:

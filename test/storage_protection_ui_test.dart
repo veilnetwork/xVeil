@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/local_authentication.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
 import 'package:xveil/domain/storage_locator.dart';
@@ -123,15 +124,15 @@ void main() {
           id: ManagedIdentityId('a' * 32),
           protection: StorageProtection.encrypted,
         );
+        SharedPreferences.setMockInitialValues({
+          startupUnlockConsentKey(locator): true,
+        });
         late ProviderContainer container;
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
               appControllerProvider.overrideWith(() => app),
               quickUnlockVaultProvider.overrideWithValue(vault),
-              startupUnlockOptionsProvider.overrideWith(
-                (ref) async => const StartupUnlockOptions(system: true),
-              ),
               storageAccessLocatorProvider.overrideWith((ref) {
                 ref.watch(storageRouteRevisionProvider);
                 return locator;
@@ -140,7 +141,9 @@ void main() {
             child: Consumer(
               builder: (context, ref, _) {
                 container = ProviderScope.containerOf(context);
-                return localized(const StartupQuickUnlock());
+                return localized(
+                  const StartupQuickUnlock(allowAutomatic: false),
+                );
               },
             ),
           ),

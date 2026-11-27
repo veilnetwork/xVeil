@@ -3776,6 +3776,7 @@
   "startupUnlockHint": "Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.",
   "startupUnlockBlocked": "Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.",
   "startupUnlockFailed": "Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.",
+  "startupUnlockBiometricFailed": "Biometric sign-in requires a saved sign-in method. Enter your password and check the after-restart option and biometrics in Quick unlock settings.",
   "wipeLeftQuickUnlock": "saved quick sign-in in the OS secure store (removal could not be verified)",
   "startupUnlockConsentSaveFailed": "Screen lock settings were saved. xVeil could not save your choice to allow sign-in after restart.",
   "startupUnlockConsentRemoveFailed": "Screen lock settings were saved and the OS entry was removed. xVeil could not save the updated sign-in preference.",

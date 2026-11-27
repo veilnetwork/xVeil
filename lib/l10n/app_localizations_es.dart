@@ -8329,6 +8329,10 @@ class AppL10nEs extends AppL10n {
       'No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.';
 
   @override
+  String get startupUnlockBiometricFailed =>
+      'El acceso biométrico requiere un método de acceso guardado. Introduce tu contraseña y comprueba la opción de acceso tras reiniciar y la biometría en los ajustes de desbloqueo rápido.';
+
+  @override
   String get wipeLeftQuickUnlock =>
       'acceso rápido guardado en el sistema (no se pudo verificar su eliminación)';
 
