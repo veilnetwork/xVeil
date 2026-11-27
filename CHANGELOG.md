@@ -8,13 +8,15 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
-## [0.13.115] - 2026-11-27
+## [0.13.116] - 2026-11-27
 
 ### Fixed
 
 - Ask before using shared permissions for storage, folder sync and exports.
   Show the affected path and access, and recheck permissions after consent.
   The command-line client also explains risky secret-file locations.
+- Use a verified private Windows runtime fallback when ProgramData permits
+  creating entries and an existing entry protects the directory from redirection.
 - Keep existing files intact when exports race, downloads resume, or settings
   cannot be saved. Preserve approved read access when storage is repacked.
 - Show the exact additional entries before erasing a managed identity or its

@@ -54,6 +54,26 @@ jobs:
       - run: python -m unittest discover -s scripts -p test_aot_package_roots.py
       - run: python -m unittest discover -s scripts -p test_aot_build.py
 
+  windows-runtime-probe:
+    name: Windows runtime directory permissions
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get --enforce-lockfile
+      - shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'xveil-runtime-directory-probe.exe'
+          dart compile exe --packages=.dart_tool/package_config.json test/native/probes/windows_runtime_directory_probe.dart -o $probe
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime directory probe compile failed' }
+          ./scripts/test-windows-runtime-directories.ps1 -ProbeExecutable $probe -Sha256 (Get-FileHash -LiteralPath $probe -Algorithm SHA256).Hash
+
   reachable:
     name: the triggers name a branch that exists
     runs-on: ubuntu-latest

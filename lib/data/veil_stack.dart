@@ -45,7 +45,11 @@ import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'storage/managed_fs_contract.dart'
-    show ManagedFsFailure, ManagedFsUnsafeReason, ManagedStorageAclWarning;
+    show
+        ManagedFsFailure,
+        ManagedFsUnsafeReason,
+        ManagedPathWitness,
+        ManagedStorageAclWarning;
 import 'storage/managed_fs_platform.dart'
     show ManagedDirectoryAccess, ManagedFsPlatform, readDarwinStorageAcl;
 import 'storage/managed_fs_posix_acl.dart' show writePosixStorageAcl;
@@ -368,11 +372,47 @@ bool _createExclusiveDir(String path) {
   }
 }
 
+/// NTFS requires an empty directory for a reparse point. ProgramData's
+/// normal write-attribute and add-entry grants are compatible with the private
+/// fallback if an existing entry is protected from removal.
+bool _windowsProgramDataHasProtectedEntry(
+  String path,
+  ManagedPathWitness strict,
+  String? verifiedChild,
+) {
+  try {
+    final fallback = windows.programDataRuntimeBase();
+    if (fallback == null ||
+        !windows.managedWindowsFinalPathMatches(
+          path,
+          Directory(fallback).parent.path,
+        )) {
+      return false;
+    }
+    final base = windows.inspect(path);
+    if (!base.safeAncestor ||
+        !base.sameObject(strict) ||
+        base.accessPolicy != strict.accessPolicy) {
+      return false;
+    }
+    // The system's Microsoft directory can establish this before the first
+    // xVeil runtime base exists. On later checks the private base is enough.
+    final anchor = windows.inspect(verifiedChild ?? p.join(path, 'Microsoft'));
+    final current = windows.inspect(path);
+    return anchor.safeAncestor &&
+        current.sameObject(base) &&
+        current.accessPolicy == base.accessPolicy;
+  } on ManagedFsFailure {
+    return false;
+  }
+}
+
 /// Inspect only canonical Windows paths. Every parent must prevent replacement
 /// by an untrusted account; read-only shared bases remain valid. The child
 /// itself additionally needs current-user ownership and a private DACL.
 void _assertWindowsRuntimePath(String path, {bool private = false}) {
   var current = Directory(path);
+  String? verifiedChild;
   try {
     for (var depth = 0; depth < 256; depth++) {
       final facts = windows.inspect(
@@ -380,7 +420,14 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
         includeApprovedAcl: true,
         protectFromReparseChanges: true,
       );
-      final stable = facts.safeAncestor;
+      final stable =
+          facts.safeAncestor ||
+          facts.directory &&
+              _windowsProgramDataHasProtectedEntry(
+                current.path,
+                facts,
+                verifiedChild,
+              );
       if (!facts.directory ||
           !stable ||
           (depth == 0 &&
@@ -399,6 +446,7 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
       }
       final parent = current.parent;
       if (parent.path == current.path) return;
+      verifiedChild = current.path;
       current = parent;
     }
   } on RuntimeDirNotPrivate {

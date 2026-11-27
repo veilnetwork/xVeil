@@ -1224,7 +1224,6 @@ jobs:
         shell: pwsh
         run: |
           $probe = Join-Path $env:RUNNER_TEMP 'xveil-runtime-directory-probe.exe'
-          $env:VEIL_FFI_DYLIB = (Resolve-Path 'build/windows/x64/runner/Release/veilclient_ffi.dll').Path
           flutter pub get --enforce-lockfile
           if ($LASTEXITCODE -ne 0) { throw 'Runtime directory probe dependency setup failed' }
           dart compile exe --packages=.dart_tool/package_config.json test/native/probes/windows_runtime_directory_probe.dart -o $probe
