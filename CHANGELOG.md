@@ -8,9 +8,16 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
-- On Windows, let users review and accept the permissions of the folders
-  used to start the node. Show accepted folder and profile access warnings
-  on the sign-in screen and in the app.
+## [0.13.118] - 2026-11-27
+
+### Fixed
+
+- On Windows, explain the permissions on network control folders and let
+  users start the node after accepting the risk for this session or remembering
+  the decision. Recheck access on subsequent launches.
+- Show the accepted folder and profile access warnings from the yellow icon
+  on the password screen and in Settings.
+- Include the required Visual C++ runtime libraries in diagnostic Windows ZIPs.
 
 ## [0.13.116] - 2026-11-27
 
