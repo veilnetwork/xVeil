@@ -235,10 +235,11 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: AcceptedAccessWarningButton(),
-                    ),
+                    if (!plain)
+                      const Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: AcceptedAccessWarningButton(),
+                      ),
                     const Spacer(),
                     Icon(Icons.lock_outline, size: 56, color: scheme.primary),
                     const SizedBox(height: 24),

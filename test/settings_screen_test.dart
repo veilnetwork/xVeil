@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/node/node_controller.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/features/settings/settings_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/storage_router_providers.dart';
 
 class _NoopNode implements NodeController {
   @override
@@ -26,6 +28,36 @@ class _NoopNode implements NodeController {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('settings header opens accepted access warnings', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          startupAcceptedAccessWarningsProvider.overrideWithValue([
+            ManagedStorageAclWarning(
+              path: '/reviewed',
+              fingerprint: 'fixture',
+              grants: [],
+            ),
+          ]),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final warning = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byIcon(Icons.warning_amber_rounded),
+    );
+    expect(warning, findsOneWidget);
+    await tester.tap(warning);
+    await tester.pumpAndSettle();
+    expect(find.text('/reviewed'), findsOneWidget);
+  });
 
   testWidgets('shows the identity of the ready session', (tester) async {
     late ProviderContainer container;

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/features/home/home_section_scaffold.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/storage_router_providers.dart';
 
 class _HeaderSwitchHarness extends StatefulWidget {
   const _HeaderSwitchHarness();
@@ -87,6 +89,13 @@ void main() {
       ProviderScope(
         overrides: [
           sessionCountProvider.overrideWith((ref) => Stream.value(2)),
+          startupAcceptedAccessWarningsProvider.overrideWithValue([
+            ManagedStorageAclWarning(
+              path: '/reviewed',
+              fingerprint: 'fixture',
+              grants: [],
+            ),
+          ]),
         ],
         child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
@@ -102,6 +111,7 @@ void main() {
     await tester.pump();
 
     void expectCommonHeader() {
+      expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
       expect(
         find.byKey(const ValueKey('home-navigation-menu')),
         findsOneWidget,

@@ -12,6 +12,7 @@ import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
+import '../common/storage_acl_details.dart' show AcceptedAccessWarningButton;
 import 'app_update_tile.dart';
 import 'error_report.dart';
 
@@ -88,6 +89,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
+        actions: const [AcceptedAccessWarningButton()],
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _tapTitle,

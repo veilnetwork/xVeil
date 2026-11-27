@@ -1,4 +1,3 @@
-import '../common/storage_acl_details.dart' show AcceptedAccessWarningButton;
 import 'dart:async';
 
 import 'dart:io';
@@ -552,7 +551,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return Scaffold(
       appBar: AppBar(
         actions: [
-          const AcceptedAccessWarningButton(),
           if (_resumingSetup)
             IconButton(
               icon: const Icon(Icons.lock_outline),
