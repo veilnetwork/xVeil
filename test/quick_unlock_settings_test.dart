@@ -76,7 +76,7 @@ class _MemoryStore extends QuickUnlockSecretStore {
   @override
   Future<String?> read(String key, {bool biometric = false}) async {
     if (!biometric && publicRecordUnreadable) {
-      throw PlatformException(code: 'record_store_unreadable');
+      throw PlatformException(code: 'record_operation_failed', details: 'KEY');
     }
     return values[_slot(key, biometric)];
   }
@@ -204,7 +204,7 @@ void main() {
 
         expect(store.values, previous);
         expect(
-          find.text('${l.startupUnlockVaultUnavailable} (QU-1-DATA)'),
+          find.text('${l.startupUnlockVaultUnavailable} (QU-1-STORE-KEY)'),
           findsOneWidget,
         );
         await tester.ensureVisible(find.text(l.startupUnlockTitle));

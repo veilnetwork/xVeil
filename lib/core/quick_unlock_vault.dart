@@ -82,7 +82,14 @@ String _enrollmentErrorCode(Object error) {
   }
   return switch (error.code) {
     'record_store_unreadable' => 'DATA',
-    'record_operation_failed' => 'STORE',
+    'record_operation_failed' => switch (error.details) {
+      'FORMAT' => 'STORE-FORMAT',
+      'WRAPPED' => 'STORE-WRAPPED',
+      'KEY' => 'STORE-KEY',
+      'PAYLOAD' => 'STORE-PAYLOAD',
+      'CHANGED' => 'STORE-CHANGED',
+      _ => 'STORE',
+    },
     'persistence_failed' => 'DISK',
     'INIT_FAILED' => 'INIT',
     _ => 'OS',

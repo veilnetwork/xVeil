@@ -19,6 +19,7 @@ internal class QuickUnlockPreferenceFile(
     private val path: Path,
     private val recordPrefix: String?,
     private val extraNames: Set<String> = emptySet(),
+    private val booleanNames: Set<String> = emptySet(),
 ) {
     private val backup = path.resolveSibling(path.fileName.toString() + ".bak")
 
@@ -82,6 +83,7 @@ internal class QuickUnlockPreferenceFile(
                 var root = false
                 var closed = false
                 var name: String? = null
+                var booleanValue: String? = null
                 val value = StringBuilder()
                 while (true) {
                     when (parser.nextToken()) {
@@ -91,32 +93,40 @@ internal class QuickUnlockPreferenceFile(
                                 check(!root && parser.name == "map" && parser.attributeCount == 0)
                                 root = true
                             } else if (parser.depth == 2) {
-                                // This pinned FSS data layout stores strings
-                                // only; config/key files are separate stores.
-                                check(root && parser.name == "string" && parser.attributeCount == 1)
+                                check(root)
                                 name = checkNotNull(parser.getAttributeValue(null, "name"))
                                 check(values.size < 65536 && !values.containsKey(name))
-                                // FSS creates Tink bookkeeping even on its
-                                // default raw-key path. Opaque credential names
-                                // from an active encrypted-key layout refuse.
-                                check((recordPrefix != null && name.startsWith(recordPrefix)) || name in extraNames || name in setOf(
-                                    "__androidx_security_crypto_encrypted_prefs_key_keyset__",
-                                    "__androidx_security_crypto_encrypted_prefs_value_keyset__",
-                                    "FlutterSecureSAlgorithmKey", "FlutterSecureSAlgorithmStorage",
-                                ))
+                                if (parser.name == "boolean") {
+                                    check(name in booleanNames && parser.attributeCount == 2)
+                                    booleanValue = checkNotNull(parser.getAttributeValue(null, "value"))
+                                    check(booleanValue == "true" || booleanValue == "false")
+                                } else {
+                                    check(parser.name == "string" && parser.attributeCount == 1)
+                                    booleanValue = null
+                                    // FSS creates Tink bookkeeping even on its
+                                    // default raw-key path. Opaque credential names
+                                    // from an active encrypted-key layout refuse.
+                                    check((recordPrefix != null && name.startsWith(recordPrefix)) || name in extraNames || name in setOf(
+                                        "__androidx_security_crypto_encrypted_prefs_key_keyset__",
+                                        "__androidx_security_crypto_encrypted_prefs_value_keyset__",
+                                        "FlutterSecureSAlgorithmKey", "FlutterSecureSAlgorithmStorage",
+                                    ))
+                                }
                                 value.setLength(0)
                             }
                         }
                         XmlPullParser.END_TAG -> if (parser.depth == 1) closed = true else {
-                            values[checkNotNull(name)] = value.toString()
+                            values[checkNotNull(name)] = booleanValue ?: value.toString()
                             name = null
+                            booleanValue = null
                         }
                         XmlPullParser.TEXT, XmlPullParser.CDSECT, XmlPullParser.IGNORABLE_WHITESPACE -> {
-                            if (name == null) check(parser.text.isBlank()) else value.append(parser.text)
+                            if (name == null || booleanValue != null) check(parser.text.isBlank())
+                            else value.append(parser.text)
                         }
                         XmlPullParser.DOCDECL -> error("unsupported declaration")
                         XmlPullParser.ENTITY_REF -> {
-                            check(name != null)
+                            check(name != null && booleanValue == null)
                             check(parser.name in setOf("lt", "gt", "amp", "apos", "quot") ||
                                 parser.name.matches(Regex("#(?:[0-9]+|x[0-9a-fA-F]+)")))
                             value.append(checkNotNull(parser.text))

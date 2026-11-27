@@ -54,12 +54,16 @@ private fun verifyPublicReader() {
         cipher.init(Cipher.UNWRAP_MODE, pair.private, params)
         cipher.unwrap(bytes, "AES", Cipher.SECRET_KEY)
     }
-    fun refuses() {
+    fun refuses(reason: QuickUnlockPublicReadFailure.Reason? = null) {
         val before = snapshot()
-        var failed = false
-        try { reader.read(key) } catch (_: Exception) { failed = true }
-        check(failed)
+        val error = runCatching { reader.read(key) }.exceptionOrNull()
+        check(error != null)
+        if (reason != null) check((error as QuickUnlockPublicReadFailure).reason == reason)
         check(before == snapshot())
+    }
+    fun readsWithoutChanges() {
+        val before = snapshot()
+        check(reader.read(key) == value && snapshot() == before)
     }
     try {
         check(reader.read(key) == null && unwraps == 0 && snapshot().isEmpty())
@@ -71,17 +75,35 @@ private fun verifyPublicReader() {
         Files.delete(config); Files.delete(wrappedFile)
         check(reader.read(key) == null && unwraps == 3)
         check(Files.exists(data) && !Files.exists(config) && !Files.exists(wrappedFile))
-        for (marker in listOf("<map />", configXml.replace("AES_GCM_NoPadding", "AES_CBC_PKCS7Padding"), "<map>")) {
+        for (marker in listOf(configXml.replace("AES_GCM_NoPadding", "AES_CBC_PKCS7Padding"), "<map>")) {
             reset(); write(config, marker); val before = unwraps; refuses(); check(unwraps == before)
         }
-        reset(); Files.delete(config); refuses()
-        reset(); Files.delete(wrappedFile); refuses()
+        reset(); Files.delete(config); readsWithoutChanges()
+        reset(); write(config, "<map />"); readsWithoutChanges()
+        reset()
+        val legacyData = dataXml.dropLast(6) + configXml.removePrefix("<map>")
+        write(data, legacyData)
+        Files.delete(config)
+        write(wrappedFile, xml(QuickUnlockPublicReader.LEGACY_WRAPPED_KEY to wrapped))
+        readsWithoutChanges()
+        write(data, legacyData.replace("AES_GCM_NoPadding", "AES_CBC_PKCS7Padding"))
+        refuses(QuickUnlockPublicReadFailure.Reason.FORMAT)
+        reset()
+        write(config, configXml.replace("</map>",
+            "<boolean name=\"ENCRYPTED_PREFERENCES_MIGRATED\" value=\"true\" /></map>"))
+        readsWithoutChanges()
+        write(config, Files.readString(config).replace("ENCRYPTED_PREFERENCES_MIGRATED", "other"))
+        refuses()
+        reset(); Files.delete(wrappedFile); refuses(QuickUnlockPublicReadFailure.Reason.WRAPPED)
         reset(); write(wrappedFile, "<map />"); refuses()
         reset(); write(wrappedFile, "<map>"); refuses()
         reset(); write(wrappedFile, xml(QuickUnlockPublicReader.WRAPPED_KEY to "%%%")); refuses()
         reset(); write(data, "<map>"); val before = unwraps; refuses(); check(before == unwraps)
-        reset(); refuseKey = true; refuses(); refuseKey = false
-        reset(); write(data, xml("${prefix}_$key" to Base64.getEncoder().encodeToString(ByteArray(32)))); refuses()
+        reset(); refuseKey = true; refuses(QuickUnlockPublicReadFailure.Reason.KEY); refuseKey = false
+        reset()
+        Files.delete(config)
+        write(data, xml("${prefix}_$key" to Base64.getEncoder().encodeToString(ByteArray(32))))
+        refuses(QuickUnlockPublicReadFailure.Reason.PAYLOAD)
         reset(); val backup = config.resolveSibling(config.fileName.toString() + ".bak")
         write(backup, configXml); refuses(); Files.delete(backup)
         reset(); var failed = false

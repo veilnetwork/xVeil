@@ -102,7 +102,8 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                                 main.post {
                                     result.error(if (error is QuickUnlockRecordFileFailure) "record_store_unreadable"
                                         else if (call.method == "flush") "persistence_failed" else "record_operation_failed",
-                                        "Quick-unlock record operation not confirmed", null)
+                                        "Quick-unlock record operation not confirmed",
+                                        (error as? QuickUnlockPublicReadFailure)?.reason?.name)
                                 }
                             }
                         }
