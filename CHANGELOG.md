@@ -8,6 +8,10 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+- On Windows, let users review and accept the permissions of the folders
+  used to start the node. Show accepted folder and profile access warnings
+  on the sign-in screen and in the app.
+
 ## [0.13.116] - 2026-11-27
 
 ### Fixed

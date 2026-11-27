@@ -89,11 +89,12 @@ final class ManagedStorageAclWarning {
   final bool grantsArePotential;
 
   ManagedStorageAclWarning withPolicy({
+    String? fingerprint,
     bool? canContinue,
     bool? readOnlyInApp,
   }) => ManagedStorageAclWarning(
     path: path,
-    fingerprint: fingerprint,
+    fingerprint: fingerprint ?? this.fingerprint,
     grants: grants,
     inheritedGrants: inheritedGrants,
     inheritedScopes: inheritedScopes,

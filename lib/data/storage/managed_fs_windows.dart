@@ -375,6 +375,7 @@ ManagedPathWitness inspect(
   bool allowNetworkShare = false,
   bool protectFromReparseChanges = false,
   bool includeInheritedContentAcl = false,
+  bool allowLegacyProfileFingerprint = true,
 }) {
   final name = path.toNativeUtf16();
   final info = calloc<win.BY_HANDLE_FILE_INFORMATION>();
@@ -437,7 +438,8 @@ ManagedPathWitness inspect(
     final grant = managedWindowsAclGrant(
       facts: facts,
       path: finalPath,
-      legacySupportPath: directory && !policy.safeAncestor
+      legacySupportPath:
+          allowLegacyProfileFingerprint && directory && !policy.safeAncestor
           ? windowsProfileSupportPath
           : null,
       identity: identity,

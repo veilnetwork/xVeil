@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import '../data/storage/managed_fs_contract.dart';
 import '../data/storage/profile_storage_router.dart';
 import '../data/storage/profile_storage_router_owner.dart';
 import '../domain/storage_locator.dart';
+
+final startupAcceptedAccessWarningsProvider =
+    Provider<List<ManagedStorageAclWarning>>((_) => const []);
 
 final profileStorageRouterOwnerProvider = Provider<ProfileStorageRouterOwner?>(
   (_) => null,

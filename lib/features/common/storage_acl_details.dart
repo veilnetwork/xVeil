@@ -1,7 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/storage/managed_fs_contract.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/storage_router_providers.dart';
+
+class AcceptedAccessWarningButton extends ConsumerWidget {
+  const AcceptedAccessWarningButton({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final warnings = ref.watch(startupAcceptedAccessWarningsProvider);
+    if (warnings.isEmpty) return const SizedBox.shrink();
+    final l = AppL10n.of(context);
+    return IconButton(
+      icon: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+      tooltip: l.startupAcceptedAccessTitle,
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l.startupAcceptedAccessTitle),
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final warning in warnings)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: StorageAclDetails(warning),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(MaterialLocalizations.of(context).closeButtonLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class StorageAclDetails extends StatelessWidget {
   const StorageAclDetails(this.warning, {super.key});

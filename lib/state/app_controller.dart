@@ -7199,7 +7199,7 @@ class AppController extends Notifier<AppState> {
 
   Future<void> _cleanRuntimeBase() async {
     final base = ref.read(deniableBootProvider)?.runtimeDir;
-    if (base == null) return;
+    if (base == null || !runtimeCleanupAllowed(base)) return;
     // Only a directory WE marked (audit X-12). The path can come from
     // `XVEIL_RUNTIME_DIR`, and this is a recursive delete — a wrong launcher
     // entry, or the variable set by anything else in the session, otherwise

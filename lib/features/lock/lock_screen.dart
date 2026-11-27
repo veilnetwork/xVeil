@@ -9,6 +9,7 @@ import '../../data/storage/storage_acl_approval.dart';
 import '../../data/storage/async_kv_log_store.dart'
     show managedStorageFailureReason;
 import '../../data/storage/managed_fs_contract.dart';
+import '../common/storage_acl_details.dart' show AcceptedAccessWarningButton;
 import '../bootstrap/startup_failed_app.dart'
     show
         reviewStorageOperationAccess,
@@ -234,6 +235,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: AcceptedAccessWarningButton(),
+                    ),
                     const Spacer(),
                     Icon(Icons.lock_outline, size: 56, color: scheme.primary),
                     const SizedBox(height: 24),

@@ -6,6 +6,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
@@ -54,6 +55,7 @@ import 'storage/managed_fs_platform.dart'
     show ManagedDirectoryAccess, ManagedFsPlatform, readDarwinStorageAcl;
 import 'storage/managed_fs_posix_acl.dart' show writePosixStorageAcl;
 import 'storage/managed_fs_windows.dart' as windows;
+import 'storage/storage_acl_approval.dart' show hasStorageAclApproval;
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
 import '../state/ratchet_persistence.dart';
@@ -109,6 +111,53 @@ enum RuntimeDirectoryRefusal {
 
 typedef WindowsRuntimeAttempt = (int candidate, RuntimeDirNotPrivate failure);
 
+class WindowsRuntimeAccessReview {
+  WindowsRuntimeAccessReview(this.base, List<ManagedStorageAclWarning> warnings)
+    : warnings = List.unmodifiable(warnings);
+
+  final String base;
+  final List<ManagedStorageAclWarning> warnings;
+
+  ManagedStorageAclWarning get approval => warnings.first.withPolicy(
+    fingerprint: crypto.sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              'xveil-windows-runtime-v1',
+              p.windows.normalize(base).toLowerCase(),
+              (warnings.map((warning) => warning.fingerprint).toList()..sort()),
+            ]),
+          ),
+        )
+        .toString(),
+    canContinue: true,
+  );
+}
+
+final _reviewedWindowsRuntimeRoots =
+    <String, (WindowsRuntimeAccessReview, ManagedPathWitness)>{};
+
+String _windowsRuntimePathKey(String path) =>
+    p.windows.normalize(path).toLowerCase();
+
+List<ManagedStorageAclWarning> acceptedRuntimeAccessWarnings(String? path) =>
+    path == null
+    ? const []
+    : _reviewedWindowsRuntimeRoots[_windowsRuntimePathKey(path)]?.$1.warnings ??
+          const [];
+
+bool _underReviewedWindowsRuntimeRoot(String path) {
+  final normalized = _windowsRuntimePathKey(path);
+  return _reviewedWindowsRuntimeRoots.keys.any(
+    (root) => root == normalized || p.windows.isWithin(root, normalized),
+  );
+}
+
+/// A network permission decision cannot authorize recursive removal through
+/// ancestry that another account can replace.
+bool runtimeCleanupAllowed(String path) =>
+    !Platform.isWindows || !_underReviewedWindowsRuntimeRoot(path);
+
 /// Thrown when the runtime directory cannot be made owner-only.
 ///
 /// Carried as its own type so the boot path can report it as a refusal rather
@@ -122,6 +171,7 @@ class RuntimeDirNotPrivate implements Exception {
     this.retryable = false,
     this.refusal,
     this.windowsAttempts = const [],
+    this.accessReview,
   });
 
   final String dir;
@@ -130,6 +180,7 @@ class RuntimeDirNotPrivate implements Exception {
   final bool retryable;
   final RuntimeDirectoryRefusal? refusal;
   final List<WindowsRuntimeAttempt> windowsAttempts;
+  final WindowsRuntimeAccessReview? accessReview;
 
   @override
   String toString() =>
@@ -322,12 +373,12 @@ Future<String?> _chmod700(String dir) async {
 /// in the same call, which also closes the window in which the directory
 /// existed at the process umask. Returns false when the path was taken (or the
 /// creation failed for any other reason).
-bool _createExclusiveDir(String path) {
+bool _createExclusiveDir(String path, {WindowsRuntimeAccessReview? review}) {
   if (Platform.isWindows) {
     // The protected DACL exists from the first instant. Tightening an inherited
     // ACL later would not revoke handles opened during the permissive window.
     if (!windows.createPrivateDirectory(path)) return false;
-    _assertWindowsRuntimePath(path, private: true);
+    _assertWindowsRuntimePath(path, private: true, review: review);
     return true;
   }
   final result = posixMkdirResult(path, 0x1C0); // 0700
@@ -410,7 +461,26 @@ bool _windowsProgramDataHasProtectedEntry(
 /// Inspect only canonical Windows paths. Every parent must prevent replacement
 /// by an untrusted account; read-only shared bases remain valid. The child
 /// itself additionally needs current-user ownership and a private DACL.
-void _assertWindowsRuntimePath(String path, {bool private = false}) {
+void _assertWindowsRuntimePath(
+  String path, {
+  bool private = false,
+  List<ManagedStorageAclWarning>? warnings,
+  WindowsRuntimeAccessReview? review,
+}) {
+  final pathKey = _windowsRuntimePathKey(path);
+  MapEntry<String, (WindowsRuntimeAccessReview, ManagedPathWitness)>? scope;
+  if (warnings == null && review == null) {
+    for (final entry in _reviewedWindowsRuntimeRoots.entries) {
+      if (entry.key == pathKey || p.windows.isWithin(entry.key, pathKey)) {
+        scope = entry;
+        review = entry.value.$1;
+        break;
+      }
+    }
+  }
+  final approved = review?.warnings
+      .map((warning) => warning.fingerprint)
+      .toSet();
   var current = Directory(path);
   String? verifiedChild;
   try {
@@ -419,6 +489,7 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
         current.path,
         includeApprovedAcl: true,
         protectFromReparseChanges: true,
+        allowLegacyProfileFingerprint: false,
       );
       final stable =
           facts.safeAncestor ||
@@ -428,21 +499,37 @@ void _assertWindowsRuntimePath(String path, {bool private = false}) {
                 facts,
                 verifiedChild,
               );
+      final needsPrivate =
+          depth == 0 && private ||
+          scope?.key == _windowsRuntimePathKey(current.path);
+      final matchesRoot =
+          scope?.key != _windowsRuntimePathKey(current.path) ||
+          facts.sameObject(scope!.value.$2);
+      final warning = facts.aclWarning;
       if (!facts.directory ||
-          !stable ||
-          (depth == 0 &&
-              private &&
-              (!facts.ownerOnly || !facts.ownedByCurrentUser))) {
+          !matchesRoot ||
+          needsPrivate && (!facts.ownerOnly || !facts.ownedByCurrentUser)) {
         throw RuntimeDirNotPrivate(
           current.path,
           'unsafe Windows directory permissions',
-          aclWarning: facts.directory ? facts.aclWarning : null,
+          aclWarning: facts.directory ? warning : null,
           refusal: !facts.directory
               ? RuntimeDirectoryRefusal.notDirectory
-              : !stable
-              ? RuntimeDirectoryRefusal.unsafeAncestor
               : RuntimeDirectoryRefusal.insufficientPrivacy,
         );
+      }
+      if (!stable &&
+          (warning == null ||
+              approved?.contains(warning.fingerprint) != true)) {
+        if (warnings == null || warning == null) {
+          throw RuntimeDirNotPrivate(
+            current.path,
+            'unsafe Windows directory permissions',
+            aclWarning: warning,
+            refusal: RuntimeDirectoryRefusal.unsafeAncestor,
+          );
+        }
+        warnings.add(warning);
       }
       final parent = current.parent;
       if (parent.path == current.path) return;
@@ -485,6 +572,7 @@ String _prepareWindowsRuntimeBase(
   String supplied, {
   bool private = false,
   bool requireUnredirected = false,
+  void Function(WindowsRuntimeAccessReview)? onReviewAccepted,
 }) {
   try {
     // The embedded Windows endpoint carries the directory in a query
@@ -522,7 +610,9 @@ String _prepareWindowsRuntimeBase(
       existing = existing.parent;
     }
     var canonical = existing.resolveSymbolicLinksSync();
-    if ((private || requireUnredirected) &&
+    if ((private ||
+            requireUnredirected ||
+            _underReviewedWindowsRuntimeRoot(absolute)) &&
         !windows.managedWindowsFinalPathMatches(existing.path, canonical)) {
       throw RuntimeDirNotPrivate(
         supplied,
@@ -530,13 +620,45 @@ String _prepareWindowsRuntimeBase(
         refusal: RuntimeDirectoryRefusal.invalidPath,
       );
     }
-    _assertWindowsRuntimePath(canonical, private: private && missing.isEmpty);
+    final warnings = onReviewAccepted == null
+        ? null
+        : <ManagedStorageAclWarning>[];
+    _assertWindowsRuntimePath(
+      canonical,
+      private: private && missing.isEmpty,
+      warnings: warnings,
+    );
+    WindowsRuntimeAccessReview? review;
+    if (warnings != null && warnings.isNotEmpty) {
+      final target = p.joinAll([canonical, ...missing.reversed]);
+      review = WindowsRuntimeAccessReview(target, warnings);
+      if (!hasStorageAclApproval(review.approval.fingerprint)) {
+        throw RuntimeDirNotPrivate(
+          target,
+          'Windows runtime ancestry requires consent',
+          aclWarning: warnings.first,
+          retryable: true,
+          refusal: RuntimeDirectoryRefusal.unsafeAncestor,
+          accessReview: review,
+        );
+      }
+      _assertWindowsRuntimePath(
+        canonical,
+        private: private && missing.isEmpty,
+        review: review,
+      );
+      onReviewAccepted!(review);
+    }
     for (var index = missing.length - 1; index >= 0; index--) {
       canonical = p.join(canonical, missing[index]);
       // A racing trusted caller may create the same base. It still has to
       // satisfy the full directory policy; it is never claimed as our child.
       windows.createPrivateDirectory(canonical);
-      _assertWindowsRuntimePath(canonical, private: private && index == 0);
+      _assertWindowsRuntimePath(
+        canonical,
+        private: private && index == 0,
+        review: review,
+      );
     }
     return canonical;
   } on RuntimeDirNotPrivate {
@@ -622,6 +744,12 @@ Directory createPrivateStagingDirectory(String base, String prefix) {
     throw _runtimeCreationFailure(base, error);
   }
   throw _runtimeNamesExhausted(base);
+}
+
+Future<void> _removeRuntimeStagingDirectory(Directory directory) async {
+  if (runtimeCleanupAllowed(directory.path)) {
+    await directory.delete(recursive: true);
+  }
 }
 
 RuntimeDirNotPrivate _runtimeCreationFailure(
@@ -811,6 +939,7 @@ Future<String> claimRuntimeDirUnder(
   String? windowsFallbackBase,
   String? Function()? windowsPrivateFallbackBase,
   bool windowsRequireUnredirectedBase = false,
+  bool windowsOfferAccessReview = false,
   void Function(int candidate, RuntimeDirNotPrivate? failure)?
   onWindowsRuntimeAttempt,
 }) async {
@@ -829,12 +958,20 @@ Future<String> claimRuntimeDirUnder(
           _ => windowsPrivateFallbackBase?.call(),
         };
         if (path == null) continue;
+        WindowsRuntimeAccessReview? review;
         final verified = _prepareWindowsRuntimeBase(
           path,
           private: candidate == 2,
           requireUnredirected: candidate == 0 && windowsRequireUnredirectedBase,
+          onReviewAccepted: windowsOfferAccessReview
+              ? (value) => review = value
+              : null,
         );
-        final child = await _claimRuntimeChild(verified, uniqueSuffix);
+        final child = await _claimRuntimeChild(
+          verified,
+          uniqueSuffix,
+          review: review,
+        );
         onWindowsRuntimeAttempt?.call(candidate, null);
         return child;
       } on RuntimeDirNotPrivate catch (error) {
@@ -859,6 +996,10 @@ Future<String> claimRuntimeDirUnder(
       retryable: true,
       refusal: last.refusal,
       windowsAttempts: List.unmodifiable(attempts),
+      accessReview: attempts
+          .map((attempt) => attempt.$2.accessReview)
+          .nonNulls
+          .firstOrNull,
     );
   }
   try {
@@ -881,14 +1022,26 @@ Future<String> claimRuntimeDirUnder(
   }
 }
 
-Future<String> _claimRuntimeChild(String base, String uniqueSuffix) async {
+Future<String> _claimRuntimeChild(
+  String base,
+  String uniqueSuffix, {
+  WindowsRuntimeAccessReview? review,
+}) async {
   // Created exclusively. An existing name can belong to another live or
   // stopped process, so try the next name only when the current one is taken.
   for (var attempt = 0; attempt <= 64; attempt++) {
     final suffix = attempt == 0 ? uniqueSuffix : '$uniqueSuffix-$attempt';
     final child = '$base/xveil-rt-$suffix';
-    if (_createExclusiveDir(child)) {
+    if (_createExclusiveDir(child, review: review)) {
       if (!Platform.isWindows) verifyRuntimeDir(child);
+      if (review != null) {
+        final root = windows.inspect(child, protectFromReparseChanges: true);
+        _reviewedWindowsRuntimeRoots[_windowsRuntimePathKey(child)] = (
+          review,
+          root,
+        );
+        verifyRuntimeDir(child);
+      }
       await _writeRuntimeDirMarker(child);
       return child;
     }
@@ -1105,6 +1258,9 @@ class RuntimeDirLease {
     }
     if (type != FileSystemEntityType.directory) {
       return 'the path is no longer a directory ($type)';
+    }
+    if (!runtimeCleanupAllowed(path)) {
+      return 'the runtime directory has shared ancestry';
     }
     final identity = _identity;
     if (identity != null) {
@@ -2071,7 +2227,7 @@ class RealVeilStack {
       return null;
     } finally {
       try {
-        await stagingDir.delete(recursive: true);
+        await _removeRuntimeStagingDirectory(stagingDir);
       } on FileSystemException {
         // Nothing was created, or it is already gone.
       }
@@ -2319,7 +2475,7 @@ class RealVeilStack {
       return DeviceDelegation.failed;
     } finally {
       try {
-        await stagingDir.delete(recursive: true);
+        await _removeRuntimeStagingDirectory(stagingDir);
       } on FileSystemException {
         // Never created, or already gone.
       }
@@ -2411,7 +2567,7 @@ class RealVeilStack {
       return false;
     } finally {
       try {
-        await stagingDir.delete(recursive: true);
+        await _removeRuntimeStagingDirectory(stagingDir);
       } on FileSystemException {
         // Already gone.
       }
@@ -2503,7 +2659,7 @@ class RealVeilStack {
       return DocumentRevocation.failed;
     } finally {
       try {
-        await stagingDir.delete(recursive: true);
+        await _removeRuntimeStagingDirectory(stagingDir);
       } on FileSystemException {
         // Never created, or already gone.
       }
@@ -2631,7 +2787,7 @@ class RealVeilStack {
         return SovereignDocumentAdoption.refused;
       } finally {
         try {
-          await stagingDir.delete(recursive: true);
+          await _removeRuntimeStagingDirectory(stagingDir);
         } on FileSystemException {
           // Never created, or already gone.
         }
@@ -2770,7 +2926,7 @@ class RealVeilStack {
       return SovereignDocumentAdoption.refused;
     } finally {
       try {
-        await stagingDir.delete(recursive: true);
+        await _removeRuntimeStagingDirectory(stagingDir);
       } on FileSystemException {
         // Never created, or already gone.
       }

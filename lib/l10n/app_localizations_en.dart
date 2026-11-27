@@ -222,6 +222,28 @@ class AppL10nEn extends AppL10n {
       'xVeil needs a protected folder for the files that control its network connection. You can open your local data without network access, choose a folder on a local drive, or ask your administrator for help.';
 
   @override
+  String get startupRuntimeConsentTitle =>
+      'Review access to network control files';
+
+  @override
+  String get startupRuntimeConsentRisk =>
+      'Other accounts can modify the folders shown below. This can let them replace or interfere with the files that control your connection. xVeil can start the node if you accept this risk.';
+
+  @override
+  String get startupRuntimeConsentScope =>
+      'Your choice applies to this location and the permissions shown. xVeil may leave temporary files behind if it cannot safely remove them.';
+
+  @override
+  String get startupRuntimeConsentOnce => 'Start node until restart';
+
+  @override
+  String get startupRuntimeConsentRemember =>
+      'Start node and remember my choice';
+
+  @override
+  String get startupAcceptedAccessTitle => 'Accepted access warnings';
+
+  @override
   String get startupRuntimeChecking =>
       'Checking access to the network control folders…';
 

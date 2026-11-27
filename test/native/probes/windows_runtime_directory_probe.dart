@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/managed_fs_windows.dart' as windows;
+import 'package:xveil/data/storage/windows_profile_delete_approval.dart';
 import 'package:xveil/data/veil_stack.dart';
 
 Future<void> main(List<String> args) async {
@@ -20,6 +21,7 @@ Future<void> main(List<String> args) async {
     'claim',
     'lease',
     'unsafe-claim',
+    'unsafe-reviewed-claim',
     'unsafe-lease',
     'nested-claim',
     'nested-lease',
@@ -49,6 +51,7 @@ Future<void> main(List<String> args) async {
     final privateFallback = mode == 'unsafe-parents-with-private-fallback';
     final sharedFallback = mode == 'unsafe-parents-with-shared-fallback';
     final manual = mode.startsWith('manual-');
+    final reviewed = mode == 'unsafe-reviewed-claim';
     final unsafe =
         mode.startsWith('unsafe-') && !privateFallback ||
         mode == 'manual-unsafe-name';
@@ -56,6 +59,7 @@ Future<void> main(List<String> args) async {
     final nested =
         mode.startsWith('nested-') ||
         mode.startsWith('unsafe-parent-') ||
+        reviewed ||
         privateFallback ||
         sharedFallback;
     final supplied = mode == 'manual-unsafe-name'
@@ -77,6 +81,7 @@ Future<void> main(List<String> args) async {
           supplied,
           uniqueSuffix: '17',
           windowsRequireUnredirectedBase: manual,
+          windowsOfferAccessReview: reviewed,
           windowsFallbackBase: fallback == null ? null : '${base.path}/local',
           windowsPrivateFallbackBase: fallback == null ? null : () => fallback,
           onWindowsRuntimeAttempt: (candidate, failure) {
@@ -145,6 +150,45 @@ Future<void> main(List<String> args) async {
         check(
           'unsafe_parent_unchanged',
           !Directory('${base.path}/nested').existsSync(),
+        );
+      }
+      if (reviewed) {
+        final review = refusal?.accessReview;
+        check('review_available_for_unsafe_base', review != null);
+        check(
+          'session_choice_recorded',
+          recordWindowsProfileAclApproval(review!.approval, remember: false),
+        );
+        try {
+          await claimRuntimeDirUnder(
+            '${base.path}/different',
+            uniqueSuffix: '17',
+            windowsOfferAccessReview: true,
+          );
+          check('different_location_refused', false);
+        } on RuntimeDirNotPrivate catch (error) {
+          check('different_location_refused', error.accessReview != null);
+        }
+        claimed = await claimRuntimeDirUnder(
+          review.base,
+          uniqueSuffix: '17',
+          windowsOfferAccessReview: true,
+        );
+        check(
+          'reviewed_access_reported',
+          acceptedRuntimeAccessWarnings(claimed).isNotEmpty,
+        );
+        final staging = createPrivateStagingDirectory(claimed, 'staging');
+        verifyRuntimeDir(staging.path);
+        final reviewedLease = await RuntimeDirLease.acquire(claimed);
+        verifyRuntimeDir(reviewedLease.path);
+        check(
+          'unsafe_recursive_cleanup_refused',
+          await reviewedLease.release() != null,
+        );
+        check(
+          'runtime_leaf_private',
+          windows.inspect(reviewedLease.path).ownerOnly,
         );
       }
     } else {

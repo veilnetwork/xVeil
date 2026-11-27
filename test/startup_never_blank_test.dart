@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -13,13 +14,20 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/managed_fs_contract.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/data/veil_stack.dart'
-    show claimRuntimeDirUnder, RuntimeDirNotPrivate, RuntimeDirectoryRefusal;
+    show
+        claimRuntimeDirUnder,
+        RuntimeDirNotPrivate,
+        RuntimeDirectoryRefusal,
+        WindowsRuntimeAccessReview;
 import 'package:xveil/desktop/desktop_tray.dart'
     show initDesktopWindow, isDesktopTrayPlatform;
 import 'package:xveil/features/bootstrap/profile_erasure_pending_app.dart';
 import 'package:xveil/features/bootstrap/startup_failed_app.dart';
+import 'package:xveil/features/common/storage_acl_details.dart';
 import 'package:xveil/features/settings/error_report.dart';
+import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/main.dart' show runStartup;
+import 'package:xveil/state/storage_router_providers.dart';
 
 /// Everything between `main()` and `runApp` runs inside the guarded zone, and
 /// that zone can only LOG an uncaught error — it cannot un-skip the `runApp`
@@ -301,7 +309,9 @@ void main() {
       expect(find.textContaining('delete or rename'), findsWidgets);
 
       final action = find.text(
-        remember ? 'Start and remember my choice' : 'Start and allow until restart',
+        remember
+            ? 'Start and remember my choice'
+            : 'Start and allow until restart',
       );
       await tester.ensureVisible(action);
       await tester.tap(action);
@@ -503,6 +513,101 @@ void main() {
     expect(report, isNot(contains(folder)));
     expect(report, isNot(contains(otherFolder)));
     expect(report, isNot(contains(account)));
+  });
+
+  for (final remember in [false, true]) {
+    testWidgets('network ACL consent retries the reviewed folder ($remember)', (
+      tester,
+    ) async {
+      const base = r'C:\shared\runtime';
+      final warnings = [
+        ManagedStorageAclWarning(
+          path: r'C:\shared',
+          fingerprint: 'f' * 64,
+          grants: [],
+        ),
+        ManagedStorageAclWarning(
+          path: r'C:\',
+          fingerprint: 'd' * 64,
+          grants: [],
+        ),
+      ];
+      final review = WindowsRuntimeAccessReview(base, warnings);
+      final approvals = <(String, bool)>[];
+      final remembered = <String>[];
+      final bases = <String?>[];
+      Widget? presented;
+      await runStartup(
+        bootWithRuntimeBase: (selected) async {
+          bases.add(selected);
+          if (selected == null) {
+            throw RuntimeDirNotPrivate(
+              base,
+              'runtime ACL requires consent',
+              retryable: true,
+              accessReview: review,
+            );
+          }
+        },
+        present: (widget) => presented = widget,
+        recordAclApproval: (warning, {required remember}) {
+          approvals.add((warning.fingerprint, remember));
+          return true;
+        },
+        rememberRuntimeBase: (path) {
+          remembered.add(path);
+          return true;
+        },
+      );
+      await tester.pumpWidget(presented!);
+      expect(find.text(r'C:\shared'), findsOneWidget);
+      expect(find.text(r'C:\'), findsOneWidget);
+      final choose = find.text(
+        remember
+            ? 'Start node and remember my choice'
+            : 'Start node until restart',
+      );
+      await tester.ensureVisible(choose);
+      await tester.tap(choose);
+      await tester.pumpAndSettle();
+      expect(approvals, [(review.approval.fingerprint, remember)]);
+      expect(bases, [null, base]);
+      expect(remembered, remember ? [base] : isEmpty);
+    });
+  }
+
+  testWidgets('the yellow warning shows all accepted access details', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          startupAcceptedAccessWarningsProvider.overrideWithValue([
+            ManagedStorageAclWarning(
+              path: r'C:\data',
+              fingerprint: 'a' * 64,
+              grants: [],
+            ),
+            ManagedStorageAclWarning(
+              path: r'C:\runtime',
+              fingerprint: 'b' * 64,
+              grants: [],
+            ),
+          ]),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: Scaffold(body: AcceptedAccessWarningButton()),
+        ),
+      ),
+    );
+    final icon = find.byIcon(Icons.warning_amber_rounded);
+    expect(tester.widget<Icon>(icon).color, Colors.amber);
+    await tester.tap(icon);
+    await tester.pumpAndSettle();
+    expect(find.text(r'C:\data'), findsOneWidget);
+    expect(find.text(r'C:\runtime'), findsOneWidget);
   });
 
   testWidgets('the folder chooser retries the same boot with the chosen base', (

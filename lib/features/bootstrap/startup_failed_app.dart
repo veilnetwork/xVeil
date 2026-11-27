@@ -41,6 +41,7 @@ class StartupFailedApp extends StatelessWidget {
     this.openOffline,
     this.pickRuntimeDirectory = FilePicker.getDirectoryPath,
     this.acceptAclWarning,
+    this.acceptRuntimeAccess,
   });
 
   final Future<void> Function()? retryPreferences;
@@ -55,6 +56,7 @@ class StartupFailedApp extends StatelessWidget {
   final Future<void> Function()? openOffline;
   final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
+  final Future<bool> Function(bool remember)? acceptRuntimeAccess;
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +84,7 @@ class StartupFailedApp extends StatelessWidget {
         openOffline: openOffline,
         pickRuntimeDirectory: pickRuntimeDirectory,
         acceptAclWarning: acceptAclWarning,
+        acceptRuntimeAccess: acceptRuntimeAccess,
       ),
     );
   }
@@ -101,6 +104,7 @@ class _StartupFailedScreen extends StatefulWidget {
     required this.openOffline,
     required this.pickRuntimeDirectory,
     required this.acceptAclWarning,
+    required this.acceptRuntimeAccess,
   });
 
   final Future<void> Function()? retryPreferences;
@@ -115,6 +119,7 @@ class _StartupFailedScreen extends StatefulWidget {
   final Future<void> Function()? openOffline;
   final Future<String?> Function() pickRuntimeDirectory;
   final Future<bool> Function(bool remember)? acceptAclWarning;
+  final Future<bool> Function(bool remember)? acceptRuntimeAccess;
 
   @override
   State<_StartupFailedScreen> createState() => _StartupFailedScreenState();
@@ -184,10 +189,14 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
     final selectRuntime = widget.retryWithRuntimeBase;
     final openOffline = widget.openOffline;
     final accept = widget.acceptAclWarning;
+    final acceptRuntime = widget.acceptRuntimeAccess;
+    final runtimeReview = runtime?.accessReview;
     final actionStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant);
-    final explanation = runtime != null
+    final explanation = runtimeReview != null
+        ? l.startupRuntimeConsentRisk
+        : runtime != null
         ? l.startupRuntimeDirectoryFailed
         : switch (widget.preferencesUnsafeAncestor) {
             true => switch (ancestor?.cause) {
@@ -217,13 +226,17 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  warnings.isEmpty ? Icons.error_outline : Icons.warning_amber,
+                  warnings.isEmpty && runtimeReview == null
+                      ? Icons.error_outline
+                      : Icons.warning_amber,
                   size: 56,
-                  color: scheme.error,
+                  color: runtimeReview == null ? scheme.error : Colors.amber,
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  warnings.isEmpty
+                  runtimeReview != null
+                      ? l.startupRuntimeConsentTitle
+                      : warnings.isEmpty
                       ? l.startupFailedTitle
                       : l.startupAclWarningTitle,
                   style: Theme.of(context).textTheme.headlineSmall,
@@ -277,7 +290,40 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                     const SizedBox(height: 8),
                     SelectableText(widget.storageRefusalPath!),
                   ],
-                  if (runtime != null) ...[
+                  if (runtimeReview != null && acceptRuntime != null) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(runtimeReview.base),
+                    const SizedBox(height: 16),
+                    for (final warning in runtimeReview.warnings) ...[
+                      StorageAclDetails(warning),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(l.startupRuntimeConsentScope, style: actionStyle),
+                    if (_approvalFailed)
+                      Text(
+                        l.startupAclApprovalFailed,
+                        style: TextStyle(color: scheme.error),
+                      ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _accept(acceptRuntime, false),
+                          child: Text(l.startupRuntimeConsentOnce),
+                        ),
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _accept(acceptRuntime, true),
+                          child: Text(l.startupRuntimeConsentRemember),
+                        ),
+                      ],
+                    ),
+                  ] else if (runtime != null) ...[
                     const SizedBox(height: 8),
                     if (runtime.windowsAttempts.isEmpty)
                       RuntimeRefusalDetails(runtime)
@@ -296,7 +342,9 @@ class _StartupFailedScreenState extends State<_StartupFailedScreen> {
                     ),
                   ],
                 ],
-                if (runtime != null && (_retrying || _runtimeRechecked)) ...[
+                if (runtime != null &&
+                    (_retrying ||
+                        _runtimeRechecked && runtimeReview == null)) ...[
                   const SizedBox(height: 16),
                   Semantics(
                     liveRegion: true,

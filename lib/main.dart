@@ -35,7 +35,7 @@ import 'data/storage/profile_preferences_bootstrap.dart';
 import 'data/storage/profile_preferences_file.dart'
     show ProfileChoiceReadFailure;
 import 'data/storage/profile_prefs_store.dart'
-    show ProfilePreferencesFormatFailure;
+    show ProfilePreferencesFormatFailure, activeProfilePath, profilePrefsPath;
 import 'data/storage/cold_profile_erasure_recovery.dart';
 import 'core/filesystem_errors.dart';
 import 'core/background_service_lifetime.dart';
@@ -46,7 +46,10 @@ import 'data/storage/profile_storage_bootstrap.dart';
 import 'data/storage/managed_fs_platform.dart';
 import 'data/storage/managed_fs_windows.dart' show programDataRuntimeBase;
 import 'data/storage/windows_profile_delete_approval.dart'
-    show windowsLocalRuntimeBase;
+    show
+        rememberWindowsRuntimeBase,
+        rememberedWindowsRuntimeBase,
+        windowsLocalRuntimeBase;
 import 'core/storage_acl_vault.dart';
 import 'state/storage_router_providers.dart';
 import 'data/runtime_dir_sweep.dart';
@@ -123,6 +126,7 @@ Future<void> runStartup({
       recordStorageAclApproval,
   Future<bool> Function(ManagedStorageAclWarning) restoreAclApproval =
       restoreRememberedStorageAcl,
+  bool Function(String) rememberRuntimeBase = rememberWindowsRuntimeBase,
 }) async {
   assert(boot == null || bootWithRuntimeBase == null);
   persistStorageAclReplacement = rememberStorageAclReplacement;
@@ -157,6 +161,7 @@ Future<void> runStartup({
       _ => storageFailure?.aclWarnings ?? const <ManagedStorageAclWarning>[],
     };
     final runtimeFailure = e is RuntimeDirNotPrivate ? e : null;
+    final runtimeReview = runtimeFailure?.accessReview;
     Future<void> retryStartup({String? selectedBase}) => runStartup(
       bootWithRuntimeBase: resumeBoot,
       bootOffline: openOffline,
@@ -165,6 +170,7 @@ Future<void> runStartup({
       present: present,
       recordAclApproval: recordAclApproval,
       restoreAclApproval: restoreAclApproval,
+      rememberRuntimeBase: rememberRuntimeBase,
     );
     final unapproved = <ManagedStorageAclWarning>[];
     for (final warning in {
@@ -280,6 +286,21 @@ Future<void> runStartup({
                   preferenceFailure?.ancestorRefusal
             : null,
         runtimeFailure: runtimeFailure,
+        acceptRuntimeAccess: runtimeReview == null
+            ? null
+            : (remember) async {
+                if (remember && !rememberRuntimeBase(runtimeReview.base)) {
+                  return false;
+                }
+                if (!await recordAclApproval(
+                  runtimeReview.approval,
+                  remember: remember,
+                )) {
+                  return false;
+                }
+                await retryStartup(selectedBase: runtimeReview.base);
+                return true;
+              },
         openOffline: runtimeFailure?.retryable == true && openOffline != null
             ? () => runStartup(
                 boot: openOffline,
@@ -582,7 +603,7 @@ Future<void> _runBootstrappedApplication({
 }
 
 Future<void> _discardStartupRuntime(String? path) async {
-  if (path == null) return;
+  if (path == null || !runtimeCleanupAllowed(path)) return;
   try {
     verifyRuntimeDir(path);
     if (runtimeDirIsOurs(path)) {
@@ -594,13 +615,47 @@ Future<void> _discardStartupRuntime(String? path) async {
   }
 }
 
+List<ManagedStorageAclWarning> _acceptedStartupAccessWarnings(
+  String? supportDirectory,
+  String? runtimeDirectory,
+) {
+  final warnings = <String, ManagedStorageAclWarning>{};
+  if (supportDirectory != null && Platform.isWindows) {
+    final prefs = profilePrefsPath(supportDirectory, activeProfile);
+    final choice = activeProfilePath(supportDirectory);
+    final paths = {prefs, '$prefs.lock', choice, '$choice.lock'};
+    for (var directory = File(prefs).parent; ; directory = directory.parent) {
+      paths.add(directory.path);
+      if (directory.parent.path == directory.path) break;
+    }
+    for (final path in paths) {
+      try {
+        final facts = const ManagedFsPlatform().inspectAcl(path);
+        final warning = facts.aclWarning;
+        if (facts.aclApproved && warning != null) {
+          warnings[warning.fingerprint] = warning;
+        }
+      } on ManagedFsFailure {
+        // Optional status for existing, currently verified objects only.
+      }
+    }
+  }
+  for (final warning in acceptedRuntimeAccessWarnings(runtimeDirectory)) {
+    warnings[warning.fingerprint] = warning;
+  }
+  return List.unmodifiable(warnings.values);
+}
+
 Future<String> _claimStartupRuntime(
   String? supportDirectory, {
   String? runtimeBase,
 }) async {
   // Mobile sandbox policies can refuse sockets in the system temporary area.
   // Windows loopback control files also need stable directory ancestry.
-  final override = runtimeBase ?? Platform.environment['XVEIL_RUNTIME_DIR'];
+  final override =
+      runtimeBase ??
+      Platform.environment['XVEIL_RUNTIME_DIR'] ??
+      rememberedWindowsRuntimeBase();
   final base =
       override ??
       (Platform.isWindows
@@ -614,6 +669,7 @@ Future<String> _claimStartupRuntime(
     uniqueSuffix: '$pid',
     windowsFallbackBase: windowsDefaults ? windowsLocalRuntimeBase() : null,
     windowsPrivateFallbackBase: windowsDefaults ? programDataRuntimeBase : null,
+    windowsOfferAccessReview: true,
     onWindowsRuntimeAttempt: (candidate, failure) => diagnosticJournal.record(
       switch (candidate) {
         0 when override != null => DiagnosticEvent.windowsRuntimeOverride,
@@ -709,6 +765,11 @@ Future<BootstrapResult> _bootstrapOverrides({
   required bool offline,
 }) async {
   final overrides = <Override>[];
+  overrides.add(
+    startupAcceptedAccessWarningsProvider.overrideWithValue(
+      _acceptedStartupAccessWarnings(supportDirectory, runtimeDirectory),
+    ),
+  );
   var secureStorageReady = false;
   String? storePath; // the deniable container path, shared with the boot config
   unawaited(_sweepPickedFileCache());
@@ -918,7 +979,9 @@ Future<BootstrapResult> _bootstrapOverrides({
     // Sweep the base we actually claimed under, not the platform default — an
     // operator who set XVEIL_RUNTIME_DIR gets their leftovers reaped too, and
     // the default path is unchanged when they did not.
-    unawaited(sweepStaleRuntimeDirs(File(runtimeDir).parent.path));
+    if (runtimeCleanupAllowed(runtimeDir)) {
+      unawaited(sweepStaleRuntimeDirs(File(runtimeDir).parent.path));
+    }
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ??
         AppProfiles.listenPort(

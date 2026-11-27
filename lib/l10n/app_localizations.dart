@@ -459,6 +459,42 @@ abstract class AppL10n {
   /// **'xVeil needs a protected folder for the files that control its network connection. You can open your local data without network access, choose a folder on a local drive, or ask your administrator for help.'**
   String get startupRuntimeDirectoryFailed;
 
+  /// No description provided for @startupRuntimeConsentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review access to network control files'**
+  String get startupRuntimeConsentTitle;
+
+  /// No description provided for @startupRuntimeConsentRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Other accounts can modify the folders shown below. This can let them replace or interfere with the files that control your connection. xVeil can start the node if you accept this risk.'**
+  String get startupRuntimeConsentRisk;
+
+  /// No description provided for @startupRuntimeConsentScope.
+  ///
+  /// In en, this message translates to:
+  /// **'Your choice applies to this location and the permissions shown. xVeil may leave temporary files behind if it cannot safely remove them.'**
+  String get startupRuntimeConsentScope;
+
+  /// No description provided for @startupRuntimeConsentOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Start node until restart'**
+  String get startupRuntimeConsentOnce;
+
+  /// No description provided for @startupRuntimeConsentRemember.
+  ///
+  /// In en, this message translates to:
+  /// **'Start node and remember my choice'**
+  String get startupRuntimeConsentRemember;
+
+  /// No description provided for @startupAcceptedAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted access warnings'**
+  String get startupAcceptedAccessTitle;
+
   /// No description provided for @startupRuntimeChecking.
   ///
   /// In en, this message translates to:

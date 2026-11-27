@@ -223,6 +223,29 @@ class AppL10nRu extends AppL10n {
       'xVeil нужна защищённая папка для файлов управления подключением. Можно открыть локальные данные без сети, выбрать папку на локальном диске или обратиться к администратору.';
 
   @override
+  String get startupRuntimeConsentTitle =>
+      'Проверьте доступ к служебным файлам сети';
+
+  @override
+  String get startupRuntimeConsentRisk =>
+      'Другие учётные записи могут изменять папки из списка. Они могут подменить служебные файлы или нарушить управление подключением. xVeil может запустить узел, если вы примете этот риск.';
+
+  @override
+  String get startupRuntimeConsentScope =>
+      'Выбор относится к этой папке и указанным правам. xVeil может оставить временные файлы, если их нельзя безопасно удалить.';
+
+  @override
+  String get startupRuntimeConsentOnce =>
+      'Запустить узел и разрешить до перезапуска';
+
+  @override
+  String get startupRuntimeConsentRemember =>
+      'Запустить узел и запомнить выбор';
+
+  @override
+  String get startupAcceptedAccessTitle => 'Принятые предупреждения о доступе';
+
+  @override
   String get startupRuntimeChecking =>
       'Проверяем доступ к папкам для служебных файлов…';
 

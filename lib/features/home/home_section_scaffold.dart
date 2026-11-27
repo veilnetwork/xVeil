@@ -1,3 +1,4 @@
+import '../common/storage_acl_details.dart' show AcceptedAccessWarningButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -197,6 +198,7 @@ class HomeSectionScaffold extends ConsumerWidget {
           ),
         ),
         actions: [
+          if (!searching) const AcceptedAccessWarningButton(),
           if (!searching && canSearch)
             IconButton(
               key: const ValueKey('home-search-open'),

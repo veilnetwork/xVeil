@@ -7,7 +7,7 @@ if($env:OS -ne 'Windows_NT'){throw 'This runtime ACL regression runs on Windows'
 $exe=(Resolve-Path -LiteralPath $ProbeExecutable).Path
 if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $Sha256){throw 'Selected probe differs from the reviewed build'}
 $failures=0
-foreach($mode in @('claim','lease','unsafe-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared','manual-private','manual-shared','manual-unsafe-name','unsafe-parents-with-private-fallback','unsafe-parents-with-shared-fallback')){
+foreach($mode in @('claim','lease','unsafe-claim','unsafe-reviewed-claim','unsafe-lease','nested-claim','nested-lease','unsafe-parent-claim','unsafe-parent-lease','verify-shared','manual-private','manual-shared','manual-unsafe-name','unsafe-parents-with-private-fallback','unsafe-parents-with-shared-fallback')){
   $base=Join-Path ([Environment]::GetFolderPath('ApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
   $fallback=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('xveil-runtime-acl-'+[guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $base|Out-Null

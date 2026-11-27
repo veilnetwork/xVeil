@@ -7,6 +7,7 @@ import 'package:win32/win32.dart' as win;
 import 'managed_fs_contract.dart';
 
 const _key = r'Software\network.veil\xveil\ProfileDeleteApprovalV1';
+const _runtimeBaseValue = 'RuntimeBase';
 final _fingerprintPattern = RegExp(r'^[0-9a-f]{64}$');
 
 final _kernel = DynamicLibrary.open('kernel32.dll');
@@ -91,35 +92,86 @@ bool _recordApproval(String fingerprint, {required bool remember}) {
       final atom = _atomName(fingerprint).toNativeUtf16(allocator: arena);
       return _findAtom(atom) != 0 || _addAtom(atom) != 0;
     }
-    final key = arena<IntPtr>();
-    if (win.RegCreateKeyEx(
-          win.HKEY_CURRENT_USER,
-          _key.toNativeUtf16(allocator: arena),
+    final value = arena<Uint32>()..value = 1;
+    return _writeApprovalValue(
+      arena,
+      fingerprint,
+      win.REG_DWORD,
+      value.cast<Uint8>(),
+      sizeOf<Uint32>(),
+    );
+  });
+}
+
+bool _writeApprovalValue(
+  Arena arena,
+  String name,
+  int type,
+  Pointer<Uint8> value,
+  int size,
+) {
+  final key = arena<IntPtr>();
+  if (win.RegCreateKeyEx(
+        win.HKEY_CURRENT_USER,
+        _key.toNativeUtf16(allocator: arena),
+        0,
+        nullptr,
+        win.REG_OPTION_NON_VOLATILE,
+        win.KEY_SET_VALUE,
+        nullptr,
+        key,
+        nullptr,
+      ) !=
+      win.ERROR_SUCCESS) {
+    return false;
+  }
+  try {
+    return win.RegSetValueEx(
+          key.value,
+          name.toNativeUtf16(allocator: arena),
           0,
-          nullptr,
-          win.REG_OPTION_NON_VOLATILE,
-          win.KEY_SET_VALUE,
-          nullptr,
-          key,
-          nullptr,
-        ) !=
-        win.ERROR_SUCCESS) {
-      return false;
-    }
-    try {
-      final value = arena<Uint32>()..value = 1;
-      return win.RegSetValueEx(
-            key.value,
-            fingerprint.toNativeUtf16(allocator: arena),
-            0,
-            win.REG_DWORD,
-            value.cast<Uint8>(),
-            sizeOf<Uint32>(),
-          ) ==
-          win.ERROR_SUCCESS;
-    } finally {
-      win.RegCloseKey(key.value);
-    }
+          type,
+          value,
+          size,
+        ) ==
+        win.ERROR_SUCCESS;
+  } finally {
+    win.RegCloseKey(key.value);
+  }
+}
+
+/// The preferred location is only a candidate. Its current ACLs must still
+/// match a separate consent fingerprint before the node can use it.
+bool rememberWindowsRuntimeBase(String path) {
+  if (!Platform.isWindows) return false;
+  return using(
+    (arena) => _writeApprovalValue(
+      arena,
+      _runtimeBaseValue,
+      win.REG_SZ,
+      path.toNativeUtf16(allocator: arena).cast<Uint8>(),
+      (path.length + 1) * sizeOf<Uint16>(),
+    ),
+  );
+}
+
+String? rememberedWindowsRuntimeBase() {
+  if (!Platform.isWindows) return null;
+  return using((arena) {
+    final length = arena<Uint32>()..value = 65536;
+    final value = arena<Uint8>(length.value);
+    final result = win.RegGetValue(
+      win.HKEY_CURRENT_USER,
+      _key.toNativeUtf16(allocator: arena),
+      _runtimeBaseValue.toNativeUtf16(allocator: arena),
+      win.RRF_RT_REG_SZ,
+      nullptr,
+      value,
+      length,
+    );
+    return result == win.ERROR_SUCCESS
+        ? value.cast<Utf16>().toDartString()
+        : null;
   });
 }
 

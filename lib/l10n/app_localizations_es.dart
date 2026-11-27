@@ -223,6 +223,28 @@ class AppL10nEs extends AppL10n {
       'xVeil necesita una carpeta protegida para los archivos que controlan la conexión. Puedes abrir tus datos locales sin conexión, elegir una carpeta en una unidad local o pedir ayuda a tu administrador.';
 
   @override
+  String get startupRuntimeConsentTitle =>
+      'Revisar el acceso a los archivos de control de la red';
+
+  @override
+  String get startupRuntimeConsentRisk =>
+      'Otras cuentas pueden modificar las carpetas que se muestran abajo. Esto les permite sustituir o alterar los archivos que controlan tu conexión. xVeil puede iniciar el nodo si aceptas este riesgo.';
+
+  @override
+  String get startupRuntimeConsentScope =>
+      'Tu decisión se aplica a esta ubicación y a los permisos indicados. Es posible que xVeil deje archivos temporales si no puede eliminarlos de forma segura.';
+
+  @override
+  String get startupRuntimeConsentOnce => 'Iniciar el nodo hasta reiniciar';
+
+  @override
+  String get startupRuntimeConsentRemember =>
+      'Iniciar el nodo y recordar mi decisión';
+
+  @override
+  String get startupAcceptedAccessTitle => 'Advertencias de acceso aceptadas';
+
+  @override
   String get startupRuntimeChecking =>
       'Comprobando el acceso a las carpetas de control de red…';
 
