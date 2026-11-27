@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -153,6 +154,28 @@ void main() {
       // Left true, the next hold would skip the platform call it needs.
       expect(screen.secured, isFalse);
     });
+
+    test('a new hold reapplies protection after an in-flight clear', () async {
+      final cleared = Completer<void>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel(SecureScreen.channelName),
+            (call) async {
+              final secure = (call.arguments as Map)['secure'] as bool;
+              secureCalls.add(secure);
+              if (!secure) await cleared.future;
+              return null;
+            },
+          );
+      final screen = SecureScreen();
+      await screen.hold('first');
+      final clearing = screen.release('first');
+      final protecting = screen.hold('second');
+      cleared.complete();
+      await Future.wait([clearing, protecting]);
+      expect(secureCalls, [true, false, true]);
+      expect(screen.secured, isTrue);
+    });
   });
 
   // Shaped like the real app root (lib/app.dart): the shield wraps everything,
@@ -162,6 +185,28 @@ void main() {
   );
 
   group('a route that carries a secret', () {
+    testWidgets('capture permission updates a mounted protected screen', (
+      tester,
+    ) async {
+      Widget guarded(bool allowed) => host(
+        ProtectedScreenCapturePolicy(
+          allowed: allowed,
+          child: const SecureScreenGuard(child: Text('protected content')),
+        ),
+      );
+      await tester.pumpWidget(guarded(false));
+      await tester.pumpAndSettle();
+      expect(secureCalls, [true]);
+
+      await tester.pumpWidget(guarded(true));
+      await tester.pumpAndSettle();
+      expect(secureCalls, [true, false]);
+
+      await tester.pumpWidget(guarded(false));
+      await tester.pumpAndSettle();
+      expect(secureCalls, [true, false, true]);
+    });
+
     testWidgets('takes the flag while it is on screen and gives it back', (
       tester,
     ) async {

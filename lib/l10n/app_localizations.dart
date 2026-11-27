@@ -14094,6 +14094,30 @@ abstract class AppL10n {
   /// **'Quick unlock'**
   String get quickUnlockTitle;
 
+  /// No description provided for @protectedScreenCaptureTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow screenshots and recordings on protected screens'**
+  String get protectedScreenCaptureTitle;
+
+  /// No description provided for @protectedScreenCaptureWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This applies to the whole app profile. Recovery codes, passwords as you enter them, and other sensitive information could appear in screenshots, recordings, or screen sharing.'**
+  String get protectedScreenCaptureWarning;
+
+  /// No description provided for @protectedScreenCaptureAllow.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow capture'**
+  String get protectedScreenCaptureAllow;
+
+  /// No description provided for @protectedScreenCaptureSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the screen capture setting. Try again.'**
+  String get protectedScreenCaptureSaveFailed;
+
   /// No description provided for @quickUnlockMenuHint.
   ///
   /// In en, this message translates to:

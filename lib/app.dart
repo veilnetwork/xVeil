@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -28,6 +29,7 @@ import 'state/group_call_service.dart';
 import 'state/p2p_endpoint_service.dart';
 import 'state/locale_controller.dart';
 import 'state/model_exchange_service.dart';
+import 'state/protected_screen_capture.dart';
 import 'state/theme_controller.dart';
 import 'theme/app_theme.dart';
 
@@ -37,6 +39,11 @@ class XVeilApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final capture = defaultTargetPlatform == TargetPlatform.android
+        ? ref.watch(protectedScreenCaptureProvider)
+        : null;
+    final allowProtectedCapture =
+        capture != null && !capture.isLoading && capture.asData?.value == true;
     return MaterialApp.router(
       onGenerateTitle: (context) => AppL10n.of(context).appName,
       debugShowCheckedModeBanner: false,
@@ -62,30 +69,33 @@ class XVeilApp extends ConsumerWidget {
       // delivering while the screen is locked. Routing to a lock screen would
       // unmount all of it, and the point of this lock is that it costs nothing
       // in delivery.
-      builder: (context, child) => TaskSwitcherShield(
-        child: ScreenLockHost(
-          child: Stack(
-            children: [
-              ?child,
-              const CallLifecycleBridge(),
-              const CallOverlay(),
-              const GroupCallOverlay(),
-              // Eagerly build the group service once the identity is ready, so
-              // its inbound-snapshot bridge is attached BEFORE any group frame
-              // arrives (a member added on another device pushes a snapshot
-              // immediately).
-              const _GroupBridge(),
-              // Keep the automation-API controller alive so a persisted
-              // "enabled" flag re-opens the loopback server on boot (off by
-              // default).
-              const _ApiBridge(),
-              // What an irreversible wipe could not delete, named. It has to
-              // be raised from HERE, above the router: the wipe's last act is
-              // to send the app to onboarding, so the lock screen that asked
-              // for it is gone before the answer arrives.
-              const WipeReportHost(),
-              const _PreferenceWriteWarnings(),
-            ],
+      builder: (context, child) => ProtectedScreenCapturePolicy(
+        allowed: allowProtectedCapture,
+        child: TaskSwitcherShield(
+          child: ScreenLockHost(
+            child: Stack(
+              children: [
+                ?child,
+                const CallLifecycleBridge(),
+                const CallOverlay(),
+                const GroupCallOverlay(),
+                // Eagerly build the group service once the identity is ready, so
+                // its inbound-snapshot bridge is attached BEFORE any group frame
+                // arrives (a member added on another device pushes a snapshot
+                // immediately).
+                const _GroupBridge(),
+                // Keep the automation-API controller alive so a persisted
+                // "enabled" flag re-opens the loopback server on boot (off by
+                // default).
+                const _ApiBridge(),
+                // What an irreversible wipe could not delete, named. It has to
+                // be raised from HERE, above the router: the wipe's last act is
+                // to send the app to onboarding, so the lock screen that asked
+                // for it is gone before the answer arrives.
+                const WipeReportHost(),
+                const _PreferenceWriteWarnings(),
+              ],
+            ),
           ),
         ),
       ),

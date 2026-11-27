@@ -8248,6 +8248,21 @@ class AppL10nEs extends AppL10n {
   String get quickUnlockTitle => 'Desbloqueo rápido';
 
   @override
+  String get protectedScreenCaptureTitle =>
+      'Permitir capturas y grabaciones de pantallas protegidas';
+
+  @override
+  String get protectedScreenCaptureWarning =>
+      'Se aplica a todo el perfil de la aplicación. Los códigos de recuperación, las contraseñas mientras las escribes y otros datos sensibles podrían aparecer al capturar, grabar o compartir la pantalla.';
+
+  @override
+  String get protectedScreenCaptureAllow => 'Permitir capturas';
+
+  @override
+  String get protectedScreenCaptureSaveFailed =>
+      'No se pudo guardar el ajuste de captura de pantalla. Inténtalo de nuevo.';
+
+  @override
   String get quickUnlockMenuHint => 'Patrón y autenticación del dispositivo';
 
   @override

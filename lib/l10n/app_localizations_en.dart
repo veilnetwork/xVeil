@@ -8147,6 +8147,21 @@ class AppL10nEn extends AppL10n {
   String get quickUnlockTitle => 'Quick unlock';
 
   @override
+  String get protectedScreenCaptureTitle =>
+      'Allow screenshots and recordings on protected screens';
+
+  @override
+  String get protectedScreenCaptureWarning =>
+      'This applies to the whole app profile. Recovery codes, passwords as you enter them, and other sensitive information could appear in screenshots, recordings, or screen sharing.';
+
+  @override
+  String get protectedScreenCaptureAllow => 'Allow capture';
+
+  @override
+  String get protectedScreenCaptureSaveFailed =>
+      'Could not save the screen capture setting. Try again.';
+
+  @override
   String get quickUnlockMenuHint => 'Pattern and device authentication';
 
   @override

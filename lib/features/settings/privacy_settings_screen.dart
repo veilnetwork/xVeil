@@ -1,6 +1,7 @@
 import 'quick_unlock_screen.dart';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -17,6 +18,7 @@ import '../../routing/back_affordance.dart';
 import '../../state/identity_guard.dart';
 import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
+import '../../state/protected_screen_capture.dart';
 import '../../state/screen_lock_controller.dart';
 import '../../state/signature_policy_controller.dart';
 import '../lock/screen_lock_overlay.dart' show screenLockTimeoutLabel;
@@ -220,6 +222,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
+          if (defaultTargetPlatform == TargetPlatform.android)
+            const _ProtectedScreenCaptureSwitch(),
           const Divider(),
           // Local automation API (REST API epic): off by default; a permanently
           // open port is discoverable, so the user opts in here. When on it binds
@@ -408,6 +412,76 @@ class PrivacySettingsScreen extends ConsumerWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _ProtectedScreenCaptureSwitch extends ConsumerStatefulWidget {
+  const _ProtectedScreenCaptureSwitch();
+
+  @override
+  ConsumerState<_ProtectedScreenCaptureSwitch> createState() =>
+      _ProtectedScreenCaptureSwitchState();
+}
+
+class _ProtectedScreenCaptureSwitchState
+    extends ConsumerState<_ProtectedScreenCaptureSwitch> {
+  bool _busy = false;
+
+  Future<void> _change(bool allowed) async {
+    if (_busy) return;
+    final lease = ref.leaseIdentity();
+    final l = AppL10n.of(context);
+    setState(() => _busy = true);
+    try {
+      if (allowed) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l.protectedScreenCaptureTitle),
+            content: Text(l.protectedScreenCaptureWarning),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(l.actionCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(l.protectedScreenCaptureAllow),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+      if (!mounted || !ref.holdsIdentity(lease)) return;
+      final saved = await ref
+          .read(protectedScreenCaptureProvider.notifier)
+          .set(allowed);
+      if (!saved && mounted) {
+        _showSaveFailure(l);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showSaveFailure(AppL10n l) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.protectedScreenCaptureSaveFailed)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final capture = ref.watch(protectedScreenCaptureProvider);
+    final allowed = capture.isLoading ? null : capture.asData?.value;
+    return SwitchListTile(
+      secondary: const Icon(Icons.screenshot_outlined),
+      title: Text(l.protectedScreenCaptureTitle),
+      value: allowed ?? false,
+      onChanged: _busy || allowed == null ? null : _change,
     );
   }
 }

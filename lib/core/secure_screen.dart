@@ -42,50 +42,49 @@ class SecureScreen {
   /// while nothing had been applied, and no later hold retried because the
   /// transition had already happened. A silent fail-open on the one control
   /// that stands between a recovery certificate and a screenshot.
-  bool get secured => _applied;
-  bool _applied = false;
+  bool get secured => _applied == true;
+  bool? _applied = false;
 
-  /// The platform call in flight, so overlapping holders share one.
-  ///
-  /// `hold` is called from `initState`, which does not await it, so a dialog
-  /// opening over a phrase screen issues both holds before the first channel
-  /// round trip returns. Without this they would each send their own — twice
-  /// the round trips for an idempotent flag, and the "asked once, not twice"
-  /// property that the overlapping-holders test exists to protect.
-  Future<bool>? _applying;
+  /// Serialize platform updates when holders or capture permission change.
+  Future<void>? _syncing;
 
   /// Take a hold. The platform is told whenever it is not already holding —
   /// not only on the first holder, so a call that failed is retried by the
   /// next screen that needs it rather than never again.
-  Future<void> hold(Object holder) async {
+  Future<void> hold(Object holder) {
     _holders.add(holder);
-    if (_applied) return;
-    final inFlight = _applying ??= _apply(true);
-    try {
-      _applied = await inFlight;
-    } finally {
-      // Cleared either way: on failure the next hold must be able to start a
-      // fresh attempt, which is the whole point.
-      if (identical(_applying, inFlight)) _applying = null;
-    }
+    return _sync();
   }
 
   /// Give it back. The platform is told when the last hold goes.
-  Future<void> release(Object holder) async {
-    if (!_holders.remove(holder) || engaged) return;
-    // Deliberately unconditional on the result: if clearing the flag fails the
-    // screen stays MORE protected than asked, which is the safe direction, and
-    // insisting otherwise would leave `_applied` true with no holders — the
-    // next hold would then skip the platform call it needs.
-    await _apply(false);
-    _applied = false;
+  Future<void> release(Object holder) {
+    return _holders.remove(holder) ? _sync() : Future<void>.value();
+  }
+
+  Future<void> _sync() {
+    if (_syncing case final pending?) return pending;
+    if (_applied == engaged) return Future<void>.value();
+    return _syncing = _syncPlatform();
+  }
+
+  Future<void> _syncPlatform() async {
+    try {
+      while (_applied != engaged) {
+        final wanted = engaged;
+        final applied = await _apply(wanted);
+        _applied = applied ? wanted : null;
+        if (!applied && wanted == engaged) return;
+      }
+    } finally {
+      _syncing = null;
+    }
   }
 
   @visibleForTesting
   void debugReset() {
     _holders.clear();
     _applied = false;
-    _applying = null;
+    _syncing = null;
   }
 
   /// True when the platform took the request, or when there is no platform
@@ -119,6 +118,27 @@ class SecureScreen {
 /// is: a route has to reach it without a provider scope in the way.
 final secureScreen = SecureScreen();
 
+/// Capture permission for the current app profile, including its lock screen.
+class ProtectedScreenCapturePolicy extends InheritedWidget {
+  const ProtectedScreenCapturePolicy({
+    super.key,
+    required this.allowed,
+    required super.child,
+  });
+
+  final bool allowed;
+
+  static bool isAllowed(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ProtectedScreenCapturePolicy>()
+          ?.allowed ??
+      false;
+
+  @override
+  bool updateShouldNotify(ProtectedScreenCapturePolicy oldWidget) =>
+      oldWidget.allowed != allowed;
+}
+
 /// Holds the secure-screen flag for as long as [child] is mounted.
 ///
 /// Mount-scoped rather than route-scoped on purpose: a route can be popped,
@@ -137,17 +157,23 @@ class SecureScreenGuard extends StatefulWidget {
 }
 
 class _SecureScreenGuardState extends State<SecureScreenGuard> {
-  SecureScreen get _controller => widget.controller ?? secureScreen;
+  SecureScreen? _heldBy;
 
   @override
-  void initState() {
-    super.initState();
-    _controller.hold(this);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = ProtectedScreenCapturePolicy.isAllowed(context)
+        ? null
+        : widget.controller ?? secureScreen;
+    if (identical(controller, _heldBy)) return;
+    _heldBy?.release(this);
+    _heldBy = controller;
+    controller?.hold(this);
   }
 
   @override
   void dispose() {
-    _controller.release(this);
+    _heldBy?.release(this);
     super.dispose();
   }
 
@@ -229,7 +255,9 @@ class _TaskSwitcherShieldState extends State<TaskSwitcherShield>
         const Positioned.fill(
           // Blocks what is painted beneath; the cover itself still says nothing
           // of its own, for the reason in [_NeutralCover].
-          child: BlockSemantics(child: ExcludeSemantics(child: _NeutralCover())),
+          child: BlockSemantics(
+            child: ExcludeSemantics(child: _NeutralCover()),
+          ),
         ),
     ],
   );

@@ -8218,6 +8218,21 @@ class AppL10nRu extends AppL10n {
   String get quickUnlockTitle => 'Быстрая разблокировка';
 
   @override
+  String get protectedScreenCaptureTitle =>
+      'Разрешить снимки и запись защищённых экранов';
+
+  @override
+  String get protectedScreenCaptureWarning =>
+      'Это действует на весь профиль приложения. Коды восстановления, вводимые пароли и другие секреты могут попасть на снимок, в запись или в демонстрацию экрана.';
+
+  @override
+  String get protectedScreenCaptureAllow => 'Разрешить захват экрана';
+
+  @override
+  String get protectedScreenCaptureSaveFailed =>
+      'Не удалось сохранить настройку захвата экрана. Попробуйте ещё раз.';
+
+  @override
   String get quickUnlockMenuHint => 'Графический ключ и биометрия устройства';
 
   @override

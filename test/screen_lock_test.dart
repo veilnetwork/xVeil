@@ -25,6 +25,7 @@ import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/protected_screen_capture.dart';
 import 'package:xveil/state/screen_lock_controller.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -1301,6 +1302,61 @@ void main() {
   });
 
   group('the setting in Settings -> Privacy', () {
+    testWidgets('screen capture requires confirmation and survives restart', (
+      tester,
+    ) async {
+      final storage = HiddenVolumeStorage(_memory());
+      await storage.open(password: 'pw', createIfMissing: true);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            storageProvider.overrideWithValue(storage),
+            appControllerProvider.overrideWith(_ReadyAppController.new),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: PrivacySettingsScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final context = tester.element(find.byType(PrivacySettingsScreen));
+      final l = AppL10n.of(context);
+      final row = find.widgetWithText(
+        SwitchListTile,
+        l.protectedScreenCaptureTitle,
+      );
+      await tester.scrollUntilVisible(row, 200);
+      expect(tester.widget<SwitchListTile>(row).value, isFalse);
+      final prefs = await ProviderScope.containerOf(
+        context,
+      ).read(prefsProvider.future);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(find.text(l.protectedScreenCaptureWarning), findsOneWidget);
+      await tester.tap(find.text(l.actionCancel));
+      await tester.pumpAndSettle();
+      expect(prefs.getBool(protectedScreenCaptureKey), isNull);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.protectedScreenCaptureAllow));
+      await tester.pumpAndSettle();
+      expect(prefs.getBool(protectedScreenCaptureKey), isTrue);
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      expect(
+        await restarted.read(protectedScreenCaptureProvider.future),
+        isTrue,
+      );
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(prefs.getBool(protectedScreenCaptureKey), isFalse);
+    });
+
     testWidgets('picking a timeout is what the lock then obeys', (
       tester,
     ) async {
