@@ -203,7 +203,10 @@ void main() {
         }
 
         expect(store.values, previous);
-        expect(find.text(l.startupUnlockVaultUnavailable), findsOneWidget);
+        expect(
+          find.text('${l.startupUnlockVaultUnavailable} (QU-1-DATA)'),
+          findsOneWidget,
+        );
         await tester.ensureVisible(find.text(l.startupUnlockTitle));
         await tester.tap(find.text(l.startupUnlockTitle));
         await tester.pump();

@@ -56,6 +56,16 @@ void main() {
       ),
       QuickUnlockVaultFailure.cancelled,
     );
+    expect(
+      classifyQuickUnlockVaultFailure(
+        PlatformException(
+          code: 'Exception encountered',
+          message: 'Migration failed after algorithm change',
+          details: 'Caused by: Biometric authentication error [1]: sensor',
+        ),
+      ),
+      QuickUnlockVaultFailure.unavailable,
+    );
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -66,6 +76,8 @@ void main() {
   final protectedNamespaces = <String>{};
   var denyAuthentication = false;
   var authenticatedReads = 0;
+  var failProtectedRemoval = false;
+  var skipProtectedPersistence = false;
   const authenticatedChannel = MethodChannel('xveil/quick_unlock');
 
   Future<Object?> nativeCall(MethodCall call) async {
@@ -76,8 +88,14 @@ void main() {
     final namespace = biometric
         ? 'xveil_quick_bio_v1_${crypto.sha256.convert(utf8.encode(key)).toString().substring(0, 24)}'
         : 'xveil_quick_pattern_v1';
-    if (call.method == 'contains') return values.containsKey('$namespace:$key');
+    if (call.method == 'contains') {
+      return !(biometric && skipProtectedPersistence) &&
+          values.containsKey('$namespace:$key');
+    }
     if (call.method == 'remove') {
+      if (biometric && failProtectedRemoval) {
+        throw PlatformException(code: 'record_operation_failed');
+      }
       values.remove('$namespace:$key');
       return true;
     }
@@ -94,6 +112,8 @@ void main() {
     protectedNamespaces.clear();
     denyAuthentication = false;
     authenticatedReads = 0;
+    failProtectedRemoval = false;
+    skipProtectedPersistence = false;
     messenger.setMockMethodCallHandler(authenticatedChannel, nativeCall);
     messenger.setMockMethodCallHandler(channel, (call) async {
       final arguments = Map<String, dynamic>.from(call.arguments as Map);
@@ -283,7 +303,13 @@ void main() {
       denyAuthentication = true;
       await expectLater(
         vault.configure(password: 'fixture-password', system: true),
-        throwsA(isA<PlatformException>()),
+        throwsA(
+          isA<QuickUnlockEnrollmentFailure>().having(
+            (e) => e.reference,
+            'reference',
+            'QU-5-ANDROID',
+          ),
+        ),
       );
       expect((await vault.options()).system, isFalse);
       expect(
@@ -294,6 +320,61 @@ void main() {
       );
       denyAuthentication = false;
       await vault.forget();
+      expect(values, isEmpty);
+    },
+  );
+
+  test(
+    'failed cleanup preserves the enrollment error and pending slot',
+    () async {
+      final vault = QuickUnlockVault(
+        const QuickUnlockSecretStore(),
+        'fixture-cleanup-failure',
+        _Authentication(),
+      );
+      denyAuthentication = true;
+      failProtectedRemoval = true;
+      await expectLater(
+        vault.configure(password: 'fixture-password', system: true),
+        throwsA(
+          isA<QuickUnlockEnrollmentFailure>()
+              .having((e) => e.reference, 'reference', 'QU-5-ANDROID-C')
+              .having((e) => e.reason, 'reason', isNull),
+        ),
+      );
+      final record = jsonDecode(values.values.single) as Map;
+      expect(record['bioPending'], isTrue);
+      expect(record['system'], isFalse);
+      expect((await vault.options()).enabled, isFalse);
+
+      denyAuthentication = false;
+      failProtectedRemoval = false;
+      await vault.configure(password: 'fixture-password', system: true);
+      expect(await vault.openSystem('fixture'), 'fixture-password');
+    },
+  );
+
+  test(
+    'Android enrollment requires the protected record to reach disk',
+    () async {
+      final vault = QuickUnlockVault(
+        const QuickUnlockSecretStore(),
+        'fixture-volatile-write',
+        _Authentication(),
+      );
+      skipProtectedPersistence = true;
+      await expectLater(
+        vault.configure(password: 'fixture-password', system: true),
+        throwsA(
+          isA<QuickUnlockEnrollmentFailure>().having(
+            (e) => e.reference,
+            'reference',
+            'QU-6-VERIFY',
+          ),
+        ),
+      );
+      expect((await vault.options()).enabled, isFalse);
+      skipProtectedPersistence = false;
       expect(values, isEmpty);
     },
   );

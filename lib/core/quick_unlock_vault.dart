@@ -30,7 +30,67 @@ enum QuickUnlockVaultFailure {
   unavailable,
 }
 
+enum _EnrollmentStep {
+  readPrevious('1'),
+  removePrevious('2'),
+  writeIntent('3'),
+  verifyIntent('4'),
+  writeBiometric('5'),
+  verifyBiometric('6'),
+  writeRecord('7'),
+  verifyRecord('8');
+
+  const _EnrollmentStep(this.code);
+  final String code;
+}
+
+/// A diagnostic reference for the settings screen. It contains no values
+/// supplied by the caller or free-form text from Android.
+class QuickUnlockEnrollmentFailure implements Exception {
+  QuickUnlockEnrollmentFailure._(
+    _EnrollmentStep step,
+    Object error, {
+    required bool cleanupFailed,
+  }) : reason = classifyQuickUnlockVaultFailure(error),
+       reference =
+           'QU-${step.code}-${_enrollmentErrorCode(error)}'
+           '${cleanupFailed ? '-C' : ''}';
+
+  final QuickUnlockVaultFailure? reason;
+  final String reference;
+}
+
+final _androidPromptError = RegExp(
+  r'Biometric authentication error \[(\d{1,2})\]:',
+);
+
+Match? _biometricPromptError(PlatformException error) {
+  final prompt = _androidPromptError.matchAsPrefix(error.message ?? '');
+  if (prompt != null) return prompt;
+  final details = error.details;
+  // The Android plugin wraps prompt errors when its fresh namespace takes
+  // the migration path. Its stack text still contains the original cause.
+  return details is String ? _androidPromptError.firstMatch(details) : null;
+}
+
+String _enrollmentErrorCode(Object error) {
+  if (error is MissingPluginException) return 'BRIDGE';
+  if (error is! PlatformException) return 'VERIFY';
+  if (error.code == 'Exception encountered') {
+    final number = _biometricPromptError(error)?[1];
+    return number == null ? 'ANDROID' : 'B$number';
+  }
+  return switch (error.code) {
+    'record_store_unreadable' => 'DATA',
+    'record_operation_failed' => 'STORE',
+    'persistence_failed' => 'DISK',
+    'INIT_FAILED' => 'INIT',
+    _ => 'OS',
+  };
+}
+
 QuickUnlockVaultFailure? classifyQuickUnlockVaultFailure(Object error) {
+  if (error is QuickUnlockEnrollmentFailure) return error.reason;
   if (error is! PlatformException) return null;
   if (error.code == 'Unexpected security result code') {
     return switch (error.details) {
@@ -49,9 +109,7 @@ QuickUnlockVaultFailure? classifyQuickUnlockVaultFailure(Object error) {
   // flutter_secure_storage's Android backend forwards the prompt number in a
   // fixed prefix, followed by localized system text. Discard the latter.
   final message = error.message ?? '';
-  final match = RegExp(
-    r'^Biometric authentication error \[(\d+)\]:',
-  ).firstMatch(message);
+  final match = _biometricPromptError(error);
   if (match != null) {
     return switch (int.parse(match[1]!)) {
       3 || 5 || 10 || 13 => QuickUnlockVaultFailure.cancelled,
@@ -387,7 +445,23 @@ class QuickUnlockVault {
     }
     final generation = ++_generation;
     return _serial(() async {
-      final previous = await _read(forRemoval: true);
+      final Map<String, dynamic>? previous;
+      try {
+        previous = await _read(forRemoval: true);
+      } catch (error, trace) {
+        if (defaultTargetPlatform != TargetPlatform.android ||
+            error is StateError) {
+          rethrow;
+        }
+        Error.throwWithStackTrace(
+          QuickUnlockEnrollmentFailure._(
+            _EnrollmentStep.readPrevious,
+            error,
+            cleanupFailed: false,
+          ),
+          trace,
+        );
+      }
       Map<String, dynamic>? pattern;
       if (grid != null) {
         if (nodes == null || nodes.isEmpty) {
@@ -433,6 +507,7 @@ class QuickUnlockVault {
       }
       final id = _random(16);
       var published = false;
+      var step = _EnrollmentStep.removePrevious;
       bool current() =>
           generation == _generation &&
           !_scopeState.retired &&
@@ -452,6 +527,7 @@ class QuickUnlockVault {
           // Retain cleanup intent before the protected write. A crash here
           // must not leave an undiscoverable OS credential outside the volume.
           published = true;
+          step = _EnrollmentStep.writeIntent;
           await store.write(
             _key,
             jsonEncode({
@@ -464,12 +540,17 @@ class QuickUnlockVault {
               'bioSlot': id,
             }),
           );
+          step = _EnrollmentStep.verifyIntent;
           if ((await _read())?['id'] != id) {
             throw StateError('Cleanup intent not saved');
           }
           final encoded = jsonEncode({'id': id, 'password': password});
+          step = _EnrollmentStep.writeBiometric;
           await store.write(_bioKey(id), encoded, biometric: true);
-          if (await store.read(_bioKey(id), biometric: true) != encoded) {
+          step = _EnrollmentStep.verifyBiometric;
+          if (await store.read(_bioKey(id), biometric: true) != encoded ||
+              (defaultTargetPlatform == TargetPlatform.android &&
+                  !await store.contains(_bioKey(id), biometric: true))) {
             throw StateError('Saved sign-in not verified');
           }
         }
@@ -477,6 +558,7 @@ class QuickUnlockVault {
           throw StateError('Unlock configuration superseded');
         }
         published = true;
+        step = _EnrollmentStep.writeRecord;
         await store.write(
           _key,
           jsonEncode({
@@ -490,12 +572,31 @@ class QuickUnlockVault {
             'after': 0,
           }),
         );
+        step = _EnrollmentStep.verifyRecord;
         if ((await _read())?['id'] != id) {
           throw StateError('Saved sign-in not verified');
         }
         if (!current()) throw StateError('Unlock configuration superseded');
-      } catch (_) {
-        if (published) await _eraseRecords();
+      } catch (error, trace) {
+        var cleanupFailed = false;
+        if (published) {
+          try {
+            await _eraseRecords();
+          } catch (_) {
+            cleanupFailed = true;
+          }
+        }
+        if (defaultTargetPlatform == TargetPlatform.android &&
+            (current() || cleanupFailed)) {
+          Error.throwWithStackTrace(
+            QuickUnlockEnrollmentFailure._(
+              step,
+              error,
+              cleanupFailed: cleanupFailed,
+            ),
+            trace,
+          );
+        }
         rethrow;
       }
     });
@@ -629,18 +730,23 @@ class QuickUnlockVault {
       }
       // Leave a cleanup intent until protected deletion is verified. Even if
       // delete/auth fails, the next wipe still knows that this slot exists.
-      await store.write(
-        _key,
-        jsonEncode({
-          'v': 1,
-          'id': _random(16),
-          'system': false,
-          'grid': null,
-          'pattern': null,
-          'bioPending': true,
-          'bioSlot': slot,
-        }),
-      );
+      if (record?['bioPending'] != true ||
+          record?['system'] != false ||
+          record?['grid'] != null ||
+          record?['pattern'] != null) {
+        await store.write(
+          _key,
+          jsonEncode({
+            'v': 1,
+            'id': _random(16),
+            'system': false,
+            'grid': null,
+            'pattern': null,
+            'bioPending': true,
+            'bioSlot': slot,
+          }),
+        );
+      }
       requireAuthority?.call();
       await store.delete(_bioKey(slot), biometric: true);
       requireAuthority?.call();

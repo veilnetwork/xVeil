@@ -7,7 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/local_authentication.dart';
 import '../../core/quick_unlock_vault.dart'
-    show QuickUnlockVaultFailure, classifyQuickUnlockVaultFailure;
+    show
+        QuickUnlockEnrollmentFailure,
+        QuickUnlockVaultFailure,
+        classifyQuickUnlockVaultFailure;
 import '../../core/secure_screen.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/identity_guard.dart';
@@ -190,6 +193,9 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
               l.startupUnlockVaultUnavailable,
             null => startupError,
           };
+          if (error is QuickUnlockEnrollmentFailure) {
+            startupError = '$startupError (${error.reference})';
+          }
         }
         if (mounted && ref.holdsIdentity(lease)) {
           ref.invalidate(startupUnlockOptionsProvider);
