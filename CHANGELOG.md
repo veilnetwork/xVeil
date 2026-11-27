@@ -8,6 +8,19 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.119] - 2026-11-27
+
+### Changed
+
+- Keep password, biometrics and pattern available on the unlock screens
+  regardless of which quick unlock methods are configured. Select the pattern
+  grid on the unlock screen.
+- On Android, open the fingerprint prompt automatically when biometrics are
+  configured for the lock screen. After cancelling, use the password or
+  pattern, or request biometrics again.
+- Explain how to check the saved biometric sign-in setting when quick unlock
+  cannot open the app after a restart.
+
 ## [0.13.118] - 2026-11-27
 
 ### Fixed
