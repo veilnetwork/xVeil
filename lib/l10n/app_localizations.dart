@@ -14220,12 +14220,6 @@ abstract class AppL10n {
   /// **'Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.'**
   String get startupUnlockHint;
 
-  /// No description provided for @startupUnlockBlocked.
-  ///
-  /// In en, this message translates to:
-  /// **'Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.'**
-  String get startupUnlockBlocked;
-
   /// No description provided for @startupUnlockFailed.
   ///
   /// In en, this message translates to:

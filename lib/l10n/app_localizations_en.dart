@@ -8220,10 +8220,6 @@ class AppL10nEn extends AppL10n {
       'Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.';
 
   @override
-  String get startupUnlockBlocked =>
-      'Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.';
-
-  @override
   String get startupUnlockFailed =>
       'Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.';
 

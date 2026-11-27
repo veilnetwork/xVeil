@@ -8321,10 +8321,6 @@ class AppL10nEs extends AppL10n {
       'Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.';
 
   @override
-  String get startupUnlockBlocked =>
-      'El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.';
-
-  @override
   String get startupUnlockFailed =>
       'No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.';
 

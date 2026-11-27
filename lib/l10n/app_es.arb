@@ -3279,7 +3279,6 @@
   "startupUnlockTitle": "Desbloquear también tras reiniciar",
   "startupUnlockBiometricOnlyHint": "Sin volver a introducir el patrón, el acceso tras reiniciar usará solo la biometría. Se conservará el patrón de bloqueo de pantalla.",
   "startupUnlockHint": "Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.",
-  "startupUnlockBlocked": "El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.",
   "startupUnlockFailed": "No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.",
   "startupUnlockBiometricFailed": "El acceso biométrico requiere un método de acceso guardado. Introduce tu contraseña y comprueba la opción de acceso tras reiniciar y la biometría en los ajustes de desbloqueo rápido.",
   "wipeLeftQuickUnlock": "acceso rápido guardado en el sistema (no se pudo verificar su eliminación)",
