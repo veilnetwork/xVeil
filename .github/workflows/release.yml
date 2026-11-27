@@ -1151,6 +1151,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $root = 'build/windows/${{ matrix.arch }}/runner/Release'
+          $redist = Join-Path $env:RUNNER_TEMP 'xveil-msvc-runtime'
+          New-Item -ItemType Directory -Path $redist -Force | Out-Null
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -property installationPath
           if (-not $vs) { throw "vswhere found no Visual Studio installation" }
@@ -1191,6 +1193,7 @@ jobs:
               continue
             }
             Copy-Item $f.FullName (Join-Path $root $f.Name) -Force
+            Copy-Item $f.FullName (Join-Path $redist $f.Name) -Force
             Write-Host ("  copied {0}  {1:N0} bytes  from {2}" -f $f.Name, $f.Length, $f.DirectoryName)
           }
 
@@ -1335,6 +1338,16 @@ jobs:
       - name: Verify the diagnostic report and absence of a raw log sink
         shell: bash
         run: python3 scripts/verify-diagnostic-artifact.py build/windows/${{ matrix.arch }}/runner/Release/data/app.so
+
+      - name: Restore and verify the Visual C++ runtime in the diagnostic bundle
+        shell: pwsh
+        run: |
+          $root = 'build/windows/${{ matrix.arch }}/runner/Release'
+          $redist = Join-Path $env:RUNNER_TEMP 'xveil-msvc-runtime'
+          foreach ($dll in Get-ChildItem -LiteralPath $redist -File) {
+            Copy-Item -LiteralPath $dll.FullName -Destination $root -Force
+          }
+          python scripts/check-windows-bundle.py $root '${{ matrix.arch }}'
 
       - name: Archive the diagnostic bundle
         shell: pwsh
