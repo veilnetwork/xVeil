@@ -8350,7 +8350,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get startupUnlockReview =>
-      'Se autorizó el acceso rápido tras reiniciar, pero xVeil no pudo confirmar ningún método guardado. Para eliminar el acceso guardado, desactiva esta opción y guarda los cambios.';
+      'No se pudo confirmar el acceso rápido tras reiniciar. Para configurarlo de nuevo, elige un método de acceso, introduce tu contraseña y guarda los cambios. Para desactivarlo, apaga esta opción y guarda los cambios.';
 
   @override
   String get chatFileSavePermissionDenied =>

@@ -3781,7 +3781,7 @@
   "startupUnlockConsentRemoveFailed": "Screen lock settings were saved and the OS entry was removed. xVeil could not save the updated sign-in preference.",
   "startupUnlockSaveFailed": "Screen lock settings were saved. Could not set up sign-in after restart in the system credential store. Unlock the device, then try saving again. Your container password still works.",
   "startupUnlockDisableFailed": "Screen lock settings were saved. Could not confirm removal of quick sign-in after restart from OS storage.",
-  "startupUnlockReview": "Quick sign-in after restart was allowed, but xVeil could not confirm a saved sign-in method. To remove the saved entry, turn this off and save.",
+  "startupUnlockReview": "Quick sign-in after restart could not be confirmed. To set it up again, choose a sign-in method, enter your password, and save. To turn it off, switch it off and save.",
   "chatFileSavePermissionDenied": "No permission to write to this location. Choose another folder or allow access in the system file picker.",
   "chatFileSavedToChosenFolder": "File saved to the location you chose",
   "chatFileDownloadedInApp": "Downloaded to the app folder. Use “Save as” to choose a folder in Files.",

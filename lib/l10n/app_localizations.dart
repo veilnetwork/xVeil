@@ -14265,7 +14265,7 @@ abstract class AppL10n {
   /// No description provided for @startupUnlockReview.
   ///
   /// In en, this message translates to:
-  /// **'Quick sign-in after restart was allowed, but xVeil could not confirm a saved sign-in method. To remove the saved entry, turn this off and save.'**
+  /// **'Quick sign-in after restart could not be confirmed. To set it up again, choose a sign-in method, enter your password, and save. To turn it off, switch it off and save.'**
   String get startupUnlockReview;
 
   /// No description provided for @chatFileSavePermissionDenied.

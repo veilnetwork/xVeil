@@ -39,7 +39,11 @@ QuickUnlockVaultFailure? classifyQuickUnlockVaultFailure(Object error) {
       _ => null,
     };
   }
-  if (error.code == 'INIT_FAILED') return QuickUnlockVaultFailure.unavailable;
+  if (error.code == 'INIT_FAILED' ||
+      error.code == 'record_store_unreadable' ||
+      error.code == 'record_operation_failed') {
+    return QuickUnlockVaultFailure.unavailable;
+  }
   if (error.code != 'Exception encountered') return null;
 
   // flutter_secure_storage's Android backend forwards the prompt number in a

@@ -69,9 +69,15 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     final nodes = List<int>.unmodifiable(_first);
     final system = _system;
     final startupEnabled = _startup;
-    // An unavailable or incomplete OS entry is independent of screen lock.
-    // Modifying it requires an explicit choice in this form.
-    final updateStartup = _startupTouched || startupOptions.enabled;
+    // Existing consent and a selected method allow Save to retry an
+    // incomplete enrollment. The vault still verifies the old entry before
+    // replacing it.
+    final updateStartup =
+        _startupTouched ||
+        startupOptions.enabled ||
+        (startupOptions.requiresReview &&
+            startupEnabled &&
+            (system || grid != null));
     final locator = ref.read(storageAccessLocatorProvider);
     final managedSiblings = [
       for (final entry

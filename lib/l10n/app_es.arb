@@ -3286,7 +3286,7 @@
   "startupUnlockConsentRemoveFailed": "Se guardaron los ajustes de bloqueo y se eliminó la entrada del sistema. xVeil no pudo guardar el cambio en el ajuste de inicio de sesión.",
   "startupUnlockSaveFailed": "Se guardaron los ajustes de bloqueo. No se pudo configurar el inicio de sesión tras reiniciar en el almacén del sistema. Desbloquea el dispositivo y vuelve a guardar. La contraseña del contenedor sigue funcionando.",
   "startupUnlockDisableFailed": "Se guardaron los ajustes de bloqueo de pantalla. No se pudo confirmar que se haya eliminado del almacenamiento del sistema el acceso rápido tras reiniciar.",
-  "startupUnlockReview": "Se autorizó el acceso rápido tras reiniciar, pero xVeil no pudo confirmar ningún método guardado. Para eliminar el acceso guardado, desactiva esta opción y guarda los cambios.",
+  "startupUnlockReview": "No se pudo confirmar el acceso rápido tras reiniciar. Para configurarlo de nuevo, elige un método de acceso, introduce tu contraseña y guarda los cambios. Para desactivarlo, apaga esta opción y guarda los cambios.",
   "chatFileSavePermissionDenied": "No hay permiso para escribir aquí. Elige otra carpeta o permite el acceso en el selector de archivos del sistema.",
   "chatFileSavedToChosenFolder": "Archivo guardado en la ubicación elegida",
   "chatFileDownloadedInApp": "Descargado en la carpeta de la aplicación. Usa «Guardar como» para elegir una carpeta en Archivos.",
