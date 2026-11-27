@@ -511,7 +511,7 @@ class QuickUnlockVault {
       nodes.toSet().length == nodes.length &&
       nodes.every((n) => n >= 0 && n < grid * grid);
 
-  Future<String?> openPattern(List<int> nodes) {
+  Future<String?> openPattern(List<int> nodes, {int? grid}) {
     if (_scopeState.retired) return Future.value(null);
     final generation = _generation;
     return _serial(() async {
@@ -519,7 +519,7 @@ class QuickUnlockVault {
       if (generation != _generation ||
           r == null ||
           r['grid'] is! int ||
-          !_valid(r['grid'], nodes) ||
+          !_valid(grid ?? r['grid'], nodes) ||
           r['pattern'] is! Map ||
           (r['tries'] as int? ?? 0) >= 10 ||
           (r['after'] as int? ?? 0) > DateTime.now().millisecondsSinceEpoch) {
@@ -538,7 +538,7 @@ class QuickUnlockVault {
       final key = await compute(_patternKey, <String, Object>{
         'device': p['device'] as String,
         'salt': p['salt'] as String,
-        'pattern': '${r['grid']}:${nodes.join(',')}',
+        'pattern': '${grid ?? r['grid']}:${nodes.join(',')}',
       });
       try {
         final plain = await AesGcm.with256bits().decrypt(

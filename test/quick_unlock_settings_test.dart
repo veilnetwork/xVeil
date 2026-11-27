@@ -54,8 +54,8 @@ class _Vault extends QuickUnlockVault {
       );
   String? saved;
   @override
-  Future<String?> openPattern(List<int> nodes) async =>
-      nodes.join(',') == '0,1,4,8' ? 'confirmed password' : null;
+  Future<String?> openPattern(List<int> nodes, {int? grid}) async =>
+      grid == 4 && nodes.join(',') == '0,1,4,8' ? 'confirmed password' : null;
   @override
   Future<void> configure({
     required String password,
@@ -425,15 +425,12 @@ void main() {
   testWidgets(
     'startup pattern is usable inside the actual scrollable password screen',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({kStartupUnlockOptIn: true});
       final app = _LockedApp();
       final c = ProviderContainer(
         overrides: [
           appControllerProvider.overrideWith(() => app),
           quickUnlockVaultProvider.overrideWithValue(_Vault()),
-          startupUnlockOptionsProvider.overrideWith(
-            (ref) async => const StartupUnlockOptions(grid: 3),
-          ),
         ],
       );
       addTearDown(c.dispose);
@@ -451,6 +448,11 @@ void main() {
       final l = AppL10n.of(tester.element(find.byType(LockScreen)));
       await tester.ensureVisible(find.text(l.quickUnlockPattern));
       await tester.tap(find.text(l.quickUnlockPattern));
+      await tester.pumpAndSettle();
+      expect(find.text('3 × 3'), findsOneWidget);
+      expect(find.text('5 × 5'), findsOneWidget);
+      await tester.ensureVisible(find.text('4 × 4'));
+      await tester.tap(find.text('4 × 4'));
       await tester.pumpAndSettle();
       for (final node in [0, 1, 4, 8]) {
         final dot = find.byKey(ValueKey('pattern-node-$node'));

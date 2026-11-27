@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../core/local_authentication.dart';
-import 'package:flutter/services.dart';
 import '../../state/app_controller.dart';
 import '../../state/identity_guard.dart';
+import '../../state/providers.dart' show prefsProvider;
 import '../../state/startup_unlock.dart';
 import '../../state/storage_router_providers.dart';
 import 'pattern_pad.dart';
@@ -17,12 +18,10 @@ class StartupQuickUnlock extends ConsumerStatefulWidget {
 }
 
 class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
-  List<int> _nodes = [];
-  int _padEpoch = 0;
   bool _busy = false;
   String? _failure;
 
-  Future<void> _unlock(bool system) async {
+  Future<void> _unlock({int? grid, List<int> nodes = const []}) async {
     if (_busy) return;
     final lease = ref.leaseIdentity();
     final app = ref.read(appControllerProvider.notifier);
@@ -30,7 +29,13 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
     final locator = ref.read(storageAccessLocatorProvider);
     final l = AppL10n.of(context);
     final authentication = ref.read(localScreenAuthenticationProvider);
+    final system = grid == null;
     authentication.lastFailure = null;
+    bool stillLocked() =>
+        mounted &&
+        ref.holdsIdentity(lease) &&
+        ref.read(storageAccessLocatorProvider) == locator &&
+        ref.read(appControllerProvider).phase == AppPhase.locked;
     String failureMessage(LocalAuthenticationFailure? failure) =>
         switch (failure) {
           LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
@@ -46,15 +51,16 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
       _failure = null;
     });
     try {
-      final password = system
-          ? await vault.openSystem(l.quickUnlockReason)
-          : await vault.openPattern(_nodes);
-      if (!mounted ||
-          ref.read(storageAccessLocatorProvider) != locator ||
-          !ref.holdsIdentity(lease) ||
-          ref.read(appControllerProvider).phase != AppPhase.locked) {
-        return;
+      final prefs = await ref.read(prefsProvider.future);
+      if (!stillLocked()) return;
+      String? password;
+      // Showing the methods grants no consent and does not inspect the vault.
+      if (startupUnlockConsented(prefs, locator)) {
+        password = system
+            ? await vault.openSystem(l.quickUnlockReason)
+            : await vault.openPattern(nodes, grid: grid);
       }
+      if (!stillLocked()) return;
       if (password == null) {
         setState(
           () => _failure = failureMessage(
@@ -65,7 +71,7 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
         await app.unlock(password);
       }
     } catch (error) {
-      if (mounted && ref.holdsIdentity(lease)) {
+      if (stillLocked()) {
         final failure = error is PlatformException
             ? switch (error.code) {
                 'authentication_cancelled' =>
@@ -82,46 +88,27 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
     } finally {
       if (mounted) {
         ref.invalidate(startupUnlockOptionsProvider);
-        setState(() {
-          _busy = false;
-          _nodes = [];
-          _padEpoch++;
-        });
+        setState(() => _busy = false);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final options = ref.watch(startupUnlockOptionsProvider).asData?.value;
     final l = AppL10n.of(context);
-    if (options == null || !options.enabled) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: Column(
         children: [
-          if (options.system)
-            OutlinedButton.icon(
-              onPressed: _busy ? null : () => _unlock(true),
-              icon: const Icon(Icons.fingerprint),
-              label: Text(l.quickUnlockSystem),
-            ),
-          if (options.grid != null && !options.patternBlocked)
-            ExpansionTile(
-              title: Text(l.quickUnlockPattern),
-              children: [
-                PatternPad(
-                  key: ValueKey('startup-pattern-$_padEpoch'),
-                  grid: options.grid!,
-                  onChanged: (v) => _nodes = v,
-                ),
-                TextButton(
-                  onPressed: _busy ? null : () => _unlock(false),
-                  child: Text(l.quickUnlockWithPattern),
-                ),
-              ],
-            ),
-          if (options.patternBlocked) Text(l.startupUnlockBlocked),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _unlock(),
+            icon: const Icon(Icons.fingerprint),
+            label: Text(l.quickUnlockSystem),
+          ),
+          UnlockPattern(
+            enabled: !_busy,
+            submit: (grid, nodes) => _unlock(grid: grid, nodes: nodes),
+          ),
           if (_failure case final failure?)
             Text(
               failure,

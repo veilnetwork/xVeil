@@ -133,9 +133,7 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   /// [ValueListenableBuilder] below is rebuilt per tick.
   final _owed = ValueNotifier<Duration>(Duration.zero);
   Timer? _ticker;
-  List<int> _pattern = [];
-  int _patternEpoch = 0;
-  LocalAuthenticationFailure? _authFailure;
+  String? _quickFailure;
   bool _authBusy = false;
 
   @override
@@ -157,12 +155,51 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   }
 
   void _submit() {
+    if (_quickFailure != null) setState(() => _quickFailure = null);
     if (ref.read(screenLockProvider.notifier).tryUnlock(_controller.text)) {
       _controller.clear();
     }
     // Either way: a success clears the debt and a failure creates or extends
     // one, and both have to be on screen before the next frame.
     _syncOwed();
+  }
+
+  void _unlockPattern(int grid, List<int> nodes) {
+    final l = AppL10n.of(context);
+    final unlocked = ref
+        .read(screenLockProvider.notifier)
+        .tryUnlockPattern(nodes, grid: grid);
+    setState(() => _quickFailure = unlocked ? null : l.startupUnlockFailed);
+    _syncOwed();
+  }
+
+  Future<void> _unlockSystem() async {
+    if (_authBusy) return;
+    final l = AppL10n.of(context);
+    final authentication = ref.read(localScreenAuthenticationProvider);
+    setState(() {
+      _authBusy = true;
+      _quickFailure = null;
+    });
+    authentication.lastFailure = null;
+    final unlocked = await ref
+        .read(screenLockProvider.notifier)
+        .tryUnlockSystem(l.quickUnlockReason);
+    if (!mounted) return;
+    setState(() {
+      _authBusy = false;
+      if (!unlocked) {
+        _quickFailure = switch (authentication.lastFailure) {
+          LocalAuthenticationFailure.cancelled => l.quickUnlockAuthCancelled,
+          LocalAuthenticationFailure.notEnrolled =>
+            l.quickUnlockAuthNotEnrolled,
+          LocalAuthenticationFailure.lockedOut => l.quickUnlockAuthLockedOut,
+          LocalAuthenticationFailure.unavailable => l.quickUnlockUnavailable,
+          LocalAuthenticationFailure.failed => l.quickUnlockAuthFailed,
+          null => l.startupUnlockFailed,
+        };
+      }
+    });
   }
 
   /// Read what is owed now, and run a ticker for exactly as long as some is.
@@ -189,7 +226,6 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final wrong = ref.watch(screenLockProvider.select((s) => s.wrongPassword));
-    final quick = ref.watch(screenLockProvider);
     // The prompt is a screen with a password field on it; the same reasoning
     // that guards the recovery phrase applies to the moment it is typed.
     return SecureScreenGuard(
@@ -257,79 +293,11 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                                     ? l.screenLockWait(
                                         screenLockWaitSeconds(owed),
                                       )
-                                    : (wrong ? l.lockWrong : null),
+                                    : (wrong && _quickFailure == null
+                                          ? l.lockWrong
+                                          : null),
                               ),
                             ),
-                            if (quick.patternGrid != null) ...[
-                              const SizedBox(height: 12),
-                              Text(l.quickUnlockPattern),
-                              Center(
-                                child: PatternPad(
-                                  key: ValueKey(
-                                    'unlock-pattern-$_patternEpoch',
-                                  ),
-                                  grid: quick.patternGrid!,
-                                  onChanged: (v) => _pattern = v,
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: waiting
-                                    ? null
-                                    : () {
-                                        ref
-                                            .read(screenLockProvider.notifier)
-                                            .tryUnlockPattern(_pattern);
-                                        setState(() {
-                                          _pattern = [];
-                                          _patternEpoch++;
-                                        });
-                                        _syncOwed();
-                                      },
-                                child: Text(l.quickUnlockWithPattern),
-                              ),
-                            ],
-                            if (quick.systemAuthentication)
-                              OutlinedButton.icon(
-                                icon: const Icon(Icons.fingerprint),
-                                label: Text(l.quickUnlockSystem),
-                                onPressed: waiting || _authBusy
-                                    ? null
-                                    : () async {
-                                        setState(() {
-                                          _authBusy = true;
-                                          _authFailure = null;
-                                        });
-                                        final authentication = ref.read(
-                                          localScreenAuthenticationProvider,
-                                        );
-                                        authentication.lastFailure = null;
-                                        await ref
-                                            .read(screenLockProvider.notifier)
-                                            .tryUnlockSystem(
-                                              l.quickUnlockReason,
-                                            );
-                                        if (mounted) {
-                                          setState(() {
-                                            _authBusy = false;
-                                            _authFailure =
-                                                authentication.lastFailure;
-                                          });
-                                        }
-                                      },
-                              ),
-                            if (_authFailure case final failure?)
-                              Text(switch (failure) {
-                                LocalAuthenticationFailure.cancelled =>
-                                  l.quickUnlockAuthCancelled,
-                                LocalAuthenticationFailure.notEnrolled =>
-                                  l.quickUnlockAuthNotEnrolled,
-                                LocalAuthenticationFailure.lockedOut =>
-                                  l.quickUnlockAuthLockedOut,
-                                LocalAuthenticationFailure.unavailable =>
-                                  l.quickUnlockUnavailable,
-                                LocalAuthenticationFailure.failed =>
-                                  l.quickUnlockAuthFailed,
-                              }),
                             const SizedBox(height: 16),
                             FilledButton(
                               key: const ValueKey('screen-lock-submit'),
@@ -342,6 +310,19 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                               onPressed: waiting ? null : _submit,
                               child: Text(l.lockUnlock),
                             ),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.fingerprint),
+                              label: Text(l.quickUnlockSystem),
+                              onPressed: waiting || _authBusy
+                                  ? null
+                                  : _unlockSystem,
+                            ),
+                            UnlockPattern(
+                              enabled: !waiting && !_authBusy,
+                              submit: _unlockPattern,
+                            ),
+                            if (_quickFailure case final failure?)
+                              Text(failure),
                           ],
                         );
                       },

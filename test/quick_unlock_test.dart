@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/local_authentication.dart';
 import 'package:xveil/domain/screen_lock.dart';
 import 'package:xveil/features/lock/pattern_pad.dart';
+import 'package:xveil/features/lock/screen_lock_overlay.dart';
+import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/screen_lock_controller.dart';
 
@@ -106,6 +108,39 @@ void main() {
       expect(storage.settings.keys.where((k) => k.contains('quick')), isEmpty);
     },
   );
+
+  testWidgets('screen lock offers biometrics without a configured pattern', (
+    tester,
+  ) async {
+    controller.onLeftForeground();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: ScreenLockHost(child: SizedBox()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ScreenLockCover)));
+    expect(find.text(l.quickUnlockPattern), findsOneWidget);
+    await tester.tap(find.text(l.quickUnlockSystem));
+    await tester.pumpAndSettle();
+    expect(auth.requests, 0);
+    expect(find.text(l.startupUnlockFailed), findsOneWidget);
+    expect(controller.tryUnlock('strong container password'), isTrue);
+
+    expect(await configure(system: true), isTrue);
+    controller.onLeftForeground();
+    await tester.pumpAndSettle();
+    expect(find.text(l.quickUnlockPattern), findsOneWidget);
+    await tester.tap(find.text(l.quickUnlockSystem));
+    await tester.pumpAndSettle();
+    expect(auth.requests, 2); // Enrollment and unlock.
+    expect(find.byType(ScreenLockCover), findsNothing);
+  });
 
   test(
     'pattern and password share the throttle and password remains usable',

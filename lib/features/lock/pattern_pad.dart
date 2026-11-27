@@ -1,6 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 
+import '../../l10n/app_localizations.dart';
+
+/// The grid is chosen by the person unlocking, so the prompt never displays
+/// the grid size saved for a particular identity.
+class UnlockPattern extends StatefulWidget {
+  const UnlockPattern({super.key, required this.enabled, required this.submit});
+
+  final bool enabled;
+  final void Function(int grid, List<int> nodes) submit;
+
+  @override
+  State<UnlockPattern> createState() => _UnlockPatternState();
+}
+
+class _UnlockPatternState extends State<UnlockPattern> {
+  int _grid = 3;
+  int _attempt = 0;
+  List<int> _nodes = const [];
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return ExpansionTile(
+      title: Text(l.quickUnlockPattern),
+      onExpansionChanged: (expanded) {
+        if (!expanded) {
+          setState(() {
+            _nodes = const [];
+            _attempt++;
+          });
+        }
+      },
+      children: [
+        SegmentedButton<int>(
+          segments: [
+            for (final grid in [3, 4, 5])
+              ButtonSegment(value: grid, label: Text('$grid × $grid')),
+          ],
+          selected: {_grid},
+          onSelectionChanged: widget.enabled
+              ? (selection) => setState(() {
+                  _grid = selection.single;
+                  _nodes = const [];
+                  _attempt++;
+                })
+              : null,
+        ),
+        Center(
+          child: PatternPad(
+            key: ValueKey(_attempt),
+            grid: _grid,
+            onChanged: (nodes) => _nodes = nodes,
+          ),
+        ),
+        TextButton(
+          onPressed: widget.enabled
+              ? () {
+                  final nodes = _nodes;
+                  setState(() {
+                    _nodes = const [];
+                    _attempt++;
+                  });
+                  widget.submit(_grid, nodes);
+                }
+              : null,
+          child: Text(l.quickUnlockWithPattern),
+        ),
+      ],
+    );
+  }
+}
+
 /// Exact, non-repeating sequence. Dragging and tapping select the same nodes;
 /// keyboard and accessibility users can activate each numbered dot as a button.
 class PatternPad extends StatefulWidget {
@@ -65,7 +137,7 @@ class _PatternPadState extends State<PatternPad> {
         builder: (context, constraints) {
           final size = constraints.maxWidth;
           return GestureDetector(
-          dragStartBehavior: DragStartBehavior.down,
+            dragStartBehavior: DragStartBehavior.down,
             behavior: HitTestBehavior.opaque,
             onPanStart: (d) {
               _previous = null;

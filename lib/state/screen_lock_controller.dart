@@ -424,16 +424,17 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   static String _patternText(int grid, List<int> nodes) =>
       '$grid:${nodes.join(',')}';
 
-  bool tryUnlockPattern(List<int> nodes) {
-    final grid = state.patternGrid;
+  bool tryUnlockPattern(List<int> nodes, {int? grid}) {
+    final candidateGrid = grid ?? state.patternGrid;
+    if (!state.locked) return false;
     if (throttleRemaining > Duration.zero) {
       state = state.copyWith(wrongPassword: false);
       return false;
     }
     return _tryVerifier(
       _patternVerifier,
-      grid != null && validPattern(grid, nodes)
-          ? _patternText(grid, nodes)
+      candidateGrid != null && validPattern(candidateGrid, nodes)
+          ? _patternText(candidateGrid, nodes)
           : 'invalid',
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:xveil/domain/storage_locator.dart';
 import 'package:xveil/domain/storage_protection.dart';
 
@@ -8,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/local_authentication.dart';
 import 'package:xveil/core/quick_unlock_vault.dart';
+import 'package:xveil/features/lock/lock_screen.dart';
+import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/startup_unlock.dart';
 import 'package:xveil/state/app_controller.dart';
 
@@ -56,6 +59,16 @@ class _Authentication extends LocalScreenAuthentication {
   Future<bool> authenticate(String reason) async => true;
 }
 
+class _LockedApp extends AppController {
+  String? submittedPassword;
+
+  @override
+  AppState build() => const AppState(AppPhase.locked);
+
+  @override
+  Future<void> unlock(String password) async => submittedPassword = password;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late _Store store;
@@ -63,6 +76,42 @@ void main() {
       QuickUnlockVault(store, scope, _Authentication());
   const password = 'strong fixture container password';
   setUp(() => store = _Store());
+
+  for (final consent in [false, true]) {
+    testWidgets('startup buttons are independent of saved consent ($consent)', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({kStartupUnlockOptIn: consent});
+      await vault().configure(password: password, system: true);
+      final readsBefore = store.reads;
+      final app = _LockedApp();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appControllerProvider.overrideWith(() => app),
+            quickUnlockVaultProvider.overrideWith((ref) => vault()),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: LockScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+      expect(find.text(l.quickUnlockPattern), findsOneWidget);
+      expect(find.text(l.quickUnlockSystem), findsOneWidget);
+      expect(store.reads, readsBefore);
+      await tester.tap(find.text(l.quickUnlockSystem));
+      await tester.pumpAndSettle();
+      expect(app.submittedPassword, consent ? password : isNull);
+      if (!consent) {
+        expect(store.reads, readsBefore);
+        expect(find.text(l.startupUnlockFailed), findsOneWidget);
+      }
+    });
+  }
 
   test(
     'explicit managed cleanup refuses a missing profile context before OS access',
@@ -107,8 +156,8 @@ void main() {
       expect(store.values.values.join(), isNot(contains(password)));
       final restarted = vault();
       expect((await restarted.options()).grid, 3);
-      expect(await restarted.openPattern([0, 1, 4, 7]), isNull);
-      expect(await vault().openPattern([0, 1, 4, 8]), password);
+      expect(await restarted.openPattern([0, 1, 4, 8], grid: 4), isNull);
+      expect(await vault().openPattern([0, 1, 4, 8], grid: 3), password);
       expect((await vault('other-profile').options()).enabled, isFalse);
     },
   );

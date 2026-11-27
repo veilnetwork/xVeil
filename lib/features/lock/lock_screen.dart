@@ -320,7 +320,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                             )
                           : Text(plain ? l.storageOpenPlain : l.lockUnlock),
                     ),
-                    if (!plain && !choiceRequired) const StartupQuickUnlock(),
+                    if (!plain && !choiceRequired)
+                      StartupQuickUnlock(key: ValueKey(access)),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: _busy ? null : _startOver,
