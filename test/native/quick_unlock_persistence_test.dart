@@ -63,12 +63,19 @@ class _AppliedSecrets {
     });
     messenger.setMockMethodCallHandler(native, (call) async {
       final args = Map<String, dynamic>.from(call.arguments as Map);
-      expect(args.keys.toSet(), {'key', 'biometric'});
       final biometric = args['biometric'] as bool;
+      expect(args.keys.toSet(), {
+        'key',
+        'biometric',
+        if (call.method == 'flush' && !biometric) 'publicNamespace',
+      });
       final prefix = '${namespace(args['key'] as String, biometric)}:';
       final address = '$prefix${args['key']}';
       if (unreadableRecords && call.method != 'flush') {
         throw PlatformException(code: 'record_store_unreadable');
+      }
+      if (call.method == 'publicWriteNamespace') {
+        return namespace(args['key'] as String, false);
       }
       if (call.method == 'readPublic') return memory[address];
       if (call.method == 'contains') return memory.containsKey(address);
@@ -170,7 +177,12 @@ void main() {
     'missing persistence bridge never treats RAM readback as durable',
     () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(_AppliedSecrets.native, null);
+          .setMockMethodCallHandler(_AppliedSecrets.native, (call) async {
+            if (call.method == 'publicWriteNamespace') {
+              return backend.namespace(key, false);
+            }
+            throw MissingPluginException();
+          });
       await expectLater(
         const QuickUnlockSecretStore().write(key, 'synthetic value'),
         throwsA(isA<MissingPluginException>()),

@@ -46,7 +46,7 @@ private fun verifyPublicReader() {
     var unwraps = 0
     var beforeUnwrap: (() -> Unit)? = null
     var refuseKey = false
-    val reader = QuickUnlockPublicReader(root, prefix) { bytes ->
+    val reader = QuickUnlockPublicReader(root, prefix) { _, bytes ->
         unwraps++
         beforeUnwrap?.invoke()
         check(!refuseKey)
@@ -123,6 +123,70 @@ private fun verifyPublicReader() {
         }
         check(snapshot() == intact && unwraps == seen)
         check(reader.read(key) == value)
+
+        val fresh = QuickUnlockPersistence.freshPublicNamespace(key)
+        val freshData = root.resolve("$fresh.xml")
+        write(freshData, xml("${prefix}_$key" to encoded))
+        refuses()
+        Files.delete(data)
+        write(root.resolve("FlutterSecureStorageConfiguration:$fresh.xml"), configXml)
+        write(root.resolve("FlutterSecureKeyStorage:$fresh.xml"), keysXml)
+        readsWithoutChanges()
+    } finally {
+        Files.walk(root).use { it.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
+    }
+}
+
+private fun verifyLegacyRepair() {
+    val root = Files.createTempDirectory("xveil-legacy-repair-")
+    val key = "xveil.quick.v1.synthetic"
+    val sibling = "xveil.quick.v1.synthetic-sibling"
+    val oldSlot = "$key.bio.slot"
+    val siblingSlot = "$sibling.bio.slot"
+    val prefix = "fixture"
+    val legacy = QuickUnlockPersistence.namespace(key, false)
+    val slotNamespace = QuickUnlockPersistence.namespace(oldSlot, true)
+    val siblingNamespace = QuickUnlockPersistence.namespace(siblingSlot, true)
+    fun path(namespace: String) = root.resolve("$namespace.xml")
+    fun backing(namespace: String) = QuickUnlockPreferenceFile(path(namespace), "${prefix}_xveil.quick.v1.")
+    fun write(namespace: String, values: Map<String, String>) {
+        Files.writeString(path(namespace), "<map>" + values.entries.joinToString("") {
+            "<string name=\"${it.key}\">${it.value}</string>"
+        } + "</map>")
+    }
+    var failingRemoval = true
+    val reader = QuickUnlockPublicReader(root, prefix) { _, _ -> error("Detached wrapping key") }
+    val records = QuickUnlockRecordStore(prefix, reader::namespace) { namespace ->
+        object : QuickUnlockRecordPreferences {
+            override fun contains(key: String) = backing(namespace).contains(key)
+            override fun removeAndCommit(key: String): Boolean {
+                if (namespace == slotNamespace && failingRemoval) return false
+                write(namespace, backing(namespace).snapshot() - key)
+                return true
+            }
+        }
+    }
+    try {
+        val original = mapOf("${prefix}_$key" to "AQ==", "${prefix}_$sibling" to "Ag==")
+        write(legacy, original)
+        Files.writeString(root.resolve("FlutterSecureKeyStorage:$legacy.xml"),
+            "<map><string name=\"${QuickUnlockPublicReader.WRAPPED_KEY}\">Aw==</string></map>")
+        write(slotNamespace, mapOf("${prefix}_$oldSlot" to "BA=="))
+        write(siblingNamespace, mapOf("${prefix}_$siblingSlot" to "BQ=="))
+        val repair = QuickUnlockLegacyRepair(root, prefix, reader, records)
+        val backup = path(slotNamespace).resolveSibling("$slotNamespace.xml.bak")
+        Files.copy(path(slotNamespace), backup)
+        check(runCatching { repair.removeUnreadable(key) }.exceptionOrNull() is QuickUnlockRecordFileFailure)
+        check(backing(legacy).snapshot() == original)
+        Files.delete(backup)
+        check(runCatching { repair.removeUnreadable(key) }.isFailure)
+        check(backing(legacy).snapshot() == original && records.contains(oldSlot, true))
+        failingRemoval = false
+        check(repair.removeUnreadable(key))
+        check(!records.contains(oldSlot, true) && records.contains(siblingSlot, true))
+        check(backing(legacy).snapshot() == original - "${prefix}_$key")
+        check(reader.namespace(key) == QuickUnlockPersistence.freshPublicNamespace(key))
+        check(!repair.removeUnreadable(key))
     } finally {
         Files.walk(root).use { it.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
     }
@@ -131,6 +195,7 @@ private fun verifyPublicReader() {
 fun main() {
     try {
         verifyPublicReader()
+        verifyLegacyRepair()
         println("quick-unlock read-only public record checks passed")
     } catch (_: Throwable) {
         println("quick-unlock read-only public record checks failed")

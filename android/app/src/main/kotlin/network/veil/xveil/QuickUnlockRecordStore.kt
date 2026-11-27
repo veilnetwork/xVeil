@@ -10,12 +10,14 @@ internal interface QuickUnlockRecordPreferences {
 
 internal class QuickUnlockRecordStore(
     private val prefix: String,
+    private val publicNamespace: (String) -> String = { QuickUnlockPersistence.namespace(it, false) },
     private val open: (String) -> QuickUnlockRecordPreferences,
 ) {
     init { require(prefix.isNotEmpty() && prefix.length <= 256 && !prefix.contains('\u0000')) }
 
     private fun record(key: String, biometric: Boolean): Pair<QuickUnlockRecordPreferences, String> {
-        val namespace = QuickUnlockPersistence.namespace(key, biometric)
+        val namespace = if (biometric) QuickUnlockPersistence.namespace(key, true)
+            else publicNamespace(key)
         return open(namespace) to "${prefix}_$key"
     }
 

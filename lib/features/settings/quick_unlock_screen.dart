@@ -159,6 +159,9 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
                   grid: startupGrid,
                   nodes: nodes,
                   system: system,
+                  // The screen-lock controller already verified the password.
+                  // Save authorizes replacing this identity's entry.
+                  repairLegacyAndroidRecord: true,
                   stillCurrent: () =>
                       mounted &&
                       ref.holdsIdentity(lease) &&

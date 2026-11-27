@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix='xveil-quick-unlock-', dir=temp_root) as
         str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockPreferenceFile.kt'),
         str(ROOT / 'test/native/QuickUnlockPreferenceFileSmoke.kt'),
         str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockPublicReader.kt'),
+        str(ROOT / 'android/app/src/main/kotlin/network/veil/xveil/QuickUnlockLegacyRepair.kt'),
         str(ROOT / 'test/native/QuickUnlockPublicReaderSmoke.kt'),
     ], check=True)
     subprocess.run([

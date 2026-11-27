@@ -7,8 +7,11 @@ import java.security.MessageDigest
  * No credential values, aliases or filesystem paths cross this port.
  */
 internal class QuickUnlockPersistence(private val commit: (String) -> Boolean) {
-    fun flush(key: String, biometric: Boolean) {
-        val namespace = namespace(key, biometric)
+    fun flush(key: String, biometric: Boolean, publicNamespace: String? = null) {
+        val original = namespace(key, biometric)
+        require(publicNamespace == null ||
+            (!biometric && publicNamespace in listOf(original, freshPublicNamespace(key))))
+        val namespace = publicNamespace ?: original
         var confirmed = true
         // Wrapped keys/config are dependencies of the encrypted record. The
         // final empty editor also waits for earlier apply() work on that store.
@@ -27,6 +30,11 @@ internal class QuickUnlockPersistence(private val commit: (String) -> Boolean) {
     }
 
     companion object {
+        fun freshPublicNamespace(key: String): String {
+            namespace(key, false) // Validate the logical address before deriving a namespace.
+            return "xveil_quick_pattern_v2_" + digest(key)
+        }
+
         fun namespace(key: String, biometric: Boolean): String {
             require(key.startsWith("xveil.quick.v1.") &&
                 key.length > "xveil.quick.v1.".length && key.length <= 4096 &&
@@ -34,9 +42,12 @@ internal class QuickUnlockPersistence(private val commit: (String) -> Boolean) {
                 "Invalid quick-unlock persistence request"
             }
             if (!biometric) return "xveil_quick_pattern_v1"
-            return "xveil_quick_bio_v1_" + MessageDigest.getInstance("SHA-256")
+            return "xveil_quick_bio_v1_" + digest(key)
+        }
+
+        private fun digest(key: String): String =
+            MessageDigest.getInstance("SHA-256")
                 .digest(key.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }.take(24)
-        }
     }
 }

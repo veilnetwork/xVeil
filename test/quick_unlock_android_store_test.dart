@@ -78,6 +78,8 @@ void main() {
   var authenticatedReads = 0;
   var failProtectedRemoval = false;
   var skipProtectedPersistence = false;
+  String? unreadableKey;
+  int repairs = 0;
   const authenticatedChannel = MethodChannel('xveil/quick_unlock');
 
   Future<Object?> nativeCall(MethodCall call) async {
@@ -85,9 +87,20 @@ void main() {
     final arguments = Map<String, dynamic>.from(call.arguments as Map);
     final key = arguments['key'] as String;
     final biometric = call.method == 'read' || arguments['biometric'] == true;
+    final digest = crypto.sha256.convert(utf8.encode(key)).toString();
     final namespace = biometric
-        ? 'xveil_quick_bio_v1_${crypto.sha256.convert(utf8.encode(key)).toString().substring(0, 24)}'
-        : 'xveil_quick_pattern_v1';
+        ? 'xveil_quick_bio_v1_${digest.substring(0, 24)}'
+        : values.containsKey('xveil_quick_pattern_v1:$key')
+        ? 'xveil_quick_pattern_v1'
+        : 'xveil_quick_pattern_v2_${digest.substring(0, 24)}';
+    if (call.method == 'publicWriteNamespace') return namespace;
+    if (call.method == 'repairPublic') {
+      repairs++;
+      expect(key, unreadableKey);
+      values.remove('xveil_quick_pattern_v1:$key');
+      unreadableKey = null;
+      return true;
+    }
     if (call.method == 'contains') {
       return !(biometric && skipProtectedPersistence) &&
           values.containsKey('$namespace:$key');
@@ -99,7 +112,15 @@ void main() {
       values.remove('$namespace:$key');
       return true;
     }
-    if (call.method == 'readPublic') return values['$namespace:$key'];
+    if (call.method == 'readPublic') {
+      if (unreadableKey == key) {
+        throw PlatformException(
+          code: 'record_operation_failed',
+          details: 'KEY',
+        );
+      }
+      return values['$namespace:$key'];
+    }
     expect(call.method, 'read');
     authenticatedReads++;
     if (denyAuthentication) return null;
@@ -114,6 +135,8 @@ void main() {
     authenticatedReads = 0;
     failProtectedRemoval = false;
     skipProtectedPersistence = false;
+    unreadableKey = null;
+    repairs = 0;
     messenger.setMockMethodCallHandler(authenticatedChannel, nativeCall);
     messenger.setMockMethodCallHandler(channel, (call) async {
       final arguments = Map<String, dynamic>.from(call.arguments as Map);
@@ -376,6 +399,49 @@ void main() {
       expect((await vault.options()).enabled, isFalse);
       skipProtectedPersistence = false;
       expect(values, isEmpty);
+    },
+  );
+
+  test(
+    'explicit repair publishes a new Android entry in its own namespace',
+    () async {
+      const key = 'xveil.quick.v1.fixture-legacy';
+      const legacyRecord = 'xveil_quick_pattern_v1:$key';
+      const sibling = 'xveil_quick_pattern_v1:xveil.quick.v1.sibling';
+      values[legacyRecord] = 'unreadable encrypted record';
+      values[sibling] = 'sibling record';
+      unreadableKey = key;
+      QuickUnlockVault vault() => QuickUnlockVault(
+        const QuickUnlockSecretStore(),
+        'fixture-legacy',
+        _Authentication(),
+      );
+      await expectLater(
+        vault().configure(password: 'fixture-password', system: true),
+        throwsA(isA<QuickUnlockEnrollmentFailure>()),
+      );
+      await expectLater(
+        vault().configure(
+          password: 'fixture-password',
+          system: true,
+          repairLegacyAndroidRecord: true,
+          stillCurrent: () => false,
+        ),
+        throwsA(isA<QuickUnlockEnrollmentFailure>()),
+      );
+      expect(repairs, 0);
+      expect(values[legacyRecord], 'unreadable encrypted record');
+      await vault().configure(
+        password: 'fixture-password',
+        system: true,
+        repairLegacyAndroidRecord: true,
+      );
+      expect(repairs, 1);
+      expect(values.containsKey(legacyRecord), isFalse);
+      expect(values[sibling], 'sibling record');
+      expect(await vault().openSystem('fixture'), 'fixture-password');
+      await vault().forget();
+      expect(values, {sibling: 'sibling record'});
     },
   );
 }

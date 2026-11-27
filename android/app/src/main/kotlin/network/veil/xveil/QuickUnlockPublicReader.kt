@@ -19,11 +19,23 @@ internal class QuickUnlockPublicReadFailure(val reason: Reason) : Exception() {
 internal class QuickUnlockPublicReader(
     private val directory: Path,
     private val prefix: String,
-    private val unwrapExisting: (ByteArray) -> Key,
+    private val unwrapExisting: (String, ByteArray) -> Key,
 ) {
+    private fun data(namespace: String) =
+        QuickUnlockPreferenceFile(directory.resolve("$namespace.xml"), "${prefix}_xveil.quick.v1.")
+
+    fun namespace(key: String): String {
+        val legacy = QuickUnlockPersistence.namespace(key, false)
+        val fresh = QuickUnlockPersistence.freshPublicNamespace(key)
+        val record = "${prefix}_$key"
+        val oldEntry = data(legacy).contains(record)
+        check(!oldEntry || !data(fresh).contains(record)) { "Conflicting saved-entry records" }
+        return if (oldEntry) legacy else fresh
+    }
+
     fun read(key: String): String? {
-        val namespace = QuickUnlockPersistence.namespace(key, false)
-        val dataFile = QuickUnlockPreferenceFile(directory.resolve("$namespace.xml"), "${prefix}_xveil.quick.v1.")
+        val namespace = namespace(key)
+        val dataFile = data(namespace)
         val data = dataFile.snapshot()
         val encoded = data["${prefix}_$key"] ?: return null
         val configFile = QuickUnlockPreferenceFile(
@@ -59,7 +71,7 @@ internal class QuickUnlockPublicReader(
         var clear: ByteArray? = null
         try {
             val secret = try {
-                unwrapExisting(wrapped).also { check(it.algorithm == "AES") }
+                unwrapExisting(namespace, wrapped).also { check(it.algorithm == "AES") }
             } catch (_: Exception) {
                 throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
             }
@@ -77,7 +89,8 @@ internal class QuickUnlockPublicReader(
             }
             // Refuse observable changes during this read; never return an old
             // cached record after a completed removal or configuration change.
-            if (dataFile.snapshot() != data || configFile.snapshot() != config || keyFile.snapshot() != keys) {
+            if (dataFile.snapshot() != data || configFile.snapshot() != config ||
+                keyFile.snapshot() != keys || namespace(key) != namespace) {
                 throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.CHANGED)
             }
             return value

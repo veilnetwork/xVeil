@@ -151,8 +151,9 @@ class QuickUnlockSecretStore {
   const QuickUnlockSecretStore();
   FlutterSecureStorage _store(
     bool biometric,
-    String key,
-  ) => FlutterSecureStorage(
+    String key, {
+    String? publicNamespace,
+  }) => FlutterSecureStorage(
     aOptions: biometric
         ? AndroidOptions.biometric(
             storageNamespace:
@@ -165,8 +166,8 @@ class QuickUnlockSecretStore {
             // strong-biometric requirement; a failure must never reset data.
             migrateOnAlgorithmChange: true,
           )
-        : const AndroidOptions(
-            storageNamespace: 'xveil_quick_pattern_v1',
+        : AndroidOptions(
+            storageNamespace: publicNamespace ?? 'xveil_quick_pattern_v1',
             resetOnError: false,
           ),
     iOptions: IOSOptions(
@@ -213,8 +214,34 @@ class QuickUnlockSecretStore {
   }
 
   Future<void> write(String key, String value, {bool biometric = false}) async {
-    await _store(biometric, key).write(key: key, value: value);
-    await _persist(key, biometric);
+    String? namespace;
+    if (defaultTargetPlatform == TargetPlatform.android && !biometric) {
+      namespace = await const MethodChannel('xveil/quick_unlock')
+          .invokeMethod<String>('publicWriteNamespace', {
+            'key': key,
+            'biometric': false,
+          });
+      final digest = crypto.sha256.convert(utf8.encode(key)).toString();
+      if (namespace != 'xveil_quick_pattern_v1' &&
+          namespace != 'xveil_quick_pattern_v2_${digest.substring(0, 24)}') {
+        throw StateError('Saved sign-in destination not confirmed');
+      }
+    }
+    await _store(
+      biometric,
+      key,
+      publicNamespace: namespace,
+    ).write(key: key, value: value);
+    await _persist(key, biometric, namespace);
+  }
+
+  Future<bool> repairAndroidLegacyRecord(String key) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    return await const MethodChannel('xveil/quick_unlock').invokeMethod<bool>(
+          'repairPublic',
+          {'key': key, 'biometric': false},
+        ) ==
+        true;
   }
 
   Future<void> delete(String key, {bool biometric = false}) async {
@@ -230,14 +257,21 @@ class QuickUnlockSecretStore {
     await _store(biometric, key).delete(key: key);
   }
 
-  Future<void> _persist(String key, bool biometric) async {
+  Future<void> _persist(
+    String key,
+    bool biometric,
+    String? publicNamespace,
+  ) async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     // FSS 10.3.4 uses SharedPreferences.apply(): its reply and subsequent
     // readback only observe RAM. Keep cleanup intents and accepted operations
     // alive until the corresponding native disk writes are confirmed too.
-    final confirmed = await const MethodChannel(
-      'xveil/quick_unlock',
-    ).invokeMethod<bool>('flush', {'key': key, 'biometric': biometric});
+    final confirmed = await const MethodChannel('xveil/quick_unlock')
+        .invokeMethod<bool>('flush', {
+          'key': key,
+          'biometric': biometric,
+          'publicNamespace': ?publicNamespace,
+        });
     if (confirmed != true) {
       throw StateError('Saved sign-in persistence not confirmed');
     }
@@ -445,6 +479,7 @@ class QuickUnlockVault {
     int? grid,
     List<int>? nodes,
     required bool system,
+    bool repairLegacyAndroidRecord = false,
     bool Function()? stillCurrent,
   }) {
     if (_scopeState.retired) {
@@ -452,7 +487,11 @@ class QuickUnlockVault {
     }
     final generation = ++_generation;
     return _serial(() async {
-      final Map<String, dynamic>? previous;
+      bool current() =>
+          generation == _generation &&
+          !_scopeState.retired &&
+          (stillCurrent?.call() ?? true);
+      Map<String, dynamic>? previous;
       try {
         previous = await _read(forRemoval: true);
       } catch (error, trace) {
@@ -460,14 +499,37 @@ class QuickUnlockVault {
             error is StateError) {
           rethrow;
         }
-        Error.throwWithStackTrace(
-          QuickUnlockEnrollmentFailure._(
-            _EnrollmentStep.readPrevious,
-            error,
-            cleanupFailed: false,
-          ),
-          trace,
-        );
+        var repaired = false;
+        if (repairLegacyAndroidRecord &&
+            error is PlatformException &&
+            error.code == 'record_operation_failed' &&
+            error.details == 'KEY' &&
+            (grid == null || (nodes != null && _valid(grid, nodes))) &&
+            current()) {
+          try {
+            repaired = await store.repairAndroidLegacyRecord(_key);
+          } catch (error, trace) {
+            Error.throwWithStackTrace(
+              QuickUnlockEnrollmentFailure._(
+                _EnrollmentStep.removePrevious,
+                error,
+                cleanupFailed: false,
+              ),
+              trace,
+            );
+          }
+        }
+        if (!repaired) {
+          Error.throwWithStackTrace(
+            QuickUnlockEnrollmentFailure._(
+              _EnrollmentStep.readPrevious,
+              error,
+              cleanupFailed: false,
+            ),
+            trace,
+          );
+        }
+        previous = null;
       }
       Map<String, dynamic>? pattern;
       if (grid != null) {
@@ -515,10 +577,6 @@ class QuickUnlockVault {
       final id = _random(16);
       var published = false;
       var step = _EnrollmentStep.removePrevious;
-      bool current() =>
-          generation == _generation &&
-          !_scopeState.retired &&
-          (stillCurrent?.call() ?? true);
       if (!current()) throw StateError('Unlock configuration superseded');
       try {
         // Retire the previous authenticated slot before publishing a fresh

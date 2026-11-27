@@ -39,14 +39,24 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
     private val gate = QuickUnlockReadGate<Read>()
     private val channel = MethodChannel(messenger, "xveil/quick_unlock")
     private val context = activity.applicationContext
+    private val preferenceDirectory = File(context.dataDir, "shared_prefs").toPath()
+    private val prefix = FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix
     private val persistence = QuickUnlockPersistence { name ->
         context.getSharedPreferences(name, Activity.MODE_PRIVATE).edit().commit()
     }
-    private val records = QuickUnlockRecordStore(
-        FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix,
-    ) { namespace ->
-        val backing = QuickUnlockPreferenceFile(File(context.dataDir, "shared_prefs/$namespace.xml").toPath(),
-            FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix + "_xveil.quick.v1.")
+    private val publicReader = QuickUnlockPublicReader(preferenceDirectory, prefix) { namespace, wrapped ->
+        // Only retrieve an existing private key. No plugin/factory constructor:
+        // those constructors can generate keys between a preflight and use.
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.$namespace"
+        val key = ks.getKey(alias, null) as? PrivateKey ?: error("Saved-entry key unavailable")
+        val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
+        cipher.init(Cipher.UNWRAP_MODE, key,
+            OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
+        cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+    }
+    private val records = QuickUnlockRecordStore(prefix, publicReader::namespace) { namespace ->
+        val backing = QuickUnlockPreferenceFile(preferenceDirectory.resolve("$namespace.xml"), "${prefix}_xveil.quick.v1.")
         backing.contains() // Before framework loading can hide/repair malformed state.
         val preferences = context.getSharedPreferences(namespace, Activity.MODE_PRIVATE)
         object : QuickUnlockRecordPreferences {
@@ -59,25 +69,12 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
             }
         }
     }
-    private val publicReader = QuickUnlockPublicReader(
-        File(context.dataDir, "shared_prefs").toPath(),
-        FlutterSecureStorageConfig(emptyMap<String, Any>()).sharedPreferencesKeyPrefix,
-    ) { wrapped ->
-        // Only retrieve an existing private key. No plugin/factory constructor:
-        // those constructors can generate keys between a preflight and use.
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.xveil_quick_pattern_v1"
-        val key = ks.getKey(alias, null) as? PrivateKey ?: error("Saved-entry key unavailable")
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
-        cipher.init(Cipher.UNWRAP_MODE, key,
-            OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
-        cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
-    }
+    private val legacyRepair = QuickUnlockLegacyRepair(preferenceDirectory, prefix, publicReader, records)
     private var closed = false
 
     init {
         channel.setMethodCallHandler { call, result ->
-            if (call.method == "flush" || call.method == "contains" || call.method == "remove" || call.method == "readPublic") {
+            if (call.method in setOf("flush", "contains", "remove", "readPublic", "publicWriteNamespace", "repairPublic")) {
                 val args = call.arguments as? Map<*, *>
                 val key = args?.get("key") as? String
                 val biometric = args?.get("biometric") as? Boolean
@@ -86,16 +83,24 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                 } else {
                     try {
                         QuickUnlockPersistence.namespace(key, biometric)
-                        if (call.method == "readPublic") require(!biometric)
+                        if (call.method in setOf("readPublic", "publicWriteNamespace", "repairPublic")) require(!biometric)
                         // Do not block the UI thread. Accepted commits survive
                         // dispose's executor shutdown and settle their own reply.
                         worker.execute {
                             try {
                                 val answer = when (call.method) {
                                     "readPublic" -> publicReader.read(key)
+                                    "publicWriteNamespace" -> {
+                                        records.contains(key, false) // Check the destination before plugin initialization.
+                                        publicReader.namespace(key)
+                                    }
+                                    "repairPublic" -> legacyRepair.removeUnreadable(key)
                                     "contains" -> records.contains(key, biometric)
                                     "remove" -> { records.remove(key, biometric); true }
-                                    else -> { persistence.flush(key, biometric); true }
+                                    else -> {
+                                        persistence.flush(key, biometric, args["publicNamespace"] as? String)
+                                        true
+                                    }
                                 }
                                 main.post { result.success(answer) }
                             } catch (error: Exception) {
