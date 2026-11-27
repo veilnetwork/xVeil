@@ -325,7 +325,7 @@ void main() {
       // check are already done, and the swap lands in exactly the window the
       // detection exists for.
       final reading = readSecretFile(ours, 'password', isWindows: false);
-      File(ours).deleteSync();
+      // Replace atomically so a concurrent open cannot observe an absent name.
       File(planted).renameSync(ours);
 
       await expectLater(

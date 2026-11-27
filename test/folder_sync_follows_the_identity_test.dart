@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/folder_sync.dart';
@@ -48,6 +49,9 @@ void main() {
     final a = await opened('a');
     final dir = await Directory.systemTemp.createTemp('xveil-fs1');
     addTearDown(() => dir.delete(recursive: true));
+    if (posixFactsAvailable) {
+      expect(posixChmod(dir.path, 0x1c0), 0);
+    }
 
     final container = ProviderContainer(
       overrides: [storageProvider.overrideWith((ref) => a)],

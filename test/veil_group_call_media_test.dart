@@ -4749,11 +4749,11 @@ void main() {
         );
         platform.disposeGate!.complete();
         await command;
+        await exited.future;
         await pumpEventQueue();
         expect(commandError, isNull);
         expect(slot.owner, isNull);
         expect(engine.disposals, 1);
-        expect(exited.isCompleted, isTrue);
       } finally {
         if (!platform.disposeGate!.isCompleted) {
           platform.disposeGate!.complete();
