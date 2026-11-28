@@ -8,7 +8,7 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
-## [0.13.121] - 2026-11-28
+## [0.13.122] - 2026-11-28
 
 ### Fixed
 

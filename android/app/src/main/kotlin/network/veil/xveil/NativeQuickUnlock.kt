@@ -17,13 +17,19 @@ import com.it_nomads.fluttersecurestorage.NamespacedConfigSource
 import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherFactory
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
+import java.security.InvalidKeyException
+import java.security.Key
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.PublicKey
+import java.security.SecureRandom
 import java.security.spec.MGF1ParameterSpec
 import javax.crypto.Cipher
 import javax.crypto.BadPaddingException
+import javax.crypto.IllegalBlockSizeException
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
+import javax.crypto.spec.SecretKeySpec
 import java.io.File
 import java.util.concurrent.Executors
 import javax.crypto.SecretKey
@@ -55,10 +61,24 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
             val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.$namespace"
             val key = ks.getKey(alias, null) as? PrivateKey
                 ?: throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
-            val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
-            cipher.init(Cipher.UNWRAP_MODE, key,
-                OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
-            cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+            try {
+                unwrapPublicKey(key, wrapped)
+            } catch (error: Exception) {
+                if (permanentKeyFailure(error) || !couldRejectCiphertext(error)) throw error
+                val publicKey = ks.getCertificate(alias)?.publicKey ?: throw error
+                if (!canUnwrapProbe(publicKey, key)) throw error
+                // Some devices report an invalid RSA ciphertext as a system
+                // error. The same key just worked on a known-good ciphertext.
+                // Retry the saved ciphertext before classifying it as damaged.
+                try {
+                    unwrapPublicKey(key, wrapped)
+                } catch (retry: Exception) {
+                    if (couldRejectCiphertext(retry)) {
+                        throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
+                    }
+                    throw retry
+                }
+            }
         } catch (error: Exception) {
             if (permanentKeyFailure(error)) {
                 throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
@@ -273,6 +293,41 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
 
     private fun keyCauses(error: Throwable): List<Throwable> =
         generateSequence(error) { it.cause }.take(12).toList()
+
+    private fun publicKeyCipher(mode: Int, key: Key): Cipher =
+        Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround").apply {
+            init(mode, key, OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
+        }
+
+    private fun unwrapPublicKey(key: PrivateKey, wrapped: ByteArray): Key =
+        publicKeyCipher(Cipher.UNWRAP_MODE, key).unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+
+    private fun couldRejectCiphertext(error: Throwable): Boolean {
+        val causes = keyCauses(error)
+        if (Build.VERSION.SDK_INT >= 33 && causes.filterIsInstance<KeyStoreException>().any {
+                it.isTransientFailure || it.requiresUserAuthentication()
+            }) return false
+        return causes.any {
+            it is InvalidKeyException || it is BadPaddingException || it is IllegalBlockSizeException
+        }
+    }
+
+    /** Probe an existing alias with synthetic data. No Keystore entry is
+     * generated, deleted or unlocked on behalf of the biometric prompt. */
+    private fun canUnwrapProbe(publicKey: PublicKey, privateKey: PrivateKey): Boolean {
+        val bytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        var result: ByteArray? = null
+        return try {
+            val encrypted = publicKeyCipher(Cipher.WRAP_MODE, publicKey).wrap(SecretKeySpec(bytes, "AES"))
+            result = unwrapPublicKey(privateKey, encrypted).encoded
+            result?.contentEquals(bytes) == true
+        } catch (_: Exception) {
+            false
+        } finally {
+            bytes.fill(0)
+            result?.fill(0)
+        }
+    }
 
     private fun permanentKeyFailure(error: Throwable): Boolean {
         val causes = keyCauses(error)
