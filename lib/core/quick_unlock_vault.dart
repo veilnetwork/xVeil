@@ -86,6 +86,7 @@ String _enrollmentErrorCode(Object error) {
       'FORMAT' => 'STORE-FORMAT',
       'WRAPPED' => 'STORE-WRAPPED',
       'KEY' => 'STORE-KEY',
+      'KEY_UNAVAILABLE' => 'STORE-KEY-UNAVAILABLE',
       'PAYLOAD' => 'STORE-PAYLOAD',
       'CHANGED' => 'STORE-CHANGED',
       _ => 'STORE',
@@ -222,8 +223,12 @@ class QuickUnlockSecretStore {
             'biometric': false,
           });
       final digest = crypto.sha256.convert(utf8.encode(key)).toString();
+      final scope = digest.substring(0, 24);
       if (namespace != 'xveil_quick_pattern_v1' &&
-          namespace != 'xveil_quick_pattern_v2_${digest.substring(0, 24)}') {
+          namespace != 'xveil_quick_pattern_v2_$scope' &&
+          !RegExp(
+            '^xveil_quick_pattern_v3_${scope}_[0-9a-f]{32}\$',
+          ).hasMatch(namespace ?? '')) {
         throw StateError('Saved sign-in destination not confirmed');
       }
     }
@@ -235,7 +240,7 @@ class QuickUnlockSecretStore {
     await _persist(key, biometric, namespace);
   }
 
-  Future<bool> repairAndroidLegacyRecord(String key) async {
+  Future<bool> repairAndroidRecord(String key) async {
     if (defaultTargetPlatform != TargetPlatform.android) return false;
     return await const MethodChannel('xveil/quick_unlock').invokeMethod<bool>(
           'repairPublic',
@@ -435,16 +440,23 @@ class QuickUnlockVault {
           'system',
           'bioPending',
           'bioSlot',
+          'cleanupBioSlot',
           'tries',
           'after',
         };
         final slot = record['bioSlot'];
+        final cleanup = record['cleanupBioSlot'];
         if (record['v'] is! int ||
             (record['id'] as String).isEmpty ||
             (record['id'] as String).length > 64 ||
             !record.keys.every(fields.contains) ||
             record['system'] is! bool ||
             record.containsKey('bioPending') && record['bioPending'] is! bool ||
+            (record.containsKey('cleanupBioSlot') &&
+                (cleanup is! String ||
+                    cleanup.isEmpty ||
+                    cleanup.length > 64 ||
+                    cleanup == slot)) ||
             ((record['system'] == true ||
                     record['bioPending'] == true ||
                     slot != null) &&
@@ -479,7 +491,7 @@ class QuickUnlockVault {
     int? grid,
     List<int>? nodes,
     required bool system,
-    bool repairLegacyAndroidRecord = false,
+    bool repairAndroidRecord = false,
     bool Function()? stillCurrent,
   }) {
     if (_scopeState.retired) {
@@ -500,14 +512,12 @@ class QuickUnlockVault {
           rethrow;
         }
         var repaired = false;
-        if (repairLegacyAndroidRecord &&
-            error is PlatformException &&
-            error.code == 'record_operation_failed' &&
-            error.details == 'KEY' &&
+        if (repairAndroidRecord &&
+            _canRepairAndroidRecord(error) &&
             (grid == null || (nodes != null && _valid(grid, nodes))) &&
             current()) {
           try {
-            repaired = await store.repairAndroidLegacyRecord(_key);
+            repaired = await store.repairAndroidRecord(_key);
           } catch (error, trace) {
             Error.throwWithStackTrace(
               QuickUnlockEnrollmentFailure._(
@@ -579,34 +589,33 @@ class QuickUnlockVault {
       var step = _EnrollmentStep.removePrevious;
       if (!current()) throw StateError('Unlock configuration superseded');
       try {
-        // Retire the previous authenticated slot before publishing a fresh
-        // one. Its new namespace creates a fresh Keystore key even after the
-        // old key was invalidated by a change of enrolled biometrics.
-        if (previous?['system'] == true ||
-            previous?['bioPending'] == true ||
-            previous?['bioSlot'] != null) {
+        if (previous?['bioPending'] == true) {
           await _eraseRecords();
+          previous = null;
+        } else if (previous != null) {
+          await _finishSlotCleanup(previous);
         }
         if (!current()) throw StateError('Unlock configuration superseded');
+        final previousSlot = previous?['bioSlot'] as String?;
         if (system) {
-          // Retain cleanup intent before the protected write. A crash here
-          // must not leave an undiscoverable OS credential outside the volume.
+          // Keep the old method usable until the replacement is on disk.
+          // Persist the new slot address before asking for authentication.
           published = true;
           step = _EnrollmentStep.writeIntent;
-          await store.write(
-            _key,
-            jsonEncode({
-              'v': 1,
-              'id': id,
-              'grid': null,
-              'pattern': null,
-              'system': false,
-              'bioPending': true,
-              'bioSlot': id,
-            }),
-          );
+          final intent = previous == null
+              ? {
+                  'v': 1,
+                  'id': id,
+                  'system': false,
+                  'bioPending': true,
+                  'bioSlot': id,
+                }
+              : {...previous, 'cleanupBioSlot': id};
+          await store.write(_key, jsonEncode(intent));
           step = _EnrollmentStep.verifyIntent;
-          if ((await _read())?['id'] != id) {
+          final savedIntent = await _read();
+          if (savedIntent?['id'] != intent['id'] ||
+              !_biometricSlots(savedIntent).contains(id)) {
             throw StateError('Cleanup intent not saved');
           }
           final encoded = jsonEncode({'id': id, 'password': password});
@@ -624,29 +633,39 @@ class QuickUnlockVault {
         }
         published = true;
         step = _EnrollmentStep.writeRecord;
-        await store.write(
-          _key,
-          jsonEncode({
-            'v': 1,
-            'id': id,
-            'grid': grid,
-            'pattern': pattern,
-            'system': system,
-            if (system) 'bioSlot': id,
-            'tries': 0,
-            'after': 0,
-          }),
-        );
+        final record = <String, dynamic>{
+          'v': 1,
+          'id': id,
+          'grid': grid,
+          'pattern': pattern,
+          'system': system,
+          if (system) 'bioSlot': id,
+          'cleanupBioSlot': ?previousSlot,
+          'tries': 0,
+          'after': 0,
+        };
+        await store.write(_key, jsonEncode(record));
         step = _EnrollmentStep.verifyRecord;
         if ((await _read())?['id'] != id) {
           throw StateError('Saved sign-in not verified');
         }
         if (!current()) throw StateError('Unlock configuration superseded');
+        step = _EnrollmentStep.removePrevious;
+        await _finishSlotCleanup(record);
       } catch (error, trace) {
         var cleanupFailed = false;
         if (published) {
           try {
-            await _eraseRecords();
+            // If the final publication already won, keep the new working
+            // entry and its cleanup address. Otherwise drop only the staged
+            // slot and restore the old entry, including its lockout state.
+            final record = await _read(forRemoval: true);
+            if (record?['bioPending'] == true && record?['bioSlot'] == id) {
+              await _eraseRecords();
+            } else if (record?['cleanupBioSlot'] == id &&
+                record?['id'] == previous?['id']) {
+              await _finishSlotCleanup(record!);
+            }
           } catch (_) {
             cleanupFailed = true;
           }
@@ -665,6 +684,37 @@ class QuickUnlockVault {
         rethrow;
       }
     });
+  }
+
+  bool _canRepairAndroidRecord(Object error) =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      error is PlatformException &&
+      error.code == 'record_operation_failed' &&
+      error.details == 'KEY';
+
+  static Iterable<String> _biometricSlots(Map<String, dynamic>? record) sync* {
+    if (record?['bioSlot'] case final String slot) yield slot;
+    if (record?['cleanupBioSlot'] case final String slot) yield slot;
+  }
+
+  Future<void> _removeBiometricSlot(String slot) async {
+    await store.delete(_bioKey(slot), biometric: true);
+    if (await store.contains(_bioKey(slot), biometric: true)) {
+      throw StateError('Saved sign-in removal not verified');
+    }
+  }
+
+  Future<void> _finishSlotCleanup(Map<String, dynamic> record) async {
+    if (record['cleanupBioSlot'] case final String slot) {
+      await _removeBiometricSlot(slot);
+      record.remove('cleanupBioSlot');
+      await store.write(_key, jsonEncode(record));
+      final verified = await _read(forRemoval: true);
+      if (verified?['id'] != record['id'] ||
+          verified?['cleanupBioSlot'] != null) {
+        throw StateError('Saved sign-in cleanup not confirmed');
+      }
+    }
   }
 
   String _passwordCheck(String device, String password) => base64Encode(
@@ -781,17 +831,15 @@ class QuickUnlockVault {
     requireAuthority?.call();
     final record = await _read(forRemoval: true);
     requireAuthority?.call();
-    if (record?['bioSlot'] != null) {
-      final slot = record?['bioSlot'];
-      if (slot is! String || slot.length > 64) {
-        throw StateError('Incomplete saved sign-in');
-      }
+    final slots = _biometricSlots(record).toList();
+    if (slots.isNotEmpty) {
+      final keys = slots.map(_bioKey);
       if (capturedProtectedKeys != null &&
-          !capturedProtectedKeys.contains(_bioKey(slot))) {
+          !capturedProtectedKeys.containsAll(keys)) {
         throw StateError('Saved sign-in changed after capture');
       }
       if (_scopeState.retired) {
-        _scopeState.erasureBiometricKeys.add(_bioKey(slot));
+        _scopeState.erasureBiometricKeys.addAll(keys);
       }
       // Leave a cleanup intent until protected deletion is verified. Even if
       // delete/auth fails, the next wipe still knows that this slot exists.
@@ -808,17 +856,20 @@ class QuickUnlockVault {
             'grid': null,
             'pattern': null,
             'bioPending': true,
-            'bioSlot': slot,
+            'bioSlot': slots.first,
+            if (slots.length > 1) 'cleanupBioSlot': slots.last,
           }),
         );
       }
-      requireAuthority?.call();
-      await store.delete(_bioKey(slot), biometric: true);
-      requireAuthority?.call();
-      if (await store.contains(_bioKey(slot), biometric: true)) {
-        throw StateError('Saved sign-in removal not verified');
+      for (final key in keys) {
+        requireAuthority?.call();
+        await store.delete(key, biometric: true);
+        requireAuthority?.call();
+        if (await store.contains(key, biometric: true)) {
+          throw StateError('Saved sign-in removal not verified');
+        }
+        requireAuthority?.call();
       }
-      requireAuthority?.call();
     }
     await store.delete(_key);
     requireAuthority?.call();
@@ -850,10 +901,9 @@ class QuickUnlockVault {
       if (present && record == null) {
         throw StateError('Saved sign-in record changed during capture');
       }
-      final slot = record?['bioSlot'];
-      if (slot != null) {
-        _scopeState.erasureBiometricKeys.add(_bioKey(slot as String));
-      }
+      _scopeState.erasureBiometricKeys.addAll(
+        _biometricSlots(record).map(_bioKey),
+      );
       return List<String>.unmodifiable(_scopeState.erasureBiometricKeys);
     });
   }
@@ -889,5 +939,28 @@ class QuickUnlockVault {
   Future<void> forget() {
     ++_generation;
     return _serial(_eraseRecords);
+  }
+
+  /// Only from settings after the current container password was verified.
+  Future<void> forgetAfterPassword(bool Function() stillCurrent) {
+    final generation = ++_generation;
+    return _serial(() async {
+      void requireCurrent() {
+        if (generation != _generation ||
+            _scopeState.retired ||
+            !stillCurrent()) {
+          throw StateError('Unlock configuration superseded');
+        }
+      }
+
+      try {
+        await _eraseRecords(requireAuthority: requireCurrent);
+      } catch (error) {
+        if (!_canRepairAndroidRecord(error)) rethrow;
+        requireCurrent();
+        if (!await store.repairAndroidRecord(_key)) rethrow;
+        requireCurrent();
+      }
+    });
   }
 }

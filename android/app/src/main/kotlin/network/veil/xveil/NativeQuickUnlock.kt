@@ -7,7 +7,9 @@ import android.os.Build
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.security.KeyStoreException
 import android.security.keystore.KeyInfo
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.it_nomads.fluttersecurestorage.FlutterSecureStorageConfig
@@ -19,6 +21,7 @@ import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.spec.MGF1ParameterSpec
 import javax.crypto.Cipher
+import javax.crypto.BadPaddingException
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
 import java.io.File
@@ -47,13 +50,21 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
     private val publicReader = QuickUnlockPublicReader(preferenceDirectory, prefix) { namespace, wrapped ->
         // Only retrieve an existing private key. No plugin/factory constructor:
         // those constructors can generate keys between a preflight and use.
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.$namespace"
-        val key = ks.getKey(alias, null) as? PrivateKey ?: error("Saved-entry key unavailable")
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
-        cipher.init(Cipher.UNWRAP_MODE, key,
-            OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
-        cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+        try {
+            val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val alias = context.packageName + ".FlutterSecureStoragePluginKeyOAEP.$namespace"
+            val key = ks.getKey(alias, null) as? PrivateKey
+                ?: throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding", "AndroidKeyStoreBCWorkaround")
+            cipher.init(Cipher.UNWRAP_MODE, key,
+                OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT))
+            cipher.unwrap(wrapped, "AES", Cipher.SECRET_KEY)
+        } catch (error: Exception) {
+            if (permanentKeyFailure(error)) {
+                throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
+            }
+            throw error
+        }
     }
     private val records = QuickUnlockRecordStore(prefix, publicReader::namespace) { namespace ->
         val backing = QuickUnlockPreferenceFile(preferenceDirectory.resolve("$namespace.xml"), "${prefix}_xveil.quick.v1.")
@@ -69,7 +80,7 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
             }
         }
     }
-    private val legacyRepair = QuickUnlockLegacyRepair(preferenceDirectory, prefix, publicReader, records)
+    private val repair = QuickUnlockRecordRepair(preferenceDirectory, prefix, publicReader, records)
     private var closed = false
 
     init {
@@ -92,9 +103,9 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                                     "readPublic" -> publicReader.read(key)
                                     "publicWriteNamespace" -> {
                                         records.contains(key, false) // Check the destination before plugin initialization.
-                                        publicReader.namespace(key)
+                                        publicReader.namespaceForWrite(key)
                                     }
-                                    "repairPublic" -> legacyRepair.removeUnreadable(key)
+                                    "repairPublic" -> repair.removeUnreadable(key)
                                     "contains" -> records.contains(key, biometric)
                                     "remove" -> { records.remove(key, biometric); true }
                                     else -> {
@@ -155,20 +166,29 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
             val prefs = activity.getSharedPreferences(config.effectiveDataPrefsName, Activity.MODE_PRIVATE)
             val encoded = prefs.getString(config.sharedPreferencesKeyPrefix + "_" + read.key, null)
             if (encoded == null) {
-                main.post { finish(read, null) }
+                main.post { fail(read, "protected_record_missing") }
                 return
             }
             // Guard before Factory construction: it writes markers if absent.
             // Unlock is strictly read-only, never migration/reset/key generation.
             val source = NamespacedConfigSource(activity, config.effectiveDataPrefsName)
-            check(source.getString("FlutterSecureSAlgorithmKey", null) == "AES_GCM_NoPadding")
-            check(source.getString("FlutterSecureSAlgorithmStorage", null) == "AES_GCM_NoPadding")
             val keyPrefs = activity.getSharedPreferences(config.effectiveKeyStoragePrefsName, Activity.MODE_PRIVATE)
-            check(keyPrefs.contains("KeyStoreIV1"))
-            check(keyPrefs.contains("BVGhpcyBpcyB0aGUga2V5IGZvciBhIHNlY3VyZSBzdG9yYWdlIEFFUyBLZXkK"))
+            val wrapping = source.getString("FlutterSecureSAlgorithmKey", null)
+            val storage = source.getString("FlutterSecureSAlgorithmStorage", null)
+            if (wrapping == null || storage == null ||
+                !keyPrefs.contains("KeyStoreIV1") ||
+                !keyPrefs.contains("BVGhpcyBpcyB0aGUga2V5IGZvciBhIHNlY3VyZSBzdG9yYWdlIEFFUyBLZXkK")) {
+                main.post { fail(read, "protected_record_missing") }
+                return
+            }
+            check(wrapping == "AES_GCM_NoPadding" && storage == "AES_GCM_NoPadding")
             val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
             val alias = activity.packageName + ".FlutterSecureStoragePluginKey" + config.keyAliasSuffix
-            val key = ks.getKey(alias, null) as SecretKey
+            val key = ks.getKey(alias, null) as? SecretKey
+            if (key == null) {
+                main.post { fail(read, "authentication_protection_changed") }
+                return
+            }
             val info = SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
                 .getKeySpec(key, KeyInfo::class.java) as KeyInfo
             check(info.isUserAuthenticationRequired && info.userAuthenticationValidityDurationSeconds <= 0)
@@ -227,8 +247,8 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                                         clear = storage.decrypt(Base64.decode(encoded, Base64.DEFAULT))
                                         val value = clear.toString(Charsets.UTF_8)
                                         main.post { finish(read, value) }
-                                    } catch (_: Exception) {
-                                        main.post { fail(read) }
+                                    } catch (error: Exception) {
+                                        main.post { fail(read, protectedReadFailure(error)) }
                                     } finally {
                                         clear?.fill(0)
                                     }
@@ -237,18 +257,49 @@ class NativeQuickUnlock(private val activity: Activity, messenger: BinaryMesseng
                         })
                 } catch (_: Exception) { fail(read) }
             }
-        } catch (_: Exception) {
-            main.post { fail(read) }
+        } catch (error: Exception) {
+            main.post { fail(read, protectedReadFailure(error)) }
         }
     }
 
     private fun finish(read: Read, value: String?) {
         if (gate.finish(read)) read.result.success(value)
     }
-    private fun fail(read: Read) {
+    private fun fail(read: Read, code: String = "protected_read_failed") {
         if (gate.finish(read)) {
-            read.result.error("protected_read_failed", "Protected quick-unlock read failed", null)
+            read.result.error(code, "Protected quick-unlock read failed", null)
         }
+    }
+
+    private fun keyCauses(error: Throwable): List<Throwable> =
+        generateSequence(error) { it.cause }.take(12).toList()
+
+    private fun permanentKeyFailure(error: Throwable): Boolean {
+        val causes = keyCauses(error)
+        if (Build.VERSION.SDK_INT >= 33) {
+            val system = causes.filterIsInstance<KeyStoreException>()
+            if (system.any { it.isSystemError || it.isTransientFailure }) return false
+            if (system.any {
+                    it.numericErrorCode == KeyStoreException.ERROR_KEY_DOES_NOT_EXIST ||
+                        it.numericErrorCode == KeyStoreException.ERROR_KEY_CORRUPTED
+                }) return true
+        }
+        return causes.any { it is KeyPermanentlyInvalidatedException || it is BadPaddingException }
+    }
+
+    private fun protectedReadFailure(error: Throwable): String {
+        val causes = keyCauses(error)
+        if (causes.any { it is KeyPermanentlyInvalidatedException }) {
+            return "authentication_protection_changed"
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            val system = causes.filterIsInstance<KeyStoreException>()
+            if (system.any { it.isSystemError || it.isTransientFailure }) return "unavailable"
+            if (system.any { it.numericErrorCode == KeyStoreException.ERROR_KEY_DOES_NOT_EXIST }) {
+                return "authentication_protection_changed"
+            }
+        }
+        return "protected_read_failed"
     }
     fun cancel() {
         gate.cancel()?.let { read ->

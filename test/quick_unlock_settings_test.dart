@@ -62,7 +62,7 @@ class _Vault extends QuickUnlockVault {
     int? grid,
     List<int>? nodes,
     required bool system,
-    bool repairLegacyAndroidRecord = false,
+    bool repairAndroidRecord = false,
     bool Function()? stillCurrent,
   }) async {
     if (stillCurrent?.call() == false) throw StateError('stale form');
@@ -74,7 +74,7 @@ class _MemoryStore extends QuickUnlockSecretStore {
   final values = <String, String>{};
   bool publicRecordUnreadable = false;
   @override
-  Future<bool> repairAndroidLegacyRecord(String key) async => false;
+  Future<bool> repairAndroidRecord(String key) async => false;
   String _slot(String key, bool biometric) => '$biometric:$key';
   @override
   Future<String?> read(String key, {bool biometric = false}) async {

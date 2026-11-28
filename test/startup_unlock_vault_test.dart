@@ -267,7 +267,13 @@ void main() {
     store.refuseWrite = true;
     await expectLater(
       active.configure(password: password, system: true),
-      throwsStateError,
+      throwsA(
+        isA<QuickUnlockEnrollmentFailure>().having(
+          (error) => error.reference,
+          'reference',
+          'QU-3-VERIFY',
+        ),
+      ),
     );
     expect((await active.options()).enabled, isFalse);
     store.refuseWrite = false;

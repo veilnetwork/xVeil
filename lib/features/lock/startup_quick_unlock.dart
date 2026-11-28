@@ -84,6 +84,21 @@ class _StartupQuickUnlockState extends ConsumerState<StartupQuickUnlock> {
       }
     } catch (error) {
       if (stillLocked()) {
+        if (error is PlatformException) {
+          final protectedFailure = switch (error.code) {
+            'authentication_protection_changed' =>
+              l.startupUnlockVaultProtectionChanged,
+            'protected_record_missing' => l.startupUnlockReview,
+            'protected_read_failed' ||
+            'record_store_unreadable' ||
+            'record_operation_failed' => l.startupUnlockVaultUnavailable,
+            _ => null,
+          };
+          if (protectedFailure != null) {
+            setState(() => _failure = protectedFailure);
+            return;
+          }
+        }
         final failure = error is PlatformException
             ? switch (error.code) {
                 'authentication_cancelled' =>

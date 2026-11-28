@@ -2,6 +2,8 @@ package network.veil.xveil
 
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.security.Key
 import java.util.Base64
@@ -9,7 +11,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 
 internal class QuickUnlockPublicReadFailure(val reason: Reason) : Exception() {
-    enum class Reason { FORMAT, WRAPPED, KEY, PAYLOAD, CHANGED }
+    enum class Reason { FORMAT, WRAPPED, KEY, KEY_UNAVAILABLE, PAYLOAD, CHANGED }
 }
 
 /** Read the pinned FSS 10.3.4 public metadata format without constructing any
@@ -28,9 +30,46 @@ internal class QuickUnlockPublicReader(
         val legacy = QuickUnlockPersistence.namespace(key, false)
         val fresh = QuickUnlockPersistence.freshPublicNamespace(key)
         val record = "${prefix}_$key"
-        val oldEntry = data(legacy).contains(record)
-        check(!oldEntry || !data(fresh).contains(record)) { "Conflicting saved-entry records" }
-        return if (oldEntry) legacy else fresh
+        val scoped = scopedNamespaces(key)
+        val entries = scoped.filter { data(it).contains(record) }
+        check(entries.size <= 1) { "Conflicting saved-entry records" }
+        // A durable scoped file (including an empty one after verified
+        // removal) was published only after this scope was absent in v1.
+        val oldEntry = try {
+            data(legacy).contains(record)
+        } catch (error: QuickUnlockRecordFileFailure) {
+            if (scoped.isEmpty()) throw error
+            false
+        }
+        check(!oldEntry || entries.isEmpty()) { "Conflicting saved-entry records" }
+        return entries.firstOrNull() ?: if (oldEntry) legacy else scoped.firstOrNull() ?: fresh
+    }
+
+    fun namespaceForWrite(key: String): String {
+        val namespace = namespace(key)
+        return if (data(namespace).contains("${prefix}_$key")) namespace
+            else QuickUnlockPersistence.newPublicNamespace(key)
+    }
+
+    private fun scopedNamespaces(key: String): List<String> {
+        val fresh = QuickUnlockPersistence.freshPublicNamespace(key)
+        val names = sortedSetOf<String>()
+        try {
+            Files.newDirectoryStream(directory, "xveil_quick_pattern_v[23]_*").use { paths ->
+                for (path in paths) {
+                    val name = path.fileName.toString()
+                    if (!name.endsWith(".xml") && !name.endsWith(".xml.bak")) continue
+                    val namespace = name.removeSuffix(".bak").removeSuffix(".xml")
+                    if (namespace == fresh || QuickUnlockPersistence.isScopedPublicNamespace(key, namespace)) {
+                        names.add(namespace)
+                    }
+                    check(names.size <= 16_384)
+                }
+            }
+        } catch (_: NoSuchFileException) {
+            // A fresh install has not created its SharedPreferences directory.
+        }
+        return names.toList()
     }
 
     fun read(key: String): String? {
@@ -72,8 +111,10 @@ internal class QuickUnlockPublicReader(
         try {
             val secret = try {
                 unwrapExisting(namespace, wrapped).also { check(it.algorithm == "AES") }
+            } catch (error: QuickUnlockPublicReadFailure) {
+                throw error
             } catch (_: Exception) {
-                throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY)
+                throw QuickUnlockPublicReadFailure(QuickUnlockPublicReadFailure.Reason.KEY_UNAVAILABLE)
             }
             val value = try {
                 val payload = decode(encoded)

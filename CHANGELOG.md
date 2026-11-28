@@ -8,6 +8,23 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.121] - 2026-11-28
+
+### Fixed
+
+- On Android, repair or disable an unreadable quick sign-in entry after
+  confirming the container password. Recover an entry again if its
+  replacement key is lost.
+- Preserve working quick sign-in when a new fingerprint enrollment is
+  cancelled. Explain when Android revokes the biometric key.
+- Keep independently saved sign-in entries usable when the legacy
+  settings file is damaged.
+
+### Added
+
+- Let Android users allow screen capture on protected screens in Privacy
+  settings.
+
 ## [0.13.120] - 2026-11-27
 
 ### Changed

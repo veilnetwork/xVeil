@@ -424,7 +424,7 @@ void main() {
         vault().configure(
           password: 'fixture-password',
           system: true,
-          repairLegacyAndroidRecord: true,
+          repairAndroidRecord: true,
           stillCurrent: () => false,
         ),
         throwsA(isA<QuickUnlockEnrollmentFailure>()),
@@ -434,7 +434,7 @@ void main() {
       await vault().configure(
         password: 'fixture-password',
         system: true,
-        repairLegacyAndroidRecord: true,
+        repairAndroidRecord: true,
       );
       expect(repairs, 1);
       expect(values.containsKey(legacyRecord), isFalse);
@@ -442,6 +442,49 @@ void main() {
       expect(await vault().openSystem('fixture'), 'fixture-password');
       await vault().forget();
       expect(values, {sibling: 'sibling record'});
+    },
+  );
+
+  test('cancelling a new fingerprint preserves the previous entry', () async {
+    final vault = QuickUnlockVault(
+      const QuickUnlockSecretStore(),
+      'fixture-cancel-replacement',
+      _Authentication(),
+    );
+    await vault.configure(password: 'previous', system: true);
+    final before = Map<String, String>.of(values);
+    denyAuthentication = true;
+    await expectLater(
+      vault.configure(password: 'replacement', system: true),
+      throwsA(isA<QuickUnlockEnrollmentFailure>()),
+    );
+    denyAuthentication = false;
+    expect(values, before);
+    expect(await vault.openSystem('fixture'), 'previous');
+  });
+
+  test(
+    'confirmed disable repairs the inaccessible entry without enrolling',
+    () async {
+      const key = 'xveil.quick.v1.fixture-disable';
+      const address = 'xveil_quick_pattern_v1:$key';
+      values[address] = 'old ciphertext';
+      unreadableKey = key;
+      final vault = QuickUnlockVault(
+        const QuickUnlockSecretStore(),
+        'fixture-disable',
+        _Authentication(),
+      );
+      await expectLater(vault.forget(), throwsA(isA<PlatformException>()));
+      await expectLater(
+        vault.forgetAfterPassword(() => false),
+        throwsStateError,
+      );
+      expect(values[address], 'old ciphertext');
+      expect(repairs, 0);
+      await vault.forgetAfterPassword(() => true);
+      expect(repairs, 1);
+      expect(values, isEmpty);
     },
   );
 }

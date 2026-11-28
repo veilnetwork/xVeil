@@ -127,6 +127,10 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
       return;
     }
     if (saved) {
+      bool stillCurrent() =>
+          mounted &&
+          ref.holdsIdentity(lease) &&
+          ref.read(storageAccessLocatorProvider) == locator;
       if (!updateStartup) {
         Navigator.of(context).pop();
         return;
@@ -161,17 +165,14 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
                   system: system,
                   // The screen-lock controller already verified the password.
                   // Save authorizes replacing this identity's entry.
-                  repairLegacyAndroidRecord: true,
-                  stillCurrent: () =>
-                      mounted &&
-                      ref.holdsIdentity(lease) &&
-                      ref.read(storageAccessLocatorProvider) == locator,
+                  repairAndroidRecord: true,
+                  stillCurrent: stillCurrent,
                 ),
               );
         } else {
           final prefs = await ref.read(prefsProvider.future);
           if (startupUnlockConsented(prefs, locator)) {
-            await vault.forget();
+            await vault.forgetAfterPassword(stillCurrent);
             startupError = l.startupUnlockConsentRemoveFailed;
             if (!await clearStartupUnlockConsent(
               prefs,

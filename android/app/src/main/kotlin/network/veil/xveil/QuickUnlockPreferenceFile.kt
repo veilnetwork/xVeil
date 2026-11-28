@@ -61,12 +61,28 @@ internal class QuickUnlockPreferenceFile(
         } catch (_: IllegalArgumentException) { false }
     }
 
-    fun snapshot(): Map<String, String> = try {
-        noBackup()
+    fun snapshot(): Map<String, String> = snapshot(requireNoBackup = true)
+
+    /** Names from both copies determine whether a pending Android backup can
+     * belong to the requested scope. Callers still use the strict snapshot
+     * before any mutation or credential read.
+     */
+    fun possibleRecordNames(): Set<String> {
+        val primary = snapshot(requireNoBackup = false)
+        val saved = QuickUnlockPreferenceFile(backup, recordPrefix, extraNames, booleanNames).snapshot()
+        if (primary != snapshot(requireNoBackup = false) ||
+            saved != QuickUnlockPreferenceFile(backup, recordPrefix, extraNames, booleanNames).snapshot()) {
+            throw QuickUnlockRecordFileFailure()
+        }
+        return primary.keys + saved.keys
+    }
+
+    private fun snapshot(requireNoBackup: Boolean): Map<String, String> = try {
+        if (requireNoBackup) noBackup()
         val before = attributes(path)
         if (before == null) {
             check(attributes(path) == null)
-            noBackup()
+            if (requireNoBackup) noBackup()
             emptyMap()
         } else {
             check(before.isRegularFile && before.fileKey() != null)
@@ -138,7 +154,7 @@ internal class QuickUnlockPreferenceFile(
             val after = checkNotNull(attributes(path))
             check(after.isRegularFile && before.fileKey() == after.fileKey() &&
                 before.size() == after.size() && before.lastModifiedTime() == after.lastModifiedTime())
-            noBackup()
+            if (requireNoBackup) noBackup()
             values
         }
     } catch (_: Exception) { throw QuickUnlockRecordFileFailure() }
